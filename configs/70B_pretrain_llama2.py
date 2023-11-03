@@ -19,7 +19,7 @@ VOCAB_SIZE = 32000
 
 # llama2的初始化模型权重路径
 # LOAD_CKPT_INFO = dict(path="local:/mnt/petrelfs/share_data/llm_llama/llama2_raw/llama-2-70b/", content=("model",), ckpt_type="LLAMA"),
-LOAD_CKPT_INFO = None   # 由于原始llama2的权重tp=8
+LOAD_CKPT_INFO = None   # 如果为None表示不加载初始化权重
 
 # Ckpt folder format:
 # fs: 'local:/mnt/nfs/XXX'
