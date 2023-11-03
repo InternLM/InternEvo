@@ -1,7 +1,7 @@
 """
-基于internlm实现的llama2 70B模型的config，下面的配置可以在32张80GB-A800上运行
-为了方便加载原始llama2权重，并行配置做了稍许修改，pp：2->4, tp:4->8
-srun -p llm_s -n32 -N4 --ntasks-per-node=8 --gpus-per-task=1 python train.py --config configs/70B_sft_llama2.py 
+基于internlm实现的llama2 70B模型的config，下面的配置可以在64张80GB-A800上运行
+为了方便加载原始llama2权重，并行配置做了稍许修改，pp：2->8, tp:4->8
+srun -p llm_s -n64 -N8 --ntasks-per-node=8 --gpus-per-task=1 python train.py --config configs/70B_sft_llama2.py 
 """
 cudnn_deterministic = False
 cudnn_benchmark = False
@@ -171,7 +171,7 @@ parallel = dict(
     # zero=1表示关闭zero,
     # zero可以等于[1, dp_worldsize]之间的整数，表示在多少个dp rank之间切分OS
     zero1=dict(size=-1, fsdp=False),
-    tensor=4,
+    tensor=8,
     pipeline=dict(size=8, interleaved_overlap=True),
     sequence_parallel=False,
 )
