@@ -29,8 +29,6 @@ LOAD_CKPT_INFO = dict(
     ckpt_type="LLAMA",
 )
 
-LOAD_CKPT_INFO = None
-
 # Ckpt folder format:
 # fs: 'local:/mnt/nfs/XXX'
 # SAVE_CKPT_FOLDER = "local:llm_ckpts"
