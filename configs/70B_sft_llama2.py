@@ -1,6 +1,6 @@
 """
 基于internlm实现的llama2 70B模型的config，下面的配置可以在32张80GB-A800上运行
-为了方便加载原始llama2权重，并行配置做了稍许修改，pp：2->1, tp:4->8
+为了方便加载原始llama2权重，并行配置做了稍许修改，pp：2->4, tp:4->8
 srun -p llm_s -n32 -N4 --ntasks-per-node=8 --gpus-per-task=1 python train.py --config configs/70B_sft_llama2.py 
 """
 cudnn_deterministic = False
