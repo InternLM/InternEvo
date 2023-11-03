@@ -512,7 +512,7 @@ class ParallelContext(metaclass=SingletonMeta):
         initializers.append(pgroup_initializer.Initializer_Zero1(*initializer_args))
         if isinstance(self.config.parallel.zero1, dict) and self.config.parallel.zero1.get("fsdp", False):
             initializers.append(pgroup_initializer.Initializer_Zero3_dp(*initializer_args))
-        initializers.append(pgroup_initializer.Initializer_Nettest(*initializer_args))
+        # initializers.append(pgroup_initializer.Initializer_Nettest(*initializer_args))
         if self.pipeline_parallel_size > 1:
             initializers.append(pgroup_initializer.Initializer_Pipeline(*initializer_args))
         if self.config.model.get("num_experts", 1) > 1:

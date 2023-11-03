@@ -38,7 +38,7 @@ def empty_cache_and_diag(batch_count, interval=50):
                 logger.info("Empty Cache and Diagnosis GPU/NCCL/Timer ...")
             with torch.no_grad():
                 timer_diagnosis()
-                bench_gpu()
+                # bench_gpu()
                 # FIXME: Runtime benchmark diagnosis can easily cause the training process
                 # to exit due to NCCL errors.
                 # bench_net()
