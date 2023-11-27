@@ -19,7 +19,7 @@ def get_dataset_type_id(path):
     return match_idxes[0]
 
 
-def unpack_data(input_ids, cu_seqlens):
+def unpack_data(input_ids, cu_seqlens, is_type_ids: bool = False):
     """
     input_ids: (n, packed_length)
     Return:
@@ -40,7 +40,7 @@ def unpack_data(input_ids, cu_seqlens):
             output[j, 0:seq_length] = input_ids[0, cu_seqlens_slice[j] : cu_seqlens_slice[j + 1]]
         outputs[i] = output
 
-    if bsz == 1:
+    if bsz == 1 and not is_type_ids:
         outputs = outputs.squeeze(0)
 
     return outputs
