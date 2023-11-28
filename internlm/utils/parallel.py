@@ -4,7 +4,7 @@
 import torch.distributed as dist
 from torch import nn
 
-from internlm.core.context import IS_TENSOR_PARALLEL, ParallelMode
+from internlm.core.context import IS_TENSOR_PARALLEL, IS_WEIGHT_PARALLEL, ParallelMode
 from internlm.core.context import global_context as gpc
 from internlm.core.naive_amp import NaiveAMPModel
 
@@ -13,13 +13,17 @@ def is_model_parallel_parameter(p):
     return hasattr(p, IS_TENSOR_PARALLEL) and getattr(p, IS_TENSOR_PARALLEL)
 
 
+def is_weight_parallel_parameter(p):
+    return hasattr(p, IS_WEIGHT_PARALLEL) and getattr(p, IS_WEIGHT_PARALLEL)
+
+
 def sync_model_param(model):
     r"""Make sure data parameters are consistent during Data Parallel Mode.
 
     Args:
         model (:class:`torch.nn.Module`): A pyTorch model on whose parameters you check the consistency.
     """
-    if gpc.is_initialized(ParallelMode.DATA) and gpc.get_world_size(ParallelMode.DATA) > 1:
+    if gpc.is_initialized(ParallelMode.WEIGHT_DATA) and gpc.get_world_size(ParallelMode.WEIGHT_DATA) > 1:
         sync_moe_param = (
             gpc.is_initialized(ParallelMode.EXPERT_DATA) and gpc.get_world_size(ParallelMode.EXPERT_DATA) > 1
         )
@@ -28,8 +32,8 @@ def sync_model_param(model):
                 ranks = gpc.get_ranks_in_group(ParallelMode.EXPERT_DATA)
                 dist.broadcast(param, src=ranks[0], group=gpc.get_group(ParallelMode.EXPERT_DATA))
             else:
-                ranks = gpc.get_ranks_in_group(ParallelMode.DATA)
-                dist.broadcast(param, src=ranks[0], group=gpc.get_group(ParallelMode.DATA))
+                ranks = gpc.get_ranks_in_group(ParallelMode.WEIGHT_DATA)
+                dist.broadcast(param, src=ranks[0], group=gpc.get_group(ParallelMode.WEIGHT_DATA))
 
 
 def sync_model_param_within_tp(model):

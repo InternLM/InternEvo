@@ -10,6 +10,8 @@ import torch.distributed as dist
 import torch.nn.functional as F
 from einops import rearrange
 
+from internlm.core.context import IS_WEIGHT_PARALLEL
+
 try:
     from flash_attn.flash_attn_interface import flash_attn_unpadded_func
 except ImportError:
@@ -160,6 +162,7 @@ class MHA(nn.Module):
         embed_dim: int,
         num_heads: int,
         process_group: Optional[torch.distributed.ProcessGroup],
+        sequence_process_group: Optional[torch.distributed.ProcessGroup],
         max_position_embeddings: int = 2048,
         dropout: float = 0.0,
         softmax_scale: float = None,
@@ -216,8 +219,10 @@ class MHA(nn.Module):
             causal=causal, softmax_scale=softmax_scale, attention_dropout=dropout
         )
         if sp_mode == "intern":
-            self.inner_attn = DistributedAttention(self.inner_attn, sequence_process_group=process_group)
-            self.inner_cross_attn = DistributedAttention(self.inner_cross_attn, sequence_process_group=process_group)
+            self.inner_attn = DistributedAttention(self.inner_attn, sequence_process_group=sequence_process_group)
+            self.inner_cross_attn = DistributedAttention(
+                self.inner_cross_attn, sequence_process_group=sequence_process_group
+            )
 
         # output projection always have the bias (for now)
         out_proj_cls = get_linear_cls(sp_mode, "row")
@@ -234,6 +239,10 @@ class MHA(nn.Module):
             for name in ["out_proj", "Wqkv"]:
                 for param in getattr(self, name).parameters():
                     setattr(param, IS_TENSOR_PARALLEL, True)
+        if gpc.get_world_size(ParallelMode.WEIGHT) > 1:
+            for name in ["out_proj", "Wqkv"]:
+                for param in getattr(self, name).parameters():
+                    setattr(param, IS_WEIGHT_PARALLEL, True)
 
     def forward(self, x, seqlen=None, inference_params=None, **kwargs):
         if kwargs.get("indexes", None) is not None:

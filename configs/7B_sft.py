@@ -162,9 +162,11 @@ pipeline parallel (dict):
         defaults to False.
 """
 parallel = dict(
-    zero1=dict(size=-1, fsdp=False),
-    tensor=dict(size=4, sp="intern", intern_overlap=True, memory_pool=True),
+    zero1=dict(size=2, fsdp=False),
+    tensor=dict(size=1, sp="intern", intern_overlap=False, memory_pool=False),
     pipeline=dict(size=1, interleaved_overlap=True),
+    weight=dict(size=8, overlap=True, memory_pool=True),
+    sequence=4,
 )
 
 cudnn_deterministic = False

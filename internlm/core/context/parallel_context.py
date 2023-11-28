@@ -26,6 +26,7 @@ from .random import add_seed, get_seeds, set_mode
 
 IS_TENSOR_PARALLEL = "is_tensor_parallel"
 IS_SEQUENCE_PARALLEL = "is_sequence_parallel"
+IS_WEIGHT_PARALLEL = "is_weight_parallel"
 
 logger = get_logger(__file__)
 
@@ -289,10 +290,15 @@ class ParallelContext(metaclass=SingletonMeta):
 
     def is_rank_for_log(self):
         """Returns a boolean value indicating whether the current device should print log."""
+        # is_log_rank = (
+        #     self.is_first_rank(ParallelMode.DATA)
+        #     and self.is_first_rank(ParallelMode.TENSOR)
+        #     and self.is_last_rank(ParallelMode.PIPELINE)
+        # )
         is_log_rank = (
-            self.is_first_rank(ParallelMode.DATA)
-            and self.is_first_rank(ParallelMode.TENSOR)
-            and self.is_last_rank(ParallelMode.PIPELINE)
+            self.is_first_rank(ParallelMode.WEIGHT)
+            and self.is_first_rank(ParallelMode.DATA)
+            and self.is_first_rank(ParallelMode.WEIGHT_DATA)
         )
         return is_log_rank
 
@@ -426,11 +432,11 @@ class ParallelContext(metaclass=SingletonMeta):
         pps = self.pipeline_parallel_size
         tps = self.tensor_parallel_size
         ws = self.world_size
-        assert ws == dps * pps * tps, (
-            f"Expected the world size {ws} to be equal to data"
-            f" parallel size ({dps}) * pipeline parallel size "
-            f"({pps}) * tensor parallel size ({tps})"
-        )
+        # assert ws == dps * pps * tps, (
+        #     f"Expected the world size {ws} to be equal to data"
+        #     f" parallel size ({dps}) * pipeline parallel size "
+        #     f"({pps}) * tensor parallel size ({tps})"
+        # )
         assert self.zero1_parallel_size > 0
         assert self.data_parallel_size % self.zero1_parallel_size == 0
 
@@ -467,19 +473,22 @@ class ParallelContext(metaclass=SingletonMeta):
         # set parallel size as attributes for global context
         parallel_config = self.config.get("parallel", None)
         if parallel_config is not None:
+            self._set_parallel_size_from_config(parallel_config, "weight", "weight_parallel_size")
+            self._set_parallel_size_from_config(parallel_config, "sequence", "sequence_parallel_size")
             self._set_parallel_size_from_config(parallel_config, "pipeline", "pipeline_parallel_size")
             self._set_parallel_size_from_config(parallel_config, "tensor", "tensor_parallel_size")
             self._set_parallel_size_from_config(parallel_config, "zero1", "zero1_parallel_size")
 
         # the user should not set the data parallel size manually
         # instead, it should be calculated based on other parallel config
-        self.data_parallel_size = self.world_size // (self.pipeline_parallel_size * self.tensor_parallel_size)
+        assert self.tensor_parallel_size == 1
+        assert self.pipeline_parallel_size == 1
+        assert self.zero1_parallel_size >= 1
+        self.data_parallel_size = self.world_size // self.sequence_parallel_size
+        self.weight_data_parallel_size = self.world_size // self.weight_parallel_size
 
         # the recommended nettest_parallel_size is 32 GPUs
         self.nettest_parallel_size = 32
-
-        if self.zero1_parallel_size <= 0:
-            self.zero1_parallel_size = self.data_parallel_size
 
         assert (
             self.data_parallel_size % self.config.model.get("num_experts", 1) == 0
@@ -496,6 +505,8 @@ class ParallelContext(metaclass=SingletonMeta):
         initializer_args = [
             rank,
             world_size,
+            self.weight_parallel_size,
+            self.sequence_parallel_size,
             self.data_parallel_size,
             self.pipeline_parallel_size,
             self.tensor_parallel_size,
@@ -506,7 +517,10 @@ class ParallelContext(metaclass=SingletonMeta):
 
         # run initialization of different process groups
         initializers = []
+        initializers.append(pgroup_initializer.Initializer_Weight(*initializer_args))
+        initializers.append(pgroup_initializer.Initializer_Sequence(*initializer_args))
         initializers.append(pgroup_initializer.Initializer_Data(*initializer_args))
+        initializers.append(pgroup_initializer.Initializer_Weight_Data(*initializer_args))
         initializers.append(pgroup_initializer.Initializer_Model(*initializer_args))
         initializers.append(pgroup_initializer.Initializer_Tensor(*initializer_args))
         initializers.append(pgroup_initializer.Initializer_Zero1(*initializer_args))
@@ -573,6 +587,7 @@ class ParallelContext(metaclass=SingletonMeta):
         if dpseed_with_tpoffset:
             dp_seed = seed + pipeline_offset * 1024
         add_seed(ParallelMode.DATA, dp_seed)
+        add_seed(ParallelMode.WEIGHT_DATA, dp_seed)
         add_seed(ParallelMode.DUMMY, dp_seed)
 
         # model parallel seeds are different across ranks

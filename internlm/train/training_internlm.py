@@ -108,14 +108,14 @@ def initialize_model():
 
     # Change random state mode to ParallelMode.DATA after model is built, guaranteeing the random
     # state in the same dp group are all the same.
-    set_mode(ParallelMode.DATA)
+    set_mode(ParallelMode.WEIGHT_DATA)
 
     # if fsdp enabled, wrap the model
     model = wrap_FSDP_model(model)
 
     gpc.fstp_handler = None
-    if gpc.config.parallel["tensor"]["sp"] == "intern" and gpc.config.parallel["tensor"]["intern_overlap"] is True:
-        gpc.fstp_handler = FSTPOverlapHandler(model, gpc.get_group(ParallelMode.TENSOR))
+    if gpc.config.parallel["weight"]["size"] >= 1 and gpc.config.parallel["weight"]["overlap"] is True:
+        gpc.fstp_handler = FSTPOverlapHandler(model, gpc.get_group(ParallelMode.WEIGHT))
 
     return model
 

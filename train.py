@@ -220,7 +220,7 @@ def main(args):
         # start iterating the train data and begin training
         for batch_count in range(train_state.batch_count, total_steps):
             empty_cache_and_diag(batch_count, interval=gpc.config.data.empty_cache_and_diag_interval)
-            torch.cuda.memory._record_memory_history()
+            # torch.cuda.memory._record_memory_history()
             start_time = time.time()
             timer("one-batch").start()
 
@@ -327,7 +327,7 @@ def main(args):
             if batch_count % 2 == 0:
                 prof.step()
 
-            torch.cuda.memory._dump_snapshot(f"my_snapshot_{gpc.get_global_rank()}.pickle")
+            # torch.cuda.memory._dump_snapshot(f"my_snapshot_{gpc.get_global_rank()}.pickle")
             torch.cuda.reset_peak_memory_stats()
 
     ckpt_manager.wait_async_upload_finish()
@@ -355,4 +355,4 @@ if __name__ == "__main__":
                 alert_address=gpc.config.monitor.alert.feishu_alert_address, excp_info=traceback.format_exc()
             )
 
-            torch.cuda.memory._dump_snapshot(f"my_snapshot_{gpc.get_global_rank()}.pickle")
+            # torch.cuda.memory._dump_snapshot(f"my_snapshot_{gpc.get_global_rank()}.pickle")

@@ -8,9 +8,11 @@ from pathlib import Path
 from typing import Dict, Union
 
 import torch
+from torch.distributed import get_rank
 
 from internlm.core.context import Config
 from internlm.core.context import global_context as gpc
+from internlm.core.context.process_group_initializer import ParallelMode
 from internlm.monitor import initialize_light_monitor
 from internlm.utils.common import get_master_node
 from internlm.utils.logger import get_logger
@@ -435,6 +437,11 @@ def launch(
                 f"expert parallel size: {gpc.expert_parallel_size} | "
                 f"number of local experts: {gpc.config.model.num_experts//gpc.expert_parallel_size}"
             )
+
+    print(
+        f"global_rank:{gpc.get_global_rank()} wp_rank:{gpc.get_local_rank(ParallelMode.WEIGHT)} sp_rank:{gpc.get_local_rank(ParallelMode.SEQUENCE)} zo1_rank:{gpc.get_local_rank(ParallelMode.ZERO1)} dp_rank:{gpc.get_local_rank(ParallelMode.DATA)} weight_dp_rank:{gpc.get_local_rank(ParallelMode.WEIGHT_DATA)}",
+        flush=True,
+    )
 
 
 def launch_from_slurm(

@@ -17,6 +17,52 @@ from internlm.core.context import global_context as gpc
 from .utils import gather_forward_split_backward, split_forward_gather_backward
 
 
+# class Embedding1D(nn.Module):
+#     """
+#     1D Embedding.
+
+#     Args:
+#         num_embeddings (int): The size of vocab.
+#         embedding_dim (int): The dimention of model.
+#         padding_idx (int): If specified, the entries at :attr:`padding_idx` do not contribute to the gradient;
+#                             therefore, the embedding vector at :attr:`padding_idx` is not updated during training,
+#                             i.e. it remains as a fixed "pad". None by default.
+#         dtype (Optional[torch.dtype]): Data type None by default.
+
+#     """
+
+#     def __init__(
+#         self,
+#         num_embeddings: int,
+#         embedding_dim: int,
+#         *args,
+#         padding_idx: int = None,
+#         dtype: torch.dtype = None,
+#         **kwargs,
+#     ):
+#         super().__init__()
+
+#         self.num_embeddings = num_embeddings
+#         self.embed_dim = embedding_dim
+#         embed_dim_per_partition = embedding_dim // gpc.tensor_parallel_size
+
+#         self.padding_idx = padding_idx
+#         self.embed_args = args
+#         self.embed_kwargs = kwargs
+
+#         self.weight = nn.Parameter(torch.empty((num_embeddings, embed_dim_per_partition), dtype=dtype))
+
+#     def forward(self, input_: Tensor) -> Tensor:
+#         output_parallel = F.embedding(input_, self.weight, self.padding_idx, *self.embed_args, **self.embed_kwargs)
+
+#         output = gather_forward_split_backward(output_parallel, ParallelMode.TENSOR, dim=-1)
+
+#         if gpc.config.parallel.sequence_parallel:
+#             output = split_forward_gather_backward(output, ParallelMode.TENSOR, dim=1)
+
+#         return output
+
+
 class Embedding1D(nn.Module):
     """
     1D Embedding.
@@ -44,7 +90,7 @@ class Embedding1D(nn.Module):
 
         self.num_embeddings = num_embeddings
         self.embed_dim = embedding_dim
-        embed_dim_per_partition = embedding_dim // gpc.tensor_parallel_size
+        embed_dim_per_partition = embedding_dim // gpc.weight_parallel_size
 
         self.padding_idx = padding_idx
         self.embed_args = args
@@ -53,12 +99,10 @@ class Embedding1D(nn.Module):
         self.weight = nn.Parameter(torch.empty((num_embeddings, embed_dim_per_partition), dtype=dtype))
 
     def forward(self, input_: Tensor) -> Tensor:
-        output_parallel = F.embedding(input_, self.weight, self.padding_idx, *self.embed_args, **self.embed_kwargs)
+        input_ = split_forward_gather_backward(input_, ParallelMode.SEQUENCE, dim=1)
 
-        output = gather_forward_split_backward(output_parallel, ParallelMode.TENSOR, dim=-1)
-
-        if gpc.config.parallel.sequence_parallel:
-            output = split_forward_gather_backward(output, ParallelMode.TENSOR, dim=1)
+        weight = gather_forward_split_backward(self.weight, ParallelMode.WEIGHT, dim=-1)
+        output = F.embedding(input_, weight, self.padding_idx, *self.embed_args, **self.embed_kwargs)
 
         return output
 

@@ -9,7 +9,7 @@ from flash_attn.modules.embedding import ParallelGPT2Embeddings
 from flash_attn.modules.mlp import ParallelFusedMLP
 from torch import nn
 
-from internlm.core.context import IS_SEQUENCE_PARALLEL, IS_TENSOR_PARALLEL, ParallelMode
+from internlm.core.context import IS_SEQUENCE_PARALLEL, IS_TENSOR_PARALLEL, IS_WEIGHT_PARALLEL, ParallelMode
 from internlm.core.context.parallel_context import global_context as gpc
 from internlm.initialize.initialize_tensor import normal_, scaled_init_method_normal
 from internlm.model.embedding import Embedding1D
@@ -17,6 +17,7 @@ from internlm.model.linear import (
     MegatronScaleColumnParallelLinear,
     RewardModelLinear,
     ScaleColumnParallelLinear,
+    FSTPScaleColumnParallelLinear,
     get_mlp_cls,
 )
 from internlm.model.multi_head_attention import MHA
@@ -90,7 +91,8 @@ class PackedFlashBaseLayer1D(nn.Module):
         self.mixer = MHA(
             embed_dim=hidden_size,
             num_heads=num_attention_heads,
-            process_group=gpc.get_group(ParallelMode.TENSOR),
+            process_group=gpc.get_group(ParallelMode.WEIGHT),
+            sequence_process_group=gpc.get_group(ParallelMode.SEQUENCE),
             dropout=attn_drop_rate,
             max_position_embeddings=max_position_embeddings,
             softmax_scale=1 / math.sqrt(head_dim),
@@ -119,7 +121,7 @@ class PackedFlashBaseLayer1D(nn.Module):
                 hidden_size,
                 int(hidden_size * mlp_ratio),
                 out_features=hidden_size,
-                process_group=gpc.get_group(ParallelMode.TENSOR),
+                process_group=gpc.get_group(ParallelMode.WEIGHT),
                 bias=False,
                 device=device,
                 dtype=dtype,
@@ -142,6 +144,8 @@ class PackedFlashBaseLayer1D(nn.Module):
         for _, param in self.mlp.named_parameters():
             if gpc.get_world_size(ParallelMode.TENSOR) > 1:
                 setattr(param, IS_TENSOR_PARALLEL, True)
+            if gpc.get_world_size(ParallelMode.WEIGHT) > 1:
+                setattr(param, IS_WEIGHT_PARALLEL, True)
         for param in self.norm1.parameters():
             if gpc.config.parallel.sequence_parallel is True:
                 setattr(param, IS_SEQUENCE_PARALLEL, True)
@@ -312,11 +316,12 @@ class PackedFlashInternLm1D(nn.Module):
         if is_reward:
             head_cls = RewardModelLinear
         else:
-            head_cls = (
-                ScaleColumnParallelLinear
-                if self.sp_mode in ["flash-attn", "none", "intern"]
-                else MegatronScaleColumnParallelLinear
-            )
+            # head_cls = (
+            #     ScaleColumnParallelLinear
+            #     if self.sp_mode in ["flash-attn", "none", "intern"]
+            #     else MegatronScaleColumnParallelLinear
+            # )
+            head_cls = FSTPScaleColumnParallelLinear
         if first:
             if embed_split_hidden:
                 self.embedding = Embedding1D(num_embeddings=vocab_size, embedding_dim=hidden_size)
@@ -335,6 +340,8 @@ class PackedFlashInternLm1D(nn.Module):
                 normal_(std=0.0052)(param)
                 if gpc.get_world_size(ParallelMode.TENSOR) > 1:
                     setattr(param, IS_TENSOR_PARALLEL, True)
+                if gpc.get_world_size(ParallelMode.WEIGHT) > 1:
+                    setattr(param, IS_WEIGHT_PARALLEL, True)
         self.embed_grad_scale = embed_grad_scale
         self.blocks = nn.ModuleList(
             [
@@ -370,7 +377,7 @@ class PackedFlashInternLm1D(nn.Module):
             self.head = head_cls(
                 in_features=hidden_size,
                 out_features=gpc.get_world_size(ParallelMode.TENSOR) if is_reward else vocab_size,
-                process_group=gpc.get_group(ParallelMode.TENSOR),
+                process_group=gpc.get_group(ParallelMode.WEIGHT),
                 bias=False,
                 device=device,
                 dtype=dtype,
@@ -380,6 +387,8 @@ class PackedFlashInternLm1D(nn.Module):
                 normal_(std=0.0052)(param)
                 if gpc.get_world_size(ParallelMode.TENSOR) > 1:
                     setattr(param, IS_TENSOR_PARALLEL, True)
+                if gpc.get_world_size(ParallelMode.WEIGHT) > 1:
+                    setattr(param, IS_WEIGHT_PARALLEL, True)
             for param in self.norm.parameters():
                 if gpc.config.parallel.sequence_parallel is True:
                     setattr(param, IS_SEQUENCE_PARALLEL, True)
@@ -410,6 +419,8 @@ class PackedFlashInternLm1D(nn.Module):
             # if the sequence parallel mode is 'intern', the indexes should also be split in sequence dimension.
             if gpc.config.parallel.sequence_parallel and self.sp_mode == "intern":
                 indexes = split_forward_gather_backward(indexes, ParallelMode.TENSOR, dim=0)
+            if gpc.is_initialized(ParallelMode.SEQUENCE) and gpc.get_world_size(ParallelMode.SEQUENCE) > 1:
+                indexes = split_forward_gather_backward(indexes, ParallelMode.SEQUENCE, dim=0)
 
         max_seqlen = (cu_seqlens[1:] - cu_seqlens[:-1]).max().item() if cu_seqlens is not None else None
 
@@ -430,6 +441,8 @@ class PackedFlashInternLm1D(nn.Module):
                 hidden_states = self.head(hidden_states, gather_dim=1)
             else:  # Training
                 hidden_states = self.head(hidden_states, gather_dim=0)
+
+        hidden_states = gather_forward_split_backward(hidden_states, ParallelMode.SEQUENCE, dim=0)
 
         if not self.parallel_output:
             hidden_states = gather_forward_split_backward(hidden_states, ParallelMode.TENSOR, dim=-1)

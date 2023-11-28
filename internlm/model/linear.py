@@ -77,6 +77,29 @@ class ScaleColumnParallelLinear(BaseScaleColumnParallelLinear):
         )
 
 
+class FSTPScaleColumnParallelLinear(BaseScaleColumnParallelLinear):
+    """
+    ScaleColumnParallelLinear in flash implementation.
+    """
+
+    def forward(self, input, gather_dim=0):  # pylint: disable=W0622
+        # If self.sequence_parallel is True, we're doing Tensor Parallel with sequence parallelism:
+        # we do an all_gather of x before doing the matmul.
+        # If not, then the input is already gathered.
+        if self.weight_scale != 1:
+            weight = self.weight * self.weight_scale + (1 - self.weight_scale) * self.weight.detach()
+        else:
+            weight = self.weight
+        return fstp_fused_dense_func(
+            input,
+            weight,
+            self.bias,
+            process_group=self.process_group,
+            module=self,
+            handler=gpc.fstp_handler,
+        )
+
+
 class MegatronScaleColumnParallelLinear(BaseScaleColumnParallelLinear):
     """
     ScaleColumnParallelLinear in megatron implementation.

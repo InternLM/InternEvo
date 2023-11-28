@@ -494,7 +494,7 @@ class FSTPFusedDenseFunc(torch.autograd.Function):
             x = x.to(dtype=torch.get_autocast_gpu_dtype())
         total_x = x.contiguous()
 
-        world_size = gpc.get_world_size(ParallelMode.TENSOR)
+        world_size = gpc.get_world_size(ParallelMode.WEIGHT)
         if world_size > 1:
             # do all_gather for weight and bias before actual computation
             if overlap_handler is not None:
@@ -556,7 +556,7 @@ class FSTPFusedDenseFunc(torch.autograd.Function):
         batch_dim = batch_shape.numel()
         grad_output = grad_output.reshape(batch_dim, grad_output.shape[-1])
 
-        world_size = gpc.get_world_size(ParallelMode.TENSOR)
+        world_size = gpc.get_world_size(ParallelMode.WEIGHT)
         if world_size > 1:
             if overlap_handler is not None:
                 total_weight = gpc.fstp_handler.get_weight_all_gather(module=module)

@@ -17,7 +17,7 @@ from internlm.core.context import global_context as gpc
 from internlm.core.naive_amp import NaiveAMPModel
 from internlm.utils.common import get_current_device, get_tensor_norm, move_norm_to_cuda
 from internlm.utils.logger import get_logger
-from internlm.utils.parallel import is_model_parallel_parameter
+from internlm.utils.parallel import is_model_parallel_parameter, is_weight_parallel_parameter
 
 logger = get_logger(__file__)
 
@@ -243,6 +243,14 @@ def reduce_grads(gradients, parameters, fine_grained=False):
             and gpc.get_local_rank(ParallelMode.TENSOR) == 0
         ):  # if not used in each chunk, such as layernorm
             append_grad(g, p)
+        elif (
+            gpc.is_initialized(ParallelMode.WEIGHT)
+            and not is_weight_parallel_parameter(p)
+            and gpc.get_local_rank(ParallelMode.WEIGHT) == 0
+        ):  # if not used in each chunk, such as layernorm
+            append_grad(g, p)
+        elif is_weight_parallel_parameter(p):
+            append_grad(g, p)
         elif is_model_parallel_parameter(p):
             append_grad(g, p)
         elif gpc.get_local_rank(ParallelMode.TENSOR) != 0:
@@ -312,11 +320,11 @@ def compute_norm(
             total_norm = total_norm + previous_norm
 
         # Sum across all model-parallel GPUs.
-        if gpc.is_initialized(ParallelMode.MODEL):
+        if gpc.is_initialized(ParallelMode.WEIGHT):
             dist.all_reduce(
                 total_norm,
                 op=dist.ReduceOp.SUM,
-                group=gpc.get_group(ParallelMode.MODEL),
+                group=gpc.get_group(ParallelMode.WEIGHT),
             )
 
         # This is because we use zero1, so we need to use this reduction.
