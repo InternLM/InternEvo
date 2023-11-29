@@ -596,12 +596,18 @@ class ParallelContext(metaclass=SingletonMeta):
             tp_seed = seed + tp_rank + pipeline_offset * 1024
             add_seed(ParallelMode.TENSOR, tp_seed)
 
+        if self.is_initialized(ParallelMode.WEIGHT):
+            wp_rank = self.get_local_rank(ParallelMode.WEIGHT)
+            wp_seed = seed + wp_rank + pipeline_offset * 1024
+            add_seed(ParallelMode.WEIGHT, wp_seed)
+
         # we do not set the random state mode to ParallelMode.DATA until model is built (instead, we use a dummy mode
         # during model construction), this is because the random state will be different in different tensor parallel
         # device of the same data parallel group. The underlying reason is that the device of tp_rank = 0 will perform
         # additional random operations during the RowParallelLinear module building process.
         # set_mode(ParallelMode.DUMMY)
         set_mode(ParallelMode.TENSOR)
+        set_mode(ParallelMode.WEIGHT)
 
         seeds = get_seeds()
         seed_str = ", ".join([f"{k}: {v}" for k, v in seeds.items()])

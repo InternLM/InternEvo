@@ -48,7 +48,7 @@ from internlm.monitor import send_heartbeat, set_env_var
 from internlm.monitor.monitor import monitor_manager as mm
 from internlm.solver.beta2_scheduler import Beta2Scheduler
 from internlm.solver.lr_scheduler import FineTuneCosineAnnealingWarmupLR
-from internlm.solver.optimizer import FSDPadaptOptimizer, HybridZeroOptimizer
+from internlm.solver.optimizer import FSDPadaptOptimizer, HybridZeroOptimizer, HybridZeroOptimizer2
 from internlm.solver.optimizer.utils import ParamBcastSyncHandler
 from internlm.train.utils import create_param_groups
 from internlm.utils.common import DummyProfile
@@ -58,6 +58,7 @@ from internlm.utils.parallel import (
     set_model_params_layer_name,
     sync_model_param,
     sync_model_param_within_tp,
+    sync_model_param_within_wp,
 )
 from internlm.utils.registry import MODEL_INITIALIZER
 from internlm.utils.timeout import llm_timeout
@@ -105,6 +106,8 @@ def initialize_model():
     # This function is needed to make sure parameters that are not splitted by tensor parallelism are
     # the same across tensor parallelism.
     sync_model_param_within_tp(model)
+
+    sync_model_param_within_wp(model)
 
     # Change random state mode to ParallelMode.DATA after model is built, guaranteeing the random
     # state in the same dp group are all the same.
@@ -182,7 +185,14 @@ def initialize_optimizer(model: Union[nn.Module, nn.ModuleList]):
         eps=adam_cfg.adam_eps,
     )
 
-    if not gpc.config.parallel.zero1.fsdp:
+    if gpc.config.parallel.weight.size > 1:
+        optimizer = HybridZeroOptimizer2(
+            naive_optimizer,
+            grad_scal_cfg=gpc.config.grad_scaler,
+            zero_cfg=gpc.config.hybrid_zero_optimizer,
+            param_bcast_sync_handler=param_bcast_sync_handler,
+        )
+    elif not gpc.config.parallel.zero1.fsdp:
         optimizer = HybridZeroOptimizer(
             naive_optimizer,
             grad_scal_cfg=gpc.config.grad_scaler,
@@ -608,6 +618,8 @@ def record_current_batch_training_metrics(
             tflops_list_2.append(tflops_2)
         if batch_count == gpc.config.data.total_steps - 1:
             print(tgs_list, flush=True)
+            if len(tgs_list) <= 0:
+                return
             avg_tgs = sum(tgs_list) / len(tgs_list)
             for tgs in tgs_list.copy():
                 if abs(tgs - avg_tgs) > 400:

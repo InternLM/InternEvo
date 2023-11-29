@@ -40,7 +40,7 @@ class FSTPOverlapHandler:
         self.head = []
         self.embedding = []
         self.model_checkpoint = gpc.config.model.checkpoint
-        self.enable_memory_pool = gpc.config.parallel["tensor"].get("memory_pool", False)
+        self.enable_memory_pool = gpc.config.parallel["weight"].get("memory_pool", False)
         self.is_forward = True
 
         self.reduce_scatter_handlers = {}

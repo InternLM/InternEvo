@@ -131,7 +131,7 @@ class HybridZeroOptimizer2(BaseOptimizer):
         if self._overlap_sync_param:
             assert self._param_bcast_sync_handler is not None
 
-        if gpc.config.parallel.weight >= 1 and gpc.config.parallel["weight"]["overlap"] is True:
+        if gpc.config.parallel["weight"]["size"] >= 1 and gpc.config.parallel["weight"]["overlap"] is True:
             self._fstp_handler = gpc.fstp_handler
         else:
             self._fstp_handler = None
