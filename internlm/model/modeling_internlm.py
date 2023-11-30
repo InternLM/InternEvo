@@ -17,7 +17,6 @@ from internlm.model.linear import (
     MegatronScaleColumnParallelLinear,
     RewardModelLinear,
     ScaleColumnParallelLinear,
-    FSTPScaleColumnParallelLinear,
     get_mlp_cls,
 )
 from internlm.model.multi_head_attention import MHA
@@ -31,6 +30,7 @@ from internlm.utils.checkpoint import activation_checkpoint
 from internlm.utils.common import filter_kwargs
 from internlm.utils.logger import get_logger
 from internlm.utils.registry import MODEL_INITIALIZER
+
 
 MODEL_TYPE = "INTERNLM"
 
@@ -316,12 +316,11 @@ class PackedFlashInternLm1D(nn.Module):
         if is_reward:
             head_cls = RewardModelLinear
         else:
-            # head_cls = (
-            #     ScaleColumnParallelLinear
-            #     if self.sp_mode in ["flash-attn", "none", "intern"]
-            #     else MegatronScaleColumnParallelLinear
-            # )
-            head_cls = FSTPScaleColumnParallelLinear
+            head_cls = (
+                ScaleColumnParallelLinear
+                if self.sp_mode in ["flash-attn", "none", "intern"]
+                else MegatronScaleColumnParallelLinear
+            )
         if first:
             if embed_split_hidden:
                 self.embedding = Embedding1D(num_embeddings=vocab_size, embedding_dim=hidden_size)
@@ -441,8 +440,6 @@ class PackedFlashInternLm1D(nn.Module):
                 hidden_states = self.head(hidden_states, gather_dim=1)
             else:  # Training
                 hidden_states = self.head(hidden_states, gather_dim=0)
-
-        hidden_states = gather_forward_split_backward(hidden_states, ParallelMode.SEQUENCE, dim=0)
 
         if not self.parallel_output:
             hidden_states = gather_forward_split_backward(hidden_states, ParallelMode.TENSOR, dim=-1)

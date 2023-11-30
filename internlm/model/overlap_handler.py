@@ -11,7 +11,7 @@ from internlm.core.context import global_context as gpc
 from internlm.core.naive_amp import NaiveAMPModel
 from internlm.core.scheduler import SchedulerHook
 from internlm.model.embedding import Embedding1D
-from internlm.model.linear import FSTPLinear, FSTPScaleColumnParallelLinear
+from internlm.model.linear import FSTPLinear, ScaleColumnParallelLinear
 from internlm.model.utils import (
     all_gather_raw,
     all_gather_raw_bias_memory_pool,
@@ -55,11 +55,8 @@ class FSTPOverlapHandler:
                 _chunk = _chunk.model
 
             for _chunk_name, children in _chunk.named_children():
-                if isinstance(children, FSTPScaleColumnParallelLinear):
+                if isinstance(children, ScaleColumnParallelLinear):
                     setattr(children, "_fstp_name", "head")
-                    setattr(children.weight, "_fstp_reduce_scatter_str", f"head.weight")
-                    if children.bias is not None:
-                        setattr(children.bias, "_fstp_reduce_scatter_str", f"head.bias")
                     self.head.append(children)
                 elif isinstance(children, Embedding1D):
                     self.embedding.append(children)
@@ -168,7 +165,7 @@ class FSTPOverlapHandler:
         return self.all_gather_bias_memory_pool[block_index % 2][module._fstp_name]
 
     def get_weight_all_gather(self, module):
-        if self.enable_memory_pool and getattr(module, "_fstp_name") != "head":
+        if self.enable_memory_pool:
             return self._get_weight_from_memory_pool(module)
         else:
             return self.weight_global_output[module]
@@ -205,7 +202,7 @@ class FSTPOverlapHandler:
         self.reduce_scatter_memory_pool[key][index].idle = True
 
     def _all_gather_module_weight(self, module):
-        if self.enable_memory_pool and getattr(module, "_fstp_name") != "head":
+        if self.enable_memory_pool:
             if module.bias is not None:
                 bias_handle = all_gather_raw_bias_memory_pool(
                     module.bias,
@@ -323,16 +320,6 @@ class FSTPOverlapHandler:
             _clear_handle(module)
             _clear_weight(module)
 
-        def _pre_hook_for_head(module: nn.Module, inputs: Any):  # pylint: disable=W0613
-            if module not in self.weight_global_handle:
-                self._all_gather_module_weight(module)
-
-            _wait_handle(module)
-
-        def _post_hook_for_head(module, grad_input, grad_output):  # pylint: disable=W0613
-            _clear_handle(module)
-            _clear_weight(module)
-
         # register forward hooks
         # 1. register post_forward_hook @embedding module to prefetch for block 0
         # 2. register pre_forward_hook @out_proj module to prefetch for next block,
@@ -367,12 +354,6 @@ class FSTPOverlapHandler:
             for module in self.fstp_modules:
                 module.register_full_backward_pre_hook(_pre_backward_hook_for_module)
                 module.register_full_backward_hook(_post_backward_hook_for_module)
-
-        for head in self.head:
-            head.register_forward_pre_hook(_pre_hook_for_head)
-            head.register_full_backward_pre_hook(_pre_hook_for_head)
-            head.register_forward_hook(_post_hook_for_head)
-            head.register_full_backward_hook(_post_hook_for_head)
 
 
 class FSTPOverlapSchedulerHook(SchedulerHook):
