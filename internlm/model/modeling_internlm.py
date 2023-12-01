@@ -149,8 +149,12 @@ class PackedFlashBaseLayer1D(nn.Module):
         for param in self.norm1.parameters():
             if gpc.config.parallel.sequence_parallel is True:
                 setattr(param, IS_SEQUENCE_PARALLEL, True)
+            if gpc.config.parallel.weight.size > 1:
+                setattr(param, IS_SEQUENCE_PARALLEL, True)
         for param in self.norm2.parameters():
             if gpc.config.parallel.sequence_parallel is True:
+                setattr(param, IS_SEQUENCE_PARALLEL, True)
+            if gpc.config.parallel.weight.size > 1:
                 setattr(param, IS_SEQUENCE_PARALLEL, True)
 
         self.dropout2 = nn.Dropout(drop_rate)
@@ -240,7 +244,14 @@ class PackedFlashBaseLayer1D(nn.Module):
         if self.residual_in_fp32:
             residual = residual.to(torch.float32)
 
+        # print(
+        #     f"ht debug mlp rank:{gpc.get_global_rank()} input.shape:{hidden_states.shape} input:{hidden_states}",
+        #     flush=True,
+        # )
         hidden_states = self.mlp(hidden_states)
+        # print(
+        #     f"ht debug mlp rank:{gpc.get_global_rank()} out.shape:{hidden_states.shape} out:{hidden_states}", flush=True
+        # )
 
         return hidden_states + residual
 
@@ -376,7 +387,7 @@ class PackedFlashInternLm1D(nn.Module):
             self.head = head_cls(
                 in_features=hidden_size,
                 out_features=gpc.get_world_size(ParallelMode.TENSOR) if is_reward else vocab_size,
-                process_group=gpc.get_group(ParallelMode.WEIGHT),
+                process_group=gpc.get_group(ParallelMode.SEQUENCE),
                 bias=False,
                 device=device,
                 dtype=dtype,
@@ -390,6 +401,8 @@ class PackedFlashInternLm1D(nn.Module):
                     setattr(param, IS_WEIGHT_PARALLEL, True)
             for param in self.norm.parameters():
                 if gpc.config.parallel.sequence_parallel is True:
+                    setattr(param, IS_SEQUENCE_PARALLEL, True)
+                if gpc.config.parallel.weight.size > 1:
                     setattr(param, IS_SEQUENCE_PARALLEL, True)
 
         self.parallel_output = parallel_output
@@ -440,6 +453,11 @@ class PackedFlashInternLm1D(nn.Module):
                 hidden_states = self.head(hidden_states, gather_dim=1)
             else:  # Training
                 hidden_states = self.head(hidden_states, gather_dim=0)
+
+            # print(
+            #     f"ht debug head rank:{gpc.get_global_rank()} hidden_states.shape:{hidden_states.shape} hidden_states:{hidden_states}",
+            #     flush=True,
+            # )
 
         if not self.parallel_output:
             hidden_states = gather_forward_split_backward(hidden_states, ParallelMode.TENSOR, dim=-1)

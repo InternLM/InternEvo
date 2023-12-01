@@ -131,7 +131,7 @@ class HybridZeroOptimizer2(BaseOptimizer):
         if self._overlap_sync_param:
             assert self._param_bcast_sync_handler is not None
 
-        if gpc.config.parallel["weight"]["size"] >= 1 and gpc.config.parallel["weight"]["overlap"] is True:
+        if gpc.config.parallel["weight"]["size"] > 1 and gpc.config.parallel["weight"]["overlap"] is True:
             self._fstp_handler = gpc.fstp_handler
         else:
             self._fstp_handler = None
@@ -314,7 +314,7 @@ class HybridZeroOptimizer2(BaseOptimizer):
                             param.grad,
                             dtype=None,
                             dst_rank=reduce_rank,
-                            parallel_mode=ParallelMode.GLOBAL,
+                            parallel_mode=ParallelMode.WEIGHT,
                         )
                         handle.wait()
 
@@ -341,8 +341,15 @@ class HybridZeroOptimizer2(BaseOptimizer):
 
                     # if sequence_parallel is True,
                     # the grad of norm should be all-reduce across the tp process group
+                    # if (
+                    #     gpc.config.parallel.sequence_parallel is True
+                    #     and hasattr(param, IS_SEQUENCE_PARALLEL)
+                    #     and getattr(param, IS_SEQUENCE_PARALLEL) is True
+                    # ):
+                    #     accum_grad_obj.register_hook(reduce_grad_hook_sp)
+
                     if (
-                        gpc.config.parallel.sequence_parallel is True
+                        gpc.config.parallel.weight.size > 1
                         and hasattr(param, IS_SEQUENCE_PARALLEL)
                         and getattr(param, IS_SEQUENCE_PARALLEL) is True
                     ):

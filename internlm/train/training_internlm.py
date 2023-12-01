@@ -192,6 +192,7 @@ def initialize_optimizer(model: Union[nn.Module, nn.ModuleList]):
             zero_cfg=gpc.config.hybrid_zero_optimizer,
             param_bcast_sync_handler=param_bcast_sync_handler,
         )
+        logger.info("use HybridZeroOptimizer2 for new partition strategy...")
     elif not gpc.config.parallel.zero1.fsdp:
         optimizer = HybridZeroOptimizer(
             naive_optimizer,
