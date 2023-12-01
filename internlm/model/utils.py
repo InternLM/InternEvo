@@ -657,7 +657,7 @@ class FSTPFusedDenseFuncTorch(FSTPFusedDenseFunc):
         batch_dim = batch_shape.numel()
         grad_output = grad_output.reshape(batch_dim, grad_output.shape[-1])
 
-        world_size = gpc.get_world_size(ParallelMode.TENSOR)
+        world_size = gpc.get_world_size(ParallelMode.WEIGHT)
         if world_size > 1:
             if overlap_handler is not None:
                 total_weight = gpc.fstp_handler.get_weight_all_gather(module=module)
