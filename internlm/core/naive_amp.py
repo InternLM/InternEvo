@@ -81,7 +81,7 @@ class NaiveAMPModel(nn.Module):
 
     def _convert_to_fp32(self, input_: Any):
         """Converts the input to fp32 if it is a Tensor of dtype float16."""
-        if isinstance(input_, Tensor) and input_.dtype == torch.float16:
+        if isinstance(input_, Tensor) and input_.dtype in (torch.float16, torch.bfloat16):
             input_ = input_.float()
         return input_
 

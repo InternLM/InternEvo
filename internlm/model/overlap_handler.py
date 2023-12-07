@@ -353,7 +353,9 @@ class FSTPOverlapHandler:
 
             for module in self.fstp_modules:
                 module.register_full_backward_pre_hook(_pre_backward_hook_for_module)
-                module.register_full_backward_hook(_post_backward_hook_for_module)
+
+        for module in self.fstp_modules:
+            module.register_full_backward_hook(_post_backward_hook_for_module)
 
 
 class FSTPOverlapSchedulerHook(SchedulerHook):
