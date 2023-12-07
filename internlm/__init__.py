@@ -7,3 +7,5 @@ __all__ = [
     "launch_from_slurm",
     "launch_from_torch",
 ]
+
+block_count = {'step' : 0}

@@ -31,6 +31,7 @@ MODEL_TYPE = "INTERNLM"
 logger = get_logger(__file__)
 RMSNorm = try_import_RMSNorm()
 
+from internlm import block_count
 
 class PackedFlashBaseLayer1D(nn.Module):
     """
@@ -191,6 +192,7 @@ class PackedFlashBaseLayer1D(nn.Module):
             cu_seqlens: 1d LongTensor, len(cu_seqlens) = hidden_states + 1
             indexes: the length of index is same as hidden states, which stand for the current position
         """
+        global block_count
         mixer_kwargs = {
             "cu_seqlens": cu_seqlens,
             "max_seqlen": max_seqlen,
@@ -212,6 +214,10 @@ class PackedFlashBaseLayer1D(nn.Module):
         if self.residual_in_fp32:
             residual = residual.to(torch.float32)
 
+        if gpc.get_global_rank() == 0 and block_count['step'] == 0:
+            print(f"fwd block {block_count['step']} dropout1+norm1: {hidden_states}, shape:{hidden_states.shape}", flush=True)
+            torch.save(hidden_states, "./dump_ops/dropout1+norm1_dp_0_step_0_block_0.pt")
+
         hidden_states = self.mixer(hidden_states, **mixer_kwargs)
 
         def _dropout_and_norm_ffn(_residual, _hidden_states):
@@ -225,11 +231,20 @@ class PackedFlashBaseLayer1D(nn.Module):
         else:
             residual, hidden_states = _dropout_and_norm_ffn(residual, hidden_states)
 
+        if gpc.get_global_rank() == 0 and block_count['step'] == 0: 
+            print(f"fwd block {block_count['step']} dropout2+norm2: {hidden_states}, shape:{hidden_states.shape}", flush=True)
+            torch.save(hidden_states, "./dump_ops/dropout2+norm2_dp_0_step_0_block_0.pt")
+
         if self.residual_in_fp32:
             residual = residual.to(torch.float32)
 
         hidden_states = self.mlp(hidden_states)
 
+        if gpc.get_global_rank() == 0 and block_count['step'] == 0:
+            print(f"fwd block {block_count['step']} mlp: {hidden_states}, shape:{hidden_states.shape}", flush=True)
+            torch.save(hidden_states, "./dump_ops/mlp_dp_0_step_0_block_0.pt")
+
+        block_count['step'] += 1
         return hidden_states + residual
 
 
@@ -349,6 +364,7 @@ class PackedFlashInternLm1D(nn.Module):
                 self.norm = RMSNorm(hidden_size, eps=layer_norm_epsilon)
             else:
                 self.norm = nn.LayerNorm(hidden_size, eps=layer_norm_epsilon)
+
             self.head = head_cls(
                 in_features=hidden_size,
                 out_features=gpc.get_world_size(ParallelMode.TENSOR) if is_reward else vocab_size,
@@ -376,6 +392,11 @@ class PackedFlashInternLm1D(nn.Module):
                 hidden_states = (
                     self.embed_grad_scale * hidden_states + (1 - self.embed_grad_scale) * hidden_states.detach()
                 )
+        
+        if gpc.get_global_rank() == 0:
+            print(f"fwd hidden_states embedding output: {hidden_states}, shape:{hidden_states.shape}", flush=True)
+            torch.save(hidden_states, "./dump_ops/embedding_dp_0_step_0_block_0.pt")
+
         if isinstance(cu_seqlens, list):
             assert len(cu_seqlens) == 1
             cu_seqlens = cu_seqlens[0].to(hidden_states.device)
@@ -402,8 +423,17 @@ class PackedFlashInternLm1D(nn.Module):
 
         if hasattr(self, "norm"):
             hidden_states = self.norm(hidden_states.float())
+
+        if gpc.get_global_rank() == 0:
+            print(f"fwd norm: {hidden_states}, shape{hidden_states.shape}", flush=True)
+            torch.save(hidden_states, "./dump_ops/norm_dp_0_step_0_block_0.pt")
+
         if hasattr(self, "head"):
             hidden_states = self.head(hidden_states)
+
+        if gpc.get_global_rank() == 0:
+            print(f"fwd head: {hidden_states}, shape{hidden_states.shape}", flush=True)
+            torch.save(hidden_states, "./dump_ops/head_dp_0_step_0_block_0.pt")
 
         if not self.parallel_output:
             hidden_states = gather_forward_split_backward(hidden_states, ParallelMode.TENSOR, dim=-1)

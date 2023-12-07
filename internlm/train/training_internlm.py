@@ -365,6 +365,13 @@ def load_new_batch(train_dl: DataLoader, train_iter: Iterable, train_state: Trai
             train_state.batch_sampler_iter = iter(train_state.batch_sampler)
             next(train_state.batch_sampler_iter)
     timer("batch-gen").stop()
+    
+    # dist.barrier()
+    # if gpc.get_global_rank() == 0:    
+    #     print(f"before unpack input_ids: {batch[0]['input_ids']}, ", flush=True)
+    #     print(f"before unpack cu_seqlens: {batch[0]['cu_seqlens']}, ", flush=True)
+    #     print(f"before unpack indexes: {batch[0]['indexes']}, ", flush=True)
+    # dist.barrier()
 
     if batch[0].get("type_ids", None) is not None:
         # if use_flash_attn is False, we need to unpack type_ids

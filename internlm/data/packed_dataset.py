@@ -163,7 +163,7 @@ class PackedDataset(torch.utils.data.Dataset):
             sample_idx = self.sample_indices[pre_pos]
             sample = self.dataset[sample_idx]
             length = min(len(sample["tokens"]), self.max_length_per_sample)
-            chunk = sample["tokens"][0:length]
+            chunk = sample["tokens"][1:length]
             pack.extend(chunk)
             _labels = deepcopy(chunk)
             _labels = list(_labels[1:]) + [-100]

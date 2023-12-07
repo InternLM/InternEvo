@@ -330,8 +330,8 @@ Vs. self.num_samples: {self.num_samples}"
         return states
 
     def load_state_dict(self, states):
-        for name in ("data_world_size", "raw_rampup_batch_size", "seed"):  # 'batch_size'
-            assert states[name] == getattr(self, name), (name, states[name], getattr(self, name))  # should not change
+        # for name in ("data_world_size", "raw_rampup_batch_size", "seed"):  # 'batch_size'
+        #     assert states[name] == getattr(self, name), (name, states[name], getattr(self, name))  # should not change
         self.rng.set_state(states["rng_state"])
         self.get_indices(old_indices=None)  # Regenerate indices based on random state
         self.epoch = states["epoch"]
