@@ -9,7 +9,14 @@ from flash_attn.modules.embedding import ParallelGPT2Embeddings
 from flash_attn.modules.mlp import ParallelFusedMLP
 from torch import nn
 
-from internlm.core.context import IS_SEQUENCE_PARALLEL, IS_TENSOR_PARALLEL, IS_WEIGHT_PARALLEL, ParallelMode
+from internlm.core.context import (
+    IS_SEQUENCE_PARALLEL,
+    IS_TENSOR_PARALLEL,
+    IS_REPLICA_ZERO_PARALLEL,
+    IS_SEQUENCE_DATA_PARALLEL,
+    IS_WEIGHT_ZERO_PARALLEL,
+    ParallelMode,
+)
 from internlm.core.context.parallel_context import global_context as gpc
 from internlm.initialize.initialize_tensor import normal_, scaled_init_method_normal
 from internlm.model.embedding import Embedding1D
@@ -142,20 +149,22 @@ class PackedFlashBaseLayer1D(nn.Module):
                 dtype=dtype,
             )
         for _, param in self.mlp.named_parameters():
-            if gpc.get_world_size(ParallelMode.TENSOR) > 1:
-                setattr(param, IS_TENSOR_PARALLEL, True)
+            # if gpc.get_world_size(ParallelMode.TENSOR) > 1:
+            #     setattr(param, IS_TENSOR_PARALLEL, True)
             if gpc.get_world_size(ParallelMode.WEIGHT) > 1:
-                setattr(param, IS_WEIGHT_PARALLEL, True)
+                setattr(param, IS_WEIGHT_ZERO_PARALLEL, True)
         for param in self.norm1.parameters():
-            if gpc.config.parallel.sequence_parallel is True:
-                setattr(param, IS_SEQUENCE_PARALLEL, True)
-            if gpc.config.parallel.weight.size > 1:
-                setattr(param, IS_SEQUENCE_PARALLEL, True)
+            # if gpc.config.parallel.sequence_parallel is True:
+            #     setattr(param, IS_SEQUENCE_PARALLEL, True)
+            # if gpc.config.parallel.weight.size > 1:
+            #     setattr(param, IS_SEQUENCE_PARALLEL, True)
+            setattr(param, IS_REPLICA_ZERO_PARALLEL, True)
         for param in self.norm2.parameters():
-            if gpc.config.parallel.sequence_parallel is True:
-                setattr(param, IS_SEQUENCE_PARALLEL, True)
-            if gpc.config.parallel.weight.size > 1:
-                setattr(param, IS_SEQUENCE_PARALLEL, True)
+            # if gpc.config.parallel.sequence_parallel is True:
+            #     setattr(param, IS_SEQUENCE_PARALLEL, True)
+            # if gpc.config.parallel.weight.size > 1:
+            #     setattr(param, IS_SEQUENCE_PARALLEL, True)
+            setattr(param, IS_REPLICA_ZERO_PARALLEL, True)
 
         self.dropout2 = nn.Dropout(drop_rate)
         self.use_swiglu = use_swiglu
@@ -348,10 +357,10 @@ class PackedFlashInternLm1D(nn.Module):
                 )
             for _, param in self.embedding.named_parameters():
                 normal_(std=0.0052)(param)
-                if gpc.get_world_size(ParallelMode.TENSOR) > 1:
-                    setattr(param, IS_TENSOR_PARALLEL, True)
-                if gpc.get_world_size(ParallelMode.WEIGHT) > 1:
-                    setattr(param, IS_WEIGHT_PARALLEL, True)
+                # if gpc.get_world_size(ParallelMode.TENSOR) > 1:
+                #     setattr(param, IS_TENSOR_PARALLEL, True)
+                if gpc.get_world_size(ParallelMode.SEQUENCE) > 1:
+                    setattr(param, IS_SEQUENCE_DATA_PARALLEL, True)
         self.embed_grad_scale = embed_grad_scale
         self.blocks = nn.ModuleList(
             [
@@ -395,15 +404,16 @@ class PackedFlashInternLm1D(nn.Module):
             )
             for _, param in self.head.named_parameters():
                 normal_(std=0.0052)(param)
-                if gpc.get_world_size(ParallelMode.TENSOR) > 1:
-                    setattr(param, IS_TENSOR_PARALLEL, True)
-                if gpc.get_world_size(ParallelMode.WEIGHT) > 1:
-                    setattr(param, IS_WEIGHT_PARALLEL, True)
+                # if gpc.get_world_size(ParallelMode.TENSOR) > 1:
+                #     setattr(param, IS_TENSOR_PARALLEL, True)
+                if gpc.get_world_size(ParallelMode.SEQUENCE) > 1:
+                    setattr(param, IS_SEQUENCE_DATA_PARALLEL, True)
             for param in self.norm.parameters():
-                if gpc.config.parallel.sequence_parallel is True:
-                    setattr(param, IS_SEQUENCE_PARALLEL, True)
-                if gpc.config.parallel.weight.size > 1:
-                    setattr(param, IS_SEQUENCE_PARALLEL, True)
+                # if gpc.config.parallel.sequence_parallel is True:
+                #     setattr(param, IS_SEQUENCE_PARALLEL, True)
+                # if gpc.config.parallel.weight.size > 1:
+                #     setattr(param, IS_SEQUENCE_PARALLEL, True)
+                setattr(param, IS_REPLICA_ZERO_PARALLEL, True)
 
         self.parallel_output = parallel_output
 

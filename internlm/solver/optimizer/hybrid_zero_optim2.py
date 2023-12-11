@@ -9,8 +9,9 @@ import torch
 import torch.distributed as dist
 from torch.optim import Optimizer
 
-from internlm.core.context import IS_SEQUENCE_PARALLEL, Config, ParallelMode
+from internlm.core.context import IS_SEQUENCE_PARALLEL, IS_REPLICA_ZERO_PARALLEL, Config, ParallelMode
 from internlm.core.context import global_context as gpc
+from internlm.core.context.parallel_context import IS_SEQUENCE_DATA_PARALLEL
 from internlm.monitor import send_alert_message
 from internlm.solver.optimizer.store import (
     BucketStore,
@@ -150,17 +151,24 @@ class HybridZeroOptimizer2(BaseOptimizer):
 
             # to find real zero mode. if zero is not used, set all param group as ParallelMode.ZERO1
             # if zero is used, expert dp group will use ParallelMode.EXPERT_DATA as the real zero mode
-            zero_mode = (
-                ParallelMode.ZERO1
-                if param_group["dp_mode"] == gpc.get_world_size(ParallelMode.ZERO1) == 1 or ParallelMode.DATA
-                else ParallelMode.EXPERT_DATA
-            )
+            # zero_mode = (
+            #     ParallelMode.ZERO1
+            #     if param_group["dp_mode"] == gpc.get_world_size(ParallelMode.ZERO1) == 1 or ParallelMode.DATA
+            #     else ParallelMode.EXPERT_DATA
+            # )
+            zero_mode = param_group["optimizer_mode"]
+
             self._zero_local_rank.append(gpc.get_local_rank(zero_mode))
             self._zero_world_size.append(gpc.get_world_size(zero_mode))
             # TODO _broadcast_parallel_mode is not only used in broadcast, maybe can change its name
             self._broadcast_parallel_mode.append(zero_mode)
-            self._bucket_store.append(BucketStore(group_id, ParallelMode.WEIGHT_DATA))
-            self._accum_grad_buckets.append(BucketStore(group_id, ParallelMode.WEIGHT_DATA))
+
+            grad_reduce_mode = ParallelMode.WEIGHT_DATA
+            if param_group["name"] == "embed_head":
+                grad_reduce_mode = ParallelMode.DATA
+
+            self._bucket_store.append(BucketStore(group_id, grad_reduce_mode))
+            self._accum_grad_buckets.append(BucketStore(group_id, grad_reduce_mode))
 
             # assign parameters to ranks the params in the list are sorted
             params_per_rank, no_params_ranks = self._partition_param_list(group_id, param_group)
@@ -184,15 +192,26 @@ class HybridZeroOptimizer2(BaseOptimizer):
                 param.data = param.data.cpu()
 
             # flatten the reordered tensors
-            for rank in range(self._zero_world_size[group_id]):
-                # No flat fp16 buffer is allocated if the process has no parameters.
-                if rank not in self.param_group_no_params_ranks[group_id]:
-                    tensor_list = self._param_store.get_fp16_params_by_rank_group(rank, group_id)
-                    with torch.no_grad():
-                        flat_tensor = flatten(tensor_list)
-                    flat_tensor = flat_tensor.data.cuda()
-                    self._param_store.add_flat_fp16_param_by_rank_group(rank, group_id, flat_tensor)
-                    sync_param(flat_tensor=flat_tensor, tensor_list=tensor_list)
+            if param_group["name"] == "embed_head":
+                tensor_list = self._param_store.get_fp16_params_by_rank_group(self._zero_local_rank[group_id], group_id)
+                with torch.no_grad():
+                    flat_tensor = flatten(tensor_list)
+                flat_tensor = flat_tensor.data.cuda()
+                sync_param(flat_tensor=flat_tensor, tensor_list=tensor_list)
+                # for rank in range(self._zero_world_size[group_id]):
+                self._param_store.add_flat_fp16_param_by_rank_group(
+                    self._zero_local_rank[group_id], group_id, flat_tensor
+                )
+            else:
+                for rank in range(self._zero_world_size[group_id]):
+                    # No flat fp16 buffer is allocated if the process has no parameters.
+                    if rank not in self.param_group_no_params_ranks[group_id]:
+                        tensor_list = self._param_store.get_fp16_params_by_rank_group(rank, group_id)
+                        with torch.no_grad():
+                            flat_tensor = flatten(tensor_list)
+                        flat_tensor = flat_tensor.data.cuda()
+                        self._param_store.add_flat_fp16_param_by_rank_group(rank, group_id, flat_tensor)
+                        sync_param(flat_tensor=flat_tensor, tensor_list=tensor_list)
 
             # create a copy of fp32 weights of the parameters for which this rank is responsible
             # No flat fp32 buffer is allocated if the process has no parameters.
@@ -222,8 +241,6 @@ class HybridZeroOptimizer2(BaseOptimizer):
         # flag used to skip unnecessary gradient reduce operation when gradient accumulation is enabled.
         self.skip_grad_reduce = False
 
-        # reduction hook is only used if overlapping communication
-        # if it is stage 1 without overlapping, no hook will be attached
         self._attach_reduction_hook()
 
     @property
@@ -244,6 +261,10 @@ class HybridZeroOptimizer2(BaseOptimizer):
 
     def _partition_param_list(self, group_id, param_group):
         no_params_ranks = []
+        if param_group["name"] == "embed_head":
+            params_per_rank = [param_group["params"] for _ in range(self._zero_world_size[group_id])]
+            return params_per_rank, set(no_params_ranks)
+
         params_per_rank = [[] for _ in range(self._zero_world_size[group_id])]
         numel_per_rank = [0 for _ in range(self._zero_world_size[group_id])]
         self.params_per_rank_id_dict.append([[] for _ in range(self._zero_world_size[group_id])])
@@ -350,8 +371,8 @@ class HybridZeroOptimizer2(BaseOptimizer):
 
                     if (
                         gpc.config.parallel.weight.size > 1
-                        and hasattr(param, IS_SEQUENCE_PARALLEL)
-                        and getattr(param, IS_SEQUENCE_PARALLEL) is True
+                        and hasattr(param, IS_REPLICA_ZERO_PARALLEL)
+                        and getattr(param, IS_REPLICA_ZERO_PARALLEL) is True
                     ):
                         accum_grad_obj.register_hook(reduce_grad_hook_sp)
 
@@ -382,9 +403,9 @@ class HybridZeroOptimizer2(BaseOptimizer):
         :return: True if the parameter should be updated by the current rank. Otherwise false.
         :rtype: bool
         """
-        tensor_rank = self._param_store.get_param_rank(param)
+        tensor_ranks = self._param_store.get_param_rank(param)
         group_id = getattr(param, "group_id")
-        return tensor_rank == gpc.get_local_rank(self._broadcast_parallel_mode[group_id])
+        return gpc.get_local_rank(self._broadcast_parallel_mode[group_id]) in tensor_ranks
 
     def _accum_grads_store_in_bucket(self, bucket: BucketStore, reduce_rank: Optional[int] = None) -> None:
         for _param in bucket.get_param(reduce_rank):
@@ -654,6 +675,11 @@ class HybridZeroOptimizer2(BaseOptimizer):
         """
         assert closure is None, "closure is not supported by step()"
 
+        # import pdb
+
+        # if gpc.get_global_rank() == 0:
+        #     pdb.set_trace()
+
         # if not overlapping communication (no reduction hook is attached)
         # we need to manually reduce these gradients
         if not self._overlap_sync_grad:
@@ -859,6 +885,8 @@ class HybridZeroOptimizer2(BaseOptimizer):
         handles = []
 
         for group_id in range(self.num_param_groups):
+            if self.param_groups[group_id]["name"] == "embed_head":
+                continue
             for rank in range(self._zero_world_size[group_id]):
                 # The following operations are performed only on the rank to which parameters are assigned.
                 if rank in self.param_group_no_params_ranks[group_id]:

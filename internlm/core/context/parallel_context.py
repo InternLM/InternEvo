@@ -26,7 +26,9 @@ from .random import add_seed, get_seeds, set_mode
 
 IS_TENSOR_PARALLEL = "is_tensor_parallel"
 IS_SEQUENCE_PARALLEL = "is_sequence_parallel"
-IS_WEIGHT_PARALLEL = "is_weight_parallel"
+IS_REPLICA_ZERO_PARALLEL = "is_replica_zero_parallel"
+IS_SEQUENCE_DATA_PARALLEL = "is_sequence_data_parallel"
+IS_WEIGHT_ZERO_PARALLEL = "is_weight_zero_parallel"
 
 logger = get_logger(__file__)
 

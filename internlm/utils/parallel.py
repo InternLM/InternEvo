@@ -4,7 +4,13 @@
 import torch.distributed as dist
 from torch import nn
 
-from internlm.core.context import IS_TENSOR_PARALLEL, IS_WEIGHT_PARALLEL, ParallelMode
+from internlm.core.context import (
+    IS_TENSOR_PARALLEL,
+    IS_REPLICA_ZERO_PARALLEL,
+    IS_SEQUENCE_DATA_PARALLEL,
+    IS_WEIGHT_ZERO_PARALLEL,
+    ParallelMode,
+)
 from internlm.core.context import global_context as gpc
 from internlm.core.naive_amp import NaiveAMPModel
 
@@ -13,8 +19,16 @@ def is_model_parallel_parameter(p):
     return hasattr(p, IS_TENSOR_PARALLEL) and getattr(p, IS_TENSOR_PARALLEL)
 
 
-def is_weight_parallel_parameter(p):
-    return hasattr(p, IS_WEIGHT_PARALLEL) and getattr(p, IS_WEIGHT_PARALLEL)
+def is_replica_zero_parallel_parameter(p):
+    return hasattr(p, IS_REPLICA_ZERO_PARALLEL) and getattr(p, IS_REPLICA_ZERO_PARALLEL)
+
+
+def is_sequence_data_parallel_parameter(p):
+    return hasattr(p, IS_SEQUENCE_DATA_PARALLEL) and getattr(p, IS_SEQUENCE_DATA_PARALLEL)
+
+
+def is_weight_zero_parallel_parameter(p):
+    return hasattr(p, IS_WEIGHT_ZERO_PARALLEL) and getattr(p, IS_WEIGHT_ZERO_PARALLEL)
 
 
 def sync_model_param(model):
@@ -56,24 +70,21 @@ def sync_model_param_within_tp(model):
                 dist.broadcast(param, src=ranks[0], group=gpc.get_group(parallel_mode))
 
 
-def sync_model_param_within_wp(model):
+def sync_model_replica_param_group(model):
     r"""This function is changed from colossalai, which is ``sync_model_param``.
 
-    We modified this function to make sure it only sync parameters within tensor parallelism
-    but they are not splitted by tensor parallelism.
-    This function is used to make sure parameters that are not splitted by tensor parallelism
-    are the same across each tensor parallelism.
+    We modified this function to make sure it only sync IS_REPLICA_ZERO_PARALLEL parameters in world size.
+    This function is used to make sure parameters that are not splitted are the same across each rank.
     For example, parameters like RMSNorm, LayerNorm...
 
     Args:
         model (:class:`torch.nn.Module`): A pyTorch model on whose parameters you check the consistency.
     """
-    parallel_mode = ParallelMode.WEIGHT
-    if gpc.is_initialized(parallel_mode) and gpc.get_world_size(parallel_mode) > 1:
-        for param in model.parameters():
-            if not is_weight_parallel_parameter(param):
-                ranks = gpc.get_ranks_in_group(parallel_mode)
-                dist.broadcast(param, src=ranks[0], group=gpc.get_group(parallel_mode))
+
+    for param in model.parameters():
+        if is_replica_zero_parallel_parameter(param):
+            ranks = gpc.get_ranks_in_group(ParallelMode.GLOBAL)
+            dist.broadcast(param, src=ranks[0], group=gpc.get_group(ParallelMode.GLOBAL))
 
 
 def get_parallel_log_file_name():

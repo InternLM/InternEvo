@@ -10,7 +10,7 @@ import torch.distributed as dist
 import torch.nn.functional as F
 from einops import rearrange
 
-from internlm.core.context import IS_WEIGHT_PARALLEL
+from internlm.core.context import IS_WEIGHT_ZERO_PARALLEL
 
 try:
     from flash_attn.flash_attn_interface import flash_attn_unpadded_func
@@ -235,14 +235,14 @@ class MHA(nn.Module):
             **factory_kwargs,
         )
         # need to assign tp attribute so that internlm know it is tensor parallel module
-        if gpc.get_world_size(ParallelMode.TENSOR) > 1:
-            for name in ["out_proj", "Wqkv"]:
-                for param in getattr(self, name).parameters():
-                    setattr(param, IS_TENSOR_PARALLEL, True)
+        # if gpc.get_world_size(ParallelMode.TENSOR) > 1:
+        #     for name in ["out_proj", "Wqkv"]:
+        #         for param in getattr(self, name).parameters():
+        #             setattr(param, IS_TENSOR_PARALLEL, True)
         if gpc.get_world_size(ParallelMode.WEIGHT) > 1:
             for name in ["out_proj", "Wqkv"]:
                 for param in getattr(self, name).parameters():
-                    setattr(param, IS_WEIGHT_PARALLEL, True)
+                    setattr(param, IS_WEIGHT_ZERO_PARALLEL, True)
 
     def forward(self, x, seqlen=None, inference_params=None, **kwargs):
         if kwargs.get("indexes", None) is not None:

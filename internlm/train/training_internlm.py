@@ -58,7 +58,7 @@ from internlm.utils.parallel import (
     set_model_params_layer_name,
     sync_model_param,
     sync_model_param_within_tp,
-    sync_model_param_within_wp,
+    sync_model_replica_param_group,
 )
 from internlm.utils.registry import MODEL_INITIALIZER
 from internlm.utils.timeout import llm_timeout
@@ -107,7 +107,7 @@ def initialize_model():
     # the same across tensor parallelism.
     sync_model_param_within_tp(model)
 
-    sync_model_param_within_wp(model)
+    sync_model_replica_param_group(model)
 
     # Change random state mode to ParallelMode.DATA after model is built, guaranteeing the random
     # state in the same dp group are all the same.
