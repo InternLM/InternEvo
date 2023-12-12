@@ -254,13 +254,13 @@ def reduce_grads(gradients, parameters, fine_grained=False):
         ):  # if not used in each chunk, such as layernorm
             append_grad(g, p)
         elif (
-            is_replica_zero_parallel_parameter(p) and gpc.get_global_rank(ParallelMode.GLOBAL) == 0
+            is_replica_zero_parallel_parameter(p) and gpc.get_local_rank(ParallelMode.WEIGHT) == 0
         ):  # if not used in each chunk, such as layernorm IS_REPLICA_ZERO_PARALLEL parameter group
             append_grad(g, p)
-        elif gpc.is_initialized(ParallelMode.SEQUENCE) and is_sequence_data_parallel_parameter(p):
+        elif is_sequence_data_parallel_parameter(p):
             # process all ranks for IS_SEQUENCE_DATA_PARALLEL parameter group
             append_grad(g, p)
-        elif gpc.is_initialized(ParallelMode.WEIGHT) and is_weight_zero_parallel_parameter(p):
+        elif is_weight_zero_parallel_parameter(p):
             # process all ranks for IS_WEIGHT_ZERO_PARALLEL parameter group
             append_grad(g, p)
         elif is_model_parallel_parameter(p):
@@ -332,23 +332,28 @@ def compute_norm(
             total_norm = total_norm + previous_norm
 
         # Sum across all model-parallel GPUs.
-        if hasattr(parameters[0], IS_WEIGHT_ZERO_PARALLEL) and getattr(parameters[0], IS_WEIGHT_ZERO_PARALLEL):
+        if hasattr(parameters[0], IS_SEQUENCE_DATA_PARALLEL) and getattr(parameters[0], IS_SEQUENCE_DATA_PARALLEL):
+            dist.all_reduce(total_norm, op=dist.ReduceOp.SUM, group=gpc.get_group(ParallelMode.SEQUENCE))
+        else:
             if gpc.is_initialized(ParallelMode.WEIGHT):
                 dist.all_reduce(
                     total_norm,
                     op=dist.ReduceOp.SUM,
                     group=gpc.get_group(ParallelMode.WEIGHT),
                 )
+        if gpc.is_initialized(ParallelMode.PIPELINE):
+            dist.all_reduce(
+                total_norm,
+                op=dist.ReduceOp.SUM,
+                group=gpc.get_group(ParallelMode.PIPELINE),
+            )
 
         # This is because we use zero1, so we need to use this reduction.
         # TODO: Check zero group to be a subset of dp group.
-        if (hasattr(parameters[0], IS_REPLICA_ZERO_PARALLEL) and getattr(parameters[0], IS_REPLICA_ZERO_PARALLEL)) or (
-            hasattr(parameters[0], IS_WEIGHT_ZERO_PARALLEL) and getattr(parameters[0], IS_WEIGHT_ZERO_PARALLEL)
-        ):
-            dist.all_reduce(total_norm, op=dist.ReduceOp.SUM, group=gpc.get_group(zero_mode))
-
-        if hasattr(parameters[0], IS_SEQUENCE_DATA_PARALLEL) and getattr(parameters[0], IS_SEQUENCE_DATA_PARALLEL):
-            dist.all_reduce(total_norm, op=dist.ReduceOp.SUM, group=gpc.get_group(ParallelMode.SEQUENCE))
+        # if (hasattr(parameters[0], IS_REPLICA_ZERO_PARALLEL) and getattr(parameters[0], IS_REPLICA_ZERO_PARALLEL)) or (
+        #     hasattr(parameters[0], IS_WEIGHT_ZERO_PARALLEL) and getattr(parameters[0], IS_WEIGHT_ZERO_PARALLEL)
+        # ):
+        dist.all_reduce(total_norm, op=dist.ReduceOp.SUM, group=gpc.get_group(zero_mode))
 
         if torch.is_tensor(total_norm):
             total_norm = total_norm.item()

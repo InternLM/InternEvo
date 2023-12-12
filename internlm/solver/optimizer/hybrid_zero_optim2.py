@@ -192,26 +192,26 @@ class HybridZeroOptimizer2(BaseOptimizer):
                 param.data = param.data.cpu()
 
             # flatten the reordered tensors
-            if param_group["name"] == "embed_head":
-                tensor_list = self._param_store.get_fp16_params_by_rank_group(self._zero_local_rank[group_id], group_id)
-                with torch.no_grad():
-                    flat_tensor = flatten(tensor_list)
-                flat_tensor = flat_tensor.data.cuda()
-                sync_param(flat_tensor=flat_tensor, tensor_list=tensor_list)
-                # for rank in range(self._zero_world_size[group_id]):
-                self._param_store.add_flat_fp16_param_by_rank_group(
-                    self._zero_local_rank[group_id], group_id, flat_tensor
-                )
-            else:
-                for rank in range(self._zero_world_size[group_id]):
-                    # No flat fp16 buffer is allocated if the process has no parameters.
-                    if rank not in self.param_group_no_params_ranks[group_id]:
-                        tensor_list = self._param_store.get_fp16_params_by_rank_group(rank, group_id)
-                        with torch.no_grad():
-                            flat_tensor = flatten(tensor_list)
-                        flat_tensor = flat_tensor.data.cuda()
-                        self._param_store.add_flat_fp16_param_by_rank_group(rank, group_id, flat_tensor)
-                        sync_param(flat_tensor=flat_tensor, tensor_list=tensor_list)
+            # if param_group["name"] == "embed_head":
+            #     tensor_list = self._param_store.get_fp16_params_by_rank_group(self._zero_local_rank[group_id], group_id)
+            #     with torch.no_grad():
+            #         flat_tensor = flatten(tensor_list)
+            #     flat_tensor = flat_tensor.data.cuda()
+            #     sync_param(flat_tensor=flat_tensor, tensor_list=tensor_list)
+            #     # for rank in range(self._zero_world_size[group_id]):
+            #     self._param_store.add_flat_fp16_param_by_rank_group(
+            #         self._zero_local_rank[group_id], group_id, flat_tensor
+            #     )
+            # else:
+            for rank in range(self._zero_world_size[group_id]):
+                # No flat fp16 buffer is allocated if the process has no parameters.
+                if rank not in self.param_group_no_params_ranks[group_id]:
+                    tensor_list = self._param_store.get_fp16_params_by_rank_group(rank, group_id)
+                    with torch.no_grad():
+                        flat_tensor = flatten(tensor_list)
+                    flat_tensor = flat_tensor.data.cuda()
+                    self._param_store.add_flat_fp16_param_by_rank_group(rank, group_id, flat_tensor)
+                    sync_param(flat_tensor=flat_tensor, tensor_list=tensor_list)
 
             # create a copy of fp32 weights of the parameters for which this rank is responsible
             # No flat fp32 buffer is allocated if the process has no parameters.
@@ -261,9 +261,9 @@ class HybridZeroOptimizer2(BaseOptimizer):
 
     def _partition_param_list(self, group_id, param_group):
         no_params_ranks = []
-        if param_group["name"] == "embed_head":
-            params_per_rank = [param_group["params"] for _ in range(self._zero_world_size[group_id])]
-            return params_per_rank, set(no_params_ranks)
+        # if param_group["name"] == "embed_head":
+        #     params_per_rank = [param_group["params"] for _ in range(self._zero_world_size[group_id])]
+        #     return params_per_rank, set(no_params_ranks)
 
         params_per_rank = [[] for _ in range(self._zero_world_size[group_id])]
         numel_per_rank = [0 for _ in range(self._zero_world_size[group_id])]
@@ -885,8 +885,8 @@ class HybridZeroOptimizer2(BaseOptimizer):
         handles = []
 
         for group_id in range(self.num_param_groups):
-            if self.param_groups[group_id]["name"] == "embed_head":
-                continue
+            # if self.param_groups[group_id]["name"] == "embed_head":
+            #     continue
             for rank in range(self._zero_world_size[group_id]):
                 # The following operations are performed only on the rank to which parameters are assigned.
                 if rank in self.param_group_no_params_ranks[group_id]:

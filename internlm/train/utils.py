@@ -2,7 +2,7 @@ from typing import Dict, Tuple
 
 import torch
 
-from internlm.core.context.parallel_context import IS_SEQUENCE_DATA_PARALLEL, ParallelMode
+from internlm.core.context.parallel_context import IS_REPLICA_ZERO_PARALLEL, IS_SEQUENCE_DATA_PARALLEL, ParallelMode
 from internlm.core.context.parallel_context import global_context as gpc
 from internlm.model.utils import is_gate_param, is_moe_param, is_norm_param
 
@@ -114,6 +114,7 @@ def split_params_into_different_groups_for_optimizer_with_new_partition_strategy
     # create new groups for IS_SEQUENCE_DATA_PARALLEL parameter group
     new_groups = {}
     new_groups["embed_head"] = {"name": "embed_head", "params": [], "optimizer_mode": ParallelMode.DATA}
+    # new_groups["layer_norm"] = {"name": "layer_norm", "params": [], "optimizer_mode": ParallelMode.ZERO1}
 
     for pgroup in param_groups:
         # copy attribute from origin group, we assume the input param_groups only
@@ -127,6 +128,8 @@ def split_params_into_different_groups_for_optimizer_with_new_partition_strategy
         for param in pgroup["params"]:
             if hasattr(param, IS_SEQUENCE_DATA_PARALLEL) and getattr(param, IS_SEQUENCE_DATA_PARALLEL) is True:
                 new_groups["embed_head"]["params"].append(param)
+            # elif hasattr(param, IS_REPLICA_ZERO_PARALLEL) and getattr(param, IS_REPLICA_ZERO_PARALLEL) is True:
+            #     new_groups["layer_norm"]["params"].append(param)
             else:
                 origin_params.append(param)
 
@@ -139,6 +142,7 @@ def split_params_into_different_groups_for_optimizer_with_new_partition_strategy
 
     # print(f"ht debug params_groups after split default len:{len(param_groups[0]['params'])}", flush=True)
     # print(f"ht debug params_groups after split embed_head len:{len(param_groups[1]['params'])}", flush=True)
+    # print(f"ht debug params_groups after split layer_norm len:{len(param_groups[2]['params'])}", flush=True)
 
     return tuple(param_groups)
 

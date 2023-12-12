@@ -24,11 +24,19 @@ def is_replica_zero_parallel_parameter(p):
 
 
 def is_sequence_data_parallel_parameter(p):
-    return hasattr(p, IS_SEQUENCE_DATA_PARALLEL) and getattr(p, IS_SEQUENCE_DATA_PARALLEL)
+    return (
+        gpc.is_initialized(ParallelMode.SEQUENCE)
+        and hasattr(p, IS_SEQUENCE_DATA_PARALLEL)
+        and getattr(p, IS_SEQUENCE_DATA_PARALLEL)
+    )
 
 
 def is_weight_zero_parallel_parameter(p):
-    return hasattr(p, IS_WEIGHT_ZERO_PARALLEL) and getattr(p, IS_WEIGHT_ZERO_PARALLEL)
+    return (
+        gpc.is_initialized(ParallelMode.WEIGHT)
+        and hasattr(p, IS_WEIGHT_ZERO_PARALLEL)
+        and getattr(p, IS_WEIGHT_ZERO_PARALLEL)
+    )
 
 
 def sync_model_param(model):
