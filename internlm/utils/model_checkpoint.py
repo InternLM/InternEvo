@@ -862,11 +862,14 @@ now step_count is {train_state.step_count}",
 
         return save_ckpts, save_type, now_break
 
-    def try_save_checkpoint(self, train_state):
+    def try_save_checkpoint(self, train_state, ):
         if not self.enable_save_ckpt:
             return False
 
         save_ckpts, save_type, now_break = self.is_now_to_save_ckpt(train_state)
+
+        if train_state.batch_count == 999:
+            save_ckpts = True
 
         if save_ckpts:
             # Wait for the previous round of asynchronous upload storage to complete.

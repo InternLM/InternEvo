@@ -191,8 +191,9 @@ def main(args):
     # transfer the train data loader into train data iterator
     train_iter = iter(train_dl)
 
-    import pickle
     import os
+    import pickle
+
     my_name = f"hw/dp-{gpc.get_local_rank(ParallelMode.DATA)}"
 
     with initialize_llm_profile(profiling=args.profiling, start_time=current_time) as prof:
@@ -203,9 +204,10 @@ def main(args):
             timer("one-batch").start()
 
             # load batch data
+            # batch[0]['input_ids']
             # batch, train_iter = load_new_batch(train_dl=train_dl, train_iter=train_iter, train_state=train_state)
             batch_file = os.path.join(my_name, f"batchcount-{batch_count}.pickle")  # batchcount-953.pickle
-            with open(batch_file, 'rb') as f:
+            with open(batch_file, "rb") as f:
                 batch = pickle.load(f)
 
             # record the consumed samples in training
@@ -237,13 +239,11 @@ def main(args):
             else:
                 _, _, loss = trainer.execute_schedule(
                     batch,
-                    forward_only=True,
+                    forward_only=True if 'DUMP_OP' in os.environ else False,
                     return_loss=True,
                     return_output_label=False,
                 )
             timer("fwd-bwd").stop()
-
-            exit(0)
 
             # update parameters, and returns (success_update, grad_norm)
             trainer_result = trainer.step()
@@ -260,8 +260,9 @@ def main(args):
                         address=gpc.config.monitor.alert.feishu_alert_address,
                         message=f"Warning: skip parameter update at step {batch_count}.",
                     )
-            
-            # exit(0)
+
+            if 'DUMP_OP' in os.environ:
+                exit(0)
 
             # calculate and record the training metrics, eg. loss, accuracy and so on.
             record_current_batch_training_metrics(

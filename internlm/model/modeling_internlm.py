@@ -2,6 +2,7 @@
 # -*- encoding: utf-8 -*-
 
 import math
+import os
 from typing import Optional
 
 import torch
@@ -32,6 +33,7 @@ logger = get_logger(__file__)
 RMSNorm = try_import_RMSNorm()
 
 from internlm import block_count
+
 
 class PackedFlashBaseLayer1D(nn.Module):
     """
@@ -214,8 +216,11 @@ class PackedFlashBaseLayer1D(nn.Module):
         if self.residual_in_fp32:
             residual = residual.to(torch.float32)
 
-        if gpc.get_global_rank() == 0 and block_count['step'] == 0:
-            print(f"fwd block {block_count['step']} dropout1+norm1: {hidden_states}, shape:{hidden_states.shape}", flush=True)
+        if "DUMP_OP" in os.environ and gpc.get_global_rank() == 0 and block_count["step"] == 0:
+            print(
+                f"fwd block {block_count['step']} dropout1+norm1: {hidden_states}, shape:{hidden_states.shape}",
+                flush=True,
+            )
             torch.save(hidden_states, "./dump_ops/dropout1+norm1_dp_0_step_0_block_0.pt")
 
         hidden_states = self.mixer(hidden_states, **mixer_kwargs)
@@ -231,8 +236,11 @@ class PackedFlashBaseLayer1D(nn.Module):
         else:
             residual, hidden_states = _dropout_and_norm_ffn(residual, hidden_states)
 
-        if gpc.get_global_rank() == 0 and block_count['step'] == 0: 
-            print(f"fwd block {block_count['step']} dropout2+norm2: {hidden_states}, shape:{hidden_states.shape}", flush=True)
+        if "DUMP_OP" in os.environ and gpc.get_global_rank() == 0 and block_count["step"] == 0:
+            print(
+                f"fwd block {block_count['step']} dropout2+norm2: {hidden_states}, shape:{hidden_states.shape}",
+                flush=True,
+            )
             torch.save(hidden_states, "./dump_ops/dropout2+norm2_dp_0_step_0_block_0.pt")
 
         if self.residual_in_fp32:
@@ -240,11 +248,11 @@ class PackedFlashBaseLayer1D(nn.Module):
 
         hidden_states = self.mlp(hidden_states)
 
-        if gpc.get_global_rank() == 0 and block_count['step'] == 0:
+        if "DUMP_OP" in os.environ and gpc.get_global_rank() == 0 and block_count["step"] == 0:
             print(f"fwd block {block_count['step']} mlp: {hidden_states}, shape:{hidden_states.shape}", flush=True)
             torch.save(hidden_states, "./dump_ops/mlp_dp_0_step_0_block_0.pt")
 
-        block_count['step'] += 1
+        block_count["step"] += 1
         return hidden_states + residual
 
 
@@ -385,7 +393,8 @@ class PackedFlashInternLm1D(nn.Module):
         self.parallel_output = parallel_output
 
     def forward(self, hidden_states=None, cu_seqlens=None, input_ids=None, indexes=None, inference_params=None):
-        input_ids[:, :] = 100
+        if "USE_FAKE_DATA" in os.environ:
+            input_ids[:, :] = 100
         # attention_mask: compute attention on the places where the value is 1
         if hasattr(self, "embedding"):
             hidden_states = self.embedding(input_ids)
@@ -393,8 +402,8 @@ class PackedFlashInternLm1D(nn.Module):
                 hidden_states = (
                     self.embed_grad_scale * hidden_states + (1 - self.embed_grad_scale) * hidden_states.detach()
                 )
-        
-        if gpc.get_global_rank() == 0:
+
+        if gpc.get_global_rank() == 0 and "DUMP_OP" in os.environ:
             print(f"fwd hidden_states embedding output: {hidden_states}, shape:{hidden_states.shape}", flush=True)
             torch.save(hidden_states, "./dump_ops/embedding_dp_0_step_0_block_0.pt")
 
@@ -425,14 +434,14 @@ class PackedFlashInternLm1D(nn.Module):
         if hasattr(self, "norm"):
             hidden_states = self.norm(hidden_states.float())
 
-        if gpc.get_global_rank() == 0:
+        if gpc.get_global_rank() == 0 and "DUMP_OP" in os.environ:
             print(f"fwd norm: {hidden_states}, shape{hidden_states.shape}", flush=True)
             torch.save(hidden_states, "./dump_ops/norm_dp_0_step_0_block_0.pt")
 
         if hasattr(self, "head"):
             hidden_states = self.head(hidden_states)
 
-        if gpc.get_global_rank() == 0:
+        if gpc.get_global_rank() == 0 and "DUMP_OP" in os.environ:
             print(f"fwd head: {hidden_states}, shape{hidden_states.shape}", flush=True)
             torch.save(hidden_states, "./dump_ops/head_dp_0_step_0_block_0.pt")
 
