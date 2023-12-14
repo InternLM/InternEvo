@@ -162,19 +162,23 @@ def linear_bias_wgrad_torch(my_input, grad_output, has_d_bias):
     return grad_weight, grad_bias
 
 
-def reduce_scatter_raw(input_: Tensor, process_group: ProcessGroup, async_op: bool = False):
+def reduce_scatter_raw(
+    input_: Tensor, process_group: ProcessGroup, op=torch.distributed.ReduceOp.SUM, async_op: bool = False
+):
     world_size = torch.distributed.get_world_size(process_group)
     assert input_.shape[0] % world_size == 0
     output = torch.empty(
         input_.shape[0] // world_size, *input_.shape[1:], dtype=input_.dtype, device=input_.device
     ).contiguous()
     handle = torch.distributed.reduce_scatter_tensor(
-        output, input_.contiguous(), group=process_group, async_op=async_op
+        output, input_.contiguous(), op=op, group=process_group, async_op=async_op
     )
     return output, handle
 
 
-def reduce_scatter_raw_memory_pool(input_: Tensor, process_group: ProcessGroup, async_op: bool = False):
+def reduce_scatter_raw_memory_pool(
+    input_: Tensor, process_group: ProcessGroup, op=torch.distributed.ReduceOp.SUM, async_op: bool = False
+):
     world_size = torch.distributed.get_world_size(process_group)
     assert input_.shape[0] % world_size == 0
     if gpc.fstp_handler.enable_memory_pool:
@@ -185,7 +189,7 @@ def reduce_scatter_raw_memory_pool(input_: Tensor, process_group: ProcessGroup, 
             input_.shape[0] // world_size, *input_.shape[1:], dtype=input_.dtype, device=input_.device
         ).contiguous()
     handle = torch.distributed.reduce_scatter_tensor(
-        output, input_.contiguous(), group=process_group, async_op=async_op
+        output, input_.contiguous(), op=op, group=process_group, async_op=async_op
     )
     return output, handle
 
@@ -575,7 +579,7 @@ class FSTPFusedDenseFunc(torch.autograd.Function):
             if world_size > 1:
                 if overlap_handler is not None:
                     grad_weight_async, handle_grad_weight = reduce_scatter_raw_memory_pool(
-                        grad_weight, process_group, async_op=True
+                        grad_weight, process_group, op=torch.distributed.ReduceOp.AVG, async_op=True
                     )
                     assert hasattr(weight, "_fstp_reduce_scatter_str")
                     overlap_handler.reduce_scatter_handlers[weight._fstp_reduce_scatter_str] = (
@@ -592,7 +596,7 @@ class FSTPFusedDenseFunc(torch.autograd.Function):
                     )
                     if grad_bias is not None:
                         grad_bias_async, handle_grad_bias = reduce_scatter_raw_memory_pool(
-                            grad_bias, process_group, async_op=True
+                            grad_bias, process_group, op=torch.distributed.ReduceOp.AVG, async_op=True
                         )
                         assert hasattr(bias, "_fstp_reduce_scatter_str")
                         overlap_handler.reduce_scatter_handlers[bias._fstp_reduce_scatter_str] = (
@@ -608,9 +612,13 @@ class FSTPFusedDenseFunc(torch.autograd.Function):
                             device=grad_bias.device,
                         )
                 else:
-                    grad_weight, handle_grad_weight = reduce_scatter_raw(grad_weight, process_group, async_op=True)
+                    grad_weight, handle_grad_weight = reduce_scatter_raw(
+                        grad_weight, process_group, op=torch.distributed.ReduceOp.AVG, async_op=True
+                    )
                     if grad_bias is not None:
-                        grad_bias, handle_grad_bias = reduce_scatter_raw(grad_bias, process_group, async_op=True)
+                        grad_bias, handle_grad_bias = reduce_scatter_raw(
+                            grad_bias, process_group, op=torch.distributed.ReduceOp.AVG, async_op=True
+                        )
         else:
             grad_weight = None
             grad_bias = grad_output if ctx.needs_input_grad[2] else None
@@ -676,7 +684,7 @@ class FSTPFusedDenseFuncTorch(FSTPFusedDenseFunc):
             if world_size > 1:
                 if overlap_handler is not None:
                     grad_weight_async, handle_grad_weight = reduce_scatter_raw_memory_pool(
-                        grad_weight, process_group, async_op=True
+                        grad_weight, process_group, op=torch.distributed.ReduceOp.AVG, async_op=True
                     )
                     assert hasattr(weight, "_fstp_reduce_scatter_str")
                     overlap_handler.reduce_scatter_handlers[weight._fstp_reduce_scatter_str] = (
@@ -693,7 +701,7 @@ class FSTPFusedDenseFuncTorch(FSTPFusedDenseFunc):
                     )
                     if grad_bias is not None:
                         grad_bias_async, handle_grad_bias = reduce_scatter_raw_memory_pool(
-                            grad_bias, process_group, async_op=True
+                            grad_bias, process_group, op=torch.distributed.ReduceOp.AVG, async_op=True
                         )
                         assert hasattr(bias, "_fstp_reduce_scatter_str")
                         overlap_handler.reduce_scatter_handlers[bias._fstp_reduce_scatter_str] = (
@@ -709,9 +717,13 @@ class FSTPFusedDenseFuncTorch(FSTPFusedDenseFunc):
                             device=grad_bias.device,
                         )
                 else:
-                    grad_weight, handle_grad_weight = reduce_scatter_raw(grad_weight, process_group, async_op=True)
+                    grad_weight, handle_grad_weight = reduce_scatter_raw(
+                        grad_weight, process_group, op=torch.distributed.ReduceOp.AVG, async_op=True
+                    )
                     if grad_bias is not None:
-                        grad_bias, handle_grad_bias = reduce_scatter_raw(grad_bias, process_group, async_op=True)
+                        grad_bias, handle_grad_bias = reduce_scatter_raw(
+                            grad_bias, process_group, op=torch.distributed.ReduceOp.AVG, async_op=True
+                        )
         else:
             grad_weight = None
             grad_bias = grad_output if ctx.needs_input_grad[2] else None
