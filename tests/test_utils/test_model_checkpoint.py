@@ -1,3 +1,7 @@
+import multiprocessing
+
+backup_ForkingPickler= multiprocessing.reduction.ForkingPickler
+backup_dump = multiprocessing.reduction.dump
 import os
 from functools import partial
 
@@ -344,6 +348,10 @@ def query_quit_file(rank, world_size=2):
 
 def test_quit_siganl_handler():  # noqa # pylint: disable=unused-import
     import multiprocessing
+    # we do hack here to workaround the bug of 3rd party library dill, which only occurs in this unittest:
+    # https://github.com/uqfoundation/dill/issues/380
+    multiprocessing.reduction.ForkingPickler = backup_ForkingPickler
+    multiprocessing.reduction.dump = backup_dump
     from multiprocessing.pool import Pool
 
     world_size = 2
