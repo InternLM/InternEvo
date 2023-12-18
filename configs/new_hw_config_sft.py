@@ -16,7 +16,7 @@ data={
 }
 grad_scaler={
     "fp16": {
-        "initial_scale": 65536,
+        "initial_scale": 16384,
         "min_scale": 1,
         "growth_interval": 1000
     },
@@ -89,7 +89,7 @@ ckpt={
     "load_ckpt_info": {
         "path": "/mnt/petrelfs/share/lijiaxing/Huawei_init_ckpt",
         "content": [
-            "all"
+            "model"
         ],
         "ckpt_type": "internlm"
     },
@@ -108,5 +108,5 @@ monitor={
 }
 JOB_NAME="hw_7B_wiki"
 SEQ_LEN=2048
-MLP_RATIO=2.6666666666666665
+MLP_RATIO=8/3
 
