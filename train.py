@@ -1,6 +1,7 @@
 #!/usr/bin/env python
 # -*- encoding: utf-8 -*-
 
+from pickle import FALSE
 import socket
 import time
 import traceback
@@ -340,6 +341,33 @@ if __name__ == "__main__":
     # initialize distributed environment
     initialize_distributed_env(config=args.config, launcher=args.launcher, master_port=args.port, seed=args.seed)
     assert hasattr(gpc, "config") and gpc.config is not None
+
+    print(
+        f"ht debug rank:{gpc.get_global_rank()} ranks_in_tp_group:{gpc.get_ranks_in_group(ParallelMode.TENSOR)}",
+        flush=True,
+    )
+    print(
+        f"ht debug rank:{gpc.get_global_rank()} ranks_in_wp_group:{gpc.get_ranks_in_group(ParallelMode.WEIGHT)}",
+        flush=True,
+    )
+    print(
+        f"ht debug rank:{gpc.get_global_rank()} ranks_in_dp_group:{gpc.get_ranks_in_group(ParallelMode.DATA)}",
+        flush=True,
+    )
+    print(
+        f"ht debug rank:{gpc.get_global_rank()} ranks_in_pp_group:{gpc.get_ranks_in_group(ParallelMode.PIPELINE)}",
+        flush=True,
+    )
+    # print(
+    #     f"ht debug rank:{gpc.get_global_rank()} ranks_in_wdp_group:{gpc.get_ranks_in_group(ParallelMode.WEIGHT_DATA)}",
+    #     flush=True,
+    # )
+    print(
+        f"ht debug rank:{gpc.get_global_rank()} ranks_in_zero1_group:{gpc.get_ranks_in_group(ParallelMode.ZERO1)}",
+        flush=True,
+    )
+
+    assert False
 
     # initialize monitor manager context
     with initialize_monitor_manager(

@@ -152,21 +152,25 @@ zero1 parallel (dict):
     2. fsdp: bool, enable/disable torch's fully sharded data parallel, defaults to False.
 tensor parallel (dict):
     1. size: int, the size of tensor parallel.
-    2. sp: str, the sequence parallel mode, should be in ['none', 'megatron', 'flash-attn', 'intern'],
-        defaults to 'none', means the sequence parallel will be disabled.
-    3. intern_overlap: bool, enable/disable all_gather/reduce_scatter communication overlap when using 'intern' mode sp,
-        defaults to False.
+    2. mode: str, the tensor parallel mode, should be in ['mtp', 'msp', 'fsp', 'isp'],
+        defaults to 'mtp', means the pure megatron tensor parallel without sequence parallel.
+        msp: megatron tensor parallel with sequence parallel, sequence parallel size = tensor parallel size.
+        fsp: tensor parallel by flash-attn with sequence parallel, sequence parallel size = tensor parallel size.
+        isp: customed intern sequence parallel without tensor parallel, can be used with weight parallel.
 pipeline parallel (dict):
     1. size: int, the size of pipeline parallel.
     2. interleaved_overlap: bool, enable/disable communication overlap when using interleaved pipeline scheduler,
         defaults to False.
+weight parallel (dict):
+    1. size: int, the size of weight parallel.
+    2. overlap: bool, enable/disable all_gather/reduce_scatter communication overlap, defaults to False.
+    3. memory_pool: bool, enable/disable memory pool, defaults to False.
 """
 parallel = dict(
     zero1=dict(size=2, fsdp=False),
-    tensor=dict(size=1, sp="intern", intern_overlap=False, memory_pool=False),
-    pipeline=dict(size=1, interleaved_overlap=True),
-    weight=dict(size=8, overlap=True, memory_pool=True),
-    sequence=4,
+    tensor=dict(size=4, mode="mtp"),
+    pipeline=dict(size=2, interleaved_overlap=True),
+    weight=dict(size=1, overlap=True, memory_pool=True),
 )
 
 cudnn_deterministic = False
