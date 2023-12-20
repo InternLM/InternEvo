@@ -28,7 +28,7 @@ class FlashGPTLMLoss(nn.Module):
             self.loss_fn = FlashCrossEntropyLoss(
                 reduction="mean",
                 inplace_backward=True,
-                process_group=gpc.get_group(ParallelMode.SEQUENCE),
+                process_group=gpc.get_group(ParallelMode.TENSOR),
                 label_smoothing=label_smoothing,
             )  # The loss in this place is bound to the gather_output initialized by VocabParallelClassifier1D
         else:

@@ -3,6 +3,5 @@
 
 from .fsdp_optimizer import FSDPadaptOptimizer
 from .hybrid_zero_optim import HybridZeroOptimizer, reload_zero_fp32_buff
-from .hybrid_zero_optim2 import HybridZeroOptimizer2
 
 __all__ = ["FSDPadaptOptimizer", "HybridZeroOptimizer", "reload_zero_fp32_buff"]

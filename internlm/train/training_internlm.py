@@ -20,7 +20,6 @@ from torch.distributed.fsdp.fully_sharded_data_parallel import (
 from torch.distributed.fsdp.wrap import transformer_auto_wrap_policy
 from torch.utils.data import ConcatDataset, DataLoader
 
-from internlm.core.context import ParallelMode
 from internlm.core.context import global_context as gpc
 from internlm.core.context.random import set_mode
 from internlm.core.naive_amp import NaiveAMPModel
@@ -40,6 +39,9 @@ from internlm.model.linear import (
     FeedForward,
     RewardModelLinear,
     ScaleColumnParallelLinear,
+    BaseScaleColumnParallelLinear,
+    ColumnParallelLinear,
+    RowParallelLinear,
 )
 from internlm.model.multi_head_attention import MHA
 from internlm.model.overlap_handler import FSTPOverlapHandler
@@ -48,7 +50,7 @@ from internlm.monitor import send_heartbeat, set_env_var
 from internlm.monitor.monitor import monitor_manager as mm
 from internlm.solver.beta2_scheduler import Beta2Scheduler
 from internlm.solver.lr_scheduler import FineTuneCosineAnnealingWarmupLR
-from internlm.solver.optimizer import FSDPadaptOptimizer, HybridZeroOptimizer, HybridZeroOptimizer2
+from internlm.solver.optimizer import FSDPadaptOptimizer, HybridZeroOptimizer
 from internlm.solver.optimizer.utils import ParamBcastSyncHandler
 from internlm.train.utils import create_param_groups
 from internlm.utils.common import DummyProfile
@@ -57,14 +59,70 @@ from internlm.utils.megatron_timers import megatron_timer as timer
 from internlm.utils.parallel import (
     set_model_params_layer_name,
     sync_model_param,
-    sync_model_param_within_tp,
     sync_model_replica_param_group,
 )
 from internlm.utils.registry import MODEL_INITIALIZER
 from internlm.utils.timeout import llm_timeout
+from internlm.core.context import (
+    IS_TENSOR_ZERO_PARALLEL,
+    IS_REPLICA_ZERO_PARALLEL,
+    IS_TENSOR_DATA_PARALLEL,
+    IS_WEIGHT_ZERO_PARALLEL,
+    ParallelMode,
+)
+from internlm.utils.parallel import (
+    is_replica_zero_parallel_parameter,
+    is_tensor_data_parallel_parameter,
+    is_tensor_zero_parallel_parameter,
+    is_weight_zero_parallel_parameter,
+)
 
 RMSNorm = try_import_RMSNorm()
 logger = get_logger(__file__)
+
+
+def set_attr_for_param_groups(model: Union[nn.Module, nn.ModuleList]):
+    def _check_module(module):
+        # layer_norm
+        if isinstance(module, (RMSNorm, nn.LayerNorm)):
+            for param in module.parameters():
+                setattr(param, IS_REPLICA_ZERO_PARALLEL, True)
+
+        # embedding and head
+        if isinstance(module, (Embedding1D, ParallelGPT2Embeddings)) or isinstance(
+            module, BaseScaleColumnParallelLinear
+        ):
+            for param in module.parameters():
+                if gpc.is_initialized(ParallelMode.TENSOR) and gpc.config.parallel.tensor.mode == "isp":
+                    setattr(param, IS_TENSOR_DATA_PARALLEL, True)
+                elif gpc.is_initialized(ParallelMode.TENSOR) and gpc.config.parallel.tensor.mode != "isp":
+                    setattr(param, IS_TENSOR_ZERO_PARALLEL, True)
+
+        # for linear module
+        if isinstance(module, (ColumnParallelLinear, RowParallelLinear)):
+            for param in module.parameters():
+                if gpc.is_initialized(ParallelMode.TENSOR) and gpc.config.parallel.tensor.mode != "isp":
+                    setattr(param, IS_TENSOR_ZERO_PARALLEL, True)
+                elif gpc.is_initialized(ParallelMode.WEIGHT) and gpc.config.parallel.tensor.mode == "isp":
+                    setattr(param, IS_WEIGHT_ZERO_PARALLEL, True)
+
+    if not isinstance(model, nn.ModuleList):
+        model = [model]
+
+    for _chunk in model:
+        if isinstance(_chunk, NaiveAMPModel):
+            _chunk = _chunk.model
+
+        for name, module in _chunk.named_modules():
+            _check_module(module)
+
+        for name, param in _chunk.named_parameters():
+            assert (
+                is_replica_zero_parallel_parameter(param)
+                or is_tensor_data_parallel_parameter(param)
+                or is_tensor_zero_parallel_parameter(param)
+                or is_weight_zero_parallel_parameter(param)
+            ), f"parameter with name:{name} has no parallel attribution."
 
 
 @llm_timeout(func_name="initialize_model")
@@ -98,6 +156,8 @@ def initialize_model():
             sync_buffer=False,
         )
 
+    set_attr_for_param_groups(model)
+
     # This sync is very important, cause the model weights kept in optimizer are copied
     # from the origin parameters in the memory, so we should make sure the dp sync
     # does not influence the model weights in optimizer be different with the origin parameters.
@@ -105,19 +165,18 @@ def initialize_model():
 
     # This function is needed to make sure parameters that are not splitted by tensor parallelism are
     # the same across tensor parallelism.
-    sync_model_param_within_tp(model)
-
     sync_model_replica_param_group(model)
 
     # Change random state mode to ParallelMode.DATA after model is built, guaranteeing the random
     # state in the same dp group are all the same.
-    set_mode(ParallelMode.WEIGHT_DATA)
+    random_mode = ParallelMode.WEIGHT_DATA if gpc.config.parallel.tensor["mode"] == "isp" else ParallelMode.DATA
+    set_mode(random_mode)
 
     # if fsdp enabled, wrap the model
     model = wrap_FSDP_model(model)
 
     gpc.fstp_handler = None
-    if gpc.config.parallel["weight"]["size"] >= 1 and gpc.config.parallel["weight"]["overlap"] is True:
+    if gpc.config.parallel["weight"]["size"] > 1 and gpc.config.parallel["weight"]["overlap"] is True:
         gpc.fstp_handler = FSTPOverlapHandler(model, gpc.get_group(ParallelMode.WEIGHT))
 
     return model
@@ -185,15 +244,7 @@ def initialize_optimizer(model: Union[nn.Module, nn.ModuleList]):
         eps=adam_cfg.adam_eps,
     )
 
-    if gpc.config.parallel.weight.size > 1:
-        optimizer = HybridZeroOptimizer2(
-            naive_optimizer,
-            grad_scal_cfg=gpc.config.grad_scaler,
-            zero_cfg=gpc.config.hybrid_zero_optimizer,
-            param_bcast_sync_handler=param_bcast_sync_handler,
-        )
-        logger.info("use HybridZeroOptimizer2 for new partition strategy...")
-    elif not gpc.config.parallel.zero1.fsdp:
+    if not gpc.config.parallel.zero1.fsdp:
         optimizer = HybridZeroOptimizer(
             naive_optimizer,
             grad_scal_cfg=gpc.config.grad_scaler,

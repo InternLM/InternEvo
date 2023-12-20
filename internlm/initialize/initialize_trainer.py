@@ -68,7 +68,7 @@ def initialize_trainer(
     assert isinstance(optimizer, BaseOptimizer), "optimizer must be instance of BaseOptimizer"
 
     # gradient handler, only support PipelineSharedModuleGradientHandler now
-    if gpc.is_using_pp():
+    if gpc.is_using_parallel_mode(ParallelMode.PIPELINE):
         gpc.config.gradient_handler = [dict(type="PipelineSharedModuleGradientHandler")]
     gradient_handler_cfg = gpc.config.get("gradient_handler", [])
     gradient_handlers = []
@@ -84,7 +84,7 @@ def initialize_trainer(
         data_fn = None
     else:
         data_fn = unpack_data
-    if gpc.is_using_pp():
+    if gpc.is_using_parallel_mode(ParallelMode.PIPELINE):
         gpc.config.NUM_MICRO_BATCHES = gpc.config.data.micro_num
         tensor_shape = get_tensor_shape()
         use_interleaved = (

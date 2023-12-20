@@ -9,7 +9,7 @@ from flash_attn.modules.embedding import ParallelGPT2Embeddings
 from flash_attn.modules.mlp import ParallelFusedMLP
 from torch import nn
 
-from internlm.core.context import IS_TENSOR_PARALLEL, ParallelMode
+from internlm.core.context import ParallelMode
 from internlm.core.context.parallel_context import global_context as gpc
 from internlm.core.naive_amp import set_fp32_attr_to_module
 from internlm.initialize.initialize_tensor import normal_, scaled_init_method_normal

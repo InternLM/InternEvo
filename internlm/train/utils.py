@@ -2,9 +2,10 @@ from typing import Dict, Tuple
 
 import torch
 
-from internlm.core.context.parallel_context import IS_REPLICA_ZERO_PARALLEL, IS_SEQUENCE_DATA_PARALLEL, ParallelMode
+from internlm.core.context.parallel_context import ParallelMode
 from internlm.core.context.parallel_context import global_context as gpc
 from internlm.model.utils import is_gate_param, is_moe_param, is_norm_param
+from internlm.utils.parallel import is_tensor_data_parallel_parameter
 
 
 def split_params_into_different_groups_for_optimizer(param_groups: Tuple[Dict]) -> Tuple[Dict]:
@@ -111,7 +112,7 @@ def split_params_into_different_groups_for_optimizer_with_new_partition_strategy
 
     # print(f"ht debug params_groups before split total len:{len(param_groups[0]['params'])}", flush=True)
 
-    # create new groups for IS_SEQUENCE_DATA_PARALLEL parameter group
+    # create new groups for IS_TENSOR_DATA_PARALLEL parameter group
     new_groups = {}
     new_groups["embed_head"] = {"name": "embed_head", "params": [], "optimizer_mode": ParallelMode.DATA}
     # new_groups["layer_norm"] = {"name": "layer_norm", "params": [], "optimizer_mode": ParallelMode.ZERO1}
@@ -126,7 +127,7 @@ def split_params_into_different_groups_for_optimizer_with_new_partition_strategy
         # assign param
         origin_params = []
         for param in pgroup["params"]:
-            if hasattr(param, IS_SEQUENCE_DATA_PARALLEL) and getattr(param, IS_SEQUENCE_DATA_PARALLEL) is True:
+            if is_tensor_data_parallel_parameter(param):
                 new_groups["embed_head"]["params"].append(param)
             # elif hasattr(param, IS_REPLICA_ZERO_PARALLEL) and getattr(param, IS_REPLICA_ZERO_PARALLEL) is True:
             #     new_groups["layer_norm"]["params"].append(param)

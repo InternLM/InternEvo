@@ -403,28 +403,28 @@ class FSTPFeedForward(BaseFeedForward):
         )
 
 
-def get_mlp_cls(sp_mode: str):
-    if sp_mode in ["none", "flash-attn"]:
+def get_mlp_cls(tp_mode: str):
+    if tp_mode in ["mtp", "fsp"]:
         mlp_cls = FeedForward
-    elif sp_mode == "megatron":
+    elif tp_mode == "msp":
         mlp_cls = MegatronFeedForward
     else:
         mlp_cls = FSTPFeedForward
     return mlp_cls
 
 
-def get_linear_cls(sp_mode: str, parallel_mode: str):
+def get_linear_cls(tp_mode: str, parallel_mode: str):
     if parallel_mode == "column":
-        if sp_mode in ["none", "flash-attn"]:
+        if tp_mode in ["mtp", "fsp"]:
             cls = ColumnParallelLinearTorch
-        elif sp_mode == "megatron":
+        elif tp_mode == "msp":
             cls = MegatronColumnParallelLinearTorch
         else:
             cls = FSTPLinear
     elif parallel_mode == "row":
-        if sp_mode in ["none", "flash-attn"]:
+        if tp_mode in ["mtp", "fsp"]:
             cls = RowParallelLinearTorch
-        elif sp_mode == "megatron":
+        elif tp_mode == "msp":
             cls = MegatronRowParallelLinearTorch
         else:
             cls = FSTPLinear

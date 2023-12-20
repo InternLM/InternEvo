@@ -79,7 +79,7 @@ def get_scheduler_hooks(metric, zero_optim) -> List[SchedulerHook]:
             SchedulerMetricHook(
                 metric=metric,
                 skip=(
-                    gpc.is_using_pp()
+                    gpc.is_using_parallel_mode(ParallelMode.PIPELINE)
                     and hasattr(gpc.config.model, "num_chunks")
                     and gpc.config.model.num_chunks > 1
                     and gpc.config.parallel["pipeline"].get("interleaved_overlap", False)
@@ -341,33 +341,6 @@ if __name__ == "__main__":
     # initialize distributed environment
     initialize_distributed_env(config=args.config, launcher=args.launcher, master_port=args.port, seed=args.seed)
     assert hasattr(gpc, "config") and gpc.config is not None
-
-    print(
-        f"ht debug rank:{gpc.get_global_rank()} ranks_in_tp_group:{gpc.get_ranks_in_group(ParallelMode.TENSOR)}",
-        flush=True,
-    )
-    print(
-        f"ht debug rank:{gpc.get_global_rank()} ranks_in_wp_group:{gpc.get_ranks_in_group(ParallelMode.WEIGHT)}",
-        flush=True,
-    )
-    print(
-        f"ht debug rank:{gpc.get_global_rank()} ranks_in_dp_group:{gpc.get_ranks_in_group(ParallelMode.DATA)}",
-        flush=True,
-    )
-    print(
-        f"ht debug rank:{gpc.get_global_rank()} ranks_in_pp_group:{gpc.get_ranks_in_group(ParallelMode.PIPELINE)}",
-        flush=True,
-    )
-    # print(
-    #     f"ht debug rank:{gpc.get_global_rank()} ranks_in_wdp_group:{gpc.get_ranks_in_group(ParallelMode.WEIGHT_DATA)}",
-    #     flush=True,
-    # )
-    print(
-        f"ht debug rank:{gpc.get_global_rank()} ranks_in_zero1_group:{gpc.get_ranks_in_group(ParallelMode.ZERO1)}",
-        flush=True,
-    )
-
-    assert False
 
     # initialize monitor manager context
     with initialize_monitor_manager(

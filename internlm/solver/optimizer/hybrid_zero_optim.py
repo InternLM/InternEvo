@@ -9,8 +9,13 @@ import torch
 import torch.distributed as dist
 from torch.optim import Optimizer
 
-from internlm.core.context import IS_SEQUENCE_PARALLEL, Config, ParallelMode
+from internlm.core.context import IS_REPLICA_ZERO_PARALLEL, Config, ParallelMode
 from internlm.core.context import global_context as gpc
+from internlm.core.context.parallel_context import (
+    IS_TENSOR_DATA_PARALLEL,
+    IS_WEIGHT_ZERO_PARALLEL,
+    IS_TENSOR_ZERO_PARALLEL,
+)
 from internlm.monitor import send_alert_message
 from internlm.solver.optimizer.store import (
     BucketStore,
@@ -71,6 +76,7 @@ class HybridZeroOptimizer(BaseOptimizer):
         clip_grad_norm = zero_cfg.clip_grad_norm
         self._overlap_sync_grad = zero_cfg.overlap_sync_grad
         self._overlap_sync_param = zero_cfg.overlap_sync_param
+        self.use_isp = gpc.config.parallel.tensor.mode == "isp"
 
         super().__init__(optim=optimizer)
 
@@ -82,7 +88,8 @@ class HybridZeroOptimizer(BaseOptimizer):
         # ParameterStore will manage the tensor buffers used for zero
         # it will not manage the tensors used by mixed precision training
         self._param_store = ParameterStore(ParallelMode.ZERO1)
-        self._grad_store = GradientStore(ParallelMode.DATA)
+        parallel_mode = ParallelMode.WEIGHT_DATA if self.use_isp else ParallelMode.DATA
+        self._grad_store = GradientStore(parallel_mode)
         self._bucket_store: List[BucketStore] = []
         self._accum_grad_buckets: List[BucketStore] = []
         self._bucket_in_progress = []
@@ -120,8 +127,10 @@ class HybridZeroOptimizer(BaseOptimizer):
 
         self.rank_unique_id = (
             f"gpus-{gpc.get_world_size(ParallelMode.GLOBAL)}_"
-            + f"pp-{gpc.get_local_rank(ParallelMode.PIPELINE)}_"
+            + f"wp-{gpc.get_local_rank(ParallelMode.WEIGHT)}_"
             + f"tp-{gpc.get_local_rank(ParallelMode.TENSOR)}_"
+            + f"dp-{gpc.get_local_rank(ParallelMode.DATA)}_"
+            + f"pp-{gpc.get_local_rank(ParallelMode.PIPELINE)}_"
             + f"zo-{gpc.get_local_rank(ParallelMode.ZERO1)}.pt"
         )
         self.params_per_rank_id_dict = []
@@ -129,7 +138,7 @@ class HybridZeroOptimizer(BaseOptimizer):
         if self._overlap_sync_param:
             assert self._param_bcast_sync_handler is not None
 
-        if gpc.config.parallel["tensor"]["sp"] == "intern" and gpc.config.parallel["tensor"]["intern_overlap"] is True:
+        if gpc.config.parallel["weight"]["size"] > 1 and gpc.config.parallel["weight"]["overlap"] is True:
             self._fstp_handler = gpc.fstp_handler
         else:
             self._fstp_handler = None
@@ -148,17 +157,25 @@ class HybridZeroOptimizer(BaseOptimizer):
 
             # to find real zero mode. if zero is not used, set all param group as ParallelMode.ZERO1
             # if zero is used, expert dp group will use ParallelMode.EXPERT_DATA as the real zero mode
-            zero_mode = (
-                ParallelMode.ZERO1
-                if param_group["dp_mode"] == gpc.get_world_size(ParallelMode.ZERO1) == 1 or ParallelMode.DATA
-                else ParallelMode.EXPERT_DATA
-            )
+            # zero_mode = (
+            #     ParallelMode.ZERO1
+            #     if param_group["dp_mode"] == gpc.get_world_size(ParallelMode.ZERO1) == 1 or ParallelMode.DATA
+            #     else ParallelMode.EXPERT_DATA
+            # )
+            zero_mode = param_group["optimizer_mode"]
+
             self._zero_local_rank.append(gpc.get_local_rank(zero_mode))
             self._zero_world_size.append(gpc.get_world_size(zero_mode))
             # TODO _broadcast_parallel_mode is not only used in broadcast, maybe can change its name
             self._broadcast_parallel_mode.append(zero_mode)
-            self._bucket_store.append(BucketStore(group_id, param_group["dp_mode"]))
-            self._accum_grad_buckets.append(BucketStore(group_id, param_group["dp_mode"]))
+
+            if param_group["name"] != "embed_head" and self.use_isp:
+                grad_reduce_mode = ParallelMode.WEIGHT_DATA
+            else:
+                grad_reduce_mode = ParallelMode.DATA
+
+            self._bucket_store.append(BucketStore(group_id, grad_reduce_mode))
+            self._accum_grad_buckets.append(BucketStore(group_id, grad_reduce_mode))
 
             # assign parameters to ranks the params in the list are sorted
             params_per_rank, no_params_ranks = self._partition_param_list(group_id, param_group)
@@ -220,8 +237,6 @@ class HybridZeroOptimizer(BaseOptimizer):
         # flag used to skip unnecessary gradient reduce operation when gradient accumulation is enabled.
         self.skip_grad_reduce = False
 
-        # reduction hook is only used if overlapping communication
-        # if it is stage 1 without overlapping, no hook will be attached
         self._attach_reduction_hook()
 
     @property
@@ -307,12 +322,12 @@ class HybridZeroOptimizer(BaseOptimizer):
                         reduce_rank=reduce_rank,
                     )
 
-                    def reduction_sp_func():
+                    def reduction_layernorm_func():
                         handle = reduce_tensor(
                             param.grad,
                             dtype=None,
                             dst_rank=reduce_rank,
-                            parallel_mode=ParallelMode.TENSOR,
+                            parallel_mode=ParallelMode.WEIGHT if self.use_isp else ParallelMode.TENSOR,
                         )
                         handle.wait()
 
@@ -328,23 +343,24 @@ class HybridZeroOptimizer(BaseOptimizer):
                         reduce_scatter_checker()
 
                     # define hook for sequence_parallel
-                    def reduce_grad_hook_sp(*args):  # pylint: disable=W0613
+                    def extra_layernorm_reduce_grad_hook(*args):  # pylint: disable=W0613
                         if self.skip_grad_reduce is False:
-                            reduction_sp_func()
+                            reduction_layernorm_func()
 
                     # get the AccumulateGrad object of the param itself
                     # If these objects are not kept, reduction hooks may not be attached successfully.
                     accum_grad_obj = get_grad_accumulate_object(param)
                     self._grad_store.add_accumulate_grad_object(accum_grad_obj)
 
-                    # if sequence_parallel is True,
-                    # the grad of norm should be all-reduce across the tp process group
+                    # the grad of layernorm should be all-reduce across the global process group
+                    # here is the first stage all-reduce in tp/wp process group
+                    # the second stage all-reduce will be processed in reduce_grad_hook
                     if (
-                        gpc.config.parallel.sequence_parallel is True
-                        and hasattr(param, IS_SEQUENCE_PARALLEL)
-                        and getattr(param, IS_SEQUENCE_PARALLEL) is True
+                        gpc.config.parallel.weight.size > 1
+                        and hasattr(param, IS_REPLICA_ZERO_PARALLEL)
+                        and getattr(param, IS_REPLICA_ZERO_PARALLEL) is True
                     ):
-                        accum_grad_obj.register_hook(reduce_grad_hook_sp)
+                        accum_grad_obj.register_hook(extra_layernorm_reduce_grad_hook)
 
                     # we should not only register for parameters which have _fstp_reduce_scatter_str attr.
                     # we must keep up with reduce_grad_hook.
@@ -373,9 +389,9 @@ class HybridZeroOptimizer(BaseOptimizer):
         :return: True if the parameter should be updated by the current rank. Otherwise false.
         :rtype: bool
         """
-        tensor_rank = self._param_store.get_param_rank(param)
+        tensor_ranks = self._param_store.get_param_rank(param)
         group_id = getattr(param, "group_id")
-        return tensor_rank == gpc.get_local_rank(self._broadcast_parallel_mode[group_id])
+        return gpc.get_local_rank(self._broadcast_parallel_mode[group_id]) in tensor_ranks
 
     def _accum_grads_store_in_bucket(self, bucket: BucketStore, reduce_rank: Optional[int] = None) -> None:
         for _param in bucket.get_param(reduce_rank):
@@ -592,10 +608,24 @@ class HybridZeroOptimizer(BaseOptimizer):
     ):
         # compute norm for gradients that have been reduced
         params, grads = self._param_store.get_reduced_param_for_compute_norm(group_id=group_id, last_bucket=last_bucket)
+        params_is_padding = False
         if len(params) == 0:
+            params_is_padding = True
             dtype = self.param_groups[group_id]["dtype"]
             grads = [self.padding_grad.to(dtype)]
             params = [self.padding_tensor.to(dtype)]
+
+            if group_id == 0:
+                for param in params:
+                    if self.use_isp:
+                        setattr(param, IS_WEIGHT_ZERO_PARALLEL, True)
+                    else:
+                        setattr(param, IS_TENSOR_ZERO_PARALLEL, True)
+            elif group_id == 1:
+                for param in params:
+                    setattr(param, IS_TENSOR_DATA_PARALLEL, True)
+            else:
+                raise NotImplementedError("group_id > 1 is not yet implemented.")
 
         norm = 0
         if self._clip_grad_norm > 0:
@@ -607,6 +637,17 @@ class HybridZeroOptimizer(BaseOptimizer):
                 previous_norm=previous_norm,
                 zero_mode=self._broadcast_parallel_mode[group_id],
             )
+
+        if params_is_padding:
+            for param in params:
+                if hasattr(param, IS_REPLICA_ZERO_PARALLEL):
+                    delattr(param, IS_REPLICA_ZERO_PARALLEL)
+                if hasattr(param, IS_TENSOR_DATA_PARALLEL):
+                    delattr(param, IS_TENSOR_DATA_PARALLEL)
+                if hasattr(param, IS_TENSOR_ZERO_PARALLEL):
+                    delattr(param, IS_TENSOR_ZERO_PARALLEL)
+                if hasattr(param, IS_WEIGHT_ZERO_PARALLEL):
+                    delattr(param, IS_WEIGHT_ZERO_PARALLEL)
 
         return norm
 

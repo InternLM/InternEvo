@@ -68,7 +68,9 @@ def train(
     ), f"pipeline parallel size: {gpc.get_world_size(ParallelMode.PIPELINE)} is not as expected {pp_size}"
     if interleaved:
         assert (
-            gpc.is_using_pp() and hasattr(gpc.config.model, "num_chunks") and gpc.config.model.num_chunks == num_chunks
+            gpc.is_using_parallel_mode(ParallelMode.PIPELINE)
+            and hasattr(gpc.config.model, "num_chunks")
+            and gpc.config.model.num_chunks == num_chunks
         )
         assert gpc.config.parallel["pipeline"].get(
             "interleaved_overlap", False
@@ -134,7 +136,7 @@ def train(
         SchedulerMetricHook(
             metric=metric,
             skip=(
-                gpc.is_using_pp()
+                gpc.is_using_parallel_mode(ParallelMode.PIPELINE)
                 and hasattr(gpc.config.model, "num_chunks")
                 and gpc.config.model.num_chunks > 1
                 and gpc.config.parallel["pipeline"].get("interleaved_overlap", False)

@@ -11,7 +11,7 @@ from internlm.model.metrics import AccPerplex, SchedulerMetricHook
 
 @contextmanager
 def switch_evaluation_no_pipeline_scheduler(trainer, grad_accum_size, grad_accum_batch_size, metric_hook_list):
-    if not gpc.is_using_pp():
+    if not gpc.is_using_parallel_mode(ParallelMode.PIPELINE):
         prev_data_process_func = trainer.schedule.data_process_func
         prev_grad_accum_size = trainer.schedule._grad_accum_size
         prev_grad_accum_batch_size = trainer.schedule._grad_accum_batch_size
@@ -31,7 +31,7 @@ def switch_evaluation_no_pipeline_scheduler(trainer, grad_accum_size, grad_accum
 
 @contextmanager
 def switch_evaluation_pipeline_scheduler(trainer, num_microbatches, tensor_shape, metric_hook_list):
-    if gpc.is_using_pp():
+    if gpc.is_using_parallel_mode(ParallelMode.PIPELINE):
         pre_data_process_func = trainer.schedule.data_process_func
         prev_num_microbatches = trainer.schedule.num_microbatches
         prev_tensor_shape = trainer.schedule.tensor_shape
@@ -101,7 +101,7 @@ def evaluate_on_val_dls(
             ):
                 moe_loss = None
                 with torch.inference_mode():
-                    if gpc.is_using_pp():
+                    if gpc.is_using_parallel_mode(ParallelMode.PIPELINE):
                         total_val_bsz = len(batch[1])
                         assert total_val_bsz % data_cfg.micro_bsz == 0
                         num_microbatches = total_val_bsz // data_cfg.micro_bsz

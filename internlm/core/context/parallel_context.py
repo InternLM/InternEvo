@@ -24,10 +24,12 @@ from . import process_group_initializer as pgroup_initializer
 from .process_group_initializer import ParallelMode
 from .random import add_seed, get_seeds, set_mode
 
-IS_TENSOR_PARALLEL = "is_tensor_parallel"
-IS_SEQUENCE_PARALLEL = "is_sequence_parallel"
+
 IS_REPLICA_ZERO_PARALLEL = "is_replica_zero_parallel"
-IS_SEQUENCE_DATA_PARALLEL = "is_sequence_data_parallel"
+# for isp, with optimizer split in dp group
+IS_TENSOR_DATA_PARALLEL = "is_tensor_data_parallel"
+# for mtp/msp/fsp, with optimizer split in zero1 group
+IS_TENSOR_ZERO_PARALLEL = "is_tensor_zero_parallel"
 IS_WEIGHT_ZERO_PARALLEL = "is_weight_zero_parallel"
 
 logger = get_logger(__file__)
@@ -249,30 +251,11 @@ class ParallelContext(metaclass=SingletonMeta):
 
         return ranks_in_group[(local_rank - 1) % world_size]
 
-    def is_using_dp(self):
+    def is_using_parallel_mode(self, parallel_mode):
         """Returns a boolean value indicating whether the current device is initilized with
         ParallelMode.DATA and its world_size is greater than 1.
         """
-        return self.is_initialized(ParallelMode.DATA) and self.get_world_size(ParallelMode.DATA) > 1
-
-    def is_using_tp(self):
-        """Returns a boolean value indicating whether the current device is initilized with
-        ParallelMode.TENSOR and its world_size is greater than 1.
-        """
-        return self.is_initialized(ParallelMode.TENSOR) and self.get_world_size(ParallelMode.TENSOR) > 1
-
-    def is_using_pp(self):
-        """Returns a boolean value indicating whether the current device is initilized with
-        ParallelMode.PIPELINE and its world_size is greater than 1.
-        """
-        return self.is_initialized(ParallelMode.PIPELINE) and self.get_world_size(ParallelMode.PIPELINE) > 1
-
-    def is_using_sequence(self):
-        """Returns a boolean value indicating whether the current device is initilized with
-        ParallelMode.SEQUENCE and its world_size is greater than 1.
-        """
-        return False
-        # return gpc.is_initialized(ParallelMode.SEQUENCE) and gpc.get_world_size(ParallelMode.SEQUENCE) > 1
+        return self.is_initialized(parallel_mode) and self.get_world_size(parallel_mode) > 1
 
     def is_first_rank(self, parallel_mode: ParallelMode):
         """Returns a boolean value indicating whether the current device is the first one

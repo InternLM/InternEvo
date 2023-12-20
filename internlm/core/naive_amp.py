@@ -51,7 +51,7 @@ class NaiveAMPModel(nn.Module):
         self._sync_buf = sync_buffer
         self.dtype = dtype
 
-        if gpc.is_initialized(parallel_mode) and gpc.get_world_size(parallel_mode) > 1:
+        if gpc.is_using_parallel_mode(parallel_mode):
             self._process_group = gpc.get_group(parallel_mode)
             self._world_size = gpc.get_world_size(parallel_mode)
         else:

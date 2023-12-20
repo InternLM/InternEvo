@@ -10,8 +10,6 @@ import torch.distributed as dist
 import torch.nn.functional as F
 from einops import rearrange
 
-from internlm.core.context import IS_WEIGHT_ZERO_PARALLEL
-
 try:
     from flash_attn.flash_attn_interface import flash_attn_unpadded_func
 except ImportError:
@@ -37,7 +35,7 @@ from flash_attn.modules.mha import (
 from torch import Tensor, nn
 from torch.nn import Module
 
-from internlm.core.context import IS_TENSOR_PARALLEL, ParallelMode
+from internlm.core.context import ParallelMode
 from internlm.core.context import global_context as gpc
 from internlm.model.embedding import DynamicNTKScalingRotaryEmbedding, RotaryEmbedding
 from internlm.model.linear import get_linear_cls
@@ -174,7 +172,7 @@ class MHA(nn.Module):
         use_flash_attn: bool = True,
         device: Optional[torch.device] = None,
         dtype: Optional[torch.dtype] = None,
-        sp_mode: str = "none",
+        tp_mode: str = "mtp",
     ) -> None:
         factory_kwargs = {"device": device, "dtype": dtype}
         super().__init__()
@@ -202,7 +200,7 @@ class MHA(nn.Module):
                 self.rotary_emb = RotaryEmbedding(self.rotary_emb_dim, scale_base=rotary_emb_scale_base, device=device)
 
         # notice here should change bias=True
-        Wqkv_cls = get_linear_cls(sp_mode, "column")
+        Wqkv_cls = get_linear_cls(tp_mode, "column")
         self.Wqkv = Wqkv_cls(
             embed_dim,
             3 * embed_dim,
@@ -218,14 +216,14 @@ class MHA(nn.Module):
         self.inner_cross_attn = inner_cross_attn_cls(
             causal=causal, softmax_scale=softmax_scale, attention_dropout=dropout
         )
-        if sp_mode == "intern":
+        if tp_mode == "isp":
             self.inner_attn = DistributedAttention(self.inner_attn, sequence_process_group=sequence_process_group)
             self.inner_cross_attn = DistributedAttention(
                 self.inner_cross_attn, sequence_process_group=sequence_process_group
             )
 
         # output projection always have the bias (for now)
-        out_proj_cls = get_linear_cls(sp_mode, "row")
+        out_proj_cls = get_linear_cls(tp_mode, "row")
         self.out_proj = out_proj_cls(
             embed_dim,
             embed_dim,
@@ -234,15 +232,6 @@ class MHA(nn.Module):
             sequence_parallel=gpc.config.parallel.sequence_parallel,
             **factory_kwargs,
         )
-        # need to assign tp attribute so that internlm know it is tensor parallel module
-        # if gpc.get_world_size(ParallelMode.TENSOR) > 1:
-        #     for name in ["out_proj", "Wqkv"]:
-        #         for param in getattr(self, name).parameters():
-        #             setattr(param, IS_TENSOR_PARALLEL, True)
-        if gpc.get_world_size(ParallelMode.WEIGHT) > 1:
-            for name in ["out_proj", "Wqkv"]:
-                for param in getattr(self, name).parameters():
-                    setattr(param, IS_WEIGHT_ZERO_PARALLEL, True)
 
     def forward(self, x, seqlen=None, inference_params=None, **kwargs):
         if kwargs.get("indexes", None) is not None:
