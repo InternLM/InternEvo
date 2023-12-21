@@ -275,15 +275,12 @@ class ParallelContext(metaclass=SingletonMeta):
 
     def is_rank_for_log(self):
         """Returns a boolean value indicating whether the current device should print log."""
-        # is_log_rank = (
-        #     self.is_first_rank(ParallelMode.DATA)
-        #     and self.is_first_rank(ParallelMode.TENSOR)
-        #     and self.is_last_rank(ParallelMode.PIPELINE)
-        # )
         is_log_rank = (
-            self.is_first_rank(ParallelMode.WEIGHT)
+            self.is_first_rank(ParallelMode.TENSOR)
+            and self.is_first_rank(ParallelMode.WEIGHT)
             and self.is_first_rank(ParallelMode.DATA)
             and self.is_first_rank(ParallelMode.WEIGHT_DATA)
+            and self.is_last_rank(ParallelMode.PIPELINE)
         )
         return is_log_rank
 

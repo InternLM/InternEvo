@@ -287,7 +287,7 @@ class FSTPOverlapHandler:
 
         def _pre_forward_hook_for_block(block: nn.Module, inputs: Any):  # pylint: disable=W0613
             fstp_modules = self.index_to_fstp_modules[self.num_blocks - 1]
-            if module in fstp_modules:
+            for module in fstp_modules:
                 self._all_gather_module_weight(module)
                 _wait_handle(module)
 
