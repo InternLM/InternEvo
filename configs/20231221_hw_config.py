@@ -1,4 +1,4 @@
-SEQ_LEN = 8096
+SEQ_LEN = 8192
 MLP_RATIO = 8 / 3
 MICRO_NUM=2
 MICRO_BATCH_SIZE=1
@@ -9,6 +9,7 @@ INITIAL_SCALE=2**14
 INIT_MODEL="/mnt/petrelfs/wangguoteng.p/InternLM/openxlab/internlm-7b"
 DTYPE="torch.float16"
 USE_FA=True
+JOB_NAME="hw_7B_dolly_sft"
 
 adam={
     "lr": LEARNING_RATE,
@@ -98,8 +99,8 @@ parallel={
     "sequence_parallel": False
 }
 ckpt={
-    "enable_save_ckpt": False,
-    "save_ckpt_folder": None,
+    "enable_save_ckpt": True,
+    "save_ckpt_folder": f"local:{JOB_NAME}_saved_ckpt",
     "load_ckpt_folder": None,
     "load_ckpt_info": {
         "path": INIT_MODEL,
@@ -121,5 +122,4 @@ monitor={
         "light_monitor_address": None
     }
 }
-JOB_NAME="hw_7B_dolly_sft"
 
