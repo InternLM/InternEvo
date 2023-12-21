@@ -6,6 +6,7 @@ import os
 from typing import Optional
 
 import torch
+import pickle
 from flash_attn.modules.embedding import ParallelGPT2Embeddings
 from flash_attn.modules.mlp import ParallelFusedMLP
 from torch import nn
@@ -216,12 +217,12 @@ class PackedFlashBaseLayer1D(nn.Module):
         if self.residual_in_fp32:
             residual = residual.to(torch.float32)
 
-        if "DUMP_OP" in os.environ and gpc.get_global_rank() == 0 and block_count["step"] == 0:
+        if "DUMP_OP" in os.environ and gpc.get_global_rank() == 0 and block_count["step"] == 0 and int(os.environ['STEP_COUNT']) < 10:
             print(
                 f"fwd block {block_count['step']} dropout1+norm1: {hidden_states}, shape:{hidden_states.shape}",
                 flush=True,
             )
-            torch.save(hidden_states, "./dump_ops/dropout1+norm1_dp_0_step_0_block_0.pt")
+            torch.save(hidden_states, f"./dump_ops/dropout1+norm1_dp_0_step_{int(os.environ['STEP_COUNT'])}_block_0.pt")
 
         hidden_states = self.mixer(hidden_states, **mixer_kwargs)
 
@@ -236,21 +237,21 @@ class PackedFlashBaseLayer1D(nn.Module):
         else:
             residual, hidden_states = _dropout_and_norm_ffn(residual, hidden_states)
 
-        if "DUMP_OP" in os.environ and gpc.get_global_rank() == 0 and block_count["step"] == 0:
+        if "DUMP_OP" in os.environ and gpc.get_global_rank() == 0 and block_count["step"] == 0 and int(os.environ['STEP_COUNT']) < 10:
             print(
                 f"fwd block {block_count['step']} dropout2+norm2: {hidden_states}, shape:{hidden_states.shape}",
                 flush=True,
             )
-            torch.save(hidden_states, "./dump_ops/dropout2+norm2_dp_0_step_0_block_0.pt")
+            torch.save(hidden_states, f"./dump_ops/dropout2+norm2_dp_0_step_{int(os.environ['STEP_COUNT'])}_block_0.pt")
 
         if self.residual_in_fp32:
             residual = residual.to(torch.float32)
 
         hidden_states = self.mlp(hidden_states)
 
-        if "DUMP_OP" in os.environ and gpc.get_global_rank() == 0 and block_count["step"] == 0:
+        if "DUMP_OP" in os.environ and gpc.get_global_rank() == 0 and block_count["step"] == 0 and int(os.environ['STEP_COUNT']) < 10:
             print(f"fwd block {block_count['step']} mlp: {hidden_states}, shape:{hidden_states.shape}", flush=True)
-            torch.save(hidden_states, "./dump_ops/mlp_dp_0_step_0_block_0.pt")
+            torch.save(hidden_states, f"./dump_ops/mlp_dp_0_step_{int(os.environ['STEP_COUNT'])}_block_0.pt")
 
         block_count["step"] += 1
         return hidden_states + residual
@@ -393,8 +394,17 @@ class PackedFlashInternLm1D(nn.Module):
         self.parallel_output = parallel_output
 
     def forward(self, hidden_states=None, cu_seqlens=None, input_ids=None, indexes=None, inference_params=None):
+        now_step = int(os.environ['STEP_COUNT'])
         if "USE_FAKE_DATA" in os.environ:
             input_ids[:, :] = 100
+
+        if "DUMP_DATA_PATH" in os.environ:
+            batch_file = os.path.join(os.environ['DUMP_DATA_PATH'], f"./dp-{gpc.get_local_rank(ParallelMode.DATA)}/batchcount-{now_step}.pickle")  # batchcount-953.pickle
+            if not os.path.exists(os.path.dirname(batch_file)):
+                os.makedirs(os.path.dirname(batch_file), exist_ok=True)
+            with open(batch_file, "wb") as f:
+                pickle.dump({"cu_seqlens": cu_seqlens, "input_ids": input_ids, "indexes": indexes}, f)
+
         # attention_mask: compute attention on the places where the value is 1
         if hasattr(self, "embedding"):
             hidden_states = self.embedding(input_ids)
@@ -403,9 +413,9 @@ class PackedFlashInternLm1D(nn.Module):
                     self.embed_grad_scale * hidden_states + (1 - self.embed_grad_scale) * hidden_states.detach()
                 )
 
-        if gpc.get_global_rank() == 0 and "DUMP_OP" in os.environ:
+        if gpc.get_global_rank() == 0 and "DUMP_OP" in os.environ and  now_step < 10:
             print(f"fwd hidden_states embedding output: {hidden_states}, shape:{hidden_states.shape}", flush=True)
-            torch.save(hidden_states, "./dump_ops/embedding_dp_0_step_0_block_0.pt")
+            torch.save(hidden_states, f"./dump_ops/embedding_dp_0_step_{now_step}_block_0.pt")
 
         if isinstance(cu_seqlens, list):
             assert len(cu_seqlens) == 1
@@ -434,16 +444,16 @@ class PackedFlashInternLm1D(nn.Module):
         if hasattr(self, "norm"):
             hidden_states = self.norm(hidden_states.float())
 
-        if gpc.get_global_rank() == 0 and "DUMP_OP" in os.environ:
+        if gpc.get_global_rank() == 0 and "DUMP_OP" in os.environ and int(os.environ['STEP_COUNT']) < 10:
             print(f"fwd norm: {hidden_states}, shape{hidden_states.shape}", flush=True)
-            torch.save(hidden_states, "./dump_ops/norm_dp_0_step_0_block_0.pt")
+            torch.save(hidden_states, f"./dump_ops/norm_dp_0_step_{now_step}_block_0.pt")
 
         if hasattr(self, "head"):
             hidden_states = self.head(hidden_states)
 
-        if gpc.get_global_rank() == 0 and "DUMP_OP" in os.environ:
+        if gpc.get_global_rank() == 0 and "DUMP_OP" in os.environ and int(os.environ['STEP_COUNT']) < 10:
             print(f"fwd head: {hidden_states}, shape{hidden_states.shape}", flush=True)
-            torch.save(hidden_states, "./dump_ops/head_dp_0_step_0_block_0.pt")
+            torch.save(hidden_states, f"./dump_ops/head_dp_0_step_{now_step}_block_0.pt")
 
         if not self.parallel_output:
             hidden_states = gather_forward_split_backward(hidden_states, ParallelMode.TENSOR, dim=-1)

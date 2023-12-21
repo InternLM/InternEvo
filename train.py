@@ -202,13 +202,15 @@ def main(args):
             empty_cache_and_diag(batch_count, interval=gpc.config.data.empty_cache_and_diag_interval)
             start_time = time.time()
             timer("one-batch").start()
+            os.environ['STEP_COUNT'] = str(batch_count)
 
             # load batch data
             # batch[0]['input_ids']
-            # batch, train_iter = load_new_batch(train_dl=train_dl, train_iter=train_iter, train_state=train_state)
-            batch_file = os.path.join(my_name, f"batchcount-{batch_count}.pickle")  # batchcount-953.pickle
-            with open(batch_file, "rb") as f:
-                batch = pickle.load(f)
+            batch, train_iter = load_new_batch(train_dl=train_dl, train_iter=train_iter, train_state=train_state)
+                        
+            # batch_file = os.path.join(my_name, f"batchcount-{batch_count}.pickle")  # batchcount-953.pickle
+            # with open(batch_file, "rb") as f:
+            #     batch = pickle.load(f)
 
             # record the consumed samples in training
             train_state.batch_count = batch_count
@@ -239,7 +241,7 @@ def main(args):
             else:
                 _, _, loss = trainer.execute_schedule(
                     batch,
-                    forward_only=True if 'DUMP_OP' in os.environ else False,
+                    forward_only=False,
                     return_loss=True,
                     return_output_label=False,
                 )
@@ -261,8 +263,8 @@ def main(args):
                         message=f"Warning: skip parameter update at step {batch_count}.",
                     )
 
-            if 'DUMP_OP' in os.environ:
-                exit(0)
+            # if 'DUMP_OP' in os.environ:
+            #     exit(0)
 
             # calculate and record the training metrics, eg. loss, accuracy and so on.
             record_current_batch_training_metrics(
@@ -287,15 +289,15 @@ def main(args):
             timer("one-batch").stop()
 
             # evaluate on validation data loaders
-            if valid_every > 0 and train_state.step_count % valid_every == 0:
-                evaluate_on_val_dls(
-                    trainer=trainer,
-                    val_dls=val_dls,
-                    writer=writer,
-                    logger=logger,
-                    step_count=train_state.step_count,
-                    update_panel=uniscale_logger is not None,
-                )
+            # if valid_every > 0 and train_state.step_count % valid_every == 0:
+            #     evaluate_on_val_dls(
+            #         trainer=trainer,
+            #         val_dls=val_dls,
+            #         writer=writer,
+            #         logger=logger,
+            #         step_count=train_state.step_count,
+            #         update_panel=uniscale_logger is not None,
+            #     )
 
             # checkpoint the training states in specific steps, which is determined by the args "checkpoint_every"
             # # save batch sampler that tracks the true consumed samples

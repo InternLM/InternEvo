@@ -347,6 +347,7 @@ def load_model_checkpoint(folder, model):
     dp_rank = gpc.get_local_rank(ParallelMode.DATA)
 
     fns = get_fns(folder)
+    # model = model.model
 
     # avoid ckpt misuse between FSDP and no-FSDP
     test_fn = list([f for f in fns if f.startswith("model_t") and not f.endswith(".md5")]).pop()

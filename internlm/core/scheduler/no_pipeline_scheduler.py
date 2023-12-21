@@ -6,6 +6,9 @@
 from typing import Any, Callable, Iterable, List, Optional
 
 import torch
+import os
+import pickle
+from internlm.core.context import IS_SEQUENCE_PARALLEL, IS_TENSOR_PARALLEL, ParallelMode
 
 from internlm.core.context import global_context as gpc
 from internlm.core.engine import Engine
@@ -112,6 +115,14 @@ class NonPipelineScheduler(BaseScheduler):
             else:
                 output = self._call_engine(engine, data)
             self._call_hooks("after_forward", output)
+
+            if "DUMP_DATA_PATH" in os.environ:
+                now_step = int(os.environ['STEP_COUNT'])
+                batch_file = os.path.join(os.environ['DUMP_DATA_PATH'], f"./dp-{gpc.get_local_rank(ParallelMode.DATA)}/batchcount-{now_step}-label.pickle")  # batchcount-953.pickle
+                if not os.path.exists(os.path.dirname(batch_file)):
+                    os.makedirs(os.path.dirname(batch_file), exist_ok=True)
+                with open(batch_file, "wb") as f:
+                    pickle.dump({"label": label}, f)
 
             self._call_hooks("post_helper_func", output, label)
 

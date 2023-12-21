@@ -344,17 +344,17 @@ class MHA(nn.Module):
                 (in case batch is small).
         """
         qkv = self.Wqkv(x)  # total x hsz'
-        if "DUMP_OP" in os.environ and gpc.get_global_rank() == 0 and block_count["step"] == 0:
+        if "DUMP_OP" in os.environ and gpc.get_global_rank() == 0 and block_count["step"] == 0 and int(os.environ['STEP_COUNT']) < 10:
             print(f"fwd block {block_count['step']} qkv: {qkv}, shape: {qkv.shape}", flush=True)
-            torch.save(qkv, "./dump_ops/qkv_dp_0_step_0_block_0.pt")
+            torch.save(qkv, f"./dump_ops/qkv_dp_0_step_{int(os.environ['STEP_COUNT'])}_block_0.pt")
 
         qkv = rearrange(qkv, "t (three h d) -> t three h d", three=3, d=self.head_dim)  # total x 3 x n_head x d
         qkv = self.rotary_emb(qkv, **kwargs)
         kwargs.pop("indexes")
 
-        if "DUMP_OP" in os.environ and gpc.get_global_rank() == 0 and block_count["step"] == 0:
+        if "DUMP_OP" in os.environ and gpc.get_global_rank() == 0 and block_count["step"] == 0 and int(os.environ['STEP_COUNT']) < 10:
             print(f"fwd block {block_count['step']} rotary_emb: {qkv}, shape: {qkv.shape}", flush=True)
-            torch.save(qkv, "./dump_ops/rotary_emb_dp_0_step_0_block_0.pt")
+            torch.save(qkv, f"./dump_ops/rotary_emb_dp_0_step_{int(os.environ['STEP_COUNT'])}_block_0.pt")
 
         if inference_params is None:
             if gpc.config.model.dtype is torch.float32 and gpc.config.model.use_flash_attn:
@@ -365,15 +365,15 @@ class MHA(nn.Module):
             else:
                 context = self.inner_attn(qkv, **kwargs)
 
-            if "DUMP_OP" in os.environ and gpc.get_global_rank() == 0 and block_count["step"] == 0:
+            if "DUMP_OP" in os.environ and gpc.get_global_rank() == 0 and block_count["step"] == 0 and int(os.environ['STEP_COUNT']) < 10:
                 print(f"fwd block {block_count['step']} inner_attn: {context}, shape: {context.shape}", flush=True)
-                torch.save(context, "./dump_ops/inner_attn_dp_0_step_0_block_0.pt")
+                torch.save(context, f"./dump_ops/inner_attn_dp_0_step_{int(os.environ['STEP_COUNT'])}_block_0.pt")
         else:
             raise RuntimeError("Not support this right now")
 
         context = rearrange(context, "b h d -> b (h d)")  # recover the shape
         out = self.out_proj(context)
-        if "DUMP_OP" in os.environ and gpc.get_global_rank() == 0 and block_count["step"] == 0:
+        if "DUMP_OP" in os.environ and gpc.get_global_rank() == 0 and block_count["step"] == 0 and int(os.environ['STEP_COUNT']) < 10:
             print(f"fwd block {block_count['step']} out_proj: {out}, shape: {out.shape}", flush=True)
-            torch.save(out, "./dump_ops/out_proj_dp_0_step_0_block_0.pt")
+            torch.save(out, f"./dump_ops/out_proj_dp_0_step_{int(os.environ['STEP_COUNT'])}_block_0.pt")
         return out
