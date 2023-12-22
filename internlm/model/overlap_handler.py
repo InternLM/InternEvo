@@ -293,7 +293,7 @@ class FSTPOverlapHandler:
 
         def _post_forward_hook_for_module(module: nn.Module, inputs: Any, output: Any):  # pylint: disable=W0613
             _clear_handle(module)
-            if not self.model_checkpoint:
+            if not (self.model_checkpoint and self.is_forward is False):
                 _clear_weight(module)
 
         def _post_backward_hook_for_head(module: nn.Module, grad_input, grad_output):  # pylint: disable=W0613
