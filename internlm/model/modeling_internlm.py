@@ -409,9 +409,13 @@ class PackedFlashInternLm1D(nn.Module):
                 os.makedirs(os.path.dirname(batch_file), exist_ok=True)
 
             if not os.path.exists(batch_file):
+                if gpc.get_global_rank() == 0:
+                    print(f"Step: {now_step} not found dumped data, new gen", flush=True)
                 with open(batch_file, "wb") as f:
                     pickle.dump({"cu_seqlens": cu_seqlens, "input_ids": input_ids, "indexes": indexes}, f)
             else:
+                if gpc.get_global_rank() == 0:
+                    print(f"Step: {now_step} found dumped data, load cache", flush=True)
                 with open(batch_file, "rb") as f:
                     data = pickle.load(f)
                 cu_seqlens = data['cu_seqlens']
@@ -422,8 +426,8 @@ class PackedFlashInternLm1D(nn.Module):
                     cu_seqlens = None
                     indexes = None
 
-                if gpc.get_global_rank() == 0:
-                    print(f"input_ids shape: {input_ids.shape}", flush=True )
+                # if gpc.get_global_rank() == 0:
+                #     print(f"input_ids shape: {input_ids.shape}", flush=True )
 
             if 'DUMP_DATA_PATH_CMP' in os.environ:
                 batch_file = os.path.join(os.environ['DUMP_DATA_PATH_CMP'], f"./dp-{gpc.get_local_rank(ParallelMode.DATA)}/batchcount-{now_step}.pickle")  # batchcount-953.pickle

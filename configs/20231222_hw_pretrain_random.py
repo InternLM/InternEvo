@@ -139,5 +139,3 @@ monitor={
         "light_monitor_address": None
     }
 }
-
-
