@@ -254,6 +254,9 @@ class PackedFlashBaseLayer1D(nn.Module):
             torch.save(hidden_states, f"./dump_ops/mlp_dp_0_step_{int(os.environ['STEP_COUNT'])}_block_0.pt")
 
         block_count["step"] += 1
+
+        # print(f"block ouput : {hidden_states.shape}", flush=True)
+
         return hidden_states + residual
 
 
@@ -319,6 +322,8 @@ class PackedFlashInternLm1D(nn.Module):
         super().__init__()
 
         checkpoint_layer_num = int(num_layers * checkpoint)
+
+        self.first = first
 
         if is_reward:
             head_cls = RewardModelLinear
@@ -398,12 +403,41 @@ class PackedFlashInternLm1D(nn.Module):
         if "USE_FAKE_DATA" in os.environ:
             input_ids[:, :] = 100
 
-        if "DUMP_DATA_PATH" in os.environ:
+        if self.first and "DUMP_DATA_PATH" in os.environ:
             batch_file = os.path.join(os.environ['DUMP_DATA_PATH'], f"./dp-{gpc.get_local_rank(ParallelMode.DATA)}/batchcount-{now_step}.pickle")  # batchcount-953.pickle
             if not os.path.exists(os.path.dirname(batch_file)):
                 os.makedirs(os.path.dirname(batch_file), exist_ok=True)
-            with open(batch_file, "wb") as f:
-                pickle.dump({"cu_seqlens": cu_seqlens, "input_ids": input_ids, "indexes": indexes}, f)
+
+            if not os.path.exists(batch_file):
+                with open(batch_file, "wb") as f:
+                    pickle.dump({"cu_seqlens": cu_seqlens, "input_ids": input_ids, "indexes": indexes}, f)
+            else:
+                with open(batch_file, "rb") as f:
+                    data = pickle.load(f)
+                cu_seqlens = data['cu_seqlens']
+                input_ids = data['input_ids']
+                indexes = data['indexes']
+
+                if not gpc.config.model.use_flash_attn:
+                    cu_seqlens = None
+                    indexes = None
+
+                if gpc.get_global_rank() == 0:
+                    print(f"input_ids shape: {input_ids.shape}", flush=True )
+
+            if 'DUMP_DATA_PATH_CMP' in os.environ:
+                batch_file = os.path.join(os.environ['DUMP_DATA_PATH_CMP'], f"./dp-{gpc.get_local_rank(ParallelMode.DATA)}/batchcount-{now_step}.pickle")  # batchcount-953.pickle
+                with open(batch_file, "rb") as f:
+                    data = pickle.load(f)
+                
+                if not gpc.config.model.use_flash_attn:
+                    assert torch.equal(input_ids, data['input_ids']), f"input_ids: {input_ids}, data['input_ids']: {data['input_ids']}"
+                else:
+                    assert torch.equal(input_ids, data['input_ids'])
+                    assert torch.equal(cu_seqlens, data['cu_seqlens'])
+                    assert torch.equal(indexes, data['indexes'])
+        
+        # print(f"input_ids shape: {input_ids.shape}, cu_seqlens:{cu_seqlens.shape}, indexes:{indexes.shape}", flush=True)
 
         # attention_mask: compute attention on the places where the value is 1
         if hasattr(self, "embedding"):

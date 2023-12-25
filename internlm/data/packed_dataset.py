@@ -141,6 +141,9 @@ class PackedDataset(torch.utils.data.Dataset):
             cu_seqlens.append(cu_seqlens[-1] + tokens_left)
             indexes.extend(list(range(tokens_left)))
 
+        # if os.environ['SLURM_PROCID'] == str(0):
+        #     import pdb; pdb.set_trace()
+
         out = {"tokens": pack, "cu_seqlens": cu_seqlens, "indexes": indexes, "labels": labels, "type_ids": type_ids}
         return out
 
@@ -163,7 +166,7 @@ class PackedDataset(torch.utils.data.Dataset):
             sample_idx = self.sample_indices[pre_pos]
             sample = self.dataset[sample_idx]
             length = min(len(sample["tokens"]), self.max_length_per_sample)
-            chunk = sample["tokens"][1:length]
+            chunk = sample["tokens"][0:length]
             pack.extend(chunk)
             _labels = deepcopy(chunk)
             _labels = list(_labels[1:]) + [-100]
@@ -176,7 +179,7 @@ class PackedDataset(torch.utils.data.Dataset):
 
         if cu_seqlens[-1] != self.packed_length:
             pack = pack + [0] * (self.packed_length - cu_seqlens[-1])
-            labels = labels + [0] * (self.packed_length - cu_seqlens[-1])
+            labels = labels + [-100] * (self.packed_length - cu_seqlens[-1])
             type_ids = type_ids + [0] * (self.packed_length - cu_seqlens[-1])
             indexes.extend(list(range(self.packed_length - cu_seqlens[-1])))
             cu_seqlens.append(self.packed_length)
@@ -196,9 +199,10 @@ class PackedDataset(torch.utils.data.Dataset):
         }
         """
 
-        if gpc.config.model.use_flash_attn:
-            pos_before, token_id_before, pos_after, token_id_after = self.mapping(item)
-            return self.build_pack(pos_before, token_id_before, pos_after, token_id_after)
+        # 直接走
+        # if gpc.config.model.use_flash_attn:
+        #     pos_before, token_id_before, pos_after, token_id_after = self.mapping(item)
+        #     return self.build_pack(pos_before, token_id_before, pos_after, token_id_after)
 
         return self.build_unpack(item)
 

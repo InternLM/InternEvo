@@ -8,7 +8,8 @@ from functools import partial
 
 import torch
 import torch.distributed as dist
-
+import os
+import pickle
 import internlm
 from internlm.core.context import ParallelMode
 from internlm.core.context import global_context as gpc
@@ -105,7 +106,7 @@ def main(args):
     criterion = FlashGPTLMLoss(parallel_output=True, label_smoothing=label_smoothing)
 
     # initialize the train and validation data loader
-    train_dl, dataset_types = get_train_data_loader(num_worker=4)
+    train_dl, dataset_types = get_train_data_loader(num_worker=0)
     val_dls = get_validation_data_loader()
 
     # initialize and resume train state
@@ -190,10 +191,6 @@ def main(args):
 
     # transfer the train data loader into train data iterator
     train_iter = iter(train_dl)
-
-    import os
-    import pickle
-
     my_name = f"hw/dp-{gpc.get_local_rank(ParallelMode.DATA)}"
 
     with initialize_llm_profile(profiling=args.profiling, start_time=current_time) as prof:
@@ -205,12 +202,7 @@ def main(args):
             os.environ['STEP_COUNT'] = str(batch_count)
 
             # load batch data
-            # batch[0]['input_ids']
             batch, train_iter = load_new_batch(train_dl=train_dl, train_iter=train_iter, train_state=train_state)
-                        
-            # batch_file = os.path.join(my_name, f"batchcount-{batch_count}.pickle")  # batchcount-953.pickle
-            # with open(batch_file, "rb") as f:
-            #     batch = pickle.load(f)
 
             # record the consumed samples in training
             train_state.batch_count = batch_count
@@ -301,16 +293,17 @@ def main(args):
 
             # checkpoint the training states in specific steps, which is determined by the args "checkpoint_every"
             # # save batch sampler that tracks the true consumed samples
-            now_break = ckpt_manager.try_save_checkpoint(train_state)
-            if now_break:
-                break
+            # now_break = ckpt_manager.try_save_checkpoint(train_state)
+            # if now_break:
+            #     break
 
             if memory_profiler is not None:
                 memory_profiler.step()
 
             if batch_count % 2 == 0:
                 prof.step()
-
+    
+    ckpt_manager.save_ckpt(train_state)
     ckpt_manager.wait_async_upload_finish()
 
 

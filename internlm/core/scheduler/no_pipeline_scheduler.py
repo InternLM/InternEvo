@@ -80,8 +80,8 @@ class NonPipelineScheduler(BaseScheduler):
         if self.data_process_func:
             _data["input_ids"] = self.data_process_func(_data["input_ids"], _data["cu_seqlens"])
             _label = self.data_process_func(_label, _data["cu_seqlens"])
-            _data.pop("cu_seqlens")
-            _data.pop("indexes")
+            # _data.pop("cu_seqlens")
+            # _data.pop("indexes")
 
         return _data, _label
 
@@ -121,8 +121,14 @@ class NonPipelineScheduler(BaseScheduler):
                 batch_file = os.path.join(os.environ['DUMP_DATA_PATH'], f"./dp-{gpc.get_local_rank(ParallelMode.DATA)}/batchcount-{now_step}-label.pickle")  # batchcount-953.pickle
                 if not os.path.exists(os.path.dirname(batch_file)):
                     os.makedirs(os.path.dirname(batch_file), exist_ok=True)
-                with open(batch_file, "wb") as f:
-                    pickle.dump({"label": label}, f)
+
+                if not os.path.exists(batch_file):
+                    with open(batch_file, "wb") as f:
+                        pickle.dump({"label": label}, f)
+                else:
+                    with open(batch_file, "rb") as f:
+                        data = pickle.load(f)
+                    label = data['label']
 
             self._call_hooks("post_helper_func", output, label)
 

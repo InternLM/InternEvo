@@ -862,6 +862,29 @@ now step_count is {train_state.step_count}",
             save_type = singal_save_type
 
         return save_ckpts, save_type, now_break
+    
+
+    def save_ckpt(self, train_state):
+        # Wait for the previous round of asynchronous upload storage to complete.
+        save_ckpts, save_type = True, CheckpointSaveType.NORMAL_CHECKPOINT
+        self.storage_manager.wait()
+        if save_type == CheckpointSaveType.SNAPSHOT_CHECKPOINT:
+            # Snapshot number, with only two snapshots written alternately.
+            self.snapshot_counter = (self.snapshot_counter + 1) % 2
+            save_ckpt_folder = os.path.join(self.snapshot_ckpt_folder, f"{self.snapshot_counter}")
+        else:
+            save_ckpt_folder = os.path.join(self.save_ckpt_folder, str(train_state.step_count))
+
+        self.save_checkpoint(
+            folder=save_ckpt_folder,
+            model=self.model,
+            optimizer=self.optimizer,
+            scheduler=self.lr_scheduler,
+            train_state=train_state,
+            model_config=self.model_config,
+            model_config_file=self.model_config_file,
+        )
+
 
     def try_save_checkpoint(self, train_state, ):
         if not self.enable_save_ckpt:

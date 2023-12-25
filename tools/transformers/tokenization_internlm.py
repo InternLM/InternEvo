@@ -59,7 +59,7 @@ class InternLMTokenizer(PreTrainedTokenizer):
         pad_token="</s>",
         sp_model_kwargs: Optional[Dict[str, Any]] = None,
         add_bos_token=True,
-        add_eos_token=False,
+        add_eos_token=True,
         decode_with_prefix_space=False,
         clean_up_tokenization_spaces=False,
         **kwargs,
