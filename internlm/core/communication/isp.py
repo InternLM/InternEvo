@@ -334,7 +334,7 @@ class ISPCommunicator:
 
     def _post_forward_hook_for_module(self, module: nn.Module, *args):  # pylint: disable=W0613
         self._clear_handle(module)
-        if not self.model_checkpoint:
+        if not (self.model_checkpoint and self.is_forward is False):
             self._clear_weight(module)
 
     def _post_backward_hook_for_head(self, *args):  # pylint: disable=W0613
