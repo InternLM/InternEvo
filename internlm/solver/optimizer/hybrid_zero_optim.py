@@ -58,6 +58,7 @@ class HybridZeroOptimizer(BaseOptimizer):
         grad_scal_cfg: Config = None,
         zero_cfg: Config = None,
         param_bcast_sync_handler: ParamBcastSyncHandler = None,
+        isp_communicator = None,
     ):
         # DynamicGradScaler related args
         if gpc.config.model.dtype is torch.float32:
@@ -138,10 +139,7 @@ class HybridZeroOptimizer(BaseOptimizer):
         if self._overlap_sync_param:
             assert self._param_bcast_sync_handler is not None
 
-        if gpc.config.parallel["weight"]["size"] > 1 and gpc.config.parallel["weight"]["overlap"] is True:
-            self._fstp_handler = gpc.fstp_handler
-        else:
-            self._fstp_handler = None
+        self._isp_communicator = isp_communicator
 
         # iterate over the param group in the optimizer
         # partition these param groups for data parallel training
@@ -362,9 +360,9 @@ class HybridZeroOptimizer(BaseOptimizer):
                     ):
                         accum_grad_obj.register_hook(extra_layernorm_reduce_grad_hook)
 
-                    # we should not only register for parameters which have _fstp_reduce_scatter_str attr.
+                    # we should not only register for parameters which have isp_reduce_scatter_name attr.
                     # we must keep up with reduce_grad_hook.
-                    if self._fstp_handler is not None:
+                    if self._isp_communicator is not None:
                         accum_grad_obj.register_hook(accum_grad_hook)
 
                     if self._overlap_sync_grad:
@@ -373,7 +371,7 @@ class HybridZeroOptimizer(BaseOptimizer):
                 _define_and_attach(param, reduce_rank)
 
     def accumulate_left_grads_after_backward(self):
-        if self._fstp_handler is None:
+        if self._isp_communicator is None:
             return
 
         for group_id in range(self.num_param_groups):
@@ -395,20 +393,22 @@ class HybridZeroOptimizer(BaseOptimizer):
 
     def _accum_grads_store_in_bucket(self, bucket: BucketStore, reduce_rank: Optional[int] = None) -> None:
         for _param in bucket.get_param(reduce_rank):
-            if not hasattr(_param, "_fstp_reduce_scatter_str"):
+            if not hasattr(_param, "isp_reduce_scatter_name"):
                 continue
 
             # wait and accumulate gardient.
-            _key = getattr(_param, "_fstp_reduce_scatter_str")
-            _comm_handle, _grad = self._fstp_handler.reduce_scatter_handlers[_key]
+            _key = getattr(_param, "isp_reduce_scatter_name")
+            _grad, _comm_handle = self._isp_communicator.reduce_scatter_handlers[_key]
             _comm_handle.wait()
             _param.grad.add_(_grad)
 
             # release cuda memory.
-            if self._fstp_handler.enable_memory_pool:
-                self._fstp_handler.release_reduce_scatter_memory(key=tuple(_grad.size()), index=_grad.index)
+            if self._isp_communicator.enable_memory_pool:
+                self._isp_communicator.memory_pool.free_reduce_scatter_memory(
+                    key=tuple(_grad.size()), index=_grad.index
+                )
             _grad = None
-            self._fstp_handler.reduce_scatter_handlers[_key] = None
+            self._isp_communicator.reduce_scatter_handlers[_key] = None
 
         bucket.reset_by_rank(reduce_rank)
 

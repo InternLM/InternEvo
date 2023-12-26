@@ -19,7 +19,7 @@ from internlm.core.trainer import TrainState
 from internlm.initialize import initialize_distributed_env
 from internlm.model.loss import FlashGPTLMLoss
 from internlm.model.metrics import AccPerplex, SchedulerMetricHook
-from internlm.model.overlap_handler import FSTPOverlapSchedulerHook
+from internlm.core.communication.isp import ISPCommunicatorSchedulerHook
 from internlm.monitor import initialize_monitor_manager, send_alert_message
 from internlm.monitor.monitor import monitor_manager as mm
 from internlm.train import (
@@ -71,7 +71,7 @@ def initialize_llm_logger(start_time: str):
     return uniscale_logger
 
 
-def get_scheduler_hooks(metric, zero_optim) -> List[SchedulerHook]:
+def get_scheduler_hooks(metric, zero_optim, isp_communicator) -> List[SchedulerHook]:
     scheduler_hooks: List[SchedulerHook] = []
 
     if metric is not None:
@@ -86,8 +86,9 @@ def get_scheduler_hooks(metric, zero_optim) -> List[SchedulerHook]:
                 ),
             ),
         )
-    if gpc.fstp_handler is not None:
-        scheduler_hooks.append(FSTPOverlapSchedulerHook(gpc.fstp_handler, zero_optim))
+
+    if isp_communicator is not None:
+        scheduler_hooks.append(ISPCommunicatorSchedulerHook(isp_communicator, zero_optim))
 
     return scheduler_hooks
 
@@ -133,7 +134,7 @@ def main(args):
     uniscale_logger = initialize_llm_logger(start_time=current_time)
 
     # initialize model
-    model = initialize_model()
+    model, isp_communicator = initialize_model()
 
     with open(args.config, "r") as f:
         config_lines = f.readlines()
@@ -148,7 +149,7 @@ def main(args):
     # initialize and resume train state
     train_state = TrainState(gpc.config, train_dl.batch_sampler)
 
-    optimizer, beta2_scheduler, lr_scheduler = initialize_optimizer(model=model)
+    optimizer, beta2_scheduler, lr_scheduler = initialize_optimizer(model, isp_communicator)
 
     ckpt_manager = CheckpointManager(
         ckpt_config=gpc.config.ckpt,
@@ -194,7 +195,7 @@ def main(args):
         train_dataloader=train_dl,
         lr_scheduler=lr_scheduler,
         beta2_scheduler=beta2_scheduler,
-        scheduler_hooks=get_scheduler_hooks(metric, optimizer),
+        scheduler_hooks=get_scheduler_hooks(metric, optimizer, isp_communicator),
     )
 
     # initialize simple memory profiler
@@ -263,8 +264,8 @@ def main(args):
                 )
             timer("fwd-bwd").stop()
 
-            if gpc.fstp_handler is not None and gpc.fstp_handler.enable_memory_pool:
-                gpc.fstp_handler.clear_memory_pool()
+            if isp_communicator and isp_communicator.enable_memory_pool:
+                isp_communicator.memory_pool.reset_lazy_pools()
 
             # update parameters, and returns (success_update, grad_norm)
             trainer_result = trainer.step()
