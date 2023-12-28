@@ -58,7 +58,7 @@ class HybridZeroOptimizer(BaseOptimizer):
         grad_scal_cfg: Config = None,
         zero_cfg: Config = None,
         param_bcast_sync_handler: ParamBcastSyncHandler = None,
-        isp_communicator = None,
+        isp_communicator=None,
     ):
         # DynamicGradScaler related args
         if gpc.config.model.dtype is torch.float32:
@@ -362,7 +362,7 @@ class HybridZeroOptimizer(BaseOptimizer):
 
                     # we should not only register for parameters which have isp_reduce_scatter_name attr.
                     # we must keep up with reduce_grad_hook.
-                    if self._isp_communicator is not None:
+                    if self._isp_communicator and self._isp_communicator.overlap:
                         accum_grad_obj.register_hook(accum_grad_hook)
 
                     if self._overlap_sync_grad:
