@@ -208,8 +208,7 @@ def try_load_internlm_ckpt(ckpt_mm, load_info, train_state: TrainState):
         logger.info(f"Try load_ckpt_folder: {load_ckpt_folder}")
 
     if load_content.need_load(CheckpointLoadContent.MODEL):
-        # load_model_checkpoint(folder=load_ckpt_folder, model=ckpt_mm.model)
-        convert_huawei_ckpt_to_internlm(folder=load_ckpt_folder, model=ckpt_mm.model)
+        load_model_checkpoint(folder=load_ckpt_folder, model=ckpt_mm.model)
         load_content_str += f"{CheckpointLoadContent.MODEL}, "
 
     if load_content.not_only_load(CheckpointLoadContent.MODEL):
@@ -260,79 +259,88 @@ def try_load_internlm_ckpt(ckpt_mm, load_info, train_state: TrainState):
     return load_content_str
 
 
-def convert_huawei_ckpt_to_internlm(folder, model):
-    # model = model.model
-    assert folder is not None, "Please specify the folder of the pretrained model"
+def try_load_mindspore_ckpt(ckpt_mm, load_info, train_state: TrainState):
+    load_content_str = ""
+    folder = load_info["path"]
+    model=ckpt_mm.model
+    load_content: CheckpointLoadMask = load_info["content"]
     if gpc.is_rank_for_log():
-        logger.info(f"Loading pretrained model from {folder}")
+        logger.info(f"Try load_ckpt_folder: {folder}")
 
-    fns = get_fns(folder)
-    model_fns = [os.path.join(folder, fn) for fn in fns if fn.endswith(".pth") or fn.endswith(".pt")]
-    model_fns.sort()
+    if load_content.need_load(CheckpointLoadContent.MODEL):
+        assert folder is not None, "Please specify the folder of the pretrained model"
+        if gpc.is_rank_for_log():
+            logger.info(f"Loading pretrained model from {folder}")
 
-    old_tp = len(model_fns)
-    cur_tp = gpc.get_world_size(ParallelMode.TENSOR)
-    # If the two tp are inconsistent, you need to consider the merge before splitting
-    if old_tp != cur_tp:
-        raise RuntimeError(
-            f"Your current tp is `{cur_tp}`, but the tp in folder:`{folder}` is `{old_tp}`, use `` to convert first"
-        )
+        fns = get_fns(folder)
+        model_fns = [os.path.join(folder, fn) for fn in fns if fn.endswith(".pth") or fn.endswith(".pt")]
+        model_fns.sort()
 
-    # ["input_layernorm", "post_attention_layernorm", "self_attn.o_proj",
-    #  "self_attn.o_proj.bias", "self_attn.q_proj.weight", "self_attn.q_proj.bias",
-    #  "self_attn.k_proj.weight", "self_attn.k_proj.bias", "self_attn.v_proj.weight",
-    #  "mlp.gate_proj","mlp.down_proj","mlp.up_proj"
-    #  ]
-    current_states = {}
-    states = llm_load(model_fns[gpc.get_local_rank(ParallelMode.TENSOR)], map_location="cpu")
-    for i in range(gpc.config.model.num_layers):
-        #layernorm
-        norm1 = states.pop(f"model.layers.{i}.input_layernorm.weight")
-        norm2 = states.pop(f"model.layers.{i}.post_attention_layernorm.weight")
-        current_states[f'model.blocks.{i}.norm1.weight'] = norm1
-        current_states[f'model.blocks.{i}.norm2.weight'] = norm2
+        old_tp = len(model_fns)
+        cur_tp = gpc.get_world_size(ParallelMode.TENSOR)
+        # If the two tp are inconsistent, you need to consider the merge before splitting
+        if old_tp != cur_tp:
+            raise RuntimeError(
+                f"Your current tp is `{cur_tp}`, but the tp in folder:`{folder}` is `{old_tp}`, use `` to convert first"
+            )
 
-        # self_atten
-        q = states.pop(f"model.layers.{i}.self_attn.q_proj.weight")
-        k = states.pop(f"model.layers.{i}.self_attn.k_proj.weight")
-        v = states.pop(f"model.layers.{i}.self_attn.v_proj.weight")
-        wqkv = torch.concat([q, k, v], dim=0) # (in_feature, out_feature) - > weight.shape -> (out_feature, in_feature)
-        current_states[f'model.blocks.{i}.mixer.Wqkv.weight'] = wqkv
+        # ["input_layernorm", "post_attention_layernorm", "self_attn.o_proj",
+        #  "self_attn.o_proj.bias", "self_attn.q_proj.weight", "self_attn.q_proj.bias",
+        #  "self_attn.k_proj.weight", "self_attn.k_proj.bias", "self_attn.v_proj.weight",
+        #  "mlp.gate_proj","mlp.down_proj","mlp.up_proj"
+        #  ]
+        current_states = {}
+        states = llm_load(model_fns[gpc.get_local_rank(ParallelMode.TENSOR)], map_location="cpu")
+        for i in range(gpc.config.model.num_layers):
+            #layernorm
+            norm1 = states.pop(f"model.layers.{i}.input_layernorm.weight")
+            norm2 = states.pop(f"model.layers.{i}.post_attention_layernorm.weight")
+            current_states[f'model.blocks.{i}.norm1.weight'] = norm1
+            current_states[f'model.blocks.{i}.norm2.weight'] = norm2
 
-        out_proj = states.pop(f"model.layers.{i}.self_attn.o_proj.weight")
-        current_states[f'model.blocks.{i}.mixer.out_proj.weight'] = out_proj
+            # self_atten
+            q = states.pop(f"model.layers.{i}.self_attn.q_proj.weight")
+            k = states.pop(f"model.layers.{i}.self_attn.k_proj.weight")
+            v = states.pop(f"model.layers.{i}.self_attn.v_proj.weight")
+            wqkv = torch.concat([q, k, v], dim=0) # (in_feature, out_feature) - > weight.shape -> (out_feature, in_feature)
+            current_states[f'model.blocks.{i}.mixer.Wqkv.weight'] = wqkv
 
-        # mlp
-        w1 = states.pop(f"model.layers.{i}.mlp.gate_proj.weight")
-        w2 = states.pop(f"model.layers.{i}.mlp.up_proj.weight")
-        w3 = states.pop(f"model.layers.{i}.mlp.down_proj.weight")
-        current_states[f'model.blocks.{i}.mlp.w1.weight'] = w1
-        current_states[f'model.blocks.{i}.mlp.w2.weight'] = w2
-        current_states[f'model.blocks.{i}.mlp.w3.weight'] = w3
-    
-    # embedding
-    embedding = states.pop('model.embed_tokens.weight')
-    current_states['model.embedding.weight'] = embedding
+            out_proj = states.pop(f"model.layers.{i}.self_attn.o_proj.weight")
+            current_states[f'model.blocks.{i}.mixer.out_proj.weight'] = out_proj
 
-    # norm
-    norm = states.pop('model.norm.weight')
-    current_states['model.norm.weight'] = norm
+            # mlp
+            w1 = states.pop(f"model.layers.{i}.mlp.gate_proj.weight")
+            w2 = states.pop(f"model.layers.{i}.mlp.up_proj.weight")
+            w3 = states.pop(f"model.layers.{i}.mlp.down_proj.weight")
+            current_states[f'model.blocks.{i}.mlp.w1.weight'] = w1
+            current_states[f'model.blocks.{i}.mlp.w2.weight'] = w2
+            current_states[f'model.blocks.{i}.mlp.w3.weight'] = w3
+        
+        # embedding
+        embedding = states.pop('model.embed_tokens.weight')
+        current_states['model.embedding.weight'] = embedding
 
-    # head
-    head = states.pop("lm_head.weight")
-    current_states['model.head.weight'] = head
+        # norm
+        norm = states.pop('model.norm.weight')
+        current_states['model.norm.weight'] = norm
 
-    missing_keys, unexpected_keys = model.load_state_dict(current_states, strict=False)
-    if gpc.get_local_rank(ParallelMode.DATA) == 0:
-        pp_rank = 0 if not gpc.is_initialized(ParallelMode.PIPELINE) else gpc.get_local_rank(ParallelMode.PIPELINE)
-        logger.info(
-            f"Missing keys:{missing_keys}, unexpected keys:{unexpected_keys} in "
-            f"tp:{gpc.get_local_rank(ParallelMode.TENSOR)}, pp:{pp_rank}"
-        )
+        # head
+        head = states.pop("lm_head.weight")
+        current_states['model.head.weight'] = head
 
-    del states
-    del current_states
-    torch.cuda.empty_cache()        
+        missing_keys, unexpected_keys = model.load_state_dict(current_states, strict=False)
+        if gpc.get_local_rank(ParallelMode.DATA) == 0:
+            pp_rank = 0 if not gpc.is_initialized(ParallelMode.PIPELINE) else gpc.get_local_rank(ParallelMode.PIPELINE)
+            logger.info(
+                f"Missing keys:{missing_keys}, unexpected keys:{unexpected_keys} in "
+                f"tp:{gpc.get_local_rank(ParallelMode.TENSOR)}, pp:{pp_rank}"
+            )
+
+        del states
+        del current_states
+        torch.cuda.empty_cache()
+        load_content_str += f"{CheckpointLoadContent.MODEL}, "
+
 
 def save_model_checkpoint(folder, model):
     """
@@ -851,6 +859,7 @@ class CheckpointManager:
         self.defalut_load_type_func = {
             CheckpointLoadType.INTERNLM: try_load_internlm_ckpt,
             "LLAMA": try_load_LLAMA_ckpt,
+            "MINDSPORE": try_load_mindspore_ckpt,
         }
 
         for ckpt_load_type, func in self.defalut_load_type_func.items():
