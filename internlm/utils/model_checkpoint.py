@@ -208,7 +208,8 @@ def try_load_internlm_ckpt(ckpt_mm, load_info, train_state: TrainState):
         logger.info(f"Try load_ckpt_folder: {load_ckpt_folder}")
 
     if load_content.need_load(CheckpointLoadContent.MODEL):
-        load_model_checkpoint(folder=load_ckpt_folder, model=ckpt_mm.model)
+        # load_model_checkpoint(folder=load_ckpt_folder, model=ckpt_mm.model)
+        convert_huawei_ckpt_to_internlm(folder=load_ckpt_folder, model=ckpt_mm.model)
         load_content_str += f"{CheckpointLoadContent.MODEL}, "
 
     if load_content.not_only_load(CheckpointLoadContent.MODEL):
@@ -258,6 +259,80 @@ def try_load_internlm_ckpt(ckpt_mm, load_info, train_state: TrainState):
                     )
     return load_content_str
 
+
+def convert_huawei_ckpt_to_internlm(folder, model):
+    # model = model.model
+    assert folder is not None, "Please specify the folder of the pretrained model"
+    if gpc.is_rank_for_log():
+        logger.info(f"Loading pretrained model from {folder}")
+
+    fns = get_fns(folder)
+    model_fns = [os.path.join(folder, fn) for fn in fns if fn.endswith(".pth") or fn.endswith(".pt")]
+    model_fns.sort()
+
+    old_tp = len(model_fns)
+    cur_tp = gpc.get_world_size(ParallelMode.TENSOR)
+    # If the two tp are inconsistent, you need to consider the merge before splitting
+    if old_tp != cur_tp:
+        raise RuntimeError(
+            f"Your current tp is `{cur_tp}`, but the tp in folder:`{folder}` is `{old_tp}`, use `` to convert first"
+        )
+
+    # ["input_layernorm", "post_attention_layernorm", "self_attn.o_proj",
+    #  "self_attn.o_proj.bias", "self_attn.q_proj.weight", "self_attn.q_proj.bias",
+    #  "self_attn.k_proj.weight", "self_attn.k_proj.bias", "self_attn.v_proj.weight",
+    #  "mlp.gate_proj","mlp.down_proj","mlp.up_proj"
+    #  ]
+    current_states = {}
+    states = llm_load(model_fns[gpc.get_local_rank(ParallelMode.TENSOR)], map_location="cpu")
+    for i in range(gpc.config.model.num_layers):
+        #layernorm
+        norm1 = states.pop(f"model.layers.{i}.input_layernorm.weight")
+        norm2 = states.pop(f"model.layers.{i}.post_attention_layernorm.weight")
+        current_states[f'model.blocks.{i}.norm1.weight'] = norm1
+        current_states[f'model.blocks.{i}.norm2.weight'] = norm2
+
+        # self_atten
+        q = states.pop(f"model.layers.{i}.self_attn.q_proj.weight")
+        k = states.pop(f"model.layers.{i}.self_attn.k_proj.weight")
+        v = states.pop(f"model.layers.{i}.self_attn.v_proj.weight")
+        wqkv = torch.concat([q, k, v], dim=0) # (in_feature, out_feature) - > weight.shape -> (out_feature, in_feature)
+        current_states[f'model.blocks.{i}.mixer.Wqkv.weight'] = wqkv
+
+        out_proj = states.pop(f"model.layers.{i}.self_attn.o_proj.weight")
+        current_states[f'model.blocks.{i}.mixer.out_proj.weight'] = out_proj
+
+        # mlp
+        w1 = states.pop(f"model.layers.{i}.mlp.gate_proj.weight")
+        w2 = states.pop(f"model.layers.{i}.mlp.up_proj.weight")
+        w3 = states.pop(f"model.layers.{i}.mlp.down_proj.weight")
+        current_states[f'model.blocks.{i}.mlp.w1.weight'] = w1
+        current_states[f'model.blocks.{i}.mlp.w2.weight'] = w2
+        current_states[f'model.blocks.{i}.mlp.w3.weight'] = w3
+    
+    # embedding
+    embedding = states.pop('model.embed_tokens.weight')
+    current_states['model.embedding.weight'] = embedding
+
+    # norm
+    norm = states.pop('model.norm.weight')
+    current_states['model.norm.weight'] = norm
+
+    # head
+    head = states.pop("lm_head.weight")
+    current_states['model.head.weight'] = head
+
+    missing_keys, unexpected_keys = model.load_state_dict(current_states, strict=False)
+    if gpc.get_local_rank(ParallelMode.DATA) == 0:
+        pp_rank = 0 if not gpc.is_initialized(ParallelMode.PIPELINE) else gpc.get_local_rank(ParallelMode.PIPELINE)
+        logger.info(
+            f"Missing keys:{missing_keys}, unexpected keys:{unexpected_keys} in "
+            f"tp:{gpc.get_local_rank(ParallelMode.TENSOR)}, pp:{pp_rank}"
+        )
+
+    del states
+    del current_states
+    torch.cuda.empty_cache()        
 
 def save_model_checkpoint(folder, model):
     """
@@ -388,6 +463,23 @@ def load_model_checkpoint(folder, model):
     with load_with_process_group(gpc.get_group(ParallelMode.ZERO1)):
         states = llm_load(fp, map_location=get_current_device())
 
+    if not isinstance(model, torch.nn.ModuleList):
+        model = [model]
+
+    # for chunk_idx, _chunk in enumerate(model):
+    #     # Create a unique layer name based on the block's class name and index
+    #     for _, children in _chunk.named_children():
+    #         if isinstance(children, torch.nn.ModuleList):
+    #             for idx, block in enumerate(children):
+    #                 for param_name, param in block.named_parameters():
+    #                     print(f"{param_name}", flush=True)
+    #         else:
+    #             for param_name, param in children.named_parameters():
+    #                 print(f"{param_name}", flush=True)
+
+    # # print(f"internlm key: {list(model.named_modules())}", flush=True)
+    # print(f"huawei key: {states.keys()}", flush=True)
+
     """
     # need convert the gate parameters to float32 (to fit deepspeed style mechanism), it may cause round-off in
     # gate.weight. The conversion will also be done when doing forward. so we can just comment it out. this make
@@ -399,7 +491,7 @@ def load_model_checkpoint(folder, model):
     """
 
     # try to load expert parameter to separate files if model have moe layer
-    try_load_moe_checkpoint(folder, model, states, tp_rank, pp_rank)
+    # try_load_moe_checkpoint(folder, model, states, tp_rank, pp_rank)
 
     if gpc.config.parallel.zero1.fsdp:
         missing_k, unexpected_keys = load_shard_state_dict(model, states, strict=False)
@@ -862,7 +954,7 @@ now step_count is {train_state.step_count}",
             save_type = singal_save_type
 
         return save_ckpts, save_type, now_break
-    
+
 
     def save_ckpt(self, train_state):
         # Wait for the previous round of asynchronous upload storage to complete.
