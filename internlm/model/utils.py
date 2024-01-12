@@ -501,8 +501,8 @@ class ISPFusedDenseFunc(torch.autograd.Function):
         weight,
         bias,
         module,
+        communicator,
         return_residual=False,
-        communicator=None,
         use_flash_attn: bool = True,
     ):
         ctx.compute_weight_gradient = weight.requires_grad
@@ -680,10 +680,10 @@ def megatron_fused_dense_func_torch(
 def isp_fused_dense_func(
     x: Tensor,
     weight: Tensor,
+    module,
+    communicator,
     bias: Optional[Tensor] = None,
     return_residual: bool = False,
-    module=None,
-    communicator=None,
 ):
     dtype_eligible = x.dtype in [torch.float16, torch.bfloat16] or (
         x.dtype == torch.float32 and torch.is_autocast_enabled()
@@ -708,7 +708,8 @@ def try_import_RMSNorm():
 
     """
     try:
-        from apex.normalization.fused_layer_norm import MixedFusedRMSNorm as RMSNorm
+        from apex.normalization.fused_layer_norm import \
+            MixedFusedRMSNorm as RMSNorm
 
         return RMSNorm
     except ModuleNotFoundError:
