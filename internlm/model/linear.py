@@ -364,9 +364,9 @@ class ISPLinear(ColumnParallelLinear):
         return isp_fused_dense_func(
             x,
             self.weight,
-            self.bias,
             module=self,
             communicator=self.__communicator,
+            bias=self.bias,
         )
 
 

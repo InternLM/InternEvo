@@ -362,7 +362,11 @@ class HybridZeroOptimizer(BaseOptimizer):
 
                     # we should not only register for parameters which have isp_reduce_scatter_name attr.
                     # we must keep up with reduce_grad_hook.
-                    if self._isp_communicator and self._isp_communicator.overlap:
+                    if (
+                        self._isp_communicator
+                        and self._isp_communicator.overlap
+                        and gpc.config.parallel.weight.size > 1
+                    ):
                         accum_grad_obj.register_hook(accum_grad_hook)
 
                     if self._overlap_sync_grad:

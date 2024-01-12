@@ -23,6 +23,7 @@ class ISPCommModelConfig:
     """
     model config for isp communicator.
     """
+
     hidden_size: int = 0
     mlp_ratio: float = 0
     dtype: torch.dtype = torch.half
@@ -435,7 +436,7 @@ class ISPCommunicator:
         is_bias: bool = False,
     ):
         if dist.get_world_size(self.process_group) <= 1:
-            return tensor
+            return tensor, None
 
         if not self.overlap:
             result, handle = reduce_scatter_raw(tensor, self.process_group, op=op, async_op=True)
