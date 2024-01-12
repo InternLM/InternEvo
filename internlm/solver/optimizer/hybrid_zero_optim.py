@@ -371,7 +371,7 @@ class HybridZeroOptimizer(BaseOptimizer):
                 _define_and_attach(param, reduce_rank)
 
     def accumulate_left_grads_after_backward(self):
-        if self._isp_communicator is None:
+        if self._isp_communicator is None or self._isp_communicator.overlap is False:
             return
 
         for group_id in range(self.num_param_groups):

@@ -689,15 +689,15 @@ def isp_fused_dense_func(
         x.dtype == torch.float32 and torch.is_autocast_enabled()
     )
     if x.is_cuda and weight.is_cuda and (bias is None or bias.is_cuda) and dtype_eligible:
-        return ISPFusedDenseFunc.apply(x, weight, bias, module, return_residual, communicator)
+        return ISPFusedDenseFunc.apply(x, weight, bias, module, communicator, return_residual)
     else:
         return ISPFusedDenseFunc.apply(
             x,
             weight,
             bias,
             module,
-            return_residual,
             communicator,
+            return_residual,
             use_flash_attn=False,
         )
 
@@ -708,8 +708,7 @@ def try_import_RMSNorm():
 
     """
     try:
-        from apex.normalization.fused_layer_norm import \
-            MixedFusedRMSNorm as RMSNorm
+        from apex.normalization.fused_layer_norm import MixedFusedRMSNorm as RMSNorm
 
         return RMSNorm
     except ModuleNotFoundError:
