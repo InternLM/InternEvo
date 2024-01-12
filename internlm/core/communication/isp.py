@@ -1,13 +1,13 @@
 #!/usr/bin/env python
 # -*- encoding: utf-8 -*-
 
-from typing import Dict, List, Union
-from functools import partial
 from dataclasses import dataclass
+from functools import partial
+from typing import Dict, List, Union
 
 import torch
-from torch import nn
 from torch import distributed as dist
+from torch import nn
 
 from internlm.core.context import ParallelMode
 from internlm.core.context import global_context as gpc
@@ -495,7 +495,11 @@ class ISPCommunicatorSchedulerHook(SchedulerHook):
             self._isp_communicator.is_forward = False
 
     def after_backward(self, scheduler, inputs_grad) -> None:
+        # accumulate left gradients in last bucket after backward.
         self._zero_optim.accumulate_left_grads_after_backward()
+        # reset lazy memory pools for reduce scatter after every micro step.
+        if self._isp_communicator and self._isp_communicator.enable_memory_pool:
+            self._isp_communicator.memory_pool.reset_lazy_pools()
 
     def post_helper_func(self, scheduler, outputs, label) -> None:
         pass
