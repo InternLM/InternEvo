@@ -386,6 +386,8 @@ class FSTPOverlapSchedulerHook(SchedulerHook):
 
     def after_backward(self, scheduler, inputs_grad) -> None:
         self._zero_optim.accumulate_left_grads_after_backward()
+        if gpc.fstp_handler is not None and gpc.fstp_handler.enable_memory_pool:
+            gpc.fstp_handler.clear_memory_pool()
 
     def post_helper_func(self, scheduler, outputs, label) -> None:
         pass

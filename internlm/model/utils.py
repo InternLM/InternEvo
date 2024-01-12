@@ -34,6 +34,7 @@ def _split(input_, parallel_mode, dim=-1):
     tensor_list = torch.split(input_, dim_size // world_size, dim=dim)
     rank = gpc.get_local_rank(parallel_mode)
     output = tensor_list[rank].contiguous()
+    output = output.detach().clone()
 
     return output
 

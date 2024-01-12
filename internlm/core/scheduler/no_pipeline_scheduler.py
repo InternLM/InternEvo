@@ -89,6 +89,7 @@ class NonPipelineScheduler(BaseScheduler):
         engine: Engine,
         forward_only: bool = False,
         return_loss: bool = True,
+        return_output: bool = False,
         scale_loss: int = 1,
     ):
         """Trains one batch of data.
@@ -100,6 +101,7 @@ class NonPipelineScheduler(BaseScheduler):
             forward_only (bool, optional): If True, the model is run for the forward pass, else back propagation will
                 be executed.
             return_loss (bool, optional): Loss will be returned if True.
+            return_output (bool, optional): Output will be returned if True.
             scale_loss (int, optional): The scale factor for the loss.
         """
 
@@ -127,6 +129,10 @@ class NonPipelineScheduler(BaseScheduler):
                 moe_loss /= scale_loss
                 loss /= scale_loss
                 loss += moe_loss
+
+        # clear output before backward for releasing memory resource
+        if not return_output:
+            output = None
 
         # backward
         if not forward_only:
@@ -192,7 +198,7 @@ class NonPipelineScheduler(BaseScheduler):
             _data, _label = self._load_accum_batch(data, label)
 
             _output, _loss, _moe_loss = self._train_one_batch(
-                _data, _label, engine, forward_only, return_loss, self._grad_accum_size
+                _data, _label, engine, forward_only, return_loss, return_output_label, self._grad_accum_size
             )
 
             if return_loss:

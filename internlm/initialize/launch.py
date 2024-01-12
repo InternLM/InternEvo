@@ -450,7 +450,10 @@ def launch(
             )
 
     print(
-        f"global_rank:{gpc.get_global_rank()} wp_rank:{gpc.get_local_rank(ParallelMode.WEIGHT)} sp_rank:{gpc.get_local_rank(ParallelMode.SEQUENCE)} zo1_rank:{gpc.get_local_rank(ParallelMode.ZERO1)} dp_rank:{gpc.get_local_rank(ParallelMode.DATA)} weight_dp_rank:{gpc.get_local_rank(ParallelMode.WEIGHT_DATA)}",
+        f"global_rank:{gpc.get_global_rank()} wp_rank:{gpc.get_local_rank(ParallelMode.WEIGHT)} "
+        f"sp_rank:{gpc.get_local_rank(ParallelMode.SEQUENCE)} pp_rank:{gpc.get_local_rank(ParallelMode.PIPELINE)} "
+        f"zo1_rank:{gpc.get_local_rank(ParallelMode.ZERO1)} dp_rank:{gpc.get_local_rank(ParallelMode.DATA)} "
+        f"wdp_rank:{gpc.get_local_rank(ParallelMode.WEIGHT_DATA)}",
         flush=True,
     )
 
