@@ -12,7 +12,7 @@ from internlm.core.context import ParallelMode
 from internlm.core.context import global_context as gpc
 from internlm.model.utils import (
     Silu,
-    fstp_fused_dense_func,
+    isp_fused_dense_func,
     fused_dense_func_torch,
     megatron_fused_dense_func_torch,
 )
@@ -350,21 +350,29 @@ class MegatronFeedForward(BaseFeedForward):
         )
 
 
-class FSTPLinear(ColumnParallelLinear):
+class ISPLinear(ColumnParallelLinear):
+    # class level communicator variable.
+    __communicator = None
+
+    @staticmethod
+    def register_communicator(communicator):
+        ISPLinear.__communicator = communicator
+
     def forward(self, x):
-        return fstp_fused_dense_func(
+        assert self.__communicator is not None, "ISPLinear should be register with a communicator first."
+
+        return isp_fused_dense_func(
             x,
             self.weight,
-            self.bias,
-            process_group=self.process_group,
             module=self,
-            handler=gpc.fstp_handler,
+            communicator=self.__communicator,
+            bias=self.bias,
         )
 
 
-class FSTPFeedForward(BaseFeedForward):
+class ISPFeedForward(BaseFeedForward):
     """
-    FeedForward in FSTP.
+    FeedForward in ISP.
 
     Args:
         in_features (int): size of each input sample
@@ -398,8 +406,8 @@ class FSTPFeedForward(BaseFeedForward):
             device,
             dtype,
             multiple_of,
-            FSTPLinear,
-            FSTPLinear,
+            ISPLinear,
+            ISPLinear,
         )
 
 
@@ -409,7 +417,7 @@ def get_mlp_cls(tp_mode: str):
     elif tp_mode == "msp":
         mlp_cls = MegatronFeedForward
     else:
-        mlp_cls = FSTPFeedForward
+        mlp_cls = ISPFeedForward
     return mlp_cls
 
 
@@ -420,12 +428,12 @@ def get_linear_cls(tp_mode: str, parallel_mode: str):
         elif tp_mode == "msp":
             cls = MegatronColumnParallelLinearTorch
         else:
-            cls = FSTPLinear
+            cls = ISPLinear
     elif parallel_mode == "row":
         if tp_mode in ["mtp", "fsp"]:
             cls = RowParallelLinearTorch
         elif tp_mode == "msp":
             cls = MegatronRowParallelLinearTorch
         else:
-            cls = FSTPLinear
+            cls = ISPLinear
     return cls

@@ -35,7 +35,6 @@ from flash_attn.modules.mha import (
 from torch import Tensor, nn
 from torch.nn import Module
 
-from internlm.core.context import ParallelMode
 from internlm.core.context import global_context as gpc
 from internlm.model.embedding import DynamicNTKScalingRotaryEmbedding, RotaryEmbedding
 from internlm.model.linear import get_linear_cls

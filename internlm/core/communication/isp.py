@@ -1,0 +1,506 @@
+#!/usr/bin/env python
+# -*- encoding: utf-8 -*-
+
+from dataclasses import dataclass
+from functools import partial
+from typing import Dict, List, Union
+
+import torch
+from torch import distributed as dist
+from torch import nn
+
+from internlm.core.context import ParallelMode
+from internlm.core.context import global_context as gpc
+from internlm.core.naive_amp import NaiveAMPModel
+from internlm.core.scheduler import SchedulerHook
+from internlm.model.embedding import Embedding1D
+from internlm.model.linear import ISPLinear, ScaleColumnParallelLinear
+from internlm.model.utils import all_gather_raw, reduce_scatter_raw
+
+
+@dataclass
+class ISPCommModelConfig:
+    """
+    model config for isp communicator.
+    """
+
+    hidden_size: int = 0
+    mlp_ratio: float = 0
+    dtype: torch.dtype = torch.half
+    device: torch.device = torch.device("cuda")
+    modules: List[str] = None
+
+
+class MemoryPool:
+    """
+    memory pool for isp communication.
+    """
+
+    def __init__(
+        self,
+        model_conf: ISPCommModelConfig,
+        with_bias: bool = False,
+    ) -> None:
+        self._hidden_size = model_conf.hidden_size
+        self._mlp_ratio = model_conf.mlp_ratio
+        self._dtype = model_conf.dtype
+        self._device = model_conf.device
+        self._module_shapes = self._init_module_shape(model_conf.modules)
+
+        # due to intern sequence parallel communication overlap, we need
+        # **two** memory pools for current block weights and the next block weights.
+        self.__all_gather_pool_len = 2
+        # memory pool for weight all gather communications.
+        self._all_gather_weight_memory_pool = [
+            {
+                name: torch.zeros(shape, dtype=self._dtype, device=self._device).contiguous()
+                for name, shape in self._module_shapes.items()
+            }
+            for _ in range(self.__all_gather_pool_len)
+        ]
+        # memory pool for bias all gather communications.
+        if not with_bias:
+            self._all_gather_bias_memory_pool = None
+        else:
+            self._all_gather_bias_memory_pool = [
+                {
+                    name: torch.zeros(shape[0], dtype=self._dtype, device=self._device).contiguous()
+                    for name, shape in self._module_shapes.items()
+                }
+                for _ in range(self.__all_gather_pool_len)
+            ]
+
+        # memory pool for reduce scatter communications, allocated lazily.
+        self._reduce_scatter_memory_pool = {}
+        # memory pool for constant zero tensors, allocated lazily.
+        self._zero_const_pool = {}
+
+    def _init_module_shape(self, modules: List[str]) -> Dict[str, torch.Size]:
+        mlp_hidden_size = 256 * ((int(self._hidden_size * self._mlp_ratio) + 256 - 1) // 256)
+
+        # TODO: the memory pool should be more generic.
+        # Currently, it only supports llama-class models with specific naming structure.
+        static_shapes = {
+            "Wqkv": torch.Size((3 * self._hidden_size, self._hidden_size)),
+            "out_proj": torch.Size((self._hidden_size, self._hidden_size)),
+            "w1": torch.Size((mlp_hidden_size, self._hidden_size)),
+            "w2": torch.Size((mlp_hidden_size, self._hidden_size)),
+            "w3": torch.Size((self._hidden_size, mlp_hidden_size)),
+        }
+
+        return {name: static_shapes[name] for name in modules}
+
+    def allocate_constant_zero(self, size: tuple) -> torch.Tensor:
+        if size not in self._zero_const_pool:
+            self._zero_const_pool[size] = torch.zeros(*size, dtype=self._dtype, device=self._device).contiguous()
+
+        return self._zero_const_pool[size]
+
+    def allocate_all_gather_memory(self, block_index: int, module_name: str, is_bias: bool = False) -> torch.Tensor:
+        # TODO: should we trace the usage of each memory block to avoid reusing
+        # same memory block, which will hides some potential bugs.
+        if not is_bias:
+            mem = self._all_gather_weight_memory_pool[block_index % 2][module_name]
+        else:
+            enable_bias = self._all_gather_bias_memory_pool is not None
+            assert enable_bias, "memory bool for bias is disabled."
+
+            mem = self._all_gather_bias_memory_pool[block_index % 2][module_name]
+
+        return mem
+
+    def allocate_reduce_scatter_memory(self, key: tuple) -> torch.Tensor:
+        # if key not in dict
+        if key not in self._reduce_scatter_memory_pool:
+            self._reduce_scatter_memory_pool[key] = []
+
+        for index, mem_item in enumerate(self._reduce_scatter_memory_pool[key]):
+            if mem_item.idle is True:
+                self._reduce_scatter_memory_pool[key][index].idle = False
+                return self._reduce_scatter_memory_pool[key][index]
+
+        # if the memory pool is all used
+        new_item = torch.zeros(
+            key,
+            dtype=self._dtype,
+            device=self._device,
+        ).contiguous()
+        setattr(new_item, "idle", False)
+        setattr(new_item, "index", len(self._reduce_scatter_memory_pool[key]))
+        self._reduce_scatter_memory_pool[key].append(new_item)
+
+        return new_item
+
+    def free_reduce_scatter_memory(self, key, index):
+        self._reduce_scatter_memory_pool[key][index].idle = True
+
+    def reset_lazy_pools(self) -> None:
+        # Should memory pool re-allocate all gather memory for every interation?
+        # Currently, it just clear the memory pool for reduce scatter communication.
+        self._zero_const_pool = {}
+        self._reduce_scatter_memory_pool = {}
+
+
+class ISPCommunicator:
+    """
+    ISP Communicator for managing the all-gather and reduce_scatter of Intern Sequence Parallel.
+    """
+
+    def __init__(
+        self,
+        model: Union[nn.Module, nn.ModuleList],
+        model_conf: ISPCommModelConfig,
+        overlap: bool = False,
+        activation_checkpointing: bool = False,
+        enable_memory_pool: bool = False,
+        process_group: dist.ProcessGroup = None,
+    ) -> None:
+        self.process_group = process_group
+        self.model_checkpoint = activation_checkpointing
+        self.overlap = overlap
+        self.enable_memory_pool = overlap and enable_memory_pool
+        self.model_conf = model_conf
+        self.is_forward = True
+
+        self._isp_outs = []
+        self._isp_modules = []
+        self._module_name = model_conf.modules.copy()
+
+        # key: isp module; value: module global all-gather op handle
+        self._weight_global_handle = {}
+        # key: isp module; value: module bias global all-gather op handle
+        self._bias_global_handle = {}
+        self.reduce_scatter_handlers = {}
+        # key: isp module; value: module global weight after all-gather op
+        self._weight_global_output = {}
+        # key: isp module; value: module bias global weight after all-gather op
+        self._bias_global_output = {}
+        # key: isp module; value: transformer block index
+        self._module_to_index = {}
+        # key: transformer block index; value: isp modules
+        self._index_to_isp_module = {}
+        self._last_block = None
+        self._head = []
+        self._embedding = []
+
+        # just want to share same for loop for ModuleList and Module
+        model = model if isinstance(model, nn.ModuleList) else [model]
+        for chunk in model:
+            if isinstance(chunk, NaiveAMPModel):
+                chunk = chunk.model
+            self._parse_model_structure(chunk)
+
+        self.num_blocks = len(self._index_to_isp_module)
+
+        if self.enable_memory_pool:
+            self.memory_pool = MemoryPool(model_conf)
+        else:
+            self.memory_pool = None
+
+        if self.overlap:
+            self._register_sync_parameters_hook()
+
+    def _parse_model_structure(self, model: nn.Module) -> None:
+        # Important: only works for llama-class models
+        for chunk_name, children in model.named_children():
+            if isinstance(children, ScaleColumnParallelLinear):
+                setattr(children, "isp_name", "head")
+                self._head.append(children)
+            elif isinstance(children, Embedding1D):
+                self._embedding.append(children)
+            elif isinstance(children, nn.ModuleList):
+                self._last_block = children[-1]
+
+                for idx, block in enumerate(children):
+                    self._index_to_isp_module[idx] = []
+                    for sub_name, sub in block.named_children():
+                        for name, child in sub.named_children():
+                            if name == "out_proj":
+                                self._isp_outs.append(child)
+                                self._module_to_index[child] = idx
+                            if isinstance(child, ISPLinear):
+                                self._module_to_index[child] = idx
+                                self._isp_modules.append(child)
+                                self._index_to_isp_module[idx].append(child)
+
+                                setattr(child, "isp_name", name)
+
+                                full_name = f"{chunk_name}.{idx}.{sub_name}.{name}"
+                                setattr(
+                                    child.weight,
+                                    "isp_reduce_scatter_name",
+                                    f"{full_name}.weight",
+                                )
+                                if child.bias is not None:
+                                    setattr(
+                                        child.bias,
+                                        "isp_reduce_scatter_name",
+                                        f"{full_name}.bias",
+                                    )
+
+    def _all_gather_module_weight(self, module):
+        with_bias = module.bias is not None
+        block_index = self._module_to_index[module]
+
+        # prepare memory pool allocator for weight and bias.
+        if self.enable_memory_pool:
+            weight_memory_pool_allocator = partial(
+                self.memory_pool.allocate_all_gather_memory,
+                block_index,
+                module.isp_name,
+            )
+        else:
+            weight_memory_pool_allocator = None
+
+        if self.enable_memory_pool and with_bias:
+            bias_memory_pool_allocator = partial(
+                self.memory_pool.allocate_all_gather_memory,
+                block_index,
+                module.isp_name,
+                is_bias=True,
+            )
+        else:
+            bias_memory_pool_allocator = None
+
+        # submit the all-gather communication for weight and bias.
+        if with_bias:
+            bias_output, bias_handle = all_gather_raw(
+                module.bias,
+                self.process_group,
+                async_op=True,
+                memory_pool_allocator=bias_memory_pool_allocator,
+            )
+            self._bias_global_handle[module] = bias_handle
+            self._bias_global_output[module] = bias_output
+
+        weight_output, weight_handle = all_gather_raw(
+            module.weight,
+            self.process_group,
+            async_op=True,
+            memory_pool_allocator=weight_memory_pool_allocator,
+        )
+        self._weight_global_handle[module] = weight_handle
+        self._weight_global_output[module] = weight_output
+
+    def _all_gather_block_weight(self, block_index: int):
+        for module in self._index_to_isp_module[block_index]:
+            self._all_gather_module_weight(module)
+
+    def _wait_handle(self, module):
+        handle = self._weight_global_handle[module]
+        handle.wait()
+        if module.bias is not None:
+            bias_handle = self._bias_global_handle[module]
+            bias_handle.wait()
+
+    def _clear_handle(self, module):
+        if module in self._weight_global_handle:
+            del self._weight_global_handle[module]
+        if module in self._bias_global_handle:
+            del self._bias_global_handle[module]
+
+    def _clear_weight(self, module):
+        if module in self._weight_global_output:
+            del self._weight_global_output[module]
+        if module in self._bias_global_output:
+            del self._bias_global_output[module]
+
+    def _post_forward_hook_for_embedding(self, *args):  # pylint: disable=W0613
+        """
+        prefetch weight for block 0 after embedding forward.
+        """
+        self._all_gather_block_weight(0)
+
+    def _pre_forward_hook_for_out_proj(self, module: nn.Module, *args):  # pylint: disable=W0613
+        block_index = self._module_to_index[module]
+
+        if self.model_checkpoint and self.is_forward is False:
+            if block_index - 1 >= 0:
+                self._all_gather_block_weight(block_index - 1)
+        else:
+            # start the all-gather for next block
+            if block_index + 1 < self.num_blocks:
+                self._all_gather_block_weight(block_index + 1)
+
+    def _pre_forward_hook_for_module(self, module: nn.Module, *args):  # pylint: disable=W0613
+        if module not in self._weight_global_handle:
+            self._all_gather_module_weight(module)
+
+        self._wait_handle(module)
+
+    def _pre_forward_hook_for_block(self, *args):  # pylint: disable=W0613
+        for module in self._index_to_isp_module[self.num_blocks - 1]:
+            self._all_gather_module_weight(module)
+            self._wait_handle(module)
+
+    def _post_forward_hook_for_module(self, module: nn.Module, *args):  # pylint: disable=W0613
+        self._clear_handle(module)
+        if not (self.model_checkpoint and self.is_forward is False):
+            self._clear_weight(module)
+
+    def _post_backward_hook_for_head(self, *args):  # pylint: disable=W0613
+        self._all_gather_module_weight(self._isp_modules[-1])
+
+    def _pre_backward_hook_for_head(self, *args):  # pylint: disable=W0613
+        if self.is_forward is False:
+            self._all_gather_block_weight(self.num_blocks - 1)
+
+    def _pre_backward_hook_for_module(self, module: nn.Module, *args):  # pylint: disable=W0613
+        # wait handle for current module
+        if module not in self._weight_global_handle:
+            self._all_gather_module_weight(module)
+
+        self._wait_handle(module)
+
+        # start the all-gather for next module
+        module_index = self._isp_modules.index(module)
+        if module_index - 1 >= 0:
+            next_module = self._isp_modules[module_index - 1]
+            self._all_gather_module_weight(next_module)
+
+    def _post_backward_hook_for_module(self, module, *args):  # pylint: disable=W0613
+        self._clear_handle(module)
+        self._clear_weight(module)
+
+    def _register_sync_parameters_hook(self) -> None:
+        """
+        register forward hooks and backward hooks for isp modules.
+        """
+        # register forward hooks
+        # 1. register post_forward_hook @embedding module to prefetch for block 0
+        # 2. register pre_forward_hook @out_proj module to prefetch for next block,
+        #    notice that next block's all_gather op should be after current block's all_to_all op
+        # 3. register pre_forward_hook @isp_module to wait handle for current module
+        # 4. register post_forward_hook @isp_module to release resource
+        for embedding in self._embedding:
+            embedding.register_forward_hook(self._post_forward_hook_for_embedding)
+
+        if self.model_checkpoint:
+            if gpc.is_last_rank(parallel_mode=ParallelMode.PIPELINE):
+                for head in self._head:
+                    head.register_full_backward_pre_hook(self._pre_backward_hook_for_head)
+            else:
+                self._last_block.register_forward_pre_hook(self._pre_forward_hook_for_block)
+
+        for out_proj in self._isp_outs:
+            out_proj.register_forward_pre_hook(self._pre_forward_hook_for_out_proj)
+
+        for module in self._isp_modules:
+            module.register_forward_pre_hook(self._pre_forward_hook_for_module)
+            module.register_forward_hook(self._post_forward_hook_for_module)
+
+        # register backward hooks
+        # 1. register post_backward_hook @head module to prefetch for the last block's last module
+        # 2. register pre_backward_hook @isp_module to wait handle for current module and to prefetch for next module
+        # 3. register post_backward_hook @isp_module to release resource
+        if not self.model_checkpoint:
+            for head in self._head:
+                head.register_full_backward_hook(self._post_backward_hook_for_head)
+
+            for module in self._isp_modules:
+                module.register_full_backward_pre_hook(self._pre_backward_hook_for_module)
+
+        for module in self._isp_modules:
+            module.register_full_backward_hook(self._post_backward_hook_for_module)
+
+    def _get_constant_zero(self, size: tuple) -> torch.Tensor:
+        if self.enable_memory_pool:
+            return self.memory_pool.allocate_constant_zero(size)
+        else:
+            return torch.zeros(
+                *size,
+                dtype=self.model_conf.dtype,
+                device=self.model_conf.device,
+            ).contiguous()
+
+    # communication operation interfaces
+
+    def all_gather(self, tensor: torch.Tensor, module: nn.Module, is_bias: bool = False):
+        if dist.get_world_size(self.process_group) <= 1:
+            return tensor
+
+        if not self.overlap:
+            result, _ = all_gather_raw(tensor, self.process_group, async_op=False)
+        elif is_bias:
+            result = self._bias_global_output[module]
+        else:
+            result = self._weight_global_output[module]
+
+        return result
+
+    def reduce_scatter(
+        self,
+        tensor: torch.Tensor,
+        model: nn.Module,
+        op: dist.ReduceOp,
+        is_bias: bool = False,
+    ):
+        if dist.get_world_size(self.process_group) <= 1:
+            return tensor, None
+
+        if not self.overlap:
+            result, handle = reduce_scatter_raw(tensor, self.process_group, op=op, async_op=True)
+        else:
+            if is_bias:
+                assert hasattr(model.bias, "isp_reduce_scatter_name")
+                key = getattr(model.bias, "isp_reduce_scatter_name")
+            else:
+                assert hasattr(model.weight, "isp_reduce_scatter_name")
+                key = getattr(model.weight, "isp_reduce_scatter_name")
+
+            self.reduce_scatter_handlers[key] = reduce_scatter_raw(
+                tensor,
+                self.process_group,
+                op=op,
+                async_op=True,
+                memory_pool_allocator=self.memory_pool.allocate_reduce_scatter_memory,
+            )
+
+            result, handle = (
+                self._get_constant_zero(
+                    (
+                        tensor.shape[0] // dist.get_world_size(self.process_group),
+                        *tensor.shape[1:],
+                    )
+                ),
+                None,
+            )
+
+        return result, handle
+
+
+class ISPCommunicatorSchedulerHook(SchedulerHook):
+    """
+    SchedulerHook for isp overlap handler
+    """
+
+    def __init__(self, overlap_handler: ISPCommunicator, zero_optim) -> None:
+        self._isp_communicator = overlap_handler
+        self._zero_optim = zero_optim
+
+    def before_forward(self, scheduler, inputs) -> None:
+        if self._isp_communicator.model_checkpoint:
+            self._isp_communicator.is_forward = True
+
+    def after_forward(self, scheduler, outputs) -> None:
+        pass
+
+    def before_criterion(self, scheduler, outputs, label) -> None:
+        pass
+
+    def after_criterion(self, scheduler, loss) -> None:
+        pass
+
+    def before_backward(self, scheduler, outputs, outputs_grad) -> None:
+        if self._isp_communicator.model_checkpoint:
+            self._isp_communicator.is_forward = False
+
+    def after_backward(self, scheduler, inputs_grad) -> None:
+        # accumulate left gradients in last bucket after backward.
+        self._zero_optim.accumulate_left_grads_after_backward()
+        # reset lazy memory pools for reduce scatter after every micro step.
+        if self._isp_communicator and self._isp_communicator.enable_memory_pool:
+            self._isp_communicator.memory_pool.reset_lazy_pools()
+
+    def post_helper_func(self, scheduler, outputs, label) -> None:
+        pass

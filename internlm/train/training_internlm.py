@@ -44,7 +44,8 @@ from internlm.model.linear import (
     RowParallelLinear,
 )
 from internlm.model.multi_head_attention import MHA
-from internlm.model.overlap_handler import FSTPOverlapHandler
+from internlm.model.linear import ISPLinear
+from internlm.core.communication.isp import ISPCommunicator, ISPCommModelConfig
 from internlm.model.utils import try_import_RMSNorm
 from internlm.monitor import send_heartbeat, set_env_var
 from internlm.monitor.monitor import monitor_manager as mm
@@ -53,7 +54,7 @@ from internlm.solver.lr_scheduler import FineTuneCosineAnnealingWarmupLR
 from internlm.solver.optimizer import FSDPadaptOptimizer, HybridZeroOptimizer
 from internlm.solver.optimizer.utils import ParamBcastSyncHandler
 from internlm.train.utils import create_param_groups
-from internlm.utils.common import DummyProfile
+from internlm.utils.common import DummyProfile, get_current_device
 from internlm.utils.logger import get_logger
 from internlm.utils.megatron_timers import megatron_timer as timer
 from internlm.utils.parallel import (
@@ -175,11 +176,27 @@ def initialize_model():
     # if fsdp enabled, wrap the model
     model = wrap_FSDP_model(model)
 
-    gpc.fstp_handler = None
-    if gpc.config.parallel["weight"]["size"] > 1 and gpc.config.parallel["weight"]["overlap"] is True:
-        gpc.fstp_handler = FSTPOverlapHandler(model, gpc.get_group(ParallelMode.WEIGHT))
+    if gpc.config.parallel.tensor.mode != "isp":
+        isp_communicator = None
+    else:
+        isp_communicator = ISPCommunicator(
+            model,
+            ISPCommModelConfig(
+                gpc.config.model.hidden_size,
+                gpc.config.model.mlp_ratio,
+                gpc.config.model.dtype,
+                get_current_device(),
+                ["Wqkv", "out_proj", "w1", "w2", "w3"],
+            ),
+            gpc.config.parallel.weight.overlap,
+            gpc.config.model.checkpoint,
+            gpc.config.parallel.weight.memory_pool,
+            gpc.get_group(ParallelMode.WEIGHT),
+        )
+        # register communicator for isp linear.
+        ISPLinear.register_communicator(isp_communicator)
 
-    return model
+    return model, isp_communicator
 
 
 def wrap_FSDP_model(model: Union[nn.Module, nn.ModuleList]):
@@ -216,7 +233,7 @@ def wrap_FSDP_model(model: Union[nn.Module, nn.ModuleList]):
 
 
 @llm_timeout(func_name="initialize_optimizer")
-def initialize_optimizer(model: Union[nn.Module, nn.ModuleList]):
+def initialize_optimizer(model: Union[nn.Module, nn.ModuleList], isp_communicator: ISPCommunicator = None):
     """
     Initialize optimizer.
 
@@ -250,6 +267,7 @@ def initialize_optimizer(model: Union[nn.Module, nn.ModuleList]):
             grad_scal_cfg=gpc.config.grad_scaler,
             zero_cfg=gpc.config.hybrid_zero_optimizer,
             param_bcast_sync_handler=param_bcast_sync_handler,
+            isp_communicator=isp_communicator,
         )
     else:
         optimizer = FSDPadaptOptimizer(

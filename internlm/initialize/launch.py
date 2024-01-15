@@ -8,7 +8,6 @@ from pathlib import Path
 from typing import Dict, Union
 
 import torch
-from torch.distributed import get_rank
 
 from internlm.core.context import Config
 from internlm.core.context import global_context as gpc

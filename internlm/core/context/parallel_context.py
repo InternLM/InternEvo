@@ -487,9 +487,10 @@ class ParallelContext(metaclass=SingletonMeta):
             assert (
                 self.zero1_parallel_size <= self.weight_data_parallel_size
             ), f"zero1_size:{self.zero1_parallel_size} should be less than wdp_size:{self.weight_data_parallel_size}"
-            assert (
-                self.weight_data_parallel_size % self.zero1_parallel_size == 0
-            ), f"weight_data_parallel_size:{self.weight_data_parallel_size} % zero1_parallel_size: {self.zero1_parallel_size} != 0"
+            assert self.weight_data_parallel_size % self.zero1_parallel_size == 0, (
+                f"weight_data_parallel_size:{self.weight_data_parallel_size} % "
+                f"zero1_parallel_size: {self.zero1_parallel_size} != 0"
+            )
 
         # the recommended nettest_parallel_size is 32 GPUs
         self.nettest_parallel_size = 32
