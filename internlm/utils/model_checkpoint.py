@@ -254,9 +254,13 @@ def save_model_checkpoint(folder, model):
     - folder
         - model_tp{tp_rank}_pp{pp_rank}.pt
 
+    If tensor parallel mode is isp, the saved weight is named:
+    - folder
+        - model_tp{tp_rank}_wp{wp_rank}_pp{pp_rank}.pt
+
     If fsdp is activated, the saved weight is named:
     - folder
-        - model_tp{tp_rank}_pp{pp_rank}_zo{zo_rank}
+        - model_tp{tp_rank}_pp{pp_rank}_zo{zo_rank}.pt
 
     If the tp is inconsistent with the saved one in the future use, the weight needs to be converted before loading.
 
@@ -277,39 +281,54 @@ def save_model_checkpoint(folder, model):
     if folder is not None:
         dp_size = gpc.get_world_size(ParallelMode.DATA)
         tp_size = gpc.get_world_size(ParallelMode.TENSOR)
+        wp_size = gpc.get_world_size(ParallelMode.WEIGHT)
         dp_rank = gpc.get_local_rank(ParallelMode.DATA)
         tp_rank = gpc.get_local_rank(ParallelMode.TENSOR)
+        wp_rank = gpc.get_local_rank(ParallelMode.WEIGHT)
         pp_rank = gpc.get_local_rank(ParallelMode.PIPELINE)
+        wdp_rank = gpc.get_local_rank(ParallelMode.WEIGHT_DATA)
 
         # TODO In theory, we should also consider pp level, but since pp is generally a state across machines,
         # even if pp is not considered, it will definitely not be written on the same machine.
-        should_save_rank_pair = set()  # (tp_rank, dp_rank)
-        for i in range(tp_size):
-            if gpc.config.parallel.zero1.fsdp:
-                for j in range(dp_size):
-                    should_save_rank_pair.add((i, j))
-            else:
-                should_save_rank_pair.add((i, i % dp_size))
 
-            if (tp_rank, dp_rank) in should_save_rank_pair:
-                f_dp = f"_dp{dp_rank}" if gpc.config.parallel.zero1.fsdp else ""
-                fn = f"model_tp{tp_rank}_pp{pp_rank}{f_dp}.pt"
+        # for tensor parallel mode with isp
+        if gpc.config.parallel.tensor.mode == "isp":
+            if wdp_rank == 0 or dp_rank == 0:
+                fn = f"model_tp{tp_rank}_wp{wp_rank}_pp{pp_rank}.pt"
                 fp = os.path.join(folder, fn)
                 llm_save(fp, saved_obj=states)
-                if not gpc.config.parallel.zero1.fsdp or dp_rank == tp_rank % dp_size:
-                    topo_fn = f"topo_tp{tp_rank}_pp{pp_rank}.json"
-                    topo_fp = os.path.join(folder, topo_fn)
-                    llm_save(topo_fp, saved_obj=topo)
+                topo_fn = f"topo_tp{tp_rank}_wp{wp_rank}_pp{pp_rank}.json"
+                topo_fp = os.path.join(folder, topo_fn)
+                llm_save(topo_fp, saved_obj=topo)
+        else:
+            # for tensor parallel mode with mtp/msp/fsp
+            should_save_rank_pair = set()  # (tp_rank, dp_rank)
+            for i in range(tp_size):
+                if gpc.config.parallel.zero1.fsdp:
+                    for j in range(dp_size):
+                        should_save_rank_pair.add((i, j))
+                else:
+                    should_save_rank_pair.add((i, i % dp_size))
+
+                if (tp_rank, dp_rank) in should_save_rank_pair:
+                    f_dp = f"_dp{dp_rank}" if gpc.config.parallel.zero1.fsdp else ""
+                    fn = f"model_tp{tp_rank}_pp{pp_rank}{f_dp}.pt"
+                    fp = os.path.join(folder, fn)
+                    llm_save(fp, saved_obj=states)
+                    if not gpc.config.parallel.zero1.fsdp or dp_rank == tp_rank % dp_size:
+                        topo_fn = f"topo_tp{tp_rank}_pp{pp_rank}.json"
+                        topo_fp = os.path.join(folder, topo_fn)
+                        llm_save(topo_fp, saved_obj=topo)
 
         # try to save expert parameter to separate files if model have moe layer
-        expert_dp_size = gpc.get_world_size(ParallelMode.EXPERT_DATA)
-        expert_dp_rank = gpc.get_local_rank(ParallelMode.EXPERT_DATA)
-        should_save_rank_pair.clear()
-        for i in range(tp_size):
-            should_save_rank_pair.add((i, i % expert_dp_size))
+        # expert_dp_size = gpc.get_world_size(ParallelMode.EXPERT_DATA)
+        # expert_dp_rank = gpc.get_local_rank(ParallelMode.EXPERT_DATA)
+        # should_save_rank_pair.clear()
+        # for i in range(tp_size):
+        #     should_save_rank_pair.add((i, i % expert_dp_size))
 
-        if (tp_rank, expert_dp_rank) in should_save_rank_pair:
-            try_save_moe_checkpoint(folder, model, tp_rank, pp_rank)
+        # if (tp_rank, expert_dp_rank) in should_save_rank_pair:
+        #     try_save_moe_checkpoint(folder, model, tp_rank, pp_rank)
 
     torch.distributed.barrier()
 
@@ -328,9 +347,11 @@ def load_model_checkpoint(folder, model):
     """
 
     tp_size = gpc.get_world_size(ParallelMode.TENSOR)
+    wp_size = gpc.get_world_size(ParallelMode.WEIGHT)
     pp_size = gpc.get_world_size(ParallelMode.PIPELINE)
     dp_size = gpc.get_world_size(ParallelMode.DATA)
     tp_rank = gpc.get_local_rank(ParallelMode.TENSOR)
+    wp_rank = gpc.get_local_rank(ParallelMode.WEIGHT)
     pp_rank = gpc.get_local_rank(ParallelMode.PIPELINE)
     dp_rank = gpc.get_local_rank(ParallelMode.DATA)
 
@@ -342,11 +363,15 @@ def load_model_checkpoint(folder, model):
         "_dp" not in test_fn and not gpc.config.parallel.zero1.fsdp
     ), "FSDP model wants to load no-FSDP ckpts or reverse"
 
-    max_pp, max_tp, max_zo = 0, 0, 0
+    max_pp, max_wp, max_tp, max_zo = 0, 0, 0, 0
     for fn in fns:
         if fn.startswith("model_t") and not fn.endswith(".md5"):
             segements = os.path.splitext(fn)[0].split("_")
-            if gpc.config.parallel.zero1.fsdp:
+            if gpc.config.parallel.tensor.mode == "isp":
+                max_pp = max(max_pp, int(segements[-1][2:]))
+                max_wp = max(max_wp, int(segements[-2][2:]))
+                max_tp = max(max_tp, int(segements[-3][2:]))
+            elif gpc.config.parallel.zero1.fsdp:
                 max_zo = max(max_zo, int(segements[-1][2:]))
                 max_pp = max(max_pp, int(segements[-2][2:]))
                 max_tp = max(max_tp, int(segements[-3][2:]))
@@ -358,6 +383,9 @@ def load_model_checkpoint(folder, model):
         pp_size == max_pp + 1
     ), f"The weights are save for {max_pp+1} pipelines, while current has {pp_size} pipelines"
     assert (
+        wp_size == max_wp + 1
+    ), f"The weights are save for {max_wp+1} parallelism, while current has {wp_size} weight parallelism"
+    assert (
         tp_size == max_tp + 1
     ), f"The weights are save for {max_tp+1} parallelism, while current has {tp_size} tensor parallelism"
     if gpc.config.parallel.zero1.fsdp:
@@ -365,7 +393,9 @@ def load_model_checkpoint(folder, model):
             dp_size == max_zo + 1
         ), f"The weights are save for {max_zo+1} FSDP shards , while current has {dp_size} FSDP shards"
 
-    if gpc.config.parallel.zero1.fsdp:
+    if gpc.config.parallel.tensor.mode == "isp":
+        should_load_name = f"model_tp{tp_rank}_wp{wp_rank}_pp{pp_rank}.pt"
+    elif gpc.config.parallel.zero1.fsdp:
         should_load_name = f"model_tp{tp_rank}_pp{pp_rank}_dp{dp_rank}.pt"
     else:
         should_load_name = f"model_tp{tp_rank}_pp{pp_rank}.pt"
@@ -466,20 +496,26 @@ def save_optimizer_checkpoint(optim, state_path):
     # TODO sanity check for optimizer type
     zero_rank = gpc.get_local_rank(ParallelMode.ZERO1)
     tp_rank = gpc.get_local_rank(ParallelMode.TENSOR)
+    wp_rank = gpc.get_local_rank(ParallelMode.WEIGHT)
     pp_rank = gpc.get_local_rank(ParallelMode.PIPELINE)
+    dp_rank = gpc.get_local_rank(ParallelMode.DATA)
     zero_size = gpc.get_world_size(ParallelMode.ZERO1)
     tp_size = gpc.get_world_size(ParallelMode.TENSOR)
-    pp_size = gpc.get_world_size(ParallelMode.PIPELINE)
-    fp = f"optimizer_tp{tp_rank}_pp{pp_rank}_zo{zero_rank}.pt"
+    dp_size = gpc.get_world_size(ParallelMode.DATA)
 
     states = optim.state_dict()
     if isinstance(optim, HybridZeroOptimizer):
-        if gpc.get_global_rank() < zero_size * tp_size * pp_size:
+        if gpc.config.parallel.tensor.mode == "isp":
+            fp = f"optimizer_tp{tp_rank}_wp{wp_rank}_pp{pp_rank}_dp{dp_rank}.pt"
             llm_save(os.path.join(state_path, fp), states)
-            if "zero_devide_optim_plan" in states:
-                params_per_rank_id_dict = states.pop("zero_devide_optim_plan")
-                fp_meta = os.path.join(state_path, optim.rank_unique_id)
-                llm_save(fp_meta, params_per_rank_id_dict)
+        else:
+            fp = f"optimizer_tp{tp_rank}_pp{pp_rank}_zo{zero_rank}.pt"
+            if (gpc.get_global_rank() % (tp_size * dp_size)) < zero_size * tp_size:
+                llm_save(os.path.join(state_path, fp), states)
+        if "zero_devide_optim_plan" in states:
+            params_per_rank_id_dict = states.pop("zero_devide_optim_plan")
+            fp_meta = os.path.join(state_path, optim.rank_unique_id)
+            llm_save(fp_meta, params_per_rank_id_dict)
     else:
         llm_save(os.path.join(state_path, fp), states)
 
@@ -516,32 +552,53 @@ def load_optimizer_checkpoint(folder, optim):
     """
 
     fns = get_fns(folder)
-    max_tp, max_pp, max_zero = 0, 0, 0
+    max_tp, max_wp, max_pp, max_zero, max_dp = 0, 0, 0, 0, 0
     for fn in fns:
         if fn.startswith("optimizer_") and not fn.endswith(".md5"):
-            _, tp, pp, zero = os.path.splitext(fn)[0].split("_")
-            max_zero = max(max_zero, int(zero[2:]))
-            max_tp = max(max_tp, int(tp[2:]))
-            max_pp = max(max_pp, int(pp[2:]))
+            if gpc.config.parallel.tensor.mode == "isp":
+                _, tp, wp, pp, dp = os.path.splitext(fn)[0].split("_")
+                max_dp = max(max_dp, int(dp[2:]))
+                max_tp = max(max_tp, int(tp[2:]))
+                max_wp = max(max_wp, int(wp[2:]))
+                max_pp = max(max_pp, int(pp[2:]))
+            else:
+                _, tp, pp, zero = os.path.splitext(fn)[0].split("_")
+                max_zero = max(max_zero, int(zero[2:]))
+                max_tp = max(max_tp, int(tp[2:]))
+                max_pp = max(max_pp, int(pp[2:]))
 
     zero_size = gpc.get_world_size(ParallelMode.ZERO1)
-    zero_rank = gpc.get_local_rank(ParallelMode.ZERO1)
     tp_size = gpc.get_world_size(ParallelMode.TENSOR)
+    wp_size = gpc.get_world_size(ParallelMode.WEIGHT)
     pp_size = gpc.get_world_size(ParallelMode.PIPELINE)
+    dp_size = gpc.get_world_size(ParallelMode.DATA)
 
+    assert (
+        dp_size == max_dp + 1
+    ), f"The optimizer states are save for {max_dp+1} data parallelism, while current has {dp_size} data parallelism"
     assert (
         zero_size == max_zero + 1
-    ), f"The weights are save for {max_zero+1} data parallel, while current has {zero_size} zero broadcast range."
+    ), f"The optimizer states are save for {max_zero+1} zero parallel, while current has {zero_size} zero broadcast range."
     assert (
         pp_size == max_pp + 1
-    ), f"The weights are save for {max_pp+1} pipelines, while current has {pp_size} pipelines"
+    ), f"The optimizer states are save for {max_pp+1} pipelines, while current has {pp_size} pipelines"
     assert (
         tp_size == max_tp + 1
-    ), f"The weights are save for {max_tp+1} parallelism, while current has {tp_size} tensor parallelism"
+    ), f"The optimizer states are save for {max_tp+1} parallelism, while current has {tp_size} tensor parallelism"
+    assert (
+        wp_size == max_wp + 1
+    ), f"The optimizer states are save for {max_wp+1} parallelism, while current has {wp_size} weight parallelism"
 
-    fp = f"optimizer_tp{gpc.get_local_rank(ParallelMode.TENSOR)}_"
-    fp += f"pp{gpc.get_local_rank(ParallelMode.PIPELINE)}_"
-    fp += f"zo{zero_rank}.pt"
+    zero_rank = gpc.get_local_rank(ParallelMode.ZERO1)
+    tp_rank = gpc.get_local_rank(ParallelMode.TENSOR)
+    wp_rank = gpc.get_local_rank(ParallelMode.WEIGHT)
+    pp_rank = gpc.get_local_rank(ParallelMode.PIPELINE)
+    dp_rank = gpc.get_local_rank(ParallelMode.DATA)
+    if gpc.config.parallel.tensor.mode == "isp":
+        fp = f"optimizer_tp{tp_rank}_wp{wp_rank}_pp{pp_rank}_dp{dp_rank}.pt"
+    else:
+        fp = f"optimizer_tp{tp_rank}_pp{pp_rank}_zo{zero_rank}.pt"
+
     states = llm_load(os.path.join(folder, fp), map_location=get_current_device())
 
     if isinstance(optim, HybridZeroOptimizer):
