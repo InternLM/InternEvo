@@ -14,14 +14,12 @@
     <div> </div>
   </div>
 
+[![Documentation Status](https://readthedocs.org/projects/internevo/badge/?version=latest)](https://internevo.readthedocs.io/zh_CN/latest/?badge=latest)
 [![license](./doc/imgs/license.svg)](./LICENSE)
-[![evaluation](./doc/imgs/compass_support.svg)](https://github.com/internLM/OpenCompass/)
-[![Documentation Status](https://readthedocs.org/projects/internlm/badge/?version=latest)](https://internlm.readthedocs.io/zh_CN/latest/?badge=latest)
 
 [📘Usage](./doc/en/usage.md) |
 [🛠️Installation](./doc/en/install.md) |
-[📊Train Performance](./doc/en/train_performance.md) |
-[🤗HuggingFace](https://huggingface.co/internlm) |
+[📊Performance](./doc/en/train_performance.md) |
 [🤔Reporting Issues](https://github.com/InternLM/InternEvo/issues/new)
 
 [English](./README.md) |
@@ -40,71 +38,17 @@ InternEvo is an open-sourced lightweight training framework aims to support mode
 
 Based on the InternEvo training framework, we are continually releasing a variety of large language models, including the InternLM-7B series and InternLM-20B series, which significantly outperform numerous renowned open-source LLMs such as LLAMA and other leading models in the field.
 
-### Dialogue
-
-You can interact with the InternLM Chat 7B model through a frontend interface by running the following code:
-
-```bash
-pip install streamlit==1.24.0
-pip install transformers==4.30.2
-streamlit run web_demo.py
-```
-
-The effect is as follows
-
-![demo](https://github.com/InternLM/InternLM/assets/9102141/11b60ee0-47e4-42c0-8278-3051b2f17fe4)
-
-### Deployment
-
-We use [LMDeploy](https://github.com/InternLM/LMDeploy) to complete the one-click deployment of InternEvo.
-
-1. First, install LMDeploy:
-
-```shell
-python3 -m pip install lmdeploy
-```
-
-2. Use the following command for iteractive communication with `internlm-chat-7b` model on localhost:
-
-```shell
-lmdeploy chat turbomind InternLM/internlm-chat-7b --model-name internlm-chat-7b
-```
-
-3. Besides chatting via command line, you can start lmdeploy `api_server` as below:
-
-```shell
-lmdeploy serve api_server InternLM/internlm-chat-7b --model-name internlm-chat-7b
-```
-For a comprehensive understanding of the `api_server` RESTful API, kindly consult [this](https://github.com/InternLM/lmdeploy/blob/main/docs/en/restful_api.md) guide. For additional deployment tutorials, feel free to explore [here](https://github.com/InternLM/LMDeploy).
-
-## Training
-
-### Pre-training and Fine-tuning Tutorial
+## Quick Start
 
 Please refer to [Usage Tutorial](./doc/en/usage.md) to start InternEvo installation, data processing, pre-training and fine-tuning.
 
-### Convert to Transformers Format
+For more details, please check [internevo.readthedocs.io](https://internevo.readthedocs.io/zh_CN/latest/?badge=latest)
 
-The model trained by InternEvo can be easily converted to HuggingFace Transformers format, which is convenient for seamless docking with various open source projects in the community. With the help of `tools/transformers/convert2hf.py`, the weights saved during training can be converted into transformers format with one command:
+## System Architecture
 
-```bash
-python tools/transformers/convert2hf.py --src_folder origin_ckpt/ --tgt_folder hf_ckpt/ --tokenizer ./tools/V7_sft.model
-```
+Please refer to the [System Architecture document](./doc/en/structure.md) for architecture details.
 
-After conversion, it can be loaded as transformers by the following code
-
-```python
->>> from transformers import AutoTokenizer, AutoModel
->>> model = AutoModel.from_pretrained("hf_ckpt/", trust_remote_code=True).cuda()
-```
-
-## Training System
-
-### System Architecture
-
-Please refer to the [System Architecture document](./doc/en/structure.md) for further details.
-
-### Training Performance
+## Performance
 
 InternEvo deeply integrates Flash-Attention, Apex and other high-performance model operators to improve training efficiency. By building the Hybrid Zero technique, it achieves efficient overlap of computation and communication, significantly reducing cross-node communication traffic during training. InternEvo supports expanding the 7B model from 8 GPUs to 1024 GPUs, with an acceleration efficiency of up to 90% at the thousand-GPU scale, a training throughput of over 180 TFLOPS, and an average of over 3600 tokens per GPU per second. The following table shows InternEvo's scalability test data at different configurations:
 
