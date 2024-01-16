@@ -1,7 +1,6 @@
 #!/usr/bin/env python
 # -*- encoding: utf-8 -*-
 
-from flash_attn.losses.cross_entropy import CrossEntropyLoss as FlashCrossEntropyLoss
 from torch import nn
 
 from internlm.core.context import ParallelMode
@@ -24,7 +23,11 @@ class FlashGPTLMLoss(nn.Module):
             label_smoothing = 0
         self.label_smoothing = label_smoothing
 
-        if parallel_output:
+        if gpc.config.model.use_flash_attn and parallel_output:
+            from flash_attn.losses.cross_entropy import (
+                CrossEntropyLoss as FlashCrossEntropyLoss,
+            )
+
             self.loss_fn = FlashCrossEntropyLoss(
                 reduction="mean",
                 inplace_backward=True,

@@ -10,8 +10,6 @@ from typing import Callable, Iterable, List, Optional, Union
 
 import torch
 import torch.distributed as dist
-from flash_attn.modules.embedding import ParallelGPT2Embeddings
-from flash_attn.modules.mlp import ParallelFusedMLP
 from torch import nn
 from torch.distributed.fsdp import FullyShardedDataParallel as FSDP
 from torch.distributed.fsdp.fully_sharded_data_parallel import (
@@ -217,7 +215,10 @@ def initialize_model(pre_process_func: Optional[Callable] = None, post_process_f
 
 
 def wrap_FSDP_model(model: Union[nn.Module, nn.ModuleList]):
-    if gpc.config.parallel.zero1.fsdp:
+    if gpc.config.parallel.zero1.fsdp and gpc.config.model.use_flash_attn:
+        from flash_attn.modules.embedding import ParallelGPT2Embeddings
+        from flash_attn.modules.mlp import ParallelFusedMLP
+
         # set wrap_policy for fsdp wrap
         transformer_wrap_policy = functools.partial(
             transformer_auto_wrap_policy,

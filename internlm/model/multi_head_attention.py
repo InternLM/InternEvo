@@ -9,29 +9,6 @@ import torch
 import torch.distributed as dist
 import torch.nn.functional as F
 from einops import rearrange
-
-try:
-    from flash_attn.flash_attn_interface import flash_attn_unpadded_func
-except ImportError:
-    try:
-        from flash_attn.flash_attn_interface import (
-            flash_attn_unpadded_kvpacked_func as flash_attn_unpadded_func,
-        )
-    except ImportError:
-        try:
-            from flash_attn.flash_attn_interface import (
-                flash_attn_varlen_kvpacked_func as flash_attn_unpadded_func,
-            )
-        except ImportError:
-            raise ImportError("Please check your flash_attn version >= 1.0.5.")
-
-from flash_attn.modules.mha import (
-    CrossAttention,
-    FlashCrossAttention,
-    FlashSelfAttention,
-    SelfAttention,
-    _update_kv_cache,
-)
 from torch import Tensor, nn
 from torch.nn import Module
 
@@ -152,6 +129,162 @@ class DistributedAttention(torch.nn.Module):
         return output
 
 
+class SelfAttention(nn.Module):
+    """Implement the scaled dot product attention with softmax.
+    Arguments
+    ---------
+        softmax_scale: The temperature to use for the softmax attention.
+                      (default: 1/sqrt(d_keys) where d_keys is computed at
+                      runtime)
+        attention_dropout: The dropout rate to apply to the attention
+                           (default: 0.0)
+    """
+
+    def __init__(self, causal=False, softmax_scale=None, attention_dropout=0.0):
+        super().__init__()
+        self.causal = causal
+        self.softmax_scale = softmax_scale
+        self.drop = nn.Dropout(attention_dropout)
+
+    def forward(self, qkv, causal=None, key_padding_mask=None):
+        """Implements the multihead softmax attention.
+        Arguments
+        ---------
+            qkv: The tensor containing the query, key, and value. (B, S, 3, H, D)
+            causal: if passed, will override self.causal
+            key_padding_mask: boolean mask to apply to the attention weights. True means to keep,
+                False means to mask out. (B, S)
+        """
+        batch_size, seqlen = qkv.shape[0], qkv.shape[1]
+        causal = self.causal if causal is None else causal
+        q, k, v = qkv.unbind(dim=2)
+        softmax_scale = self.softmax_scale or 1.0 / math.sqrt(q.shape[-1])
+        scores = torch.einsum("bthd,bshd->bhts", q, k * softmax_scale)
+        if key_padding_mask is not None:
+            padding_mask = torch.full((batch_size, seqlen), -10000.0, dtype=scores.dtype, device=scores.device)
+            padding_mask.masked_fill_(key_padding_mask, 0.0)
+            # TD [2022-09-30]: Adding is faster than masked_fill_ (idk why, just better kernel I guess)
+            scores = scores + rearrange(padding_mask, "b s -> b 1 1 s")
+        if causal:
+            # "triu_tril_cuda_template" not implemented for 'BFloat16'
+            # So we have to construct the mask in float
+            causal_mask = torch.triu(torch.full((seqlen, seqlen), -10000.0, device=scores.device), 1)
+            # TD [2022-09-30]: Adding is faster than masked_fill_ (idk why, just better kernel I guess)
+            scores = scores + causal_mask.to(dtype=scores.dtype)
+        attention = torch.softmax(scores, dim=-1, dtype=v.dtype)
+        attention_drop = self.drop(attention)
+        output = torch.einsum("bhts,bshd->bthd", attention_drop, v)
+        return output
+
+
+class CrossAttention(nn.Module):
+    """Implement the scaled dot product attention with softmax.
+    Arguments
+    ---------
+        softmax_scale: The temperature to use for the softmax attention.
+                      (default: 1/sqrt(d_keys) where d_keys is computed at
+                      runtime)
+        attention_dropout: The dropout rate to apply to the attention
+                           (default: 0.0)
+    """
+
+    def __init__(self, causal=False, softmax_scale=None, attention_dropout=0.0):
+        super().__init__()
+        self.causal = causal
+        self.softmax_scale = softmax_scale
+        self.drop = nn.Dropout(attention_dropout)
+
+    def forward(self, q, kv, causal=None, key_padding_mask=None):
+        """Implements the multihead softmax attention.
+        Arguments
+        ---------
+            q: The tensor containing the query. (B, Sq, H, D)
+            kv: The tensor containing the key and value. (B, Sk, 2, H, D)
+            causal: if passed, will override self.causal
+            key_padding_mask: boolean mask to apply to the attention weights. True means to keep,
+                False means to mask out. (B, Sk)
+        """
+        batch_size, seqlen_q = q.shape[0], q.shape[1]
+        causal = self.causal if causal is None else causal
+        seqlen_k = kv.shape[1]
+        assert kv.shape[0] == batch_size and kv.shape[3] == q.shape[2] and kv.shape[4] == q.shape[3]
+        k, v = kv.unbind(dim=2)
+        softmax_scale = self.softmax_scale or 1.0 / math.sqrt(q.shape[-1])
+        scores = torch.einsum("bthd,bshd->bhts", q, k * softmax_scale)
+        if key_padding_mask is not None:
+            padding_mask = torch.full((batch_size, seqlen_k), -10000.0, dtype=scores.dtype, device=scores.device)
+            padding_mask.masked_fill_(key_padding_mask, 0.0)
+            # TD [2022-09-30]: Adding is faster than masked_fill_ (idk why, just better kernel I guess)
+            scores = scores + rearrange(padding_mask, "b s -> b 1 1 s")
+        if causal:
+            # "triu_tril_cuda_template" not implemented for 'BFloat16'
+            # So we have to construct the mask in float
+            causal_mask = torch.triu(torch.full((seqlen_q, seqlen_k), -10000.0, device=scores.device), 1)
+            # TD [2022-09-30]: Adding is faster than masked_fill_ (idk why, just better kernel I guess)
+            scores = scores + causal_mask.to(dtype=scores.dtype)
+        attention = torch.softmax(scores, dim=-1, dtype=v.dtype)
+        attention_drop = self.drop(attention)
+        output = torch.einsum("bhts,bshd->bthd", attention_drop, v)
+        return output
+
+
+def _update_kv_cache(kv, inference_params, layer_idx):
+    """kv: (batch_size, seqlen, 2, nheads, head_dim) or (batch_size, 1, 2, nheads, head_dim)"""
+    # Pre-allocate memory for key-values for inference.
+    num_heads, head_dim = kv.shape[-2:]
+    if layer_idx not in inference_params.key_value_memory_dict:
+        kv_cache = torch.empty(
+            inference_params.max_batch_size,
+            inference_params.max_sequence_len,
+            2,
+            num_heads,
+            head_dim,
+            dtype=kv.dtype,
+            device=kv.device,
+        )
+        inference_params.key_value_memory_dict[layer_idx] = kv_cache
+    else:
+        if not inference_params.fused_ft_kernel:
+            kv_cache = inference_params.key_value_memory_dict[layer_idx]
+        else:
+            # For FT, k_cache has shape (b, h, headdim / packsize, s, packsize)
+            # where packsize = 4 if fp32, 8 if fp16 or bf16.
+            # v_cache has shape (b, h, s, headdim)
+            k_cache, v_cache = inference_params.key_value_memory_dict[layer_idx]
+            kv_cache = None
+    # Adjust key and value for inference
+    batch_start = inference_params.batch_size_offset
+    batch_end = batch_start + kv.shape[0]
+    sequence_start = inference_params.sequence_len_offset
+    sequence_end = sequence_start + kv.shape[1]
+    assert batch_end <= (kv_cache.shape[0] if kv_cache is not None else v_cache.shape[0])
+    assert sequence_end <= (kv_cache.shape[1] if kv_cache is not None else v_cache.shape[2])
+    # Copy key and values.
+    if not inference_params.fused_ft_kernel:
+        assert kv_cache is not None
+        kv_cache[batch_start:batch_end, sequence_start:sequence_end, ...] = kv
+        kv = kv_cache[batch_start:batch_end, :sequence_end, ...]
+        return kv
+    else:
+        assert inference_params.sequence_len_offset == 0
+        # FT kernel requires different layouts for the k_cache and v_cache.
+        assert kv.dtype in [torch.float16, torch.bfloat16, torch.float32]
+        packsize = 4 if kv.dtype == torch.float32 else 8
+        if kv_cache is not None:
+            kv_cache[batch_start:batch_end, sequence_start:sequence_end, ...] = kv
+            k_cache = rearrange(
+                kv_cache[:, :, 0], "b s h (d packsize) -> b h d s packsize", packsize=packsize
+            ).contiguous()
+            v_cache = rearrange(kv_cache[:, :, 1], "b s h d -> b h s d").contiguous()
+            inference_params.key_value_memory_dict[layer_idx] = (k_cache, v_cache)
+        else:
+            k_cache[batch_start:batch_end, :, :, :sequence_end, :] = rearrange(
+                kv[:, :, 0], "b s h (d packsize) -> b h d s packsize", packsize=packsize
+            )
+            v_cache[batch_start:batch_end, :, :sequence_end, :] = rearrange(kv[:, :, 1], "b s h d -> b h s d")
+        return kv
+
+
 class MHA(nn.Module):
     """
     Multi-head self-attention and cross-attention.
@@ -160,23 +293,19 @@ class MHA(nn.Module):
         embed_dim (int): The dimention of hidden state.
         num_heads (int): The number of attention heads.
         process_group (torch.distributed.ProcessGroup): The group of the current device for `parallel_mode`.
-        bias (boolean): Whether the bias is needed for linears. Will be used when initializing QKV matrix and
-                        output projection. True by default.
+        max_position_embeddings (int): max position embeddings, 2048 by default.
         dropout (float): The dropout rate for cross attention and self attention. 0.0 by default.
         softmax_scale (float): The temperature to use for the softmax attention.
         causal (boolean): Whether to apply causal attention mask. False by default.
         layer_idx (int): The index of current layer. None by default.
+        use_dynamic_ntk_rope (bool): whether use dynamic ntk rope, false by default.
         rotary_emb_dim (int): The dimention of Rotary Embedding. 0 by default.
         rotary_emb_scale_base (int): The scaling factor of Rotary Embedding. If scale_base > 0, this implements
                                     XPos(Sun et al., https://arxiv.org/abs/2212.10554). 0 by default.
-        use_flash_attn (boolean): Whether to use flash attention or not.If False, vanilla attention module will be used.
-                                    False by default.
-        sequence_parallel (boolean): If True, we're doing Tensor Parallel with sequence parallelism. An all_gather_raw
-                                    of x will be done before doing the matmul.
-        device (Optional[Union[str, torch.device]]): The device will be used.
-        dtype (Optional[torch.dtype]): The type of data.
         use_flash_attn (bool): Whether to use flash-attn. True by default.
         rope_base (int): The value of `base` for rotary position embeddings. 10000 by default.
+        device (Optional[Union[str, torch.device]]): The device will be used.
+        dtype (Optional[torch.dtype]): The type of data.
 
     """
 
@@ -240,8 +369,14 @@ class MHA(nn.Module):
             **factory_kwargs,
         )  # according to https://spaces.ac.cn/archives/9577
 
-        inner_attn_cls = FlashSelfAttention if use_flash_attn else SelfAttention
-        inner_cross_attn_cls = FlashCrossAttention if use_flash_attn else CrossAttention
+        if gpc.config.model.use_flash_attn:
+            from flash_attn.modules.mha import FlashCrossAttention, FlashSelfAttention
+
+            inner_attn_cls = FlashSelfAttention
+            inner_cross_attn_cls = FlashCrossAttention
+        else:
+            inner_attn_cls = SelfAttention
+            inner_cross_attn_cls = CrossAttention
         self.inner_attn = inner_attn_cls(causal=causal, softmax_scale=softmax_scale, attention_dropout=dropout)
         self.inner_cross_attn = inner_cross_attn_cls(
             causal=causal, softmax_scale=softmax_scale, attention_dropout=dropout
@@ -419,9 +554,40 @@ class MHA(nn.Module):
                             if total_kv.dtype not in [torch.float16, torch.bfloat16]:
                                 total_kv = total_kv.to(torch.bfloat16)
 
-                    output = flash_attn_unpadded_func(
-                        total_q, total_kv, cu_seqlens, cu_seqlens, max_seqlen_q, max_seqlen_k, 0.0, None, True, False
-                    ).to(x.dtype)
+                    if gpc.config.model.use_flash_attn:
+                        try:
+                            from flash_attn.flash_attn_interface import (
+                                flash_attn_unpadded_func,
+                            )
+                        except ImportError:
+                            try:
+                                from flash_attn.flash_attn_interface import (
+                                    flash_attn_unpadded_kvpacked_func as flash_attn_unpadded_func,
+                                )
+                            except ImportError:
+                                try:
+                                    from flash_attn.flash_attn_interface import (
+                                        flash_attn_varlen_kvpacked_func as flash_attn_unpadded_func,
+                                    )
+                                except ImportError:
+                                    raise ImportError("Please check your flash_attn version >= 1.0.5.")
+
+                        output = flash_attn_unpadded_func(
+                            total_q,
+                            total_kv,
+                            cu_seqlens,
+                            cu_seqlens,
+                            max_seqlen_q,
+                            max_seqlen_k,
+                            0.0,
+                            None,
+                            True,
+                            False,
+                        ).to(x.dtype)
+                    else:
+                        attn_scores = torch.matmul(total_q, total_kv.transpose(-2, -1)) / (cu_seqlens**0.5)
+                        attn_weights = F.softmax(attn_scores, dim=-1)
+                        output = torch.matmul(attn_weights, total_kv)
 
                     context = torch.zeros_like(q)
                     context = context.masked_scatter_(attn_mask4flsh.view(bsz, -1, 1, 1), output)
