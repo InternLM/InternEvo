@@ -80,7 +80,7 @@ InternEvo codebase is an open-source project contributed by Shanghai AI Laborato
 @misc{2023internlm,
     title={InternLM: A Multilingual Language Model with Progressively Enhanced Capabilities},
     author={InternLM Team},
-    howpublished = {\url{https://github.com/InternLM/InternEvo}},
+    howpublished = {\url{https://github.com/InternLM/InternLM}},
     year={2023}
 }
 ```
