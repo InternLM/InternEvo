@@ -32,11 +32,18 @@
     👋 join us on <a href="https://discord.gg/xa29JuW87d" target="_blank">Discord</a> and <a href="https://github.com/InternLM/InternLM/assets/25839884/a6aad896-7232-4220-ac84-9e070c2633ce" target="_blank">WeChat</a>
 </p>
 
+
+### Latest News 🔥
+
+- 2024/01/17: To delve deeper into the InternLM series of models, please check [InternLM](https://github.com/InternLM/InternLM) in our organization.
+
+
 ## Introduction
 
 InternEvo is an open-sourced lightweight training framework aims to support model pre-training without the need for extensive dependencies. With a single codebase, it supports pre-training on large-scale clusters with thousands of GPUs, and fine-tuning on a single GPU while achieving remarkable performance optimizations. InternEvo achieves nearly 90% acceleration efficiency during training on 1024 GPUs.
 
 Based on the InternEvo training framework, we are continually releasing a variety of large language models, including the InternLM-7B series and InternLM-20B series, which significantly outperform numerous renowned open-source LLMs such as LLAMA and other leading models in the field.
+
 
 ## Quick Start
 
@@ -66,10 +73,6 @@ We appreciate all the contributors for their efforts to improve and enhance Inte
 ## Acknowledgements
 
 InternEvo codebase is an open-source project contributed by Shanghai AI Laboratory and researchers from different universities and companies. We would like to thank all the contributors for their support in adding new features to the project and the users for providing valuable feedback. We hope that this toolkit and benchmark can provide the community with flexible and efficient code tools for fine-tuning InternEvo and developing their own models, thus continuously contributing to the open-source community. Special thanks to the two open-source projects, [flash-attention](https://github.com/HazyResearch/flash-attention) and [ColossalAI](https://github.com/hpcaitech/ColossalAI).
-
-## License
-
-The code is licensed under Apache-2.0, while model weights are fully open for academic research and also allow **free** commercial usage. To apply for a commercial license, please fill in the [application form (English)](https://wj.qq.com/s2/12727483/5dba/)/[申请表（中文）](https://wj.qq.com/s2/12725412/f7c1/). For other questions or collaborations, please contact <internlm@pjlab.org.cn>.
 
 ## Citation
 
