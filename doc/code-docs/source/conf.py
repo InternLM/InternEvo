@@ -9,9 +9,9 @@
 import os
 import sys
 
-project = "InternLM"
-copyright = "2023, InternLM Team"
-author = "InternLM Team"
+project = "InternEvo"
+copyright = "2023, InternEvo Team"
+author = "InternEvo Team"
 
 with open("../../../version.txt", "r") as f:
     release = f.readline().rstrip()
