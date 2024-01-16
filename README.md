@@ -42,7 +42,7 @@
 
 InternEvo is an open-sourced lightweight training framework aims to support model pre-training without the need for extensive dependencies. With a single codebase, it supports pre-training on large-scale clusters with thousands of GPUs, and fine-tuning on a single GPU while achieving remarkable performance optimizations. InternEvo achieves nearly 90% acceleration efficiency during training on 1024 GPUs.
 
-Based on the InternEvo training framework, we are continually releasing a variety of large language models, including the InternLM-7B series and InternLM-20B series, which significantly outperform numerous renowned open-source LLMs such as LLAMA and other leading models in the field.
+Based on the InternEvo training framework, we are continually releasing a variety of large language models, including the InternLM-7B series and InternLM-20B series, which significantly outperform numerous renowned open-source LLMs such as LLaMA and other leading models in the field.
 
 
 ## Quick Start

@@ -102,10 +102,3 @@ python tools/pal_inference.py internlm/internlm-chat-7k ./output -v
     "generation": ["```python\ndef solution():\n    eggs_per_day = 16\n    eggs_per_breakfast = 3\n    eggs_per_muffin = 4\n    eggs_used = eggs_per_day - eggs_per_breakfast - eggs_per_muffin\n    eggs_sold = eggs_used\n    price_per_egg = 2\n    eggs_made = eggs_sold * price_per_egg\n    result = eggs_made\n    return result\n```"]
 }
 ````
-
-InternLM 在 GSM8K 数据集中带工具和不带工具的性能表现：
-
-| Method   | **InternLM-Chat-7B** |
-| -------- | -------------------- |
-| w/o tool | 34.5                 |
-| w tool   | 39.2                 |
