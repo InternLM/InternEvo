@@ -540,7 +540,7 @@ class ISPCommunicatorSchedulerHook(SchedulerHook):
     def before_backward(self, scheduler, outputs, outputs_grad) -> None:
         if self._isp_communicator.model_checkpoint:
             self._isp_communicator.is_forward = False
-        # switch model chunk before forward
+        # switch model chunk before backward
         chunk_id = 0 if gpc.virtual_pipeline_parallel_rank is None else gpc.virtual_pipeline_parallel_rank
         self._isp_communicator.switch_current_model_chunk(chunk_id)
 
