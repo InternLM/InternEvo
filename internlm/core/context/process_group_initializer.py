@@ -554,7 +554,7 @@ class Initializer_Expert_Data(ProcessGroupInitializer):
     def _get_expert_parallel_ranks(self):
         """
         Create expert and data parallel groups
-        Example: world_size = 8, model_parallel_size = 2, expert_parallel_size = 2
+        Example: world_size = 8, tensor_parallel_size = 2, expert_parallel_size = 2
         model_parallel_group = [0,1], [2,3], [4,5], [6,7]
         data_parallel_group = [0,2,4,6],                [1,3,5,7]
         expert_parallel_group = [0,2], [4,6],           [1,3], [5,7]

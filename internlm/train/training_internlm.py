@@ -20,6 +20,15 @@ from torch.distributed.fsdp.fully_sharded_data_parallel import (
 from torch.distributed.fsdp.wrap import transformer_auto_wrap_policy
 from torch.utils.data import ConcatDataset, DataLoader
 
+from internlm.core.communication.isp import ISPCommModelConfig, ISPCommunicator
+from internlm.core.context import (
+    IS_REPLICA_ZERO_PARALLEL,
+    IS_TENSOR_DATA_PARALLEL,
+    IS_TENSOR_EXPERT_DATA_PARALLEL,
+    IS_TENSOR_ZERO_PARALLEL,
+    IS_WEIGHT_ZERO_PARALLEL,
+    ParallelMode,
+)
 from internlm.core.context import global_context as gpc
 from internlm.core.context.random import set_mode
 from internlm.core.naive_amp import NaiveAMPModel
@@ -36,17 +45,17 @@ from internlm.data.packed_dataset import (
 from internlm.data.utils import DATASET_TYPE_IDS_MAP, unpack_data
 from internlm.model.embedding import Embedding1D
 from internlm.model.linear import (
-    FeedForward,
-    RewardModelLinear,
-    ScaleColumnParallelLinear,
     BaseScaleColumnParallelLinear,
     ColumnParallelLinear,
+    FeedForward,
+    ISPLinear,
+    RewardModelLinear,
     RowParallelLinear,
+    ScaleColumnParallelLinear,
 )
+from internlm.model.moe import MoE
 from internlm.model.multi_head_attention import MHA
-from internlm.model.linear import ISPLinear
-from internlm.core.communication.isp import ISPCommunicator, ISPCommModelConfig
-from internlm.model.utils import try_import_RMSNorm
+from internlm.model.utils import is_moe_param, try_import_RMSNorm
 from internlm.monitor import send_heartbeat, set_env_var
 from internlm.monitor.monitor import monitor_manager as mm
 from internlm.solver.beta2_scheduler import Beta2Scheduler
@@ -58,25 +67,17 @@ from internlm.utils.common import DummyProfile, get_current_device
 from internlm.utils.logger import get_logger
 from internlm.utils.megatron_timers import megatron_timer as timer
 from internlm.utils.parallel import (
+    is_replica_zero_parallel_parameter,
+    is_tensor_data_parallel_parameter,
+    is_tensor_expert_data_parallel_parameter,
+    is_tensor_zero_parallel_parameter,
+    is_weight_zero_parallel_parameter,
     set_model_params_layer_name,
     sync_model_param,
     sync_model_replica_param_group,
 )
 from internlm.utils.registry import MODEL_INITIALIZER
 from internlm.utils.timeout import llm_timeout
-from internlm.core.context import (
-    IS_TENSOR_ZERO_PARALLEL,
-    IS_REPLICA_ZERO_PARALLEL,
-    IS_TENSOR_DATA_PARALLEL,
-    IS_WEIGHT_ZERO_PARALLEL,
-    ParallelMode,
-)
-from internlm.utils.parallel import (
-    is_replica_zero_parallel_parameter,
-    is_tensor_data_parallel_parameter,
-    is_tensor_zero_parallel_parameter,
-    is_weight_zero_parallel_parameter,
-)
 
 RMSNorm = try_import_RMSNorm()
 logger = get_logger(__file__)
@@ -89,10 +90,12 @@ def set_attr_for_param_groups(model: Union[nn.Module, nn.ModuleList]):
             for param in module.parameters():
                 setattr(param, IS_REPLICA_ZERO_PARALLEL, True)
 
+        if isinstance(module, MoE):
+            for param in module.moe_layer.gate.parameters():
+                setattr(param, IS_REPLICA_ZERO_PARALLEL, True)
+
         # embedding and head
-        if isinstance(module, (Embedding1D, ParallelGPT2Embeddings)) or isinstance(
-            module, BaseScaleColumnParallelLinear
-        ):
+        if isinstance(module, (Embedding1D, ParallelGPT2Embeddings, BaseScaleColumnParallelLinear)):
             for param in module.parameters():
                 if gpc.is_initialized(ParallelMode.TENSOR) and gpc.config.parallel.tensor.mode == "isp":
                     setattr(param, IS_TENSOR_DATA_PARALLEL, True)
@@ -102,9 +105,20 @@ def set_attr_for_param_groups(model: Union[nn.Module, nn.ModuleList]):
         # for linear module
         if isinstance(module, (ColumnParallelLinear, RowParallelLinear)):
             for param in module.parameters():
-                if gpc.is_initialized(ParallelMode.TENSOR) and gpc.config.parallel.tensor.mode != "isp":
+                if gpc.is_initialized(ParallelMode.EXPERT_DATA) and is_moe_param(param):
+                    # module should be MoE experts's linear
+                    setattr(param, IS_TENSOR_EXPERT_DATA_PARALLEL, True)
+                elif (
+                    not is_moe_param(param)
+                    and gpc.is_initialized(ParallelMode.TENSOR)
+                    and gpc.config.parallel.tensor.mode != "isp"
+                ):
                     setattr(param, IS_TENSOR_ZERO_PARALLEL, True)
-                elif gpc.is_initialized(ParallelMode.WEIGHT) and gpc.config.parallel.tensor.mode == "isp":
+                elif (
+                    not is_moe_param(param)
+                    and gpc.is_initialized(ParallelMode.WEIGHT)
+                    and gpc.config.parallel.tensor.mode == "isp"
+                ):
                     setattr(param, IS_WEIGHT_ZERO_PARALLEL, True)
 
     if not isinstance(model, nn.ModuleList):
@@ -123,6 +137,7 @@ def set_attr_for_param_groups(model: Union[nn.Module, nn.ModuleList]):
                 or is_tensor_data_parallel_parameter(param)
                 or is_tensor_zero_parallel_parameter(param)
                 or is_weight_zero_parallel_parameter(param)
+                or is_tensor_expert_data_parallel_parameter(param)
             ), f"parameter with name:{name} has no parallel attribution."
 
 

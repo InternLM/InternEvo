@@ -13,8 +13,9 @@ from internlm.core.context import IS_REPLICA_ZERO_PARALLEL, Config, ParallelMode
 from internlm.core.context import global_context as gpc
 from internlm.core.context.parallel_context import (
     IS_TENSOR_DATA_PARALLEL,
-    IS_WEIGHT_ZERO_PARALLEL,
+    IS_TENSOR_EXPERT_DATA_PARALLEL,
     IS_TENSOR_ZERO_PARALLEL,
+    IS_WEIGHT_ZERO_PARALLEL,
 )
 from internlm.monitor import send_alert_message
 from internlm.solver.optimizer.store import (
@@ -167,6 +168,8 @@ class HybridZeroOptimizer(BaseOptimizer):
             # TODO _broadcast_parallel_mode is not only used in broadcast, maybe can change its name
             self._broadcast_parallel_mode.append(zero_mode)
 
+            if self._is_moe_group(param_group):
+                grad_reduce_mode = ParallelMode.EXPERT_DATA
             if param_group["name"] != "embed_head" and self.use_isp:
                 grad_reduce_mode = ParallelMode.WEIGHT_DATA
             else:
@@ -287,12 +290,6 @@ class HybridZeroOptimizer(BaseOptimizer):
 
     def _is_moe_group(self, param_group):
         return "moe" in param_group.keys() and param_group["moe"]
-
-    def _is_norm_group(self, param_group):
-        return "norm" in param_group.keys() and param_group["norm"]
-
-    def _is_gate_group(self, param_group):
-        return "gate" in param_group.keys() and param_group["gate"]
 
     # TODO check expert dp is correct when enable moe and overlap both
     def _attach_reduction_hook(self):
@@ -619,17 +616,21 @@ class HybridZeroOptimizer(BaseOptimizer):
             grads = [self.padding_grad.to(dtype)]
             params = [self.padding_tensor.to(dtype)]
 
-            if group_id == 0:
+            if self.optim.param_groups[group_id]["name"] in ("default", "fp32"):
                 for param in params:
                     if self.use_isp:
                         setattr(param, IS_WEIGHT_ZERO_PARALLEL, True)
                     else:
                         setattr(param, IS_TENSOR_ZERO_PARALLEL, True)
-            elif group_id == 1:
+            elif self.optim.param_groups[group_id]["name"] == "embed_head":
+                # should be isp mode
                 for param in params:
                     setattr(param, IS_TENSOR_DATA_PARALLEL, True)
+            elif self._is_moe_group(self.optim.param_groups[group_id]):
+                for param in params:
+                    setattr(param, IS_TENSOR_EXPERT_DATA_PARALLEL, True)
             else:
-                raise NotImplementedError("group_id > 1 is not yet implemented.")
+                raise NotImplementedError("unrecognized parameter group.")
 
         norm = 0
         if self._clip_grad_norm > 0:
@@ -652,6 +653,8 @@ class HybridZeroOptimizer(BaseOptimizer):
                     delattr(param, IS_TENSOR_ZERO_PARALLEL)
                 if hasattr(param, IS_WEIGHT_ZERO_PARALLEL):
                     delattr(param, IS_WEIGHT_ZERO_PARALLEL)
+                if hasattr(param, IS_TENSOR_EXPERT_DATA_PARALLEL):
+                    delattr(param, IS_TENSOR_EXPERT_DATA_PARALLEL)
 
         return norm
 
@@ -829,19 +832,6 @@ class HybridZeroOptimizer(BaseOptimizer):
             assert (
                 param_shape == flat_fp32_avg_grads.shape
             ), f"fp32 param and grad have different shape {param_shape} vs {flat_fp32_avg_grads.shape}"
-
-            # Parameters shared within a TP group, such as norm and moe gate, have precision inconsistency in gradients.
-            # Therefore, it is recommended to synchronize gradients within the TP group to eliminate accumulated errors.
-            is_tp_sync_groups = (
-                self._is_norm_group(self.optim.param_groups[group_id]),
-                self._is_gate_group(self.optim.param_groups[group_id]),
-            )
-            if any(is_tp_sync_groups):
-                dist.all_reduce(
-                    flat_fp32_avg_grads,
-                    op=dist.ReduceOp.AVG,
-                    group=gpc.get_group(ParallelMode.TENSOR),
-                )
 
             single_grad_partition_groups.append(flat_fp32_avg_grads)
             device = self._fp32_flat_param_groups_of_current_rank[group_id].device
