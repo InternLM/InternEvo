@@ -133,10 +133,7 @@ class PipelineScheduler(BaseScheduler):
             tensor_shape if tensor_shape is None or isinstance(tensor_shape, torch.Size) else torch.Size(tensor_shape)
         )
 
-        self.scatter_gather_tensors = (
-            scatter_gather_tensors
-            and gpc.is_using_parallel_mode(ParallelMode.TENSOR)
-        )
+        self.scatter_gather_tensors = scatter_gather_tensors and gpc.is_using_parallel_mode(ParallelMode.TENSOR)
 
         if gpc.config.parallel.sequence_parallel:
             self.scatter_gather_tensors = False

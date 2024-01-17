@@ -24,7 +24,6 @@ from . import process_group_initializer as pgroup_initializer
 from .process_group_initializer import ParallelMode
 from .random import add_seed, get_seeds, set_mode
 
-
 IS_REPLICA_ZERO_PARALLEL = "is_replica_zero_parallel"
 # for isp, with optimizer split in dp group
 IS_TENSOR_DATA_PARALLEL = "is_tensor_data_parallel"

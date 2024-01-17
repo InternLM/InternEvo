@@ -13,8 +13,8 @@ from internlm.core.context import IS_REPLICA_ZERO_PARALLEL, Config, ParallelMode
 from internlm.core.context import global_context as gpc
 from internlm.core.context.parallel_context import (
     IS_TENSOR_DATA_PARALLEL,
-    IS_WEIGHT_ZERO_PARALLEL,
     IS_TENSOR_ZERO_PARALLEL,
+    IS_WEIGHT_ZERO_PARALLEL,
 )
 from internlm.monitor import send_alert_message
 from internlm.solver.optimizer.store import (

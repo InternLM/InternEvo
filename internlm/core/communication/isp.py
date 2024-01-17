@@ -142,6 +142,10 @@ class MemoryPool:
 
 
 class ISPOverlapState:
+    """
+    Overlap state for isp.
+    """
+
     def __init__(self) -> None:
         self.num_blocks: int = 0
         self.embedding: List[nn.Module] = []

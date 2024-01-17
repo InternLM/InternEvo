@@ -31,7 +31,6 @@ from internlm.utils.common import filter_kwargs
 from internlm.utils.logger import get_logger
 from internlm.utils.registry import MODEL_INITIALIZER
 
-
 MODEL_TYPE = "INTERNLM"
 
 logger = get_logger(__file__)
