@@ -200,3 +200,69 @@ class FeedForward(nn.Module):
         w2_o = self.w2(x)
         out = self.w3(Silu(w1_o, w2_o))
         return out
+
+
+class FeedForwardV2(nn.Module):
+    """
+    FeedForwardV2.
+
+    Args:
+        in_features (int): size of each input sample
+        hidden_features (int): size of hidden state of FFN
+        out_features (int): size of each output sample
+        process_group (Optional[torch.distributed.ProcessGroup]): The group of the current device for `parallel_mode`.
+        bias (bool): Whether the bias is needed for linears. True by default. But it is typically set to False
+                    in the config.
+        device (Optional[Union[str, torch.device]]): The device will be used.
+        dtype (Optional[torch.dtype]): The type of data.
+        multiple_of (int): For efficient training. Reset the size of hidden feature. 256 by default.
+    """
+
+    def __init__(
+        self,
+        in_features: int,
+        hidden_features: int,
+        out_features: int = None,
+        process_group: Optional[torch.distributed.ProcessGroup] = None,
+        bias: bool = True,
+        device: Optional[torch.device] = None,
+        dtype: Optional[torch.dtype] = None,
+        multiple_of: int = 256,
+    ):
+        super().__init__()
+
+        hidden_features = multiple_of * ((hidden_features + multiple_of - 1) // multiple_of)
+
+        self.w1 = ColumnParallelLinearTorch(
+            in_features,
+            hidden_features,
+            process_group,
+            bias,
+            sequence_parallel=gpc.config.parallel.sequence_parallel,
+            device=device,
+            dtype=dtype,
+        )
+        self.w2 = RowParallelLinearTorch(
+            hidden_features,
+            out_features,
+            process_group,
+            bias=bias,
+            sequence_parallel=gpc.config.parallel.sequence_parallel,
+            device=device,
+            dtype=dtype,
+        )
+        self.w3 = ColumnParallelLinearTorch(
+            in_features,
+            hidden_features,
+            process_group,
+            bias,
+            sequence_parallel=gpc.config.parallel.sequence_parallel,
+            device=device,
+            dtype=dtype,
+        )
+
+    def forward(self, x):
+        w1_o = self.w1(x)
+        w3_o = self.w3(x)
+        out = self.w2(Silu(w1_o, w3_o))
+        return out
