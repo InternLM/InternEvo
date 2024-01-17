@@ -433,11 +433,9 @@ class MHA(nn.Module):
                 split x during sequence parallel, we split the batch * seqlen dimension
                 (in case batch is small).
         """
-        # print(f"ht debug mha rank:{gpc.get_global_rank()} wqkv.shape:{self.Wqkv.weight.shape} wqkv:{self.Wqkv.weight}")
         qkv = self.Wqkv(x)  # total x hsz'
         qkv = rearrange(qkv, "t (three h d) -> t three h d", three=3, d=self.head_dim)  # total x 3 x n_head x d
         qkv = self.rotary_emb(qkv, **kwargs)
-        # print(f"ht debug mha rank:{gpc.get_global_rank()} qkv.shape:{qkv.shape} qkv:{qkv}", flush=True)
         kwargs.pop("indexes")
         if inference_params is None:
             if gpc.config.model.dtype is torch.float32 and gpc.config.model.use_flash_attn:
@@ -452,12 +450,6 @@ class MHA(nn.Module):
             raise RuntimeError("Not support this right now")
 
         context = rearrange(context, "b h d -> b (h d)")  # recover the shape
-        # print(f"ht debug mha rank:{gpc.get_global_rank()} context.shape:{context.shape} context:{context}")
-        # print(
-        #     f"ht debug mha rank:{gpc.get_global_rank()} out_proj.shape:{self.out_proj.weight.shape} out_proj:{self.out_proj.weight}"
-        # )
         out = self.out_proj(context)
-
-        # print(f"ht debug mha rank:{gpc.get_global_rank()} out.shape:{out.shape} out:{out}")
 
         return out

@@ -110,12 +110,9 @@ def split_params_into_different_groups_for_optimizer_with_new_partition_strategy
     elif not isinstance(param_groups, list):
         raise ValueError(f"Unknown param group type of {type(param_groups)}")
 
-    # print(f"ht debug params_groups before split total len:{len(param_groups[0]['params'])}", flush=True)
-
     # create new groups for IS_TENSOR_DATA_PARALLEL parameter group
     new_groups = {}
     new_groups["embed_head"] = {"name": "embed_head", "params": [], "optimizer_mode": ParallelMode.DATA}
-    # new_groups["layer_norm"] = {"name": "layer_norm", "params": [], "optimizer_mode": ParallelMode.ZERO1}
 
     for pgroup in param_groups:
         # copy attribute from origin group, we assume the input param_groups only
@@ -129,8 +126,6 @@ def split_params_into_different_groups_for_optimizer_with_new_partition_strategy
         for param in pgroup["params"]:
             if is_tensor_data_parallel_parameter(param):
                 new_groups["embed_head"]["params"].append(param)
-            # elif hasattr(param, IS_REPLICA_ZERO_PARALLEL) and getattr(param, IS_REPLICA_ZERO_PARALLEL) is True:
-            #     new_groups["layer_norm"]["params"].append(param)
             else:
                 origin_params.append(param)
 
@@ -143,10 +138,6 @@ def split_params_into_different_groups_for_optimizer_with_new_partition_strategy
         param_groups.extend(new_groups.values())
     else:
         assert len(new_groups["embed_head"]["params"]) <= 0
-
-    # print(f"ht debug params_groups after split default len:{len(param_groups[0]['params'])}", flush=True)
-    # print(f"ht debug params_groups after split embed_head len:{len(param_groups[1]['params'])}", flush=True)
-    # print(f"ht debug params_groups after split layer_norm len:{len(param_groups[2]['params'])}", flush=True)
 
     return tuple(param_groups)
 

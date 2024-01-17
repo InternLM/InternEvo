@@ -59,10 +59,6 @@ class Embedding1D(nn.Module):
 
         if gpc.config.parallel.sequence_parallel:
             output = split_forward_gather_backward(output, ParallelMode.TENSOR, dim=1)
-            # print(
-            #     f"ht debug embed: rank:{gpc.get_global_rank()} output.shape:{output.shape} output:{output}",
-            #     flush=True,
-            # )
 
         return output
 
