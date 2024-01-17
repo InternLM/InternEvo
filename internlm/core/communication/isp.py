@@ -3,7 +3,7 @@
 
 from dataclasses import dataclass
 from functools import partial
-from typing import Dict, List, Union
+from typing import Any, Dict, List, Union
 
 import torch
 from torch import distributed as dist
@@ -141,6 +141,22 @@ class MemoryPool:
         self._reduce_scatter_memory_pool = {}
 
 
+class ISPOverlapState:
+    def __init__(self) -> None:
+        self.num_blocks: int = 0
+        self.embedding: List[nn.Module] = []
+        self.head: List[nn.Module] = []
+        self.last_block: nn.Moudle = None
+        self.isp_outs: List[nn.Module] = []
+        self.isp_modules: List[nn.Module] = []
+        self.index_to_isp_module: Dict[int, nn.Module] = {}
+        self.module_to_index: Dict[nn.Module, int] = {}
+        self.weight_global_handle: Dict[str, Any] = {}
+        self.weight_global_output: Dict[str, torch.Tensor] = {}
+        self.bias_global_handle: Dict[str, Any] = {}
+        self.bias_global_output: Dict[str, torch.Tensor] = {}
+
+
 class ISPCommunicator:
     """
     ISP Communicator for managing the all-gather and reduce_scatter of Intern Sequence Parallel.
@@ -160,72 +176,83 @@ class ISPCommunicator:
         self.overlap = overlap
         self.enable_memory_pool = overlap and enable_memory_pool
         self.model_conf = model_conf
+        self.module_name = model_conf.modules.copy()
         self.is_forward = True
-
-        self._isp_outs = []
-        self._isp_modules = []
-        self._module_name = model_conf.modules.copy()
-
-        # key: isp module; value: module global all-gather op handle
-        self._weight_global_handle = {}
-        # key: isp module; value: module bias global all-gather op handle
-        self._bias_global_handle = {}
         self.reduce_scatter_handlers = {}
-        # key: isp module; value: module global weight after all-gather op
-        self._weight_global_output = {}
-        # key: isp module; value: module bias global weight after all-gather op
-        self._bias_global_output = {}
-        # key: isp module; value: transformer block index
-        self._module_to_index = {}
-        # key: transformer block index; value: isp modules
-        self._index_to_isp_module = {}
+
+        # real overlap state for each chunk.
+        self._overlap_states: Dict[int, ISPOverlapState] = {}
+
+        # inner interface variables of overlap state.
+        self._num_blocks = None
+        self._head = None
+        self._embedding = None
         self._last_block = None
-        self._head = []
-        self._embedding = []
+        self._isp_outs = None
+        self._isp_modules = None
+        # key: isp module; value: module global all-gather op handle
+        self._weight_global_handle = None
+        # key: isp module; value: module bias global all-gather op handle
+        self._bias_global_handle = None
+        # key: isp module; value: module global weight after all-gather op
+        self._weight_global_output = None
+        # key: isp module; value: module bias global weight after all-gather op
+        self._bias_global_output = None
+        # key: isp module; value: transformer block index
+        self._module_to_index = None
+        # key: transformer block index; value: isp modules
+        self._index_to_isp_module = None
 
-        # just want to share same for loop for ModuleList and Module
-        model = model if isinstance(model, nn.ModuleList) else [model]
-        for chunk in model:
-            if isinstance(chunk, NaiveAMPModel):
-                chunk = chunk.model
-            self._parse_model_structure(chunk)
-
-        self.num_blocks = len(self._index_to_isp_module)
-
+        # init memory pool if necessary.
         if self.enable_memory_pool:
             self.memory_pool = MemoryPool(model_conf)
         else:
             self.memory_pool = None
 
+        # init overlap states if necessary.
         if self.overlap:
-            self._register_sync_parameters_hook()
+            # just want to share same for loop for modulelist and module.
+            model = model if isinstance(model, nn.ModuleList) else [model]
+            # build overlap states for every chunk.
+            for chunk_id, chunk in enumerate(model):
+                if isinstance(chunk, NaiveAMPModel):
+                    chunk = chunk.model
+                self._parse_model_structure(chunk_id, chunk)
+            # register overlap hooks for every chunk.
+            for chunk_id in range(len(model)):
+                self.switch_current_model_chunk(chunk_id)
+                self._register_sync_parameters_hook()
+            # switch to chunk 0 at first.
+            self.switch_current_model_chunk(0)
 
-    def _parse_model_structure(self, model: nn.Module) -> None:
+    def _parse_model_structure(self, cid: int, model: nn.Module) -> None:
+        self._overlap_states[cid] = ISPOverlapState()
+
         # Important: only works for llama-class models
-        for chunk_name, children in model.named_children():
+        for _, children in model.named_children():
             if isinstance(children, ScaleColumnParallelLinear):
                 setattr(children, "isp_name", "head")
-                self._head.append(children)
+                self._overlap_states[cid].head.append(children)
             elif isinstance(children, Embedding1D):
-                self._embedding.append(children)
+                self._overlap_states[cid].embedding.append(children)
             elif isinstance(children, nn.ModuleList):
-                self._last_block = children[-1]
+                self._overlap_states[cid].last_block = children[-1]
 
                 for idx, block in enumerate(children):
-                    self._index_to_isp_module[idx] = []
+                    self._overlap_states[cid].index_to_isp_module[idx] = []
                     for sub_name, sub in block.named_children():
                         for name, child in sub.named_children():
                             if name == "out_proj":
-                                self._isp_outs.append(child)
-                                self._module_to_index[child] = idx
+                                self._overlap_states[cid].isp_outs.append(child)
+                                self._overlap_states[cid].module_to_index[child] = idx
                             if isinstance(child, ISPLinear):
-                                self._module_to_index[child] = idx
-                                self._isp_modules.append(child)
-                                self._index_to_isp_module[idx].append(child)
+                                self._overlap_states[cid].module_to_index[child] = idx
+                                self._overlap_states[cid].isp_modules.append(child)
+                                self._overlap_states[cid].index_to_isp_module[idx].append(child)
 
                                 setattr(child, "isp_name", name)
 
-                                full_name = f"{chunk_name}.{idx}.{sub_name}.{name}"
+                                full_name = f"{cid}.{idx}.{sub_name}.{name}"
                                 setattr(
                                     child.weight,
                                     "isp_reduce_scatter_name",
@@ -237,6 +264,8 @@ class ISPCommunicator:
                                         "isp_reduce_scatter_name",
                                         f"{full_name}.bias",
                                     )
+
+        self._overlap_states[cid].num_blocks = len(self._overlap_states[cid].index_to_isp_module)
 
     def _all_gather_module_weight(self, module):
         with_bias = module.bias is not None
@@ -319,7 +348,7 @@ class ISPCommunicator:
                 self._all_gather_block_weight(block_index - 1)
         else:
             # start the all-gather for next block
-            if block_index + 1 < self.num_blocks:
+            if block_index + 1 < self._num_blocks:
                 self._all_gather_block_weight(block_index + 1)
 
     def _pre_forward_hook_for_module(self, module: nn.Module, *args):  # pylint: disable=W0613
@@ -329,7 +358,7 @@ class ISPCommunicator:
         self._wait_handle(module)
 
     def _pre_forward_hook_for_block(self, *args):  # pylint: disable=W0613
-        for module in self._index_to_isp_module[self.num_blocks - 1]:
+        for module in self._index_to_isp_module[self._num_blocks - 1]:
             self._all_gather_module_weight(module)
             self._wait_handle(module)
 
@@ -343,7 +372,7 @@ class ISPCommunicator:
 
     def _pre_backward_hook_for_head(self, *args):  # pylint: disable=W0613
         if self.is_forward is False:
-            self._all_gather_block_weight(self.num_blocks - 1)
+            self._all_gather_block_weight(self._num_blocks - 1)
 
     def _pre_backward_hook_for_module(self, module: nn.Module, *args):  # pylint: disable=W0613
         # wait handle for current module
@@ -413,6 +442,20 @@ class ISPCommunicator:
                 device=self.model_conf.device,
             ).contiguous()
 
+    def switch_current_model_chunk(self, chunk_id: int) -> None:
+        self._isp_outs = self._overlap_states[chunk_id].isp_outs
+        self._isp_modules = self._overlap_states[chunk_id].isp_modules
+        self._weight_global_handle = self._overlap_states[chunk_id].weight_global_handle
+        self._bias_global_handle = self._overlap_states[chunk_id].bias_global_handle
+        self._weight_global_output = self._overlap_states[chunk_id].weight_global_output
+        self._bias_global_output = self._overlap_states[chunk_id].bias_global_output
+        self._module_to_index = self._overlap_states[chunk_id].module_to_index
+        self._index_to_isp_module = self._overlap_states[chunk_id].index_to_isp_module
+        self._last_block = self._overlap_states[chunk_id].last_block
+        self._head = self._overlap_states[chunk_id].head
+        self._embedding = self._overlap_states[chunk_id].embedding
+        self._num_blocks = self._overlap_states[chunk_id].num_blocks
+
     # communication operation interfaces
 
     def all_gather(self, tensor: torch.Tensor, module: nn.Module, is_bias: bool = False):
@@ -481,6 +524,9 @@ class ISPCommunicatorSchedulerHook(SchedulerHook):
     def before_forward(self, scheduler, inputs) -> None:
         if self._isp_communicator.model_checkpoint:
             self._isp_communicator.is_forward = True
+        # switch model chunk before forward
+        chunk_id = 0 if gpc.virtual_pipeline_parallel_rank is None else gpc.virtual_pipeline_parallel_rank
+        self._isp_communicator.switch_current_model_chunk(chunk_id)
 
     def after_forward(self, scheduler, outputs) -> None:
         pass
@@ -494,6 +540,9 @@ class ISPCommunicatorSchedulerHook(SchedulerHook):
     def before_backward(self, scheduler, outputs, outputs_grad) -> None:
         if self._isp_communicator.model_checkpoint:
             self._isp_communicator.is_forward = False
+        # switch model chunk before forward
+        chunk_id = 0 if gpc.virtual_pipeline_parallel_rank is None else gpc.virtual_pipeline_parallel_rank
+        self._isp_communicator.switch_current_model_chunk(chunk_id)
 
     def after_backward(self, scheduler, inputs_grad) -> None:
         # accumulate left gradients in last bucket after backward.
