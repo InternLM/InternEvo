@@ -308,9 +308,10 @@ Vs. self.num_samples: {self.num_samples}"
             cur_batch_size = batch_rampup_idx * self.bsz_incre + self.start_bsz
             cur_batch_size = min(cur_batch_size, self.batch_size)
             batch = indices[self.num_consumed_samples_in_epoch : self.num_consumed_samples_in_epoch + cur_batch_size]
-            yield batch
             self.num_consumed_samples_in_epoch += len(batch)  # Consider multiple processes.
             self.batch_count += 1
+            yield batch
+
         self.get_indices()  # get a new round
 
     def state_dict(self):
