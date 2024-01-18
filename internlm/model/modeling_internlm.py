@@ -31,7 +31,6 @@ from internlm.utils.common import filter_kwargs
 from internlm.utils.logger import get_logger
 from internlm.utils.registry import MODEL_INITIALIZER
 
-
 MODEL_TYPE = "INTERNLM"
 
 logger = get_logger(__file__)
@@ -231,14 +230,7 @@ class PackedFlashBaseLayer1D(nn.Module):
         if self.residual_in_fp32:
             residual = residual.to(torch.float32)
 
-        # print(
-        #     f"ht debug mlp rank:{gpc.get_global_rank()} input.shape:{hidden_states.shape} input:{hidden_states}",
-        #     flush=True,
-        # )
         hidden_states = self.mlp(hidden_states)
-        # print(
-        #     f"ht debug mlp rank:{gpc.get_global_rank()} out.shape:{hidden_states.shape} out:{hidden_states}", flush=True
-        # )
 
         return hidden_states + residual
 
@@ -422,11 +414,6 @@ class PackedFlashInternLm1D(nn.Module):
                 hidden_states = self.head(hidden_states, gather_dim=1)
             else:  # Training
                 hidden_states = self.head(hidden_states, gather_dim=0)
-
-            # print(
-            #     f"ht debug head rank:{gpc.get_global_rank()} hidden_states.shape:{hidden_states.shape} hidden_states:{hidden_states}",
-            #     flush=True,
-            # )
 
         if not self.parallel_output:
             hidden_states = gather_forward_split_backward(hidden_states, ParallelMode.TENSOR, dim=-1)

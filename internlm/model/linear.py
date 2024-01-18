@@ -12,8 +12,8 @@ from internlm.core.context import ParallelMode
 from internlm.core.context import global_context as gpc
 from internlm.model.utils import (
     Silu,
-    isp_fused_dense_func,
     fused_dense_func_torch,
+    isp_fused_dense_func,
     megatron_fused_dense_func_torch,
 )
 
@@ -351,6 +351,10 @@ class MegatronFeedForward(BaseFeedForward):
 
 
 class ISPLinear(ColumnParallelLinear):
+    """
+    Linear class for isp tensor parallel mode.
+    """
+
     # class level communicator variable.
     __communicator = None
 

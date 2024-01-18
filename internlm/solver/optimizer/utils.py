@@ -330,9 +330,12 @@ def compute_norm(
         Sum across all model-parallel GPUs.
         1. For the IS_REPLICA_ZERO_PARALLEL parameter group, gradients from rank 0 in the tp/wp process group and
             gradients along the pp+zero dimensions from all ranks should be aggregated.
-        2. For the IS_TENSOR_DATA_PARALLEL parameter group, gradients along the tp+pp+zero(dp) dimensions from all ranks should be aggregated.
-        3. For the IS_TENSOR_ZERO_PARALLEL parameter group, gradients along the tp+pp+zero dimensions from all ranks should be aggregated.
-        4. For the IS_WEIGHT_ZERO_PARALLEL parameter group, gradients along the wp+pp+zero dimensions from all ranks should be aggregated.
+        2. For the IS_TENSOR_DATA_PARALLEL parameter group, gradients along the tp+pp+zero(dp) dimensions
+            from all ranks should be aggregated.
+        3. For the IS_TENSOR_ZERO_PARALLEL parameter group, gradients along the tp+pp+zero dimensions
+            from all ranks should be aggregated.
+        4. For the IS_WEIGHT_ZERO_PARALLEL parameter group, gradients along the wp+pp+zero dimensions
+            from all ranks should be aggregated.
         """
         if is_tensor_data_parallel_parameter(parameters[0]):
             if gpc.is_using_parallel_mode(ParallelMode.TENSOR):
@@ -372,6 +375,7 @@ def compute_norm(
     return total_norm
 
 
+# ht mark: TODO
 def compute_param_norm(
     gradients,
     parameters,

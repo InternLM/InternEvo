@@ -36,8 +36,6 @@ def split_params_into_different_groups_for_optimizer_with_new_partition_strategy
     elif not isinstance(param_groups, list):
         raise ValueError(f"Unknown param group type of {type(param_groups)}")
 
-    # print(f"ht debug params_groups before split total len:{len(param_groups[0]['params'])}", flush=True)
-
     # create new groups for IS_TENSOR_DATA_PARALLEL parameter group
     new_groups = {}
     if gpc.config.parallel.tensor.mode == "isp":
@@ -78,10 +76,6 @@ def split_params_into_different_groups_for_optimizer_with_new_partition_strategy
 
     # param groups may contain empty groups, such as embed_head
     param_groups.extend(new_groups.values())
-
-    # print(f"ht debug params_groups after split default len:{len(param_groups[0]['params'])}", flush=True)
-    # print(f"ht debug params_groups after split embed_head len:{len(param_groups[1]['params'])}", flush=True)
-    # print(f"ht debug params_groups after split layer_norm len:{len(param_groups[2]['params'])}", flush=True)
 
     return tuple(param_groups)
 

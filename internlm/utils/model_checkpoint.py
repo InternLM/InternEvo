@@ -281,7 +281,6 @@ def save_model_checkpoint(folder, model):
     if folder is not None:
         dp_size = gpc.get_world_size(ParallelMode.DATA)
         tp_size = gpc.get_world_size(ParallelMode.TENSOR)
-        wp_size = gpc.get_world_size(ParallelMode.WEIGHT)
         dp_rank = gpc.get_local_rank(ParallelMode.DATA)
         tp_rank = gpc.get_local_rank(ParallelMode.TENSOR)
         wp_rank = gpc.get_local_rank(ParallelMode.WEIGHT)
@@ -573,12 +572,16 @@ def load_optimizer_checkpoint(folder, optim):
     pp_size = gpc.get_world_size(ParallelMode.PIPELINE)
     dp_size = gpc.get_world_size(ParallelMode.DATA)
 
-    assert (
-        dp_size == max_dp + 1
-    ), f"The optimizer states are save for {max_dp+1} data parallelism, while current has {dp_size} data parallelism"
-    assert (
-        zero_size == max_zero + 1
-    ), f"The optimizer states are save for {max_zero+1} zero parallel, while current has {zero_size} zero broadcast range."
+    if gpc.config.parallel.tensor.mode == "isp":
+        assert dp_size == max_dp + 1, (
+            f"The optimizer states are save for {max_dp+1} data parallelism, "
+            f"while current has {dp_size} data parallelism"
+        )
+    if gpc.config.parallel.tensor.mode != "isp":
+        assert zero_size == max_zero + 1, (
+            f"The optimizer states are save for {max_zero+1} zero parallel, "
+            f"while current has {zero_size} zero broadcast range."
+        )
     assert (
         pp_size == max_pp + 1
     ), f"The optimizer states are save for {max_pp+1} pipelines, while current has {pp_size} pipelines"
