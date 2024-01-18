@@ -8,9 +8,11 @@ import numpy as np
 current_dir = os.path.dirname(os.path.abspath(__file__))
 model_path = os.path.join(current_dir, "V7_sft.model")
 sys.path.append(os.path.join(current_dir, "transformers"))
-from tokenization_internlm import InternLMTokenizer
+from internlm_model import InternLMTokenizer
 
-tokenizer = InternLMTokenizer(vocab_file=model_path)
+tokenizer = InternLMTokenizer(
+    vocab_file=model_path, add_bos_token=True, add_eos_token=True
+)
 
 
 def write_bin(context: str, bin_file) -> None:

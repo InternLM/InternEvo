@@ -6,8 +6,8 @@ from torch_scatter import scatter
 
 from internlm.core.context import ParallelMode
 from internlm.core.context import global_context as gpc
-from internlm.core.scheduler import SchedulerHook
 from internlm.utils.megatron_timers import megatron_timer as timer
+from internlm.utils.common import SchedulerHook
 
 
 class AccPerplex:
@@ -28,7 +28,11 @@ class AccPerplex:
         self.device = device
         self.right = torch.Tensor([0]).to(device=device)
         self.total = torch.Tensor([0]).to(device=device)
-        self.total_log_probs = torch.Tensor([0]).to(device=device)
+        self.metric_dtype = torch.float if gpc.config.get("metric_dtype", None) == "fp32" else None
+        if self.metric_dtype is not None:
+            self.total_log_probs = torch.Tensor([0]).to(device=device, dtype=self.metric_dtype)
+        else:
+            self.total_log_probs = torch.Tensor([0]).to(device=device)
         self.tp_pg = tp_pg
         self.dp_pg = dp_pg
         self.tp_local_rank = torch.distributed.get_rank(self.tp_pg)
@@ -65,8 +69,8 @@ class AccPerplex:
             if isinstance(logits, (list, tuple)):
                 logits = logits[0]
 
-            logits = logits.detach().clone()
-            labels = labels.detach().clone()
+            # logits = logits.detach().clone()
+            # labels = labels.detach().clone()
 
             if self.tokenizer:  # need to calculate bits per bytes
                 sequences = self.tokenizer.decode_ids(labels.tolist())
@@ -130,9 +134,13 @@ class AccPerplex:
             # All reduce is needed to get the chunks from other GPUs.
             torch.distributed.all_reduce(predicted_logits, op=torch.distributed.ReduceOp.SUM, group=self.tp_pg)
 
-            pred_exp_logits = torch.exp(predicted_logits)
+            if self.metric_dtype is not None:
+                predicted_logits = predicted_logits.to(dtype=self.metric_dtype)
+                shift_logits = shift_logits.to(dtype=self.metric_dtype)
+
+            pred_exp_logits = torch.exp_(predicted_logits)
             # Sum of exponential of logits along vocab dimension across all GPUs.
-            sum_exp_logits = torch.exp(shift_logits).sum(dim=-1)
+            sum_exp_logits = torch.exp_(shift_logits).sum(dim=-1)
             torch.distributed.all_reduce(sum_exp_logits, op=torch.distributed.ReduceOp.SUM, group=self.tp_pg)
 
             total_log_probs = -(pred_exp_logits / sum_exp_logits).log().masked_fill(shift_labels.eq(-100), 0).sum()

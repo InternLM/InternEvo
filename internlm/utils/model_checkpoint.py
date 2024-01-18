@@ -50,12 +50,16 @@ class CheckpointSaveType(Enum):
 
 class CheckpointLoadType(Enum):
     INTERNLM = "internlm"
+    HF_LLAMA = "hf_llama"
+    LLAMA = "llama"
 
 
 # The load method implemented by internlm by default does not use string representation types,
 # but uses enumeration types defined in advance.
 LOAD_TYPE_DICT = {
     "internlm": CheckpointLoadType.INTERNLM,
+    "hf_llama": CheckpointLoadType.HF_LLAMA,
+    "llama": CheckpointLoadType.LLAMA,
 }
 
 
@@ -74,7 +78,7 @@ class CheckpointLoadMethod:
     LOAD_TYPE_FUNC = {}
 
     @staticmethod
-    def convet_load_type(load_type: str) -> Union[CheckpointLoadType, str]:
+    def convert_load_type(load_type: str) -> Union[CheckpointLoadType, str]:
         if load_type.lower() in LOAD_TYPE_DICT:
             # The ckpt load method implemented by internlm by default.
             return LOAD_TYPE_DICT[load_type.lower()]
@@ -90,7 +94,11 @@ class CheckpointLoadMethod:
 
         CheckpointLoadMethod.LOAD_TYPE_FUNC.update({load_type: load_func})
 
-        if load_type == CheckpointLoadType.INTERNLM:
+        if load_type in (
+            CheckpointLoadType.INTERNLM,
+            CheckpointLoadType.HF_LLAMA,
+            CheckpointLoadType.LLAMA,
+        ):
             CheckpointLoadMethod.LOAD_FUNC_SIG = inspect.signature(load_func)
         else:
             if inspect.signature(load_func) != CheckpointLoadMethod.LOAD_FUNC_SIG and gpc.is_rank_for_log():
@@ -188,12 +196,32 @@ def load_shard_state_dict(shard_model, shard_state, **kwargs):
     return (missing_k, unexpected_keys)
 
 
-def try_load_internlm_ckpt(ckpt_mm, load_info, train_state: TrainState):
+def process_load_info(load_info):
     load_content_str = ""
     load_ckpt_folder = load_info["path"]
     load_content: CheckpointLoadMask = load_info["content"]
     if gpc.is_rank_for_log():
         logger.info(f"Try load_ckpt_folder: {load_ckpt_folder}")
+
+    return load_content_str, load_ckpt_folder, load_content
+
+
+def try_load_LLAMA_ckpt(ckpt_mm, load_info, train_state: TrainState):  # pylint: disable=W0613
+    load_content_str, load_ckpt_folder, load_content = process_load_info(load_info)
+    if load_content.need_load(CheckpointLoadContent.MODEL):
+        load_llama_pretrained_weights(folder=load_ckpt_folder, model=ckpt_mm.model)
+        load_content_str += f"{CheckpointLoadContent.MODEL}, "
+
+
+def try_load_hf_LLAMA_ckpt(ckpt_mm, load_info, train_state: TrainState):  # pylint: disable=W0613
+    load_content_str, load_ckpt_folder, load_content = process_load_info(load_info)
+    if load_content.need_load(CheckpointLoadContent.MODEL):
+        load_hf_llama_pretrained_weights(folder=load_ckpt_folder, model=ckpt_mm.model)
+        load_content_str += f"{CheckpointLoadContent.MODEL}, "
+
+
+def try_load_internlm_ckpt(ckpt_mm, load_info, train_state: TrainState):
+    load_content_str, load_ckpt_folder, load_content = process_load_info(load_info)
 
     if load_content.need_load(CheckpointLoadContent.MODEL):
         load_model_checkpoint(folder=load_ckpt_folder, model=ckpt_mm.model)
@@ -203,7 +231,7 @@ def try_load_internlm_ckpt(ckpt_mm, load_info, train_state: TrainState):
         # load training states.
         load_context(load_ckpt_folder, train_state)
 
-        # load optimzier states.
+        # load optimizer states.
         if load_content.need_load(CheckpointLoadContent.OPIMIZER):
             load_optimizer_checkpoint(load_ckpt_folder, ckpt_mm.optimizer)
             load_content_str += f"{CheckpointLoadContent.OPIMIZER}, "
@@ -219,6 +247,12 @@ def try_load_internlm_ckpt(ckpt_mm, load_info, train_state: TrainState):
             else:
                 if gpc.is_rank_for_log():
                     logger.warning("CheckpointManager has no 'lr_scheduler', skip reload lr_scheduler checkpoint!")
+
+            if not load_content.need_load(CheckpointLoadContent.OPIMIZER):
+                if ckpt_mm.lr_scheduler and train_state:
+                    gpc.config.only_load_lr = True
+                    load_optimizer_checkpoint(load_ckpt_folder, ckpt_mm.optimizer)
+                    gpc.config.only_load_lr = False
 
         # load dataloader sampler states.
         if load_content.need_load(CheckpointLoadContent.SAMPLER):
@@ -330,6 +364,170 @@ def save_model_checkpoint(folder, model):
         #     try_save_moe_checkpoint(folder, model, tp_rank, pp_rank)
 
     torch.distributed.barrier()
+
+
+def load_llama_pretrained_weights(folder, model):
+    model = model.model
+    assert folder is not None, "Please specify the folder of the pretrained model"
+    if gpc.is_rank_for_log():
+        logger.info(f"Loading pretrained model from {folder}")
+
+    fns = get_fns(folder)
+    model_fns = [os.path.join(folder, fn) for fn in fns if fn.endswith(".pth") or fn.endswith(".pt")]
+    model_fns.sort()
+
+    old_tp = len(model_fns)
+    cur_tp = gpc.get_world_size(ParallelMode.TENSOR)
+    # If the two tp are inconsistent, you need to consider the merge before splitting
+    if old_tp != cur_tp:
+        raise RuntimeError(
+            f"Your current tp is `{cur_tp}`, but the tp in folder:`{folder}` is `{old_tp}`, use `` to convert first"
+        )
+
+    states = llm_load(model_fns[gpc.get_local_rank(ParallelMode.TENSOR)], map_location="cpu")
+
+    current_states = {}
+    for idx, i in enumerate(range(model.first_layer, model.last_layer)):
+        if gpc.config.model_type == "LLAMA2":
+            # LLAMA's w2 and w3 are in reverse order
+            w2 = states.pop(f"layers.{i}.feed_forward.w2.weight")
+            w3 = states.pop(f"layers.{i}.feed_forward.w3.weight")
+            states[f"layers.{i}.feed_forward.w2.weight"] = w3
+            states[f"layers.{i}.feed_forward.w3.weight"] = w2
+        if "rope.freqs" in states:
+            states[f"layers.{i}.attention.rotary_emb.inv_freq"] = states["rope.freqs"]
+        for name in list(states.keys()):
+            if f".{i}." in name:
+                current_states[name.replace(f".{i}.", f".{idx}.")] = states.pop(name)
+
+    model_state_keys = set(list(model.state_dict().keys()))
+
+    if "tok_embeddings.weight" in model_state_keys:
+        current_states["tok_embeddings.weight"] = states["tok_embeddings.weight"]
+        assert model.first_layer == 0, f"Expect model.NaiveAMPModel to be 0, but got {model.first_layer}"
+    if "output.weight" in model_state_keys:
+        current_states["norm.weight"] = states["norm.weight"]
+        current_states["output.weight"] = states["output.weight"]
+    missing_keys, unexpected_keys = model.load_state_dict(current_states, strict=False)
+
+    if gpc.get_local_rank(ParallelMode.DATA) == 0:
+        pp_rank = 0 if not gpc.is_initialized(ParallelMode.PIPELINE) else gpc.get_local_rank(ParallelMode.PIPELINE)
+        logger.info(
+            f"Missing keys:{missing_keys}, unexpected keys:{unexpected_keys} in "
+            f"tp:{gpc.get_local_rank(ParallelMode.TENSOR)}, pp:{pp_rank}"
+        )
+
+    del states
+    del current_states
+    torch.cuda.empty_cache()
+
+
+def load_hf_llama_pretrained_weights(folder, model):
+    model = model.model
+    assert folder is not None, "Please specify the folder of the pretrained model"
+    if gpc.is_rank_for_log():
+        logger.info(f"Loading pretrained model from {folder}")
+
+    fns = get_fns(folder)
+    model_fns = [os.path.join(folder, fn) for fn in fns if fn.endswith(".bin") and fn.startswith("pytorch_model")]
+    model_fns.sort()
+
+    states = {}
+
+    for model_fn in model_fns:
+        states.update(llm_load(model_fn, map_location="cpu"))
+
+    deep_split = getattr(model, "deep_split", False)
+    if deep_split:
+        print("using deep split when loading pretrained weights!")
+
+    current_states = {}
+    for idx, i in enumerate(range(model.first_layer, model.last_layer)):
+        if gpc.config.model_type == "LLAMA2":
+            if deep_split:
+                layer_ids = i // 2
+            else:
+                layer_ids = i
+
+            if not deep_split or (i + 2) % 2 == 0:
+                states[f"layers.{i}.attention.wq.weight"] = torch.chunk(
+                    states.pop(f"model.layers.{layer_ids}.self_attn.q_proj.weight"),
+                    gpc.get_world_size(ParallelMode.TENSOR),
+                    dim=0,
+                )[gpc.get_local_rank(ParallelMode.TENSOR)]
+                states[f"layers.{i}.attention.wk.weight"] = torch.chunk(
+                    states.pop(f"model.layers.{layer_ids}.self_attn.k_proj.weight"),
+                    gpc.get_world_size(ParallelMode.TENSOR),
+                    dim=0,
+                )[gpc.get_local_rank(ParallelMode.TENSOR)]
+                states[f"layers.{i}.attention.wv.weight"] = torch.chunk(
+                    states.pop(f"model.layers.{layer_ids}.self_attn.v_proj.weight"),
+                    gpc.get_world_size(ParallelMode.TENSOR),
+                    dim=0,
+                )[gpc.get_local_rank(ParallelMode.TENSOR)]
+                states[f"layers.{i}.attention.wo.weight"] = torch.chunk(
+                    states.pop(f"model.layers.{layer_ids}.self_attn.o_proj.weight"),
+                    gpc.get_world_size(ParallelMode.TENSOR),
+                    dim=1,
+                )[gpc.get_local_rank(ParallelMode.TENSOR)]
+                states[f"layers.{i}.attention_norm.weight"] = states.pop(
+                    f"model.layers.{layer_ids}.input_layernorm.weight"
+                )
+
+            if not deep_split or (i + 2) % 2 == 1:
+                states[f"layers.{i}.feed_forward.w1.weight"] = torch.chunk(
+                    states.pop(f"model.layers.{layer_ids}.mlp.gate_proj.weight"),
+                    gpc.get_world_size(ParallelMode.TENSOR),
+                    dim=0,
+                )[gpc.get_local_rank(ParallelMode.TENSOR)]
+                states[f"layers.{i}.feed_forward.w2.weight"] = torch.chunk(
+                    states.pop(f"model.layers.{layer_ids}.mlp.up_proj.weight"),
+                    gpc.get_world_size(ParallelMode.TENSOR),
+                    dim=0,
+                )[gpc.get_local_rank(ParallelMode.TENSOR)]
+                states[f"layers.{i}.feed_forward.w3.weight"] = torch.chunk(
+                    states.pop(f"model.layers.{layer_ids}.mlp.down_proj.weight"),
+                    gpc.get_world_size(ParallelMode.TENSOR),
+                    dim=1,
+                )[gpc.get_local_rank(ParallelMode.TENSOR)]
+
+                states[f"layers.{i}.ffn_norm.weight"] = states.pop(
+                    f"model.layers.{layer_ids}.post_attention_layernorm.weight"
+                )
+
+            if f"model.layers.{layer_ids}.self_attn.rotary_emb.inv_freq" in states:
+                states.pop(f"model.layers.{layer_ids}.self_attn.rotary_emb.inv_freq")
+        for name in list(states.keys()):
+            if name.startswith(f"layers.{i}"):
+                current_states[name.replace(f".{i}.", f".{idx}.")] = states.pop(name)
+
+    model_state_keys = set(list(model.state_dict().keys()))
+
+    if "tok_embeddings.weight" in model_state_keys or "tok_embeddings.word_embeddings.weight" in model_state_keys:
+        if gpc.config.model.get("embed_split_hidden", True):
+            current_states["tok_embeddings.weight"] = torch.chunk(
+                states["model.embed_tokens.weight"], gpc.get_world_size(ParallelMode.TENSOR), dim=1
+            )[gpc.get_local_rank(ParallelMode.TENSOR)]
+        else:
+            current_states["tok_embeddings.word_embeddings.weight"] = torch.chunk(
+                states["model.embed_tokens.weight"], gpc.get_world_size(ParallelMode.TENSOR), dim=1
+            )[gpc.get_local_rank(ParallelMode.TENSOR)]
+        assert model.first_layer == 0, f"Expect model.first_layer to be 0, but got {model.first_layer}"
+    if "output.weight" in model_state_keys:
+        current_states["norm.weight"] = states["model.norm.weight"]
+        current_states["output.weight"] = torch.chunk(
+            states["lm_head.weight"], gpc.get_world_size(ParallelMode.TENSOR), dim=0
+        )[gpc.get_local_rank(ParallelMode.TENSOR)]
+
+    missing_keys, unexpected_keys = model.load_state_dict(current_states, strict=False)
+
+    if gpc.get_local_rank(ParallelMode.DATA) == 0:
+        pp_rank = 0 if not gpc.is_initialized(ParallelMode.PIPELINE) else gpc.get_local_rank(ParallelMode.PIPELINE)
+        logger.info(
+            f"Missing keys:{missing_keys}, unexpected keys:{unexpected_keys} in "
+            f"tp:{gpc.get_local_rank(ParallelMode.TENSOR)}, pp:{pp_rank}"
+        )
+    torch.cuda.empty_cache()
 
 
 def load_model_checkpoint(folder, model):
@@ -742,7 +940,11 @@ class CheckpointManager:
         self.model_config_file = model_config_file
 
         # Register defalut internlm ckpt load type.
-        self.defalut_load_type_func = {CheckpointLoadType.INTERNLM: try_load_internlm_ckpt}
+        self.defalut_load_type_func = {
+            CheckpointLoadType.INTERNLM: try_load_internlm_ckpt,
+            CheckpointLoadType.HF_LLAMA: try_load_hf_LLAMA_ckpt,
+            CheckpointLoadType.LLAMA: try_load_LLAMA_ckpt,
+        }
         for ckpt_load_type in CheckpointLoadType:
             CheckpointLoadMethod.register_ckpt_load_type(ckpt_load_type, self.defalut_load_type_func[ckpt_load_type])
 
@@ -776,10 +978,16 @@ class CheckpointManager:
                 and "ckpt_type" in self.load_ckpt_info
             ), "please set content in ckpt setting, eg: ckpt = dict(path='', content=['model'], ckpt_type='internlm')"
 
+            if self.load_ckpt_info["content"] != ("model",):
+                assert (
+                    self.load_ckpt_info["ckpt_type"] == "internlm"
+                ), "Only 'internlm' ckpt supports loading states other than 'model' !"
+
             # replace load_ckpt
             self.load_ckpt_info["content"] = CheckpointLoadMask(self.load_ckpt_info["content"])
-            self.load_ckpt_info["ckpt_type"] = CheckpointLoadMethod.convet_load_type(self.load_ckpt_info["ckpt_type"])
+            self.load_ckpt_info["ckpt_type"] = CheckpointLoadMethod.convert_load_type(self.load_ckpt_info["ckpt_type"])
 
+        torch.distributed.barrier()
         # test storage setting is ok.
         if self.enable_save_ckpt:
             self.try_ping_storage()
@@ -836,7 +1044,7 @@ now step_count is {train_state.step_count}",
         save_ckpts, save_type, now_break = False, CheckpointSaveType.NORMAL_CHECKPOINT, False
         if self.oss_snapshot_freq > 1 and train_state.step_count % self.oss_snapshot_freq == 0:
             save_ckpts, save_type = True, CheckpointSaveType.SNAPSHOT_CHECKPOINT
-        if train_state.step_count % self.checkpoint_every == 0:
+        if train_state.step_count % self.checkpoint_every == 0 or train_state.step_count == train_state.total_steps:
             save_ckpts, save_type = True, CheckpointSaveType.NORMAL_CHECKPOINT
         now_break, singal_save_ckpts, singal_save_type = self.quit_signal_handler(train_state)
         if save_ckpts is False:
@@ -879,7 +1087,8 @@ now step_count is {train_state.step_count}",
         torch.distributed.barrier()
 
     def query_latest_snapshot_step_boto3(self):
-        """query_latest_snapshot_step_boto3
+        """Query the latest snapshot step from the storage backend.
+        Currently, we only support the following storage backends: boto3, oss2 and volc.
         Returns:
             Tuple(str, int): path of latest ckpt and ckpt step, if not found, None will return.
         """
@@ -937,6 +1146,7 @@ now step_count is {train_state.step_count}",
             return load_path, max(snap_step, max_normal_step)
 
     def query_latest_snapshot_step_local(self):
+        """Query the latest snapshot step from the local file system."""
         max_step, max_step_path = 0, None
         save_ckpt_folder = self.save_ckpt_folder.split(":")[1]
         for root, _, files in os.walk(save_ckpt_folder, followlinks=True):
@@ -953,18 +1163,22 @@ now step_count is {train_state.step_count}",
         return max_step_path, max_step
 
     def query_lastest_ckpt(self):
+        """Query the latest ckpt via the storage backend."""
         latest_ckpt, step = None, -1
         # Training was automatically restarted by the process, forcing the latest snapshot to be read.
         if self.save_ckpt_folder:
             backend, _ = try_get_storage_backend(self.save_ckpt_folder)
-            if backend == "boto3":
+            if backend in ["boto3", "oss2", "volc"]:
                 latest_ckpt, step = self.query_latest_snapshot_step_boto3()
-                if latest_ckpt and not latest_ckpt.startswith("boto3:"):
-                    latest_ckpt = ":".join(["boto3", latest_ckpt])
             elif backend == "local":
                 latest_ckpt, step = self.query_latest_snapshot_step_local()
-                if latest_ckpt and not latest_ckpt.startswith("local:"):
-                    latest_ckpt = ":".join(["local", latest_ckpt])
+            else:
+                raise NotImplementedError(
+                    f"Unsupported backend: {backend}, " "Currently only support `boto3`, `oss2`, `volc` and `local`"
+                )
+
+            if latest_ckpt and not latest_ckpt.startswith(backend + ":"):
+                latest_ckpt = ":".join([backend, latest_ckpt])
 
         if gpc.is_rank_for_log():
             logger.info(f"Found latest ckpt {latest_ckpt if latest_ckpt else 'None'}, step: {step}...")
@@ -1076,7 +1290,7 @@ now step_count is {train_state.step_count}",
         self.storage_manager.latest_save_step = step
 
     def try_ping_storage(self):
-        if gpc.get_global_rank() % 8 == 0:
+        if gpc.is_rank_for_log():
             buff = torch.ones((1, 64, 64), dtype=torch.bfloat16)
             test_fn = os.path.join(self.save_ckpt_folder, f"pings/{socket.gethostname()}.ping")
             self.storage_manager.save(test_fn, buff)

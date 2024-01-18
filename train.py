@@ -14,7 +14,6 @@ import torch.distributed as dist
 import internlm
 from internlm.core.context import ParallelMode
 from internlm.core.context import global_context as gpc
-from internlm.core.scheduler import SchedulerHook
 from internlm.core.trainer import TrainState
 from internlm.initialize import initialize_distributed_env
 from internlm.model.loss import FlashGPTLMLoss
@@ -37,6 +36,7 @@ from internlm.utils.common import (
     get_megatron_flops_2,
     launch_time,
     parse_args,
+    SchedulerHook,
 )
 from internlm.utils.evaluation import evaluate_on_val_dls
 from internlm.utils.gputest import empty_cache_and_diag
@@ -103,13 +103,13 @@ def main(args):
     get_tflops_func = partial(
         get_megatron_flops,
         checkpoint=gpc.config.model.checkpoint,
-        seq_len=gpc.config.SEQ_LEN,
+        seq_len=gpc.config.data["seq_len"],
         hidden_size=gpc.config.model.hidden_size,
         num_layers=gpc.config.model.num_layers,
         vocab_size=gpc.config.model.vocab_size,
         global_batch_size=gpc.config.data.micro_bsz * gpc.config.data.micro_num * gpc.get_world_size(ParallelMode.DATA),
         global_world_size=gpc.get_world_size(ParallelMode.GLOBAL),
-        mlp_ratio=gpc.config.MLP_RATIO,
+        mlp_ratio=gpc.config.model["mlp_ratio"],
     )
 
     get_tflops_func_2 = partial(
@@ -176,6 +176,8 @@ def main(args):
         config=config_lines,
         logger=logger,
         enable_tb=gpc.config.enable_tb,
+        queue_max_length=gpc.config.tensorboard.queue_max_length,
+        total_steps=total_steps,
     )
 
     # initialize metric for calculating accuracy and perplexity
@@ -203,7 +205,7 @@ def main(args):
         memory_profiler = SimpleMemoryProfiler(
             model,
             optimizer.optim,
-            log_folder=f"memory_trace/rank{gpc.get_global_rank()}_"
+            log_folder=f"RUN/{gpc.config.JOB_NAME}/{current_time}/memory_trace/rank{gpc.get_global_rank()}_"
             + f"dp{gpc.get_local_rank(ParallelMode.DATA)}_"
             + f"wp{gpc.get_local_rank(ParallelMode.WEIGHT)}_"
             + f"tp{gpc.get_local_rank(ParallelMode.TENSOR)}",
@@ -226,6 +228,7 @@ def main(args):
             # torch.cuda.memory._record_memory_history()
             start_time = time.time()
             timer("one-batch").start()
+            gpc.config.batch_count = batch_count
 
             # load batch data
             batch, train_iter = load_new_batch(train_dl=train_dl, train_iter=train_iter, train_state=train_state)

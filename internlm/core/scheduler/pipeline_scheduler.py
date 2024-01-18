@@ -14,10 +14,13 @@ from internlm.core.context import ParallelMode
 from internlm.core.context import global_context as gpc
 from internlm.core.engine import Engine
 from internlm.core.naive_amp import NaiveAMPModel
-from internlm.utils.common import get_current_device, move_to_device
+from internlm.utils.common import check_data_is_packed, get_current_device, move_to_device, SchedulerHook
+from internlm.utils.logger import get_logger
 from internlm.utils.timeout import llm_timeout
 
-from .base_scheduler import BaseScheduler, SchedulerHook
+from .base_scheduler import BaseScheduler
+
+logger = get_logger(__file__)
 
 
 def get_tensor_shape():
@@ -32,19 +35,19 @@ def get_tensor_shape():
             if gpc.config.parallel.sequence_parallel:
                 sequence_world_size = gpc.get_world_size(ParallelMode.TENSOR)
                 tensor_shape = (
-                    gpc.config.SEQ_LEN * gpc.config.data["micro_bsz"] // sequence_world_size,
-                    gpc.config.HIDDEN_SIZE,
+                    gpc.config.data["seq_len"] * gpc.config.data["micro_bsz"] // sequence_world_size,
+                    gpc.config.model["hidden_size"],
                 )
             else:
                 tensor_shape = (
-                    gpc.config.SEQ_LEN * gpc.config.data["micro_bsz"],
-                    gpc.config.HIDDEN_SIZE,
+                    gpc.config.data["seq_len"] * gpc.config.data["micro_bsz"],
+                    gpc.config.model["hidden_size"],
                 )
         else:
             tensor_shape = (
                 gpc.config.data["micro_bsz"],
-                gpc.config.SEQ_LEN,
-                gpc.config.HIDDEN_SIZE,
+                gpc.config.data["seq_len"],
+                gpc.config.model["hidden_size"],
             )
         return tensor_shape
     else:
@@ -179,18 +182,28 @@ class PipelineScheduler(BaseScheduler):
             raise TypeError(f"Expected data to be of type torch.Tensor, list, tuple, or dict, but got {type(data)}")
 
     def load_batch(self, engine, data_iter):
-        # Pipeline schedule just puts data in memory
-        batch_data, batch_size = engine.load_batch(data_iter, to_gpu=False)
-        assert batch_size % self.num_microbatches == 0, "Batch size should divided by the number of microbatches"
+        # Pipeline schedule just puts data in memory,
+        batch_data, actual_batch_size = engine.load_batch(data_iter, to_gpu=False)
+
+        # Even if 'use_flash_attn' is False, the data seen when the 'load_batch' is called is still packed,
+        # because internlm's current train dataset is packed, even using dummy data.
+        # The unpack operation is performed in load_micro_batch().
+        if check_data_is_packed(batch_data):
+            micro_num = actual_batch_size
+        else:
+            micro_num = actual_batch_size // gpc.config.data["micro_bsz"]
 
         self.microbatch_offset = 0
-        self.batch_size = batch_size
+        self.batch_size = actual_batch_size
         self.batch_data, self.batch_label = batch_data
-        self.microbatch_size = self.batch_size // self.num_microbatches
+        self.bsz_stride = self.batch_size // micro_num
+        # 'num_microbatches' is no longer an initialization parameter,
+        # but is determined on the fly by the Scheduler.
+        self.num_microbatches = micro_num  # Rampup or variable bsz size.
 
     def load_micro_batch(self):
         micro_batch_data, micro_batch_label = self._load_micro_batch(
-            data=self.batch_data, label=self.batch_label, offset=self.microbatch_offset, micro_bsz=self.microbatch_size
+            data=self.batch_data, label=self.batch_label, offset=self.microbatch_offset, bsz_stride=self.bsz_stride
         )
         if self.data_process_func:
             micro_batch_data["input_ids"] = self.data_process_func(
@@ -202,7 +215,7 @@ class PipelineScheduler(BaseScheduler):
             micro_batch_data.pop("indexes")
 
         micro_batch_data["label"] = micro_batch_label
-        self.microbatch_offset += self.microbatch_size
+        self.microbatch_offset += self.bsz_stride
 
         return move_to_device(micro_batch_data)
 
@@ -287,7 +300,7 @@ class PipelineScheduler(BaseScheduler):
 
         moe_loss = (
             sum(moe_losses) * gpc.config.loss.moe_loss_coeff
-            if hasattr(gpc.config.model, "num_experts")
+            if hasattr(gpc.config.model, "num_experts") and gpc.config.model.num_experts > 1
             else torch.tensor(0.0, device=torch.cuda.current_device(), dtype=gpc.config.model.get("dtype"))
         )
         moe_loss /= self.num_microbatches
@@ -424,7 +437,9 @@ class PipelineScheduler(BaseScheduler):
                 comm.send_forward(output_obj, scatter_gather_tensors=self.scatter_gather_tensors)
 
         output, label = pack_return_tensors(return_tensors) if len(return_tensors) > 0 else (None, None)
-        dist.all_reduce(accum_moe_loss, group=gpc.get_group(ParallelMode.PIPELINE))
+
+        if hasattr(gpc.config.model, "num_experts") and gpc.config.model.num_experts > 1:
+            dist.all_reduce(accum_moe_loss, group=gpc.get_group(ParallelMode.PIPELINE))
 
         if accum_loss is not None:
             accum_loss += accum_moe_loss
@@ -626,7 +641,9 @@ class PipelineScheduler(BaseScheduler):
                 comm.send_backward(input_obj_grad, scatter_gather_tensors=self.scatter_gather_tensors)
 
         output, label = pack_return_tensors(return_tensors) if len(return_tensors) > 0 else (None, None)
-        dist.all_reduce(accum_moe_loss, group=gpc.get_group(ParallelMode.PIPELINE))
+
+        if hasattr(gpc.config.model, "num_experts") and gpc.config.model.num_experts > 1:
+            dist.all_reduce(accum_moe_loss, group=gpc.get_group(ParallelMode.PIPELINE))
 
         if accum_loss is not None:
             accum_loss += accum_moe_loss
@@ -781,10 +798,10 @@ class InterleavedPipelineScheduler(PipelineScheduler):
             data=self.batch_data,
             label=self.batch_label,
             offset=self.microbatch_offset[model_chunk_id],
-            micro_bsz=self.microbatch_size,
+            bsz_stride=self.bsz_stride,
         )
         micro_batch_data["label"] = micro_batch_label
-        self.microbatch_offset[model_chunk_id] += self.microbatch_size
+        self.microbatch_offset[model_chunk_id] += self.bsz_stride
         return move_to_device(micro_batch_data)
 
     def _forward_step(self, engine, chunk_id):
@@ -834,7 +851,7 @@ class InterleavedPipelineScheduler(PipelineScheduler):
 
         moe_loss = (
             sum(moe_losses) * gpc.config.loss.moe_loss_coeff
-            if hasattr(gpc.config.model, "num_experts")
+            if hasattr(gpc.config.model, "num_experts") and gpc.config.model.num_experts > 1
             else torch.tensor(0.0, device=torch.cuda.current_device(), dtype=gpc.config.model.get("dtype"))
         )
         moe_loss /= self.num_microbatches
@@ -1366,7 +1383,8 @@ class InterleavedPipelineScheduler(PipelineScheduler):
         else:
             output, label = (None, None)
 
-        dist.all_reduce(self._accum_moe_loss, group=gpc.get_group(ParallelMode.PIPELINE))
+        if hasattr(gpc.config.model, "num_experts") and gpc.config.model.num_experts > 1:
+            dist.all_reduce(self._accum_moe_loss, group=gpc.get_group(ParallelMode.PIPELINE))
         accum_moe_loss = self._accum_moe_loss
 
         accum_loss = self._accum_loss

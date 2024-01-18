@@ -9,10 +9,13 @@ import torch
 
 from internlm.core.context import global_context as gpc
 from internlm.core.engine import Engine
-from internlm.utils.common import conditional_context
+from internlm.utils.common import conditional_context, SchedulerHook
+from internlm.utils.logger import get_logger
 from internlm.utils.timeout import llm_timeout
 
-from .base_scheduler import BaseScheduler, SchedulerHook
+from .base_scheduler import BaseScheduler
+
+logger = get_logger(__file__)
 
 
 class NonPipelineScheduler(BaseScheduler):
@@ -69,10 +72,8 @@ class NonPipelineScheduler(BaseScheduler):
             label (Any): The label to be loaded.
         """
 
-        _data, _label = self._load_micro_batch(
-            data=data, label=label, offset=self._grad_accum_offset, micro_bsz=self._grad_accum_batch_size
-        )
-        self._grad_accum_offset += self._grad_accum_batch_size
+        _data, _label = self._load_micro_batch(data=data, label=label, offset=self._grad_accum_offset, bsz_stride=1)
+        self._grad_accum_offset += 1
 
         if self.data_process_func:
             _data["input_ids"] = self.data_process_func(_data["input_ids"], _data["cu_seqlens"])
@@ -123,7 +124,7 @@ class NonPipelineScheduler(BaseScheduler):
                 self._call_hooks("after_criterion", loss)
                 moe_loss = (
                     sum(moe_losses) * gpc.config.loss.moe_loss_coeff
-                    if hasattr(gpc.config.model, "num_experts")
+                    if hasattr(gpc.config.model, "num_experts") and gpc.config.model.num_experts > 1
                     else torch.tensor(0.0, device=torch.cuda.current_device(), dtype=gpc.config.model.get("dtype"))
                 )
                 moe_loss /= scale_loss
@@ -141,7 +142,7 @@ class NonPipelineScheduler(BaseScheduler):
             self._call_hooks("after_backward", None)
 
         if not return_loss:
-            loss = None
+            loss, moe_loss = None, None
 
         return output, loss, moe_loss
 
@@ -172,12 +173,9 @@ class NonPipelineScheduler(BaseScheduler):
             forward_only or return_loss
         ), "The argument 'return_loss' has to be True when 'forward_only' is False, but got False."
 
-        batch_data, batch_size = engine.load_batch(data_iter)
+        batch_data, actual_batch_size = engine.load_batch(data_iter)  # actual_batch_size is micro_num
 
-        assert (
-            batch_size % self._grad_accum_size == 0
-        ), f"batch_size:{batch_size} must be an integer multiple of gradient accumulation steps:{self._grad_accum_size}"
-        self._grad_accum_batch_size = batch_size // self._grad_accum_size
+        self._grad_accum_size = actual_batch_size  # Rampup or variable bsz size.
 
         data, label = batch_data
 
@@ -190,10 +188,11 @@ class NonPipelineScheduler(BaseScheduler):
         self._grad_accum_offset = 0
 
         for _current_accum_step in range(self._grad_accum_size):
-            if _current_accum_step == self._grad_accum_size - 1:
-                engine.optimizer.skip_grad_reduce = False
-            else:
-                engine.optimizer.skip_grad_reduce = True
+            if engine.optimizer is not None:
+                if _current_accum_step == self._grad_accum_size - 1:
+                    engine.optimizer.skip_grad_reduce = False
+                else:
+                    engine.optimizer.skip_grad_reduce = True
 
             _data, _label = self._load_accum_batch(data, label)
 

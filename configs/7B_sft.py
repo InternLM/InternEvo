@@ -28,7 +28,7 @@ ckpt = dict(
     # 'load_ckpt_info' setting guide:
     # 1. the 'path' indicate ckpt path,
     # 2. the 'content‘ means what states will be loaded, support: "model", "sampler", "optimizer", "scheduler", "all"
-    # 3. the ’ckpt_type‘ means the type of checkpoint to be loaded, now only 'normal' type is supported.
+    # 3. the ’ckpt_type‘ means the type of checkpoint to be loaded, support: "internlm", "llama", "hf_llama".
     load_ckpt_info=dict(path=MODEL_ONLY_FOLDER, content=("model",), ckpt_type="internlm"),
     # 'auto_resume' is designed to automatically load the latest checkpoint from 'save_ckpt_folder' when encountering
     # training interruptions/hangs caused by hardware failures, using a scheduling system (such as k8s/slurm)
@@ -44,8 +44,8 @@ ckpt = dict(
     oss_snapshot_freq=int(CHECKPOINT_EVERY / 2),  # snapshot ckpt save frequency.
 )
 
-TRAIN_FOLDER = "/path/to/dataset"
-VALID_FOLDER = "/path/to/dataset"
+TRAIN_FOLDER = None  # "/path/to/dataset"
+VALID_FOLDER = None  # "/path/to/dataset"
 data = dict(
     seq_len=SEQ_LEN,
     # micro_num means the number of micro_batch contained in one gradient update
@@ -59,12 +59,17 @@ data = dict(
     pack_sample_into_one=True,
     total_steps=10,
     skip_batches="",
+    # rampup_batch_size (str): A string with three space-separated integers representing the
+    #       starting batch size, the increment, and the number of steps between
+    #       each increment. For example, "192 24 8" means that the batch size (micro_num)
+    #       starts at 192 and increases by 24 every 8 steps. Defaults to None.
+    #       (IMPORTANT): The interval step size is 'micro_bsz'.
     rampup_batch_size="",
     # Datasets with less than 50 rows will be discarded
     min_length=50,
-    # train_folder=TRAIN_FOLDER,
-    # valid_folder=VALID_FOLDER,
-    empty_cache_and_diag_interval=100,
+    train_folder=TRAIN_FOLDER,
+    valid_folder=VALID_FOLDER,
+    empty_cache_and_diag_interval=200,
     diag_outlier_ratio=1.1,
 )
 
@@ -168,7 +173,7 @@ weight parallel (dict):
 """
 parallel = dict(
     zero1=dict(size=2, fsdp=False),
-    tensor=dict(size=4, mode="mtp"),
+    tensor=dict(size=2, mode="mtp"),
     pipeline=dict(size=2, interleaved_overlap=True),
     weight=dict(size=1, overlap=True, memory_pool=True),
 )
@@ -182,5 +187,13 @@ monitor = dict(
         enable_feishu_alert=DO_ALERT,
         feishu_alert_address=None,  # feishu webhook to send alert message
         light_monitor_address=None,  # light_monitor address to send heartbeat
+        alert_file_path=f"llm_alter/{JOB_NAME}_alert.log",
+    ),
+    tensorboard=dict(
+        queue_max_length=10,
     ),
 )
+
+# metric_dtype can be "fp32" or other string
+# only when set to "fp32" will use fp32 to calc in metrics
+# metric_dtype = "fp32"

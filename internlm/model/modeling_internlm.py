@@ -2,6 +2,7 @@
 # -*- encoding: utf-8 -*-
 
 import math
+from functools import wraps
 from typing import Optional
 
 import torch
@@ -11,7 +12,10 @@ from torch import nn
 
 from internlm.core.context import ParallelMode
 from internlm.core.context.parallel_context import global_context as gpc
+from internlm.core.context.random import _SEED_MANAGER
+from internlm.core.naive_amp import set_output_attr_to_module
 from internlm.initialize.initialize_tensor import normal_, scaled_init_method_normal
+from internlm.initialize.launch import GLOBAL_SEED
 from internlm.model.embedding import Embedding1D
 from internlm.model.linear import (
     MegatronScaleColumnParallelLinear,
@@ -55,6 +59,7 @@ class PackedFlashBaseLayer1D(nn.Module):
         device (Optional[Union[str, torch.device]]): The device will be used.
         norm_type (str): Use RMS norm or layernorm."rmsnorm" by default.
         use_flash_attn (bool): Whether use flash-attn. True by default.
+        rope_base (int): The value of `base` for rotary position embeddings. 10000 by default.
     """
 
     def __init__(
@@ -78,6 +83,7 @@ class PackedFlashBaseLayer1D(nn.Module):
         use_swiglu: bool = True,
         use_flash_attn: bool = True,
         tp_mode: str = "mtp",
+        rope_base: int = 10000,
     ):
         super().__init__()
         self.checkpoint = checkpoint
@@ -89,6 +95,7 @@ class PackedFlashBaseLayer1D(nn.Module):
         head_dim = hidden_size // num_attention_heads
         self.tp_mode = tp_mode
         parallel_mode = ParallelMode.WEIGHT if self.tp_mode == "isp" else ParallelMode.TENSOR
+
         self.mixer = MHA(
             embed_dim=hidden_size,
             num_heads=num_attention_heads,
@@ -103,6 +110,7 @@ class PackedFlashBaseLayer1D(nn.Module):
             rotary_emb_dim=head_dim,
             rotary_emb_scale_base=0,
             use_flash_attn=use_flash_attn,
+            rope_base=rope_base,
             device=device,
             dtype=dtype,
             tp_mode=self.tp_mode,
@@ -262,6 +270,7 @@ class PackedFlashInternLm1D(nn.Module):
         residual_in_fp32 (bool): Whether to use residual in fp32. False by default.
         norm_type (str): Normalization type. Use RMSNorm or LayerNorm. "rmsnorm" by default.
         use_flash_attn (bool): Whether to use flash-attn. True by default.
+        rope_base (int): The value of `base` for rotary position embeddings. 10000 by default.
 
     """
 
@@ -293,6 +302,7 @@ class PackedFlashInternLm1D(nn.Module):
         use_scaled_init: bool = True,
         use_swiglu: bool = True,
         use_flash_attn: bool = True,
+        rope_base: int = 10000,
     ):
         super().__init__()
 
@@ -347,6 +357,7 @@ class PackedFlashInternLm1D(nn.Module):
                     use_swiglu=use_swiglu,
                     use_flash_attn=use_flash_attn,
                     tp_mode=self.tp_mode,
+                    rope_base=rope_base,
                 )
                 for lid in range(num_layers)
             ]
@@ -365,6 +376,7 @@ class PackedFlashInternLm1D(nn.Module):
                 dtype=dtype,
                 weight_scale=embed_grad_scale,
             )
+            set_output_attr_to_module(self.head)
             for _, param in self.head.named_parameters():
                 normal_(std=0.0052)(param)
 
@@ -420,6 +432,16 @@ class PackedFlashInternLm1D(nn.Module):
         return hidden_states
 
 
+def fix_seed(func):
+    @wraps(func)
+    def wrapper(*args, **kwargs):
+        _SEED_MANAGER.reset()
+        gpc.set_seed(GLOBAL_SEED)
+        func(*args, **kwargs)
+
+    return wrapper
+
+
 def _build_generic_model_1d(num_layers, num_chunks, device=torch.device("cuda"), **kwargs):
     """
     build generic model 1d
@@ -439,6 +461,7 @@ def _build_generic_model_1d(num_layers, num_chunks, device=torch.device("cuda"),
         logger.info(f"The layer sharding is {all_parts}.")
 
     models = []
+    PackedFlashInternLm1D.__init__ = fix_seed(PackedFlashInternLm1D.__init__)
 
     for start, end in parts:
         kwargs["num_layers"] = end - start
@@ -485,6 +508,7 @@ def build_model_with_cfg(
     use_scaled_init: bool = True,
     use_swiglu: bool = True,
     use_flash_attn: bool = True,
+    rope_base: int = 10000,
 ):
     """
     Build model with config.
@@ -515,6 +539,7 @@ def build_model_with_cfg(
         use_scaled_init (bool): Whether to use scaled init. True by default.
         use_swiglu (bool): Whether to use swiglu. True by default.
         use_flash_attn (bool): Whether to use flash-attn. True by default.
+        rope_base (int): The value of `base` for rotary position embeddings. 10000 by default.
 
     """
 
@@ -540,6 +565,7 @@ def build_model_with_cfg(
         use_scaled_init=use_scaled_init,
         use_swiglu=use_swiglu,
         use_flash_attn=use_flash_attn,
+        rope_base=rope_base,
     )
 
     return _build_generic_model_1d(num_layers=num_layers, num_chunks=num_chunks, **cfg)

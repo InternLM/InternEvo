@@ -1,6 +1,7 @@
 #!/usr/bin/env python
 # -*- encoding: utf-8 -*-
 
+from abc import ABC, abstractmethod
 import bisect
 import inspect
 import os
@@ -8,7 +9,6 @@ import random
 from contextlib import contextmanager
 from datetime import datetime
 from typing import Union
-
 import numpy as np
 import torch
 
@@ -110,6 +110,17 @@ def get_batch_size(data):
         return data[list(data.keys())[0]].size(0)
 
 
+def check_data_is_packed(data):
+    if isinstance(data, torch.Tensor):
+        return False
+    elif isinstance(data, (list, tuple)):
+        if isinstance(data[0], dict):
+            return "indexes" in data[0]
+        return False
+    elif isinstance(data, dict):
+        return "indexes" in data[0]
+
+
 def filter_kwargs(func, kwargs):
     sig = inspect.signature(func)
     return {k: v for k, v in kwargs.items() if k in sig.parameters}
@@ -118,7 +129,7 @@ def filter_kwargs(func, kwargs):
 def launch_time():
     global CURRENT_TIME
     if not CURRENT_TIME:
-        CURRENT_TIME = datetime.now().strftime("%b%d_%H-%M-%S")
+        CURRENT_TIME = datetime.now().strftime("%m-%d-%H:%M:%S")
     return CURRENT_TIME
 
 
@@ -273,3 +284,37 @@ class DummyProfile:
 
     def step(self):
         pass
+
+
+class SchedulerHook(ABC):
+    """
+    Scheduler Hook.
+    """
+
+    @abstractmethod
+    def before_forward(self, scheduler, inputs) -> None:
+        """Actions before forward"""
+
+    @abstractmethod
+    def after_forward(self, scheduler, outputs) -> None:
+        """Actions after forward"""
+
+    @abstractmethod
+    def before_criterion(self, scheduler, outputs, label) -> None:
+        """Actions before criterion"""
+
+    @abstractmethod
+    def after_criterion(self, scheduler, loss) -> None:
+        """Actions after criterion"""
+
+    @abstractmethod
+    def before_backward(self, scheduler, outputs, outputs_grad) -> None:
+        """Actions before backward"""
+
+    @abstractmethod
+    def after_backward(self, scheduler, inputs_grad) -> None:
+        """Actions after backward"""
+
+    @abstractmethod
+    def post_helper_func(self, scheduler, outputs, label) -> None:
+        """A post helper function"""

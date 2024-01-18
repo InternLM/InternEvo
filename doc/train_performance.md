@@ -57,12 +57,12 @@ InternLM中`zero1`的配置决定了优化器状态的分配范围。
 | TP | Zero1 | Pack Sample Into One | Activation Ckpt | GPU Num | Seq Len | Micro Bsz | Micro Num | Global Bsz | TGS | TFLOPS |
 |-|-|-|-|-|-|-|-|-|-|-|
 | 1 | 8 | TRUE | TRUE | 8 | 2048 | 8 | 1 | 0.125M | 3314 | 193 |
-| 1 | 8 | TRUE | TRUE | 16 | 2048 | 8 | 1 | 0.25M | 3268 | 191 |  
+| 1 | 8 | TRUE | TRUE | 16 | 2048 | 8 | 1 | 0.25M | 3268 | 191 |
 | 1 | 8 | TRUE | TRUE | 32 | 2048 | 8 | 1 | 0.5M | 3323 | 188 |
 | 1 | 8 | TRUE | TRUE | 64 | 2048 | 8 | 1 | 1M | 3217 | 188 |
 | 1 | 8 | TRUE | TRUE | 128 | 2048 | 8 | 1 | 2M | 3260 | 187 |
 | 1 | 8 | TRUE | TRUE | 256 | 2048 | 8 | 1 | 4M | 3215 | 187 |
-| 1 | 8 | TRUE | TRUE | 512 | 2048 | 8 | 1 | 8M | 3199 | 186 |  
+| 1 | 8 | TRUE | TRUE | 512 | 2048 | 8 | 1 | 8M | 3199 | 186 |
 | 1 | 8 | TRUE | TRUE | 1024 | 2048 | 8 | 1 | 16M | 3163 | 184 |
 | 1 | 8 | TRUE | TRUE | 512 | 2048 | 4 | 1 | 4M | 2963 | 173 |
 | 1 | 8 | TRUE | TRUE | 1024 | 2048 | 2 | 1 | 4M | 2341 | 136 |
@@ -80,7 +80,7 @@ InternLM中`zero1`的配置决定了优化器状态的分配范围。
 | 1 | 8 | TRUE | FALSE | 256 | 2048 | 2 | 4 | 4M | 3920 | 173 |
 | 1 | 8 | TRUE | FALSE | 512 | 2048 | 2 | 4 | 8M | 3900 | 173 |
 | 1 | 8 | TRUE | FALSE | 1024 | 2048 | 2 | 4 | 16M | 3625 | 160 |
-| 1 | 8 | TRUE | FALSE | 512 | 2048 | 2 | 2 | 4M | 3084 | 139 |  
+| 1 | 8 | TRUE | FALSE | 512 | 2048 | 2 | 2 | 4M | 3084 | 139 |
 | 1 | 8 | TRUE | FALSE | 1024 | 2048 | 2 | 1 | 4M | 2346 | 105 |
 | 1 | 8 | TRUE | FALSE | 1024 | 2048 | 2 | 2 | 8M | 2817 | 124 |
 
@@ -88,3 +88,66 @@ InternLM中`zero1`的配置决定了优化器状态的分配范围。
     <img src="../doc/imgs/flops.png" width="580"/>
 </div>
 
+### 显存占用测试
+测试配置：
+| 配置      | 描述    |
+| :-------: | :-----: |
+| 分支      | develop |
+| tag       | v0.2.1dev20231121 |
+| 显卡      | A800    |
+| 重计算    | True    |
+| micro_bsz | 1       |
+| micro_num | 4       |
+| dtype     | bfloat16|
+
+```python
+# InternLM/configs/7B_sft.py
+data = dict(
+    # micro_num means the number of micro_batch contained in one gradient update
+    micro_num=4,
+    # packed_length = micro_bsz * SEQ_LEN
+    micro_bsz=1,
+    ...
+)
+
+model = dict(
+    checkpoint=True,
+    dtype="torch.bfloat16",
+    ...
+)
+
+parallel = dict(
+    zero1=dict(size=8, fsdp=False),
+    tensor=1,
+    pipeline=dict(size=1, interleaved_overlap=True),
+    sequence_parallel=False,
+)
+```
+
+预训练和微调测试：
+|模型|卡数|zero1|tp|pp|fsdp|显存（GB）|
+|:-:|:-:|:-:|:-:|:-:|:-:|:-:|
+| 7B | 3 | -1 | 1 | 3 |False| 75 |
+| 7B | 3 | -1 | 1 | 1 |True | 72 |
+| 7B | 4 | -1 | 4 | 1 |True | 52 |
+| 7B | 4 | -1 | 4 | 1 |False| 61 |
+| 7B | 4 | -1 | 1 | 4 |False| 69 |
+| 7B | 4 | -1 | 1 | 1 |True | 56 |
+| 7B | 5 | -1 | 1 | 1 |True | 49 |
+| 7B | 5 | -1 | 1 | 5 |False| 62 |
+| 7B | 6 | -1 | 1 | 1 |True | 39 |
+| 7B | 6 | -1 | 2 | 1 |True | 38 |
+| 7B | 6 | -1 | 1 | 6 |False| 56 |
+| 20B | 8 | -1 | 1 | 1 |True | 78 |
+| 20B | 8 | -1 | 8 | 1 |True | 71 |
+| 20B | 16 | -1 | 1 | 1 |True | 40 |
+| 20B | 16 | -1 | 8 | 1 |True | 39 |
+| 20B | 16 | -1 | 1 | 16 |False| 52 |
+
+
+Web_demo 测试:
+
+|模型|显卡|显存（GB）|内存（MB）|
+|:-:|:-:|:-:|:-:|
+| 7B | A800 | 14.5 | 2465 |
+| 20B | A800 | 39 | 9547 |
