@@ -24,10 +24,8 @@ from shutil import copyfile
 from typing import Any, Dict, List, Optional, Tuple
 
 import sentencepiece as spm
-
 from transformers.tokenization_utils import PreTrainedTokenizer
 from transformers.utils import logging
-
 
 logger = logging.get_logger(__name__)
 
@@ -65,6 +63,13 @@ class InternLMTokenizer(PreTrainedTokenizer):
         **kwargs,
     ):
         self.sp_model_kwargs = {} if sp_model_kwargs is None else sp_model_kwargs
+        self.vocab_file = vocab_file
+        self.add_bos_token = add_bos_token
+        self.add_eos_token = add_eos_token
+        self.decode_with_prefix_space = decode_with_prefix_space
+        self.sp_model = spm.SentencePieceProcessor(**self.sp_model_kwargs)
+        self.sp_model.Load(vocab_file)
+        self._no_prefix_space_tokens = None
         super().__init__(
             bos_token=bos_token,
             eos_token=eos_token,
@@ -73,15 +78,8 @@ class InternLMTokenizer(PreTrainedTokenizer):
             clean_up_tokenization_spaces=clean_up_tokenization_spaces,
             **kwargs,
         )
-        self.vocab_file = vocab_file
-        self.add_bos_token = add_bos_token
-        self.add_eos_token = add_eos_token
-        self.decode_with_prefix_space = decode_with_prefix_space
-        self.sp_model = spm.SentencePieceProcessor(**self.sp_model_kwargs)
-        self.sp_model.Load(vocab_file)
-        self._no_prefix_space_tokens = None
 
-        """ Initialisation"""
+        """ Initialization"""
 
     @property
     def no_prefix_space_tokens(self):
