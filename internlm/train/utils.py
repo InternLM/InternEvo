@@ -41,7 +41,6 @@ def split_params_into_different_groups_for_optimizer_with_new_partition_strategy
     if gpc.config.parallel.tensor.mode == "isp":
         new_groups["embed_head"] = {"name": "embed_head", "params": [], "optimizer_mode": ParallelMode.DATA}
     new_groups["fp32"] = {"name": "fp32", "params": [], "optimizer_mode": ParallelMode.ZERO1}
-    # new_groups["layer_norm"] = {"name": "layer_norm", "params": [], "optimizer_mode": ParallelMode.ZERO1}
 
     if gpc.config.model.get("num_experts", 0) > 1:
         for key in gpc.expert_parallel_group_names:
