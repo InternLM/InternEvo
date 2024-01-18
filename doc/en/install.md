@@ -25,6 +25,13 @@ export CXX=${GCC_HOME}/bin/c++
 ```
 
 ### Environment Installation
+Install through pip command:
+```bash
+pip install InternEvo
+```
+
+Or install through source code:
+
 Clone the project `InternEvo` and its dependent submodules from the github repository, as follows:
 ```bash
 git clone git@github.com:InternLM/InternEvo.git --recurse-submodules
@@ -83,4 +90,4 @@ For the local standard image built with dockerfile or pulled, use the following 
 ```bash
 docker run --gpus all -it -m 500g --cap-add=SYS_PTRACE --cap-add=IPC_LOCK --shm-size 20g --network=host --name myinternlm internlm/internlm:torch1.13.1-cuda11.7.1-flashatten1.0.5-centos7 bash
 ```
-The default directory in the container is `/InternEvo`, please start training according to the [Usage](./usage.md).
+The default directory in the container is `/InternLM`, please start training according to the [Usage](./usage.md).

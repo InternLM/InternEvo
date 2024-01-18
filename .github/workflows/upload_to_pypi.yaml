@@ -1,0 +1,40 @@
+name: upload-to-pypi
+
+on:
+  push:
+    branches:
+      - "develop"
+      - "main"
+  pull_request:
+    branches:
+      - "develop"
+      - "main"
+  create:
+    tags:
+      - "*"
+
+env:
+  WORKSPACE_PREFIX: $(echo $GITHUB_WORKSPACE |cut -d '/' -f 1-4)
+  SLURM_PARTITION: llm_s
+  TWINE_USERNAME: __token__
+  TWINE_PASSWORD: ${{ secrets.PYPI_API_TOKEN }}
+
+jobs:
+  build-and-upload:
+    runs-on: [t_cluster]
+    steps:
+    - name: mask env
+      run: |
+        echo "::add-mask::${{env.WORKSPACE_PREFIX}}"
+    - uses: actions/checkout@v3
+
+    - name: install dependencies
+      run: |
+        pip install setuptools wheel twine
+
+    - name: build and upload package
+      run: |
+        export PYTHONPATH=$PWD:$PYTHONPATH
+        source /mnt/petrelfs/share_data/llm_env/env/llm-flash2.0
+        srun -p ${SLURM_PARTITION} --kill-on-bad-exit=1 --job-name=internlm-ut-${GITHUB_RUN_ID}-${GITHUB_JOB} -N 1 -n 1 --gres=gpu:1 python setup.py sdist bdist_wheel
+        twine upload -u __token__ -p ${{ secrets.PYPI_API_TOKEN }} dist/*

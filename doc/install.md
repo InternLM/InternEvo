@@ -25,16 +25,21 @@ export CXX=${GCC_HOME}/bin/c++
 ```
 
 ### 环境安装
-将项目`internlm`及其依赖子模块，从 github 仓库中 clone 下来，命令如下：
+可以通过pip命令直接安装，命令如下：
 ```bash
-git clone git@github.com:InternLM/InternLM.git --recurse-submodules
+pip install InternEvo
+```
+
+也可以通过源码安装，将项目`InternEvo`及其依赖子模块，从 github 仓库中 clone 下来，命令如下：
+```bash
+git clone git@github.com:InternLM/InternEvo.git --recurse-submodules
 ```
 
 推荐使用 conda 构建一个 Python-3.10 的虚拟环境， 并基于`requirements/`文件安装项目所需的依赖包：
 ```bash
-conda create --name internlm-env python=3.10 -y
-conda activate internlm-env
-cd internlm
+conda create --name internevo-env python=3.10 -y
+conda activate internevo-env
+cd InternEvo
 pip install -r requirements/torch.txt
 pip install -r requirements/runtime.txt
 ```
@@ -62,7 +67,7 @@ cd ../../
 用户可以使用提供的 dockerfile 结合 docker.Makefile 来构建自己的镜像，或者也可以从 https://hub.docker.com/r/internlm/internlm 获取安装了 InternLM 运行环境的镜像。
 
 #### 镜像配置及构造
-dockerfile 的配置以及构造均通过 docker.Makefile 文件实现，在 InternLM 根目录下执行如下命令即可 build 镜像：
+dockerfile 的配置以及构造均通过 docker.Makefile 文件实现，在 InternEvo 根目录下执行如下命令即可 build 镜像：
 ``` bash
 make -f docker.Makefile BASE_OS=centos7
 ```
