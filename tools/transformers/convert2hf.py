@@ -1,6 +1,6 @@
 import argparse
-import math
 import json
+import math
 import os
 import re
 import tempfile
@@ -15,7 +15,6 @@ NUM_SHARDS = {
 
 
 def convert2hf(model_config, states_tp_pps):
-
     with tempfile.TemporaryDirectory() as folder:
         states = merge_pp(states_tp_pps)[0]
 
@@ -110,7 +109,7 @@ def merge_pp(states_tp_pp):
             states = states_tp_pp[tp][pp]
             keys = list(states.keys())
             for key in keys:
-                match = re.search("\.\d+\.", key)
+                match = re.search("\.\d+\.", key)  # noqa: W605
                 if match is not None:
                     s, e = match.span()
                     layer_idx = int(key[s + 1 : e - 1]) + layer_shift
@@ -133,13 +132,14 @@ def print_args(args):
     print(f"Tokenizer Path: {args.tokenizer}")
     print("---------------------------------------")
 
+
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
-    parser.add_argument('--src_folder', type=str, default='~/test/') # 需要转换为hf格式的checkpoint文件夹
-    parser.add_argument('--tgt_folder', type=str, default='~/output/') # 存放转换后checkpoint的目标文件夹
-    parser.add_argument('--tokenizer', type=str, default='~/test/tokenizer.model') # Tokenizer 文件的路径
-    parser.add_argument("--dtype", type=str, default="float16") # 转换后模型的 dtype
-    parser.add_argument("--max_shard", type=str, default="10GB") # 转换后模型每个切片的大小
+    parser.add_argument("--src_folder", type=str, default="~/test/")  # 需要转换为hf格式的checkpoint文件夹
+    parser.add_argument("--tgt_folder", type=str, default="~/output/")  # 存放转换后checkpoint的目标文件夹
+    parser.add_argument("--tokenizer", type=str, default="~/test/tokenizer.model")  # Tokenizer 文件的路径
+    parser.add_argument("--dtype", type=str, default="float16")  # 转换后模型的 dtype
+    parser.add_argument("--max_shard", type=str, default="10GB")  # 转换后模型每个切片的大小
     args = parser.parse_args()
     dtype = getattr(torch, args.dtype)
     print_args(args)
@@ -151,7 +151,7 @@ if __name__ == "__main__":
 
     folder = args.src_folder
     target_folder = args.tgt_folder
-    
+
     tokenizer = InternLMTokenizer(args.tokenizer)
     tokenizer.save_pretrained(target_folder)
 
