@@ -59,8 +59,6 @@ def split_params_into_different_groups_for_optimizer_with_new_partition_strategy
             if is_tensor_data_parallel_parameter(param):
                 # should not be here if not isp mode
                 new_groups["embed_head"]["params"].append(param)
-            # elif hasattr(param, IS_REPLICA_ZERO_PARALLEL) and getattr(param, IS_REPLICA_ZERO_PARALLEL) is True:
-            #     new_groups["layer_norm"]["params"].append(param)
             elif param.dtype == torch.float32:
                 new_groups["fp32"]["params"].append(param)
             # moe param means MoE is enabled
