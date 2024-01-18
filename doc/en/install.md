@@ -25,18 +25,18 @@ export CXX=${GCC_HOME}/bin/c++
 ```
 
 ### Environment Installation
-Clone the project `internlm` and its dependent submodules from the github repository, as follows:
+Clone the project `InternEvo` and its dependent submodules from the github repository, as follows:
 ```bash
-git clone git@github.com:InternLM/InternLM.git --recurse-submodules
+git clone git@github.com:InternLM/InternEvo.git --recurse-submodules
 ```
 
 It is recommended to build a Python-3.10 virtual environment using conda and install the required dependencies based on the `requirements/` files:
 ```bash
-conda create --name internlm-env python=3.10 -y
-conda activate internlm-env
-cd internlm
-pip install -r requirements/torch.txt 
-pip install -r requirements/runtime.txt 
+conda create --name internevo python=3.10 -y
+conda activate internevo
+cd InternEvo
+pip install -r requirements/torch.txt
+pip install -r requirements/runtime.txt
 ```
 
 Install flash-attention (version v1.0.5):
@@ -62,10 +62,10 @@ cd ../../
 Users can use the provided dockerfile combined with docker.Makefile to build their own images, or obtain images with InternLM runtime environment installed from https://hub.docker.com/r/internlm/internlm.
 
 #### Image Configuration and Build
-The configuration and build of the Dockerfile are implemented through the docker.Makefile. To build the image, execute the following command in the root directory of InternLM:
+The configuration and build of the Dockerfile are implemented through the docker.Makefile. To build the image, execute the following command in the root directory of InternEvo:
 ``` bash
 make -f docker.Makefile BASE_OS=centos7
-``` 
+```
 In docker.Makefile, you can customize the basic image, environment version, etc., and the corresponding parameters can be passed directly through the command line. For BASE_OS, ubuntu20.04 and centos7 are respectively supported.
 
 #### Pull Standard Image
@@ -83,4 +83,4 @@ For the local standard image built with dockerfile or pulled, use the following 
 ```bash
 docker run --gpus all -it -m 500g --cap-add=SYS_PTRACE --cap-add=IPC_LOCK --shm-size 20g --network=host --name myinternlm internlm/internlm:torch1.13.1-cuda11.7.1-flashatten1.0.5-centos7 bash
 ```
-The default directory in the container is `/InternLM`, please start training according to the [Usage](./usage.md).
+The default directory in the container is `/InternEvo`, please start training according to the [Usage](./usage.md).

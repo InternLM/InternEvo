@@ -137,7 +137,6 @@ class PackedFlashBaseLayer1D(nn.Module):
         else:
             self.norm1 = nn.LayerNorm(hidden_size, eps=layer_norm_epsilon)
             self.norm2 = nn.LayerNorm(hidden_size, eps=layer_norm_epsilon)
-
         set_fp32_attr_to_module(self.norm1)
         set_fp32_attr_to_module(self.norm2)
 

@@ -41,7 +41,14 @@ from internlm.utils.megatron_timers import megatron_timer as timer
 from internlm.utils.timeout import llm_timeout
 
 from .base_optimizer import BaseOptimizer
-from .utils import compute_layer_norm, compute_norm, compute_param_norm
+from .utils import (
+    compute_layer_norm,
+    compute_layer_zero_grad_count,
+    compute_norm,
+    compute_param_norm,
+    compute_vocab_grad_norm,
+    compute_zero_grad_count,
+)
 
 inf = math.inf
 logger = get_logger(__file__)
@@ -158,7 +165,7 @@ class HybridZeroOptimizer(BaseOptimizer):
             # if zero is used, expert dp group will use ParallelMode.EXPERT_DATA as the real zero mode
             # zero_mode = (
             #     ParallelMode.ZERO1
-            #     if param_group["dp_mode"] == gpc.get_world_size(ParallelMode.ZERO1) == 1 or ParallelMode.DATA
+            #     if gpc.get_world_size(ParallelMode.ZERO1) == 1 or param_group["dp_mode"] == ParallelMode.DATA
             #     else ParallelMode.EXPERT_DATA
             # )
             zero_mode = param_group["optimizer_mode"]
@@ -677,9 +684,52 @@ class HybridZeroOptimizer(BaseOptimizer):
                 last_stage=last_stage,
                 previous_param_norms=previous_param_norms,
                 zero_mode=self._broadcast_parallel_mode[group_id],
-                is_moe_group=self._is_moe_group(self.optim.param_groups[group_id]),
             )
         return total_param_norms
+
+    def _compute_vocab_grad_norm_stage(
+        self, group_id: int = 0, last_bucket: bool = False, last_stage: bool = False, previous_vocab_grad_norm=None
+    ):
+        params, grads = self._param_store.get_reduced_param_for_compute_norm(group_id=group_id, last_bucket=last_bucket)
+        if len(params) == 0:
+            dtype = self.param_groups[group_id]["dtype"]
+            grads = [self.padding_grad.to(dtype)]
+            params = [self.padding_tensor.to(dtype)]
+
+        vocab_grad_norm = None
+
+        if self._clip_grad_norm > 0:
+            vocab_grad_norm = compute_vocab_grad_norm(
+                grads,
+                params,
+                last_stage=last_stage,
+                previous_vocab_grad_norm=previous_vocab_grad_norm,
+                zero_mode=self._broadcast_parallel_mode[group_id],
+            )
+
+        return vocab_grad_norm
+
+    def _count_zero_grads_stage(
+        self, group_id: int = 0, last_bucket: bool = False, last_stage: bool = False, previous_zero_grad_count=None
+    ):
+        params, grads = self._param_store.get_reduced_param_for_compute_norm(group_id=group_id, last_bucket=last_bucket)
+
+        total_zero_grad_count = {}
+
+        if len(params) == 0:
+            dtype = self.param_groups[group_id]["dtype"]
+            grads = [self.padding_grad.to(dtype)]
+            params = [self.padding_tensor.to(dtype)]
+
+        if self._clip_grad_norm > 0:
+            total_zero_grad_count = compute_zero_grad_count(
+                grads,
+                params,
+                last_stage=last_stage,
+                previous_zero_grad_count=previous_zero_grad_count,
+                zero_mode=self._broadcast_parallel_mode[group_id],
+            )
+        return total_zero_grad_count
 
     @llm_timeout(func_name="optim_step")
     def step(self, closure=None):
@@ -707,12 +757,23 @@ class HybridZeroOptimizer(BaseOptimizer):
             self._reduce_grads_stored_in_bucket(self._bucket_store[group_id], reduce_rank=None, last_bucket=True)
 
         # compute norm for gradients in the before bucket
+        grad_profiling_config = gpc.config.get("grad_profiling", {})
         groups_norms = []
         groups_param_norms = []
+        group_param_zero_grad_count = []
+        group_vocab_norms = []
+        batch_count = gpc.config.get("batch_count")
+        interval_steps = grad_profiling_config.get("interval_steps", 1)
+        is_profiling = batch_count % interval_steps == 0 if batch_count is not None else False
         for group_id in range(self.num_param_groups):
             groups_norms.append(self._compute_norm_with_stage(group_id=group_id))
-            if gpc.config.get("grad_norm_profiling", False):
-                groups_param_norms.append(self._compute_param_norm_stage(group_id=group_id))
+            if is_profiling:
+                if grad_profiling_config.get("grad_norm_profiling", False):
+                    groups_param_norms.append(self._compute_param_norm_stage(group_id=group_id))
+                if grad_profiling_config.get("zero_grad_profiling", False):
+                    group_param_zero_grad_count.append(self._count_zero_grads_stage(group_id=group_id))
+                if grad_profiling_config.get("vocab_grad_norm_profiling", False):
+                    group_vocab_norms.append(self._compute_vocab_grad_norm_stage(group_id=group_id))
 
         # clear reduced grads
         # grads in the last bucket is reduced
@@ -724,8 +785,11 @@ class HybridZeroOptimizer(BaseOptimizer):
         self._param_store.clear_grads_of_previous_reduced_params()
         # compute norm for gradients in the last bucket
         total_norms = {}
-        total_param_norms = {}
-        total_layer_norms = {}
+        total_param_grad_norms = {}
+        total_layer_grad_norms = {}
+        total_param_zero_grad_count = {}
+        total_layer_zero_grad_count = {}
+        total_vocab_grad_norms = {}
         for group_id in range(self.num_param_groups):
             group_name = self.param_groups[group_id]["name"] if "name" in self.param_groups[group_id] else "default"
             group_name = f"{group_id}_{group_name}"
@@ -735,34 +799,56 @@ class HybridZeroOptimizer(BaseOptimizer):
                 last_stage=True,
                 previous_norm=groups_norms[group_id],
             )
-            if gpc.config.get("grad_norm_profiling", False):
-                param_norms = self._compute_param_norm_stage(
-                    group_id=group_id,
-                    last_bucket=True,
-                    last_stage=True,
-                    previous_param_norms=groups_param_norms[group_id],
-                )
-                total_layer_norms[group_name], total_param_norms[group_name] = compute_layer_norm(
-                    param_norms=param_norms, loss_scale=self.loss_scale.item()
-                )
+            if is_profiling:
+                if grad_profiling_config.get("grad_norm_profiling", False):
+                    param_norms = self._compute_param_norm_stage(
+                        group_id=group_id,
+                        last_bucket=True,
+                        last_stage=True,
+                        previous_param_norms=groups_param_norms[group_id],
+                    )
+                    total_layer_grad_norms[group_name], total_param_grad_norms[group_name] = compute_layer_norm(
+                        param_norms=param_norms, loss_scale=self.loss_scale.item()
+                    )
+                if grad_profiling_config.get("zero_grad_profiling", False):
+                    zero_grad_count = self._count_zero_grads_stage(
+                        group_id=group_id,
+                        last_bucket=True,
+                        last_stage=True,
+                        previous_zero_grad_count=group_param_zero_grad_count[group_id],
+                    )
+                    (
+                        total_layer_zero_grad_count[group_name],
+                        total_param_zero_grad_count[group_name],
+                    ) = compute_layer_zero_grad_count(zero_grad_count)
+                if grad_profiling_config.get("vocab_grad_norm_profiling", False):
+                    vocab_grad_norms = self._compute_vocab_grad_norm_stage(
+                        group_id=group_id,
+                        last_bucket=True,
+                        last_stage=True,
+                        previous_vocab_grad_norm=group_vocab_norms[group_id],
+                    )
+                    inf_mask = vocab_grad_norms == -1
+                    nan_mask = vocab_grad_norms == -2
+                    vocab_grad_norms = vocab_grad_norms**0.5 / self.loss_scale.item()
+                    vocab_grad_norms[inf_mask] = -1
+                    vocab_grad_norms[nan_mask] = -2
+                    total_vocab_grad_norms[group_name] = vocab_grad_norms.to("cpu")
 
-            # Need to allreduce(avg) the norms across different ranks because moe params will not be synced
-            # during allreduce
-            if self._is_moe_group(self.optim.param_groups[group_id]):
-                # model and zero have been reduced!!!
-                pg = gpc.get_group(ParallelMode.EXPERT)
-                scaled_norm = total_norms[group_name] * 1.0 / float(gpc.get_world_size(ParallelMode.EXPERT))
-                scaled_norm_tensor = torch.tensor(scaled_norm, device=get_current_device(), dtype=torch.float)
-                dist.all_reduce(scaled_norm_tensor, group=pg)
-                total_norms[group_name] = scaled_norm_tensor.item()
         timer("sync_grad").start()
         self._sync_grad()
         timer("sync_grad").stop()
 
         state, global_norms = self._step(closure=closure, norms=total_norms)
-        if gpc.config.get("grad_norm_profiling", False):
-            global_norms["layer_norms"] = total_layer_norms
-            global_norms["param_norms"] = total_param_norms
+        if is_profiling:
+            if grad_profiling_config.get("grad_norm_profiling", False):
+                global_norms["layer_grad_norm"] = total_layer_grad_norms
+                global_norms["param_grad_norm"] = total_param_grad_norms
+            if grad_profiling_config.get("zero_grad_profiling", False):
+                global_norms["layer_zero_grad"] = total_layer_zero_grad_count
+                global_norms["param_zero_grad"] = total_param_zero_grad_count
+            if grad_profiling_config.get("vocab_grad_norm_profiling", False):
+                global_norms["vocab_grad_norm"] = total_vocab_grad_norms
 
         return state, global_norms
 
@@ -976,6 +1062,14 @@ class HybridZeroOptimizer(BaseOptimizer):
         grad_scaler = states["grad_scaler"]
         self.grad_scaler.load_state_dict(grad_scaler)
         optim_states = states["base_optim_states"]
+
+        if gpc.config.get("only_load_lr", False):
+            if gpc.is_rank_for_log():
+                logger.info("Only load lr in param_groups, skip loading weights in optimizer...")
+            for pg1, pg2 in zip(self.optim.param_groups, optim_states["param_groups"]):
+                pg1["lr"] = pg2["lr"]
+            return
+
         self.optim.load_state_dict(optim_states)
 
         # load fp32 model weight.

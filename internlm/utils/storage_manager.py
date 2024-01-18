@@ -18,22 +18,50 @@ from typing import Any, Awaitable, Callable, Dict, List, Union
 import torch
 import torch.distributed as dist
 
-from internlm.core.context import global_context as gpc
-from internlm.utils.common import SingletonMeta
-from internlm.utils.logger import get_logger
-
 try:
     import boto3
     import botocore
+except ImportError:
+    pass
+
+try:
     import tos
+    from tos.utils import SizeAdapter
+except ImportError:
+    pass
+
+try:
+    import oss2
+    from oss2 import SizedFileAdapter, determine_part_size
+    from oss2.models import PartInfo
 except ImportError:
     pass
 
 
-logger = get_logger(__file__)
+class Logger:
+    "Dummy logger"
+
+    def info(self, mesage: str):
+        print(f"Info: {mesage}", flush=True)
+
+    def warning(self, mesage: str):
+        print(f"Warning: {mesage}", flush=True)
+
+    def error(self, mesage: str):
+        print(f"Error: {mesage}", flush=True)
+
+
+try:
+    from internlm.utils.logger import get_logger
+
+    logger = get_logger(__file__)
+except ImportError:
+    logger = Logger()
+
 
 boto3_url_re = re.compile(r"([^\.]+)\.([\d\.]+)")
 volc_url_re = re.compile(r"^(.*?)\.(.*)$")
+ali_url_re = re.compile(r"([^/.]+)\.([^/.]+\..+)")
 
 MB = 1024**2
 
@@ -54,6 +82,12 @@ def llm_load(fp: str, **kwargs):
 
 def llm_save(save_path: str, saved_obj: Any, **kwargs):
     storage_manager.save(save_path, to_save_obj=saved_obj, **kwargs)
+
+
+def is_rank_for_log():
+    if dist.is_initialized():
+        return dist.get_rank() % 8 == 0
+    return True
 
 
 class StorageClient:
@@ -165,6 +199,45 @@ region:{self.region}, local_nvme_path: {self.local_nvme_path}"
         return meta.client, meta.bucket_name, meta.file_path
 
 
+class AliMetaInfo:
+    """Ali meta info for save/load etc."""
+
+    def __init__(
+        self,
+        is_async,
+        handler: StorageClient,
+        bucket_name: str,
+        endpoint: str,
+        file_path: str,
+        async_upload_fn: callable,
+        local_nvme_path=None,
+    ) -> None:
+        # all need info.
+        self.client = handler
+        self.bucket_name = bucket_name
+        self.file_path = file_path
+        # only save need info.
+        self.local_nvme_path = local_nvme_path
+        self.is_async = is_async
+        self.endpoint = endpoint
+        self.async_upload_fn = async_upload_fn
+
+    def __str__(self) -> str:
+        return f"is_async: {self.is_async}, bucket_name:{self.bucket_name}, endpoint:{self.endpoint}, \
+local_nvme_path: {self.local_nvme_path}"
+
+    @staticmethod
+    def unpack_ali_save_meta(meta):
+        if meta.is_async:
+            return meta.client, meta.file_path, meta.local_nvme_path
+        else:
+            return meta.client, meta.file_path
+
+    @staticmethod
+    def unpack_ali_nosave_meta(meta):
+        return meta.client, meta.file_path
+
+
 class LocalMetaInfo:
     """Local meta info for save/load etc."""
 
@@ -182,22 +255,26 @@ class LocalMetaInfo:
         return (meta.file_path,)
 
 
-def unpack_save_meta(meta: Union[Boto3MetaInfo, VolcMetaInfo, LocalMetaInfo]):
+def unpack_save_meta(meta: Union[Boto3MetaInfo, VolcMetaInfo, AliMetaInfo, LocalMetaInfo]):
     if isinstance(meta, Boto3MetaInfo):
         return Boto3MetaInfo.unpack_boto3_save_meta(meta)
     elif isinstance(meta, VolcMetaInfo):
         return VolcMetaInfo.unpack_volc_save_meta(meta)
+    elif isinstance(meta, AliMetaInfo):
+        return AliMetaInfo.unpack_ali_save_meta(meta)
     elif isinstance(meta, LocalMetaInfo):
         return LocalMetaInfo.unpack_local_save_meta(meta)
     else:
         raise ValueError(f"unkonwn meta info: {type(meta)}")
 
 
-def unpack_nosave_meta(meta: Union[Boto3MetaInfo, VolcMetaInfo, LocalMetaInfo]):
+def unpack_nosave_meta(meta: Union[Boto3MetaInfo, VolcMetaInfo, AliMetaInfo, LocalMetaInfo]):
     if isinstance(meta, Boto3MetaInfo):
         return Boto3MetaInfo.unpack_boto3_nosave_meta(meta)
     elif isinstance(meta, VolcMetaInfo):
         return VolcMetaInfo.unpack_volc_nosave_meta(meta)
+    elif isinstance(meta, AliMetaInfo):
+        return AliMetaInfo.unpack_ali_nosave_meta(meta)
     elif isinstance(meta, LocalMetaInfo):
         return LocalMetaInfo.unpack_local_nosave_meta(meta)
     else:
@@ -214,17 +291,21 @@ def compute_file_md5_by_chunk(file_name: str):
 
 def try_get_storage_backend(path: str):
     if path.startswith("s3:"):
-        if gpc.is_rank_for_log():
+        if is_rank_for_log():
             logger.warning(f"path: '{path}' not start with backend prefix, guess it is the backend of boto3.")
         return "boto3", path
     elif path.startswith("vc:"):
-        if gpc.is_rank_for_log():
+        if is_rank_for_log():
             logger.warning(f"path: '{path}' not start with backend prefix, guess it is the backend of volc.")
         return "volc", path
+    elif path.startswith("ali:"):
+        if is_rank_for_log():
+            logger.warning(f"path: '{path}' not start with backend prefix, guess it is the backend of ali.")
+        return "oss2", path
     else:
         sre = path.split(":", maxsplit=1)
         if len(sre) == 1:
-            if gpc.is_rank_for_log():
+            if is_rank_for_log():
                 logger.warning(f"path: '{path}' not start with backend prefix, guess it is the backend of local.")
             return "local", sre[0]
         else:
@@ -247,8 +328,8 @@ class Boto3Client(StorageClient):
         """S3 object/file storage management class
 
         Args:
-            s3_access_keys_id (str): S3 access key ID.
-            s3_secret_access_key (str): S3 secret access key.
+            ACCESS_KEY (str): S3 access key ID.
+            SECRET_ACCESS_KEY (str): S3 secret access key.
             use_threads (bool, optional): Whether to enable multipart. Defaults to True.
             multipart_chunksize (_type_, optional): Defaults to 8*MB.
             max_concurrency (int, optional): Defaults to 10.
@@ -259,11 +340,30 @@ class Boto3Client(StorageClient):
         super().__init__(boto3)
         self.botocore = botocore
         try:
-            s3_access_key_id = os.environ["S3_ACCESS_KEY_ID"]
-            s3_secret_access_key = os.environ["S3_SECRET_ACCESS_KEY_ID"]
+            if os.environ.get("S3_ACCESS_KEY_ID") is not None and os.environ.get("ACCESS_KEY") is not None:
+                s3_access_key_id = os.environ["ACCESS_KEY"]
+                logger.warning("Both 'S3_ACCESS_KEY_ID' and 'ACCESS_KEY' exist, 'ACCESS_KEY' will be used by default")
+            elif os.environ.get("ACCESS_KEY") is None:
+                s3_access_key_id = os.environ["S3_ACCESS_KEY_ID"]
+            else:
+                s3_access_key_id = os.environ["ACCESS_KEY"]
+
+            if (
+                os.environ.get("S3_SECRET_ACCESS_KEY_ID") is not None
+                and os.environ.get("SECRET_ACCESS_KEY") is not None
+            ):
+                s3_secret_access_key = os.environ["SECRET_ACCESS_KEY"]
+                logger.warning(
+                    "Both 'S3_SECRET_ACCESS_KEY_ID' and 'SECRET_ACCESS_KEY' exist, "
+                    "'SECRET_ACCESS_KEY' will be used by default"
+                )
+            elif os.environ.get("SECRET_ACCESS_KEY") is None:
+                s3_secret_access_key = os.environ["S3_SECRET_ACCESS_KEY_ID"]
+            else:
+                s3_secret_access_key = os.environ["SECRET_ACCESS_KEY"]
         except KeyError as exc:
             raise RuntimeError(
-                "Please set boto3 bucket 'S3_ACCESS_KEY_ID' and 'S3_SECRET_ACCESS_KEY_ID' using environment variable!"
+                "Please set boto3 bucket 'ACCESS_KEY' and 'SECRET_ACCESS_KEY' using environment variable!"
             ) from exc
 
         self.client = self.handler.client(
@@ -342,7 +442,7 @@ class Boto3Client(StorageClient):
                         folder_name_list.append(pth.split(fp, maxsplit=1)[1].strip("/").split("/", maxsplit=1)[0])
             return list(set(folder_name_list))
         else:
-            if gpc.is_rank_for_log():
+            if is_rank_for_log():
                 logger.warning(f"'{fp}' not found!")
             return None
 
@@ -376,8 +476,8 @@ class VolcClient(StorageClient):
         """Volc object/file storage management class
 
         Args:
-            access_key (str): Volc access key ID.
-            secret_key (str): Volc secret access key.
+            ACCESS_KEY (str): Volc access key ID.
+            SECRET_ACCESS_KEY (str): Volc secret access key.
             endpoint (str): Volc tos endpoint.
             region (str): Volc tos region.
 
@@ -385,15 +485,34 @@ class VolcClient(StorageClient):
         super().__init__(tos)
 
         try:
-            access_key = os.environ["VOLC_ACCESS_KEY_ID"]
-            secret_key = os.environ["VOLC_SECRET_ACCESS_KEY_ID"]
+            if os.environ.get("VOLC_ACCESS_KEY_ID") is not None and os.environ.get("ACCESS_KEY") is not None:
+                access_key = os.environ["ACCESS_KEY"]
+                logger.warning("Both 'VOLC_ACCESS_KEY_ID' and 'ACCESS_KEY' exist, 'ACCESS_KEY' will be used by default")
+            elif os.environ.get("ACCESS_KEY") is None:
+                access_key = os.environ["VOLC_ACCESS_KEY_ID"]
+            else:
+                access_key = os.environ["ACCESS_KEY"]
+
+            if (
+                os.environ.get("VOLC_SECRET_ACCESS_KEY_ID") is not None
+                and os.environ.get("SECRET_ACCESS_KEY") is not None
+            ):
+                secret_key = os.environ["SECRET_ACCESS_KEY"]
+                logger.warning(
+                    "Both 'VOLC_SECRET_ACCESS_KEY_ID' and 'SECRET_ACCESS_KEY' exist, "
+                    "'SECRET_ACCESS_KEY' will be used by default"
+                )
+            elif os.environ.get("SECRET_ACCESS_KEY") is None:
+                secret_key = os.environ["VOLC_SECRET_ACCESS_KEY_ID"]
+            else:
+                secret_key = os.environ["SECRET_ACCESS_KEY"]
         except KeyError as exc:
             raise RuntimeError(
-                "Please set 'VOLC_ACCESS_KEY_ID' and 'VOLC_SECRET_ACCESS_KEY_ID'",
+                "Please set 'ACCESS_KEY' and 'SECRET_ACCESS_KEY'",
                 "using environment variable!",
             ) from exc
 
-        self.client = self.handler.TosClientV2(access_key, secret_key, endpoint, region)
+        self.client = self.handler.TosClientV2(access_key, secret_key, endpoint, region, enable_crc=False)
 
     @staticmethod
     def sync_upload_fileobj(handler, bucket_name: str, fp: str, saved_obj=None, **kwargs):
@@ -473,14 +592,41 @@ class VolcClient(StorageClient):
             return list(set(folder_name_list))
 
         else:
-            if gpc.is_rank_for_log():
+            if is_rank_for_log():
                 logger.warning(f"'{fp}' not found!")
             return None
 
     @staticmethod
     def async_upload_fileobj(handler, bucket_name: str, fp: str, local_nvme_path: str):
         try:
-            handler.client.put_object_from_file(bucket_name, fp, local_nvme_path)
+            total_size = os.path.getsize(local_nvme_path)
+            part_size = 5 * 1024 * 1024
+
+            multi_result = handler.client.create_multipart_upload(bucket_name, fp)
+
+            upload_id = multi_result.upload_id
+            parts = []
+
+            # Upload shard data
+            with open(local_nvme_path, "rb") as f:
+                part_number = 1
+                offset = 0
+                while offset < total_size:
+                    num_to_upload = min(part_size, total_size - offset)
+                    out = handler.client.upload_part(
+                        bucket_name,
+                        fp,
+                        upload_id,
+                        part_number,
+                        content=SizeAdapter(f, num_to_upload, init_offset=offset),
+                    )
+                    parts.append(out)
+                    offset += num_to_upload
+                    part_number += 1
+
+            # Complete the multipart upload task
+            handler.client.complete_multipart_upload(bucket_name, fp, upload_id, parts)
+
         except handler.handler.exceptions.TosClientError as exc:
             raise RuntimeError(
                 f"Volc Network Error: fail with client error, message:{exc.message}, cause: {exc.cause}"
@@ -491,6 +637,8 @@ class VolcClient(StorageClient):
                 f"error with request id: {exec.request_id}",
                 f"error with message: {exec.message}",
                 f"error with http code: {exec.status_code}",
+                f"error with ec: {exec.ec}",
+                f"error with request url: {exec.request_url}",
             ) from exc
         except Exception as e:
             raise e
@@ -498,6 +646,137 @@ class VolcClient(StorageClient):
     @staticmethod
     def delete_obj(handler, fp: str):
         raise NotImplementedError("volc not support delete_obj")
+
+
+class AliClient(StorageClient):
+    """
+    AliClient
+    """
+
+    def __init__(
+        self,
+        bucket_name: str,
+        endpoint: str,
+    ) -> None:
+        """Ali object/file storage management class
+
+        Args:
+            ACCESS_KEY (str): Ali access key ID.s
+            SECRET_ACCESS_KEY (str): Ali secret access key.
+            endpoint (str): Ali tos endpoint.
+            bucket_name (str): Ali tos bucket_name.
+
+        """
+        super().__init__(oss2)
+
+        try:
+            if os.environ.get("ALI_ACCESS_KEY_ID") is not None and os.environ.get("ACCESS_KEY") is not None:
+                access_key = os.environ["ACCESS_KEY"]
+                logger.warning("Both 'ALI_ACCESS_KEY_ID' and 'ACCESS_KEY' exist, 'ACCESS_KEY' will be used by default")
+            elif os.environ.get("ACCESS_KEY") is None:
+                access_key = os.environ["ALI_ACCESS_KEY_ID"]
+            else:
+                access_key = os.environ["ACCESS_KEY"]
+
+            if (
+                os.environ.get("ALI_SECRET_ACCESS_KEY_ID") is not None
+                and os.environ.get("SECRET_ACCESS_KEY") is not None
+            ):
+                secret_key = os.environ["SECRET_ACCESS_KEY"]
+                logger.warning(
+                    "Both 'ALI_SECRET_ACCESS_KEY_ID' and 'SECRET_ACCESS_KEY' exist, "
+                    "'SECRET_ACCESS_KEY' will be used by default"
+                )
+            elif os.environ.get("SECRET_ACCESS_KEY") is None:
+                secret_key = os.environ["ALI_SECRET_ACCESS_KEY_ID"]
+            else:
+                secret_key = os.environ["SECRET_ACCESS_KEY"]
+        except KeyError as exc:
+            raise RuntimeError(
+                "Please set 'ACCESS_KEY' and 'SECRET_ACCESS_KEY'",
+                "using environment variable!",
+            ) from exc
+
+        self.auth = self.handler.Auth(access_key, secret_key)
+        self.client = self.handler.Bucket(self.auth, endpoint, bucket_name, enable_crc=False)
+
+    @staticmethod
+    def sync_upload_fileobj(handler, fp: str, saved_obj=None, **kwargs):
+        assert saved_obj is not None, "saved_obj is None!"
+        try:
+            with io.BytesIO() as f:
+                torch.save(saved_obj, f, **kwargs)
+                f.seek(0)
+                handler.client.put_object(fp, f)
+        except Exception as e:
+            raise e
+
+    @staticmethod
+    def load(handler, fp: str, **kwargs) -> Dict:
+        """
+        Args:
+            fp (str): Path to save, eg. ali://opennlplab/model_weights/xxx/ddd.pt
+        """
+        try:
+            object_stream = handler.client.get_object(fp)
+            buffer = io.BytesIO(object_stream.read())
+            states = torch.load(buffer, **kwargs)
+        except Exception as e:
+            raise e
+
+        return states
+
+    @staticmethod
+    def assert_fp_exists(handler, fp: str):  # pylint: disable=W0613
+        assert len(list(handler.handler.ObjectIteratorV2(handler.client, prefix=fp))) > 0, fp
+
+    @staticmethod
+    def is_fp_exists(handler, fp: str):  # pylint: disable=W0613
+        return len(list(handler.handler.ObjectIteratorV2(handler.client, prefix=fp))) > 0
+
+    @staticmethod
+    def get_fns(handler, fp: str):
+        if AliClient.is_fp_exists(handler, fp):
+            folder_name_list = []
+            for obj in handler.handler.ObjectIteratorV2(handler.client, prefix=fp):
+                folder_name_list.append(obj.key.split(fp, maxsplit=1)[1].strip("/").split("/", maxsplit=1)[0])
+
+            return list(set(folder_name_list))
+        else:
+            if is_rank_for_log():
+                logger.warning(f"'{fp}' not found!")
+            return None
+
+    @staticmethod
+    def async_upload_fileobj(handler, fp: str, local_nvme_path: str):
+        try:
+            total_size = os.path.getsize(local_nvme_path)
+            part_size = determine_part_size(total_size, preferred_size=5 * 1024 * 1024)
+            upload_id = handler.client.init_multipart_upload(fp).upload_id
+            parts = []
+            with open(local_nvme_path, "rb") as fileobj:
+                part_number = 1
+                offset = 0
+                while offset < total_size:
+                    num_to_upload = min(part_size, total_size - offset)
+                    # Calling the SizedFileAdapter method will generate a new file object
+                    # and recalculate the starting append position.
+                    result = handler.client.upload_part(
+                        fp, upload_id, part_number, SizedFileAdapter(fileobj, num_to_upload)
+                    )
+                    parts.append(PartInfo(part_number, result.etag))
+
+                    offset += num_to_upload
+                    part_number += 1
+
+            headers = dict()
+            handler.client.complete_multipart_upload(fp, upload_id, parts, headers=headers)
+        except Exception as e:
+            raise e
+
+    @staticmethod
+    def delete_obj(handler, fp: str):
+        raise NotImplementedError("ali not support delete_obj")
 
 
 class LocalClient(StorageClient):
@@ -512,8 +791,11 @@ class LocalClient(StorageClient):
     def sync_upload_fileobj(fp: str, saved_obj=None, **kwargs):
         assert saved_obj is not None
         fp_dirname = os.path.dirname(fp)
-        if not os.path.exists(fp_dirname):
-            os.makedirs(fp_dirname, exist_ok=True)
+        try:
+            if not os.path.exists(fp_dirname):
+                os.makedirs(fp_dirname, exist_ok=True)
+        except FileNotFoundError:
+            pass
         torch.save(saved_obj, fp, **kwargs)
 
     @staticmethod
@@ -530,7 +812,7 @@ class LocalClient(StorageClient):
     @staticmethod
     def get_fns(folder):
         if not os.path.exists(folder):
-            if gpc.is_rank_for_log():
+            if is_rank_for_log():
                 logger.warning(f"'{folder}' not found!")
             return None
         else:
@@ -582,9 +864,8 @@ def get_volc_meta(fp: str, tmp_local_folder: str, is_async: bool) -> VolcMetaInf
     match = volc_url_re.match(parts[0])
     assert match is not None, f"url '{fp}' is not a valid volc url"
     bucket_name, endpoint = match.group(1), match.group(2)
-    temp_part = endpoint.split(".")
-    endpoint = ".".join(temp_part[1:])
-    region = temp_part[1].split("-")
+    region = endpoint.split(".")
+    region = region[0].split("-")
     region = "-".join(region[1:])
 
     if is_async:
@@ -603,8 +884,32 @@ def get_volc_meta(fp: str, tmp_local_folder: str, is_async: bool) -> VolcMetaInf
     )
 
 
+def get_ali_meta(fp: str, tmp_local_folder: str, is_async: bool) -> AliMetaInfo:
+    assert fp.startswith("ali://"), f"Path '{fp}' is not a ali url"
+    parts = fp.lstrip("ali://").split(os.path.sep)
+    match = ali_url_re.match(parts[0])
+    assert match is not None, f"url '{fp}' is not a valid ali url"
+    bucket_name, endpoint = match.group(1), match.group(2)
+
+    if is_async:
+        tmp_step_file = get_tmp_file_name(tmp_local_folder, fp)
+    else:
+        tmp_step_file = None
+    return AliMetaInfo(
+        is_async=is_async,
+        handler=None,
+        bucket_name=bucket_name,
+        endpoint=endpoint,
+        file_path=os.path.sep.join(parts[1:]),
+        async_upload_fn=AliClient.async_upload_fileobj,
+        local_nvme_path=tmp_step_file,
+    )
+
+
 def get_local_meta(fp: str) -> LocalMetaInfo:
-    assert not fp.startswith("s3://") and not fp.startswith("vc://"), f"Path '{fp}' is not a local path"
+    assert (
+        not fp.startswith("s3://") and not fp.startswith("vc://") and not fp.startswith("ali://")
+    ), f"Path '{fp}' is not a local path"
     return LocalMetaInfo(fp)
 
 
@@ -639,17 +944,35 @@ def check_tmp_folder_accessibility(tmp_local_folder: str):
             raise RuntimeError(error_str)
 
 
+class SingletonMeta(type):
+    """
+    Singleton Meta.
+    """
+
+    _instances = {}
+
+    def __call__(cls, *args, **kwargs):
+        if cls not in cls._instances:
+            cls._instances[cls] = super().__call__(*args, **kwargs)
+        else:
+            assert (
+                len(args) == 0 and len(kwargs) == 0
+            ), f"{cls.__name__} is a singleton class and a instance has been created."
+        return cls._instances[cls]
+
+
 class StorageManager(metaclass=SingletonMeta):
     """
     Storage Manager for saving or loading checkpoint.
     TODO: add a thread to poll the asynchronous storage state.
     """
 
-    BACKEND_TYPE = {"boto3", "local", "volc"}
+    BACKEND_TYPE = {"boto3", "local", "volc", "oss2"}
     BACKEND_INIT_METHOD = {
         "boto3": Boto3Client,
         "local": LocalClient,
         "volc": VolcClient,
+        "oss2": AliClient,
     }
     CLI_DICT = {}
 
@@ -692,12 +1015,15 @@ class StorageManager(metaclass=SingletonMeta):
                 logger.error(f'tmp_local_folder only have "{free_size}" GB free space, less then 100 GB!')
                 raise RuntimeError(f"Insufficient temporary storage space on {socket.gethostname()}")
 
-    def _get_client(self, path: str, async_mode: bool = False) -> Union[Boto3MetaInfo, VolcMetaInfo, LocalMetaInfo]:
+    def _get_client(
+        self, path: str, async_mode: bool = False
+    ) -> Union[Boto3MetaInfo, VolcMetaInfo, AliMetaInfo, LocalMetaInfo]:
         """
         example:
         local:/path/to/checkpoint
         boto3:s3://model_weights/0331/120bi
         volc:vc://model_weights/0331/120bi
+        oss2:ali://model_weights/0331/120bi
 
         Args:
             path (str): _description_
@@ -718,7 +1044,7 @@ class StorageManager(metaclass=SingletonMeta):
                 or "HTTP_PROXY" in os.environ
                 or "HTTPS_PROXY" in os.environ
             ):
-                if not self.has_warning and gpc.is_rank_for_log():
+                if not self.has_warning and is_rank_for_log():
                     logger.warning(
                         "HTTP/HTTPS proxy is detected when using boto3, incorrectly setting \
     the proxy may make boto3 unavailable or affect performance."
@@ -737,16 +1063,35 @@ class StorageManager(metaclass=SingletonMeta):
                 or "HTTP_PROXY" in os.environ
                 or "HTTPS_PROXY" in os.environ
             ):
-                if not self.has_warning and gpc.is_rank_for_log():
+                if not self.has_warning and is_rank_for_log():
                     logger.warning(
                         "HTTP/HTTPS proxy is detected when using volc, incorrectly setting \
     the proxy may make volc unavailable or affect performance."
                     )
                     self.has_warning = True
+        elif backend == "oss2":
+            meta_info = get_ali_meta(path, self.tmp_local_folder, async_mode)
+            backend_key = backend + ":" + meta_info.endpoint
+            init_args = (
+                meta_info.bucket_name,
+                meta_info.endpoint,
+            )
+            if (
+                "http_proxy" in os.environ
+                or "https_proxy" in os.environ
+                or "HTTP_PROXY" in os.environ
+                or "HTTPS_PROXY" in os.environ
+            ):
+                if not self.has_warning and is_rank_for_log():
+                    logger.warning(
+                        "HTTP/HTTPS proxy is detected when using oss2, incorrectly setting \
+    the proxy may make oss2 unavailable or affect performance."
+                    )
+                    self.has_warning = True
 
         assert backend in StorageManager.BACKEND_TYPE, f"Unkown backend: {backend}"
 
-        # boto3 and volc backend need special treatment.
+        # boto3, volc and oss2 backend need special treatment.
         if backend_key not in StorageManager.CLI_DICT:
             StorageManager.CLI_DICT.update({backend_key: StorageManager.BACKEND_INIT_METHOD[backend](*init_args)})
 
@@ -766,7 +1111,11 @@ class StorageManager(metaclass=SingletonMeta):
         if async_upload is None:
             async_upload = self.async_mode
 
-        if not save_path.startswith("boto3:") and not save_path.startswith("volc:"):
+        if (
+            not save_path.startswith("boto3:")
+            and not save_path.startswith("volc:")
+            and not save_path.startswith("oss2:")
+        ):
             async_upload = False
 
         meta = self._get_client(save_path, async_upload)
@@ -879,7 +1228,7 @@ class StorageManager(metaclass=SingletonMeta):
         self._to_be_del_files.clear()
         self.async_task_peeding = False
 
-        if gpc.is_rank_for_log():
+        if is_rank_for_log():
             self.upload_count += 1
             if self.async_mode and self.latest_save_folder:
                 self.save(

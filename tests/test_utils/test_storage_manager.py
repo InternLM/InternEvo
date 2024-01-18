@@ -6,6 +6,7 @@ import torch
 from internlm.core.context.parallel_context import Config
 from internlm.initialize.launch import get_config_value
 from tests.test_utils.common_fixture import (  # noqa # pylint: disable=unused-import
+    ALI_SAVE_PATH,
     BOTO_SAVE_PATH,
     LOCAL_SAVE_PATH,
     VOLC_SAVE_PATH,
@@ -63,6 +64,22 @@ ckpt_config_list = [
         save_folder=VOLC_SAVE_PATH,
         test_id=6,
     ),
+    # async ali
+    dict(
+        enable_save_ckpt=True,
+        async_upload_tmp_folder=ASYNC_TMP_FOLDER,
+        async_upload=True,
+        save_folder=ALI_SAVE_PATH,
+        test_id=7,
+    ),
+    # sync ali
+    dict(
+        enable_save_ckpt=True,
+        async_upload_tmp_folder=None,
+        async_upload=False,
+        save_folder=ALI_SAVE_PATH,
+        test_id=8,
+    ),
 ]
 
 
@@ -83,13 +100,12 @@ def test_storage_mm_save_load(ckpt_config):  # noqa # pylint: disable=unused-arg
         init_storage_manager,
         llm_load,
         llm_save,
-        wait_async_upload_finish,
     )
 
     ckpt_config = Config(ckpt_config)
     if os.environ.get("OSS_BUCKET_NAME") is None:
         if ckpt_config.test_id > 2:
-            print("Pass boto3 and volc", flush=True)
+            print("Pass boto3, volc and ali", flush=True)
             return
 
     enable_save_ckpt = get_config_value(ckpt_config, "enable_save_ckpt", False)
@@ -101,8 +117,6 @@ def test_storage_mm_save_load(ckpt_config):  # noqa # pylint: disable=unused-arg
     tobj = torch.rand(64, 64)
     save_fn = os.path.join(ckpt_config.save_folder, "test.pt")
     llm_save(save_fn, tobj)
-    if ckpt_config.test_id == 0:
-        wait_async_upload_finish()
     check_folder(save_fn)
     assert get_fns(ckpt_config.save_folder)[0] == "test.pt"
     load_obj = llm_load(save_fn, map_location="cpu")
@@ -120,6 +134,9 @@ internlm_ckpt_path = [
     ("volc:vc://oss_bucket/", "volc", "vc://oss_bucket/"),
     ("volc:oss_bucket/", "volc", "oss_bucket/"),
     ("vc://oss_bucket/", "volc", "vc://oss_bucket/"),
+    ("oss2:ali://oss_bucket/", "oss2", "ali://oss_bucket/"),
+    ("oss2:oss_bucket/", "oss2", "oss_bucket/"),
+    ("ali://oss_bucket/", "oss2", "ali://oss_bucket/"),
 ]
 
 

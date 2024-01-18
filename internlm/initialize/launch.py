@@ -14,6 +14,7 @@ from internlm.core.context import global_context as gpc
 from internlm.core.context.process_group_initializer import ParallelMode
 from internlm.monitor import initialize_light_monitor
 from internlm.utils.common import get_master_node
+from internlm.utils.gputest import warmup_process_group
 from internlm.utils.logger import get_logger
 from internlm.utils.timeout import llm_timeout
 
@@ -28,6 +29,7 @@ else:
     get_numa = True
 
 logger = get_logger(__file__)
+GLOBAL_SEED = 1024
 
 
 def get_default_parser():
@@ -59,6 +61,9 @@ def get_default_parser():
 
 def args_sanity_check():
     assert gpc.config is not None, "config is not load!"
+
+    if "JOB_NAME" not in gpc.config:
+        gpc.config._add_item("JOB_NAME", "AnonymousJob")
 
     # the default model type is INTERNLM
     if "model_type" not in gpc.config:
@@ -113,9 +118,15 @@ def args_sanity_check():
     if "micro_num" not in data:
         data._add_item("micro_num", 1)
 
-    data._add_item("gradient_accumulation", data.micro_num)
-    if gpc.is_rank_for_log():
-        logger.info(f"gradient_accumulation size will be setted to {data.micro_num}.")
+    if "gradient_accumulation" not in data:
+        data._add_item("gradient_accumulation", data.micro_num)
+        if gpc.is_rank_for_log():
+            logger.info(f"gradient_accumulation size will be setted to {data.micro_num}.")
+    else:
+        if pp == 1:
+            assert (
+                data.gradient_accumulation == data.micro_num
+            ), "for nopp 'gradient_accumulation' should equal with 'micro_num'"
 
     # batch_size should be equal with micro_num, should not use it directly
     data._add_item("batch_size", data.micro_num)
@@ -140,6 +151,7 @@ def args_sanity_check():
 
     if "diag_outlier_ratio" not in data:
         data._add_item("diag_outlier_ratio", 1.1)
+
     data.diag_outlier_ratio = max(1, data.diag_outlier_ratio)
 
     if gpc.is_rank_for_log():
@@ -152,6 +164,7 @@ def args_sanity_check():
         logger.info(f"min_length: {data.min_length}")
         logger.info(f"valid_micro_num: {data.valid_micro_num}")
         logger.info(f"valid_every: {data.valid_every}")
+        logger.info(f"rampup_batch_size: {data.rampup_batch_size}")
 
     # processing the checkpoint config
     ckpt = gpc.config.ckpt
@@ -169,7 +182,8 @@ def args_sanity_check():
         else:
             if ckpt.async_upload:
                 assert "save_ckpt_folder" in ckpt
-                if "boto3:" not in ckpt.save_ckpt_folder:
+                prefix_list = ["boto3:", "volc:", "oss2:"]
+                if not any(ckpt.save_ckpt_folder.startswith(prefix) for prefix in prefix_list):
                     if gpc.is_rank_for_log():
                         logger.warning(
                             "Storing ckpt on file system does not support asynchronous storage, will use sync save!"
@@ -297,10 +311,6 @@ def args_sanity_check():
             model._add_item("moe_use_residual", False)
         if "moe_gate_k" not in model:
             model._add_item("moe_gate_k", 2)
-        assert not (
-            gpc.config.model.num_experts > 1 and gpc.config.parallel.zero1.fsdp
-        ), "FSDP does not support num_experts > 1"
-
     # process the parallel config
     if "sequence_parallel" not in gpc.config.parallel:
         gpc.config.parallel._add_item("sequence_parallel", False)
@@ -343,7 +353,15 @@ def args_sanity_check():
     monitor_default_config = {
         "alert_address": None,  # compatible with old alert config
         "monitor": {  # new monitoring config
-            "alert": {"enable_feishu_alert": False, "feishu_alert_address": None, "light_monitor_address": None}
+            "alert": {
+                "enable_feishu_alert": False,
+                "feishu_alert_address": None,
+                "light_monitor_address": None,
+                "alert_file_path": None,
+            }
+        },
+        "tensorboard": {
+            "queue_max_length": 1,
         },
     }
 
@@ -369,11 +387,15 @@ def args_sanity_check():
             f"overlap_sync_grad:{optim_ckpt.overlap_sync_grad}, overlap_sync_param:{optim_ckpt.overlap_sync_param}"
         )
 
+    if "batch_count" not in gpc.config:
+        gpc.config._add_item("batch_count", 0)
+
     if "moe_loss_coeff" not in gpc.config.loss:
         gpc.config.loss._add_item("moe_loss_coeff", 1.0)
 
     # moe not support overlap and zero1.5 for now
-    if hasattr(gpc.config.model, "num_experts"):
+    if gpc.config.model.get("num_experts", 1) > 1:
+        assert not gpc.config.parallel.zero1.fsdp, "FSDP does not support num_experts > 1"
         assert (
             not optim_ckpt.overlap_sync_grad & optim_ckpt.overlap_sync_param
         ), "not support overlap and moe at the same time"
@@ -435,13 +457,15 @@ def launch(
 
     gpc.set_seed(seed)
 
+    warmup_process_group()
+
     if gpc.is_rank_for_log():
         logger.info(
             f"Distributed environment is initialized, "
             f"data parallel size: {gpc.data_parallel_size}, pipeline parallel size: {gpc.pipeline_parallel_size}, "
             f"tensor parallel size: {gpc.tensor_parallel_size}",
         )
-        if hasattr(gpc.config.model, "num_experts") and gpc.config.model.num_experts > 1:
+        if gpc.config.model.get("num_experts", 1) > 1:
             logger.info(
                 f"Creating MoE with num_experts: {gpc.config.model.num_experts} | "
                 f"expert parallel size: {gpc.expert_parallel_size} | "
@@ -564,17 +588,20 @@ def initialize_distributed_env(
     else:
         assert launcher in ["slurm", "torch"], "launcher only support slurm or torch"
 
+    global GLOBAL_SEED
+    GLOBAL_SEED = seed
+
     if args_check:
         args_sanity_check()
 
     # init light monitor client
     if gpc.config.get("monitor") and gpc.config.monitor.get("alert"):
         alert_config = gpc.config.monitor.alert
-        if alert_config.enable_feishu_alert and gpc.is_rank_for_log():
+        if alert_config.enable_feishu_alert:
             light_monitor_address = alert_config.light_monitor_address
             if light_monitor_address:
                 initialize_light_monitor(light_monitor_address)
-            else:
+            elif gpc.is_rank_for_log():
                 logger.warning("monitor address is none, monitor could not be used!")
 
 

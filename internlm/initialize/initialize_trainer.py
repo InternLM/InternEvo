@@ -19,14 +19,13 @@ from internlm.core.scheduler import (
     InterleavedPipelineScheduler,
     NonPipelineScheduler,
     PipelineScheduler,
-    SchedulerHook,
 )
 from internlm.core.scheduler.pipeline_scheduler import get_tensor_shape
 from internlm.core.trainer import Trainer
 from internlm.data.utils import unpack_data
 from internlm.solver.beta2_scheduler import Beta2Scheduler
 from internlm.solver.optimizer.hybrid_zero_optim import BaseOptimizer
-from internlm.utils.common import get_current_device
+from internlm.utils.common import get_current_device, SchedulerHook
 
 
 def initialize_trainer(

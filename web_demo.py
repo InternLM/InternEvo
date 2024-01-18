@@ -26,19 +26,19 @@ def on_btn_click():
 @st.cache_resource
 def load_model():
     model = (
-        AutoModelForCausalLM.from_pretrained("internlm/internlm-chat-7b", trust_remote_code=True)
+        AutoModelForCausalLM.from_pretrained("internlm/internlm-chat-7b-v1_1", trust_remote_code=True)
         .to(torch.bfloat16)
         .cuda()
     )
-    tokenizer = AutoTokenizer.from_pretrained("internlm/internlm-chat-7b", trust_remote_code=True)
+    tokenizer = AutoTokenizer.from_pretrained("internlm/internlm-chat-7b-v1_1", trust_remote_code=True)
     return model, tokenizer
 
 
 def prepare_generation_config():
     with st.sidebar:
-        max_length = st.slider("Max Length", min_value=32, max_value=2048, value=2048)
+        max_length = st.slider("Max Length", min_value=32, max_value=16000, value=8000)
         top_p = st.slider("Top P", 0.0, 1.0, 0.8, step=0.01)
-        temperature = st.slider("Temperature", 0.0, 1.0, 0.7, step=0.01)
+        temperature = st.slider("Temperature", 0.0, 1.0, 0.8, step=0.01)
         st.button("Clear Chat History", on_click=on_btn_click)
 
     generation_config = GenerationConfig(max_length=max_length, top_p=top_p, temperature=temperature)
@@ -46,9 +46,16 @@ def prepare_generation_config():
     return generation_config
 
 
-user_prompt = "<|User|>:{user}<eoh>\n"
+system_meta_instruction = (
+    """<|System|>:You are an AI assistant whose name is InternLM (书生·浦语).
+- InternLM (书生·浦语) is a conversational language model that is developed by Shanghai AI Laboratory (上海人工智能实验室). """
+    + """It is designed to be helpful, honest, and harmless.
+- InternLM (书生·浦语) can understand and communicate fluently in the language chosen by the user such as English and 中文.
+"""
+)
+user_prompt = "<|User|>:{user}\n"
 robot_prompt = "<|Bot|>:{robot}<eoa>\n"
-cur_query_prompt = "<|User|>:{user}<eoh>\n<|Bot|>:"
+cur_query_prompt = "<|User|>:{user}\n<|Bot|>:"
 
 
 def combine_history(prompt):
@@ -63,7 +70,7 @@ def combine_history(prompt):
         else:
             raise RuntimeError
         total_prompt += cur_prompt
-    total_prompt = total_prompt + cur_query_prompt.replace("{user}", prompt)
+    total_prompt = system_meta_instruction + total_prompt + cur_query_prompt.replace("{user}", prompt)
     return total_prompt
 
 
@@ -109,9 +116,11 @@ def main():
             ):
                 # Display robot response in chat message container
                 message_placeholder.markdown(cur_response + "▌")
-            message_placeholder.markdown(cur_response)
+            message_placeholder.markdown(cur_response)  # pylint: disable=W0631
         # Add robot response to chat history
-        st.session_state.messages.append({"role": "robot", "content": cur_response, "avatar": robot_avator})
+        st.session_state.messages.append(
+            {"role": "robot", "content": cur_response, "avatar": robot_avator}  # pylint: disable=W0631
+        )
         torch.cuda.empty_cache()
 
 

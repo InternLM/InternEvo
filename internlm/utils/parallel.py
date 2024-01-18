@@ -14,6 +14,10 @@ from internlm.core.context import (
 )
 from internlm.core.context import global_context as gpc
 from internlm.core.naive_amp import NaiveAMPModel
+from internlm.model.utils import try_import_RMSNorm
+from internlm.solver.pipeline_utils import partition_uniform
+
+RMSNorm = try_import_RMSNorm()
 
 
 def is_replica_zero_parallel_parameter(p):
@@ -110,18 +114,24 @@ def set_model_params_layer_name(model):
     Args:
         model (:class:`torch.nn.Module`): A pyTorch model on whose parameters you check the consistency.
     """
+    pipeline_size = gpc.get_world_size(ParallelMode.PIPELINE)
+    pipeline_rank = gpc.get_local_rank(ParallelMode.PIPELINE)
+    all_parts = partition_uniform(gpc.config.model.num_layers, pipeline_size, gpc.config.model.num_chunks)
+    parts = all_parts[pipeline_rank]
+
     if not isinstance(model, nn.ModuleList):
         model = [model]
 
-    for _chunk in model:
+    for chunk_idx, _chunk in enumerate(model):
         if isinstance(_chunk, NaiveAMPModel):
             _chunk = _chunk.model
+        chunk_start = parts[chunk_idx][0]
         # Create a unique layer name based on the block's class name and index
         for _, children in _chunk.named_children():
             if isinstance(children, nn.ModuleList):
                 for idx, block in enumerate(children):
                     for param_name, param in block.named_parameters():
-                        layer_name = f"{block.__class__.__name__}Block{idx}"
+                        layer_name = f"{block.__class__.__name__}Block{idx + chunk_start}"
                         layer_param_name = f"{layer_name}-{param_name}"
                         param.__setattr__("layer_name", layer_name)
                         param.__setattr__("param_name", layer_param_name)
@@ -131,3 +141,26 @@ def set_model_params_layer_name(model):
                     layer_param_name = f"{layer_name}-{param_name}"
                     param.__setattr__("layer_name", layer_name)
                     param.__setattr__("param_name", f"{layer_name}-{param_name}")
+
+
+def check_sequence_parallel(model):
+    """
+    check whether the norm module has IS_SEQUENCE_PARALLEL attribute.
+    when the sequence_parallel is True, the norm module should have the IS_SEQUENCE_PARALLEL attribute
+    to illustrate the norm should conduct the all-reduce for its grad.
+    """
+
+    if not isinstance(model, nn.ModuleList):
+        model = [model]
+
+    for _chunk in model:
+        if isinstance(_chunk, NaiveAMPModel):
+            _chunk = _chunk.model
+
+        for _, module in _chunk.named_modules():
+            if isinstance(module, (RMSNorm, nn.LayerNorm)):
+                for param in module.parameters():
+                    assert hasattr(param, IS_SEQUENCE_PARALLEL), (
+                        "when the gpc.config.parallel.sequence parallel is True,"
+                        "the params of norm module should have IS_SEQUENCE_PARALLEL attribute"
+                    )
