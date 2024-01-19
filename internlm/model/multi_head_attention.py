@@ -209,7 +209,7 @@ class MHA(nn.Module):
             embed_dim,
             3 * embed_dim,
             process_group,
-            bias=False,
+            bias=True,
             sequence_parallel=gpc.config.parallel.sequence_parallel,
             **factory_kwargs,
         )  # according to https://spaces.ac.cn/archives/9577
@@ -232,7 +232,7 @@ class MHA(nn.Module):
             embed_dim,
             embed_dim,
             process_group,
-            bias=False,
+            bias=True,
             sequence_parallel=gpc.config.parallel.sequence_parallel,
             **factory_kwargs,
         )
