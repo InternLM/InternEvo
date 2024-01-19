@@ -487,18 +487,7 @@ class ParallelContext(metaclass=SingletonMeta):
         self.sequence_parallel_size = self.tensor_parallel_size
         self.data_parallel_size = self.world_size // self.pipeline_parallel_size // self.sequence_parallel_size
         self.weight_data_parallel_size = self.world_size // self.pipeline_parallel_size // self.weight_parallel_size
-        if isinstance(parallel_config["tensor"], int) or (
-            isinstance(parallel_config["tensor"], dict) and parallel_config["tensor"]["mode"] != "isp"
-        ):
-            if self.zero1_parallel_size == -1:
-                self.zero1_parallel_size = self.data_parallel_size
-            assert (
-                self.zero1_parallel_size <= self.data_parallel_size
-            ), f"zero1_size:{self.zero1_parallel_size} should be less than dp_size:{self.data_parallel_size}"
-            assert (
-                self.data_parallel_size % self.zero1_parallel_size == 0
-            ), f"data_parallel_size:{self.data_parallel_size} % zero1_parallel_size: {self.zero1_parallel_size} != 0"
-        else:
+        if isinstance(parallel_config["tensor"], dict) and parallel_config["tensor"]["mode"] == "isp":
             if self.zero1_parallel_size == -1:
                 self.zero1_parallel_size = self.weight_data_parallel_size
             assert (
@@ -508,6 +497,15 @@ class ParallelContext(metaclass=SingletonMeta):
                 f"weight_data_parallel_size:{self.weight_data_parallel_size} % "
                 f"zero1_parallel_size: {self.zero1_parallel_size} != 0"
             )
+        else:
+            if self.zero1_parallel_size == -1:
+                self.zero1_parallel_size = self.data_parallel_size
+            assert (
+                self.zero1_parallel_size <= self.data_parallel_size
+            ), f"zero1_size:{self.zero1_parallel_size} should be less than dp_size:{self.data_parallel_size}"
+            assert (
+                self.data_parallel_size % self.zero1_parallel_size == 0
+            ), f"data_parallel_size:{self.data_parallel_size} % zero1_parallel_size: {self.zero1_parallel_size} != 0"
         assert self.zero1_parallel_size >= 1
 
         # set sequence parallel value
@@ -550,15 +548,14 @@ class ParallelContext(metaclass=SingletonMeta):
         # run initialization of different process groups
         initializers = []
         initializers.append(pgroup_initializer.Initializer_Weight(*initializer_args))
-        if parallel_config["tensor"]["mode"] == "isp":
-            initializers.append(pgroup_initializer.Initializer_Weight_Data(*initializer_args))
-        initializers.append(pgroup_initializer.Initializer_Data(*initializer_args))
+        initializers.append(pgroup_initializer.Initializer_Weight_Data(*initializer_args))
         initializers.append(pgroup_initializer.Initializer_Tensor(*initializer_args))
-        if parallel_config["tensor"]["mode"] != "isp":
-            initializers.append(pgroup_initializer.Initializer_Zero1(*initializer_args))
-        else:
+        initializers.append(pgroup_initializer.Initializer_Data(*initializer_args))
+        if isinstance(parallel_config["tensor"], dict) and parallel_config["tensor"]["mode"] == "isp":
             initializers.append(pgroup_initializer.Initializer_Zero1_ISP(*initializer_args))
-        if isinstance(self.config.parallel.zero1, dict) and self.config.parallel.zero1.get("fsdp", False):
+        else:
+            initializers.append(pgroup_initializer.Initializer_Zero1(*initializer_args))
+        if isinstance(parallel_config["zero1"], dict) and parallel_config["zero1"].get("fsdp", False):
             initializers.append(pgroup_initializer.Initializer_Zero3_dp(*initializer_args))
         initializers.append(pgroup_initializer.Initializer_Nettest(*initializer_args))
         if self.pipeline_parallel_size > 1:
