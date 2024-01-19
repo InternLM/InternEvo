@@ -16,8 +16,6 @@ from tests.test_utils.common_fixture import (  # noqa # pylint: disable=unused-i
     LOCAL_SAVE_PATH,
     del_tmp_file,
     init_config,
-    init_dist_and_model,
-    reset_singletons,
 )
 
 # (TOTAL_STEP, CKPT_EVERY, SNPASHOT_EVERY)
@@ -164,7 +162,6 @@ def return_prefix_path(save_ckpt_folder):
 
 
 def return_latest_save_path(save_ckpt_folder, total_step, snapshot_freq, ckpt_freq):
-
     snapshot_latest_step, normal_latest_step = 0, 0
     snapshot_latest_count, normal_latest_count = 0, 0
 
