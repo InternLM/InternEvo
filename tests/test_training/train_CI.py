@@ -19,11 +19,10 @@ sys.path.append(project_root)
 import internlm  # noqa: E402
 from internlm.core.context import ParallelMode  # noqa: E402
 from internlm.core.context import global_context as gpc  # noqa: E402
-from internlm.core.scheduler import SchedulerMetricHook  # noqa: E402
 from internlm.core.trainer import TrainState  # noqa: E402
 from internlm.initialize import initialize_distributed_env  # noqa: E402
 from internlm.model.loss import FlashGPTLMLoss  # noqa: E402
-from internlm.model.metrics import AccPerplex  # noqa: E402
+from internlm.model.metrics import AccPerplex, SchedulerMetricHook  # noqa: E402
 from internlm.monitor import (  # noqa: E402
     initialize_monitor_manager,
     send_alert_message,
