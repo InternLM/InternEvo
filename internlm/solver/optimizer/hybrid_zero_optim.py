@@ -177,7 +177,7 @@ class HybridZeroOptimizer(BaseOptimizer):
 
             if self._is_moe_group(param_group):
                 grad_reduce_mode = ParallelMode.EXPERT_DATA
-            if param_group["name"] != "embed_head" and self.use_isp:
+            elif param_group["name"] != "embed_head" and self.use_isp:
                 grad_reduce_mode = ParallelMode.WEIGHT_DATA
             else:
                 grad_reduce_mode = ParallelMode.DATA

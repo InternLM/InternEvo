@@ -42,7 +42,7 @@ def split_params_into_different_groups_for_optimizer_with_new_partition_strategy
         new_groups["embed_head"] = {"name": "embed_head", "params": [], "optimizer_mode": ParallelMode.DATA}
     new_groups["fp32"] = {"name": "fp32", "params": [], "optimizer_mode": ParallelMode.ZERO1}
 
-    if gpc.config.model.get("num_experts", 0) > 1:
+    if gpc.config.model.get("num_experts", 1) > 1:
         for key in gpc.expert_parallel_group_names:
             new_groups[key] = {"name": key, "moe": True, "params": [], "optimizer_mode": ParallelMode.EXPERT_DATA}
 
