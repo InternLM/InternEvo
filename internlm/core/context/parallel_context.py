@@ -487,7 +487,9 @@ class ParallelContext(metaclass=SingletonMeta):
         self.sequence_parallel_size = self.tensor_parallel_size
         self.data_parallel_size = self.world_size // self.pipeline_parallel_size // self.sequence_parallel_size
         self.weight_data_parallel_size = self.world_size // self.pipeline_parallel_size // self.weight_parallel_size
-        if parallel_config["tensor"]["mode"] != "isp":
+        if isinstance(parallel_config["tensor"], int) or (
+            isinstance(parallel_config["tensor"], dict) and parallel_config["tensor"]["mode"] != "isp"
+        ):
             if self.zero1_parallel_size == -1:
                 self.zero1_parallel_size = self.data_parallel_size
             assert (
@@ -507,6 +509,14 @@ class ParallelContext(metaclass=SingletonMeta):
                 f"zero1_parallel_size: {self.zero1_parallel_size} != 0"
             )
         assert self.zero1_parallel_size >= 1
+
+        # set sequence parallel value
+        if "sequence_parallel" not in parallel_config:
+            parallel_config._add_item("sequence_parallel", True)
+        if isinstance(parallel_config["tensor"], int) or (
+            isinstance(parallel_config["tensor"], dict) and parallel_config["tensor"]["mode"] == "mtp"
+        ):
+            parallel_config["sequence_parallel"] = False
 
         # the recommended nettest_parallel_size is 32 GPUs
         self.nettest_parallel_size = 32
