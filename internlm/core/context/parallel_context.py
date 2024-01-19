@@ -636,7 +636,7 @@ class ParallelContext(metaclass=SingletonMeta):
         # during model construction), this is because the random state will be different in different tensor parallel
         # device of the same data parallel group. The underlying reason is that the device of tp_rank = 0 will perform
         # additional random operations during the RowParallelLinear module building process.
-        # set_mode(ParallelMode.DUMMY)
+        set_mode(ParallelMode.DUMMY)
         if self.is_using_parallel_mode(ParallelMode.TENSOR):
             set_mode(ParallelMode.TENSOR)
         if self.is_using_parallel_mode(ParallelMode.WEIGHT):
