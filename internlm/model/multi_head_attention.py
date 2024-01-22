@@ -187,6 +187,7 @@ class MHA(nn.Module):
         self.num_heads = num_heads
         assert self.embed_dim % num_heads == 0, "self.kdim must be divisible by num_heads"
         self.head_dim = self.embed_dim // num_heads
+        self.tp_mode = tp_mode
 
         if self.rotary_emb_dim > 0:
             if self.use_dynamic_ntk_rope:
@@ -204,7 +205,7 @@ class MHA(nn.Module):
                 )
 
         # notice here should change bias=True
-        Wqkv_cls = get_linear_cls(tp_mode, "column")
+        Wqkv_cls = get_linear_cls(self.tp_mode, "column")
         self.Wqkv = Wqkv_cls(
             embed_dim,
             3 * embed_dim,
@@ -220,14 +221,14 @@ class MHA(nn.Module):
         self.inner_cross_attn = inner_cross_attn_cls(
             causal=causal, softmax_scale=softmax_scale, attention_dropout=dropout
         )
-        if tp_mode == "isp":
+        if self.tp_mode == "isp":
             self.inner_attn = DistributedAttention(self.inner_attn, sequence_process_group=sequence_process_group)
             self.inner_cross_attn = DistributedAttention(
                 self.inner_cross_attn, sequence_process_group=sequence_process_group
             )
 
         # output projection always have the bias (for now)
-        out_proj_cls = get_linear_cls(tp_mode, "row")
+        out_proj_cls = get_linear_cls(self.tp_mode, "row")
         self.out_proj = out_proj_cls(
             embed_dim,
             embed_dim,
