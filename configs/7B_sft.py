@@ -56,8 +56,8 @@ data = dict(
     valid_micro_num=4,
     # defaults to 0, means disable evaluate
     valid_every=50,
-    pack_sample_into_one=True,
-    total_steps=10,
+    pack_sample_into_one=False,
+    total_steps=50000,
     skip_batches="",
     # rampup_batch_size (str): A string with three space-separated integers representing the
     #       starting batch size, the increment, and the number of steps between
@@ -172,9 +172,9 @@ weight parallel (dict):
     3. memory_pool: bool, enable/disable memory pool, defaults to False.
 """
 parallel = dict(
-    zero1=dict(size=2, fsdp=False),
-    tensor=dict(size=2, mode="mtp"),
-    pipeline=dict(size=2, interleaved_overlap=True),
+    zero1=dict(size=8, fsdp=False),
+    tensor=dict(size=1, mode="mtp"),
+    pipeline=dict(size=1, interleaved_overlap=True),
     weight=dict(size=1, overlap=True, memory_pool=True),
 )
 

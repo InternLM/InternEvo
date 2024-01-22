@@ -10,7 +10,7 @@ from internlm.model.metrics import AccPerplex, SchedulerMetricHook
 
 
 @contextmanager
-def switch_evaluation_no_pipeline_scheduler(trainer, grad_accum_size, grad_accum_batch_size, metric_hook_list):
+def switch_evaluation_no_pipeline_scheduler(trainer, grad_accum_size, metric_hook_list):
     if not gpc.is_using_parallel_mode(ParallelMode.PIPELINE):
         prev_data_process_func = trainer.schedule.data_process_func
         prev_grad_accum_size = trainer.schedule._grad_accum_size
@@ -50,10 +50,10 @@ def switch_evaluation_pipeline_scheduler(trainer, num_microbatches, tensor_shape
 def switch_sequence_parallel_mode():
     prev_mode = gpc.config.parallel.sequence_parallel
     try:
-        if gpc.config.parallel["tensor"]["sp"] == "intern":
-            gpc.config.parallel.sequence_parallel = True
-        else:
+        if gpc.config.parallel["tensor"]["mode"] == "mtp":
             gpc.config.parallel.sequence_parallel = False
+        else:
+            gpc.config.parallel.sequence_parallel = True
         yield
     finally:
         gpc.config.parallel.sequence_parallel = prev_mode
