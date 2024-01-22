@@ -237,7 +237,7 @@ def reduce_grads(gradients, parameters, weight_parallel_mode, fine_grained=False
     parallel_grads = []
     if fine_grained:
         parallel_grads = {}
-    
+
     if is_tensor_data_parallel_parameter(parameters[0]) or is_tensor_zero_parallel_parameter(parameters[0]):
         param_parallel_mode = ParallelMode.TENSOR
     elif gpc.is_using_parallel_mode(weight_parallel_mode):
@@ -444,8 +444,7 @@ def compute_vocab_grad_norm(
     # Norm parameters.
     norm_type = float(norm_type)
     vocab_size = gpc.config.model["vocab_size"]
-    
-    
+
     if is_tensor_data_parallel_parameter(parameters[0]) or is_tensor_zero_parallel_parameter(parameters[0]):
         param_parallel_mode = ParallelMode.TENSOR
     elif gpc.is_using_parallel_mode(weight_parallel_mode):
@@ -478,10 +477,10 @@ def compute_vocab_grad_norm(
             dist.all_reduce(vocab_grad_norm, op=dist.ReduceOp.SUM, group=gpc.get_group(ParallelMode.TENSOR))
     else:
         if gpc.is_using_parallel_mode(weight_parallel_mode):
-            dist.all_reduce(vocab_grad_norm,op=dist.ReduceOp.SUM, group=gpc.get_group(weight_parallel_mode))
+            dist.all_reduce(vocab_grad_norm, op=dist.ReduceOp.SUM, group=gpc.get_group(weight_parallel_mode))
 
     if gpc.is_using_parallel_mode(ParallelMode.PIPELINE):
-        dist.all_reduce(vocab_grad_norm,op=dist.ReduceOp.SUM, group=gpc.get_group(ParallelMode.PIPELINE))
+        dist.all_reduce(vocab_grad_norm, op=dist.ReduceOp.SUM, group=gpc.get_group(ParallelMode.PIPELINE))
 
     if gpc.is_using_parallel_mode(zero_mode):
         dist.all_reduce(vocab_grad_norm, op=dist.ReduceOp.SUM, group=gpc.get_group(zero_mode))
@@ -514,7 +513,7 @@ def compute_param_metric(
     Argumemts:
         metric_type: (norm | zero_grad)
     """
-    
+
     def reduce_param_metric(input_param_metrics: Dict, parallel_mode):
         output_param_metrics = {}
         parallel_param_metrics = [None for _ in range(gpc.get_world_size(parallel_mode))]
@@ -524,9 +523,7 @@ def compute_param_metric(
                 if param_name not in output_param_metrics:
                     output_param_metrics[param_name] = 0.0
                 if metric_type == "norm" and norm_type == inf:
-                    output_param_metrics[param_name] = max(
-                        output_param_metrics[param_name], param_metric
-                    )
+                    output_param_metrics[param_name] = max(output_param_metrics[param_name], param_metric)
                 else:
                     output_param_metrics[param_name] += param_metric
         return output_param_metrics
@@ -563,11 +560,15 @@ def compute_param_metric(
                 param_metrics[key] += value
 
     # tensor parallel / weight parallel
-    if is_tensor_data_parallel_parameter(parameters[0]) or is_tensor_zero_parallel_parameter(parameters[0]):
+    if is_tensor_data_parallel_parameter(parameters[0]):
         if gpc.is_using_parallel_mode(ParallelMode.TENSOR):
             param_metrics = reduce_param_metric(param_metrics, ParallelMode.TENSOR)
-    elif gpc.is_using_parallel_mode(weight_parallel_mode):
-         param_metrics = reduce_param_metric(param_metrics, weight_parallel_mode)
+    elif is_tensor_zero_parallel_parameter(parameters[0]):
+        if gpc.is_using_parallel_mode(ParallelMode.TENSOR):
+            param_metrics = reduce_param_metric(param_metrics, ParallelMode.TENSOR)
+    else:
+        if gpc.is_using_parallel_mode(weight_parallel_mode):
+            param_metrics = reduce_param_metric(param_metrics, weight_parallel_mode)
 
     # pipeline parallel
     if gpc.is_using_parallel_mode(ParallelMode.PIPELINE):
