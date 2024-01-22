@@ -30,7 +30,7 @@ from datasets import load_dataset
 from transformers import AutoModelForCausalLM, AutoTokenizer
 
 from internlm.utils.timeout import Timeout
-from tools.transformers.interface import GenerationConfig, generate_interactive
+from tools.interface import GenerationConfig, generate_interactive
 
 
 def parse_args():
