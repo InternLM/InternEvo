@@ -283,7 +283,7 @@ if __name__ == "__main__":
 
     prompt = """<|User|>:{query}<eoh>\n<|Bot|>:"""
     prompt = prompt.replace("{query}", "hello")
-    tokenizer = SentencePieceProcessor("tools/V7_sft.model")  # pylint: disable=E1121
+    tokenizer = SentencePieceProcessor("tools/tokenizer_internlm.model")  # pylint: disable=E1121
 
     generation_config = GenerationConfig()
     output_generator = internlm_interactive_generation(
