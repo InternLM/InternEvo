@@ -29,6 +29,7 @@ from internlm.train import (
     initialize_optimizer,
     load_new_batch,
     record_current_batch_training_metrics,
+    get_scheduler_hooks,
 )
 from internlm.utils.common import (
     BatchSkipper,
@@ -69,28 +70,6 @@ def initialize_llm_logger(start_time: str):
         logger = uniscale_logger
 
     return uniscale_logger
-
-
-def get_scheduler_hooks(metric, zero_optim, isp_communicator) -> List[SchedulerHook]:
-    scheduler_hooks: List[SchedulerHook] = []
-
-    if metric is not None:
-        scheduler_hooks.append(
-            SchedulerMetricHook(
-                metric=metric,
-                skip=(
-                    gpc.is_using_parallel_mode(ParallelMode.PIPELINE)
-                    and hasattr(gpc.config.model, "num_chunks")
-                    and gpc.config.model.num_chunks > 1
-                    and gpc.config.parallel["pipeline"].get("interleaved_overlap", False)
-                ),
-            ),
-        )
-
-    if isp_communicator is not None:
-        scheduler_hooks.append(ISPCommunicatorSchedulerHook(isp_communicator, zero_optim))
-
-    return scheduler_hooks
 
 
 def main(args):

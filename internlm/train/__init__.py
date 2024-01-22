@@ -7,6 +7,7 @@ from .training_internlm import (
     load_new_batch,
     record_current_batch_training_metrics,
     wrap_FSDP_model,
+    get_scheduler_hooks,
 )
 
 __all__ = [
@@ -18,4 +19,5 @@ __all__ = [
     "load_new_batch",
     "record_current_batch_training_metrics",
     "wrap_FSDP_model",
+    "get_scheduler_hooks",
 ]

@@ -6,7 +6,7 @@ import os
 import pickle
 import time
 from functools import partial
-from typing import Callable, Iterable, Optional, Union
+from typing import Callable, Iterable, Optional, Union, List
 
 import torch
 import torch.distributed as dist
@@ -62,7 +62,7 @@ from internlm.solver.lr_scheduler import FineTuneCosineAnnealingWarmupLR
 from internlm.solver.optimizer import FSDPadaptOptimizer, HybridZeroOptimizer
 from internlm.solver.optimizer.utils import ParamBcastSyncHandler
 from internlm.train.utils import create_param_groups
-from internlm.utils.common import DummyProfile, get_current_device
+from internlm.utils.common import DummyProfile, get_current_device, SchedulerHook
 from internlm.utils.logger import get_logger
 from internlm.utils.megatron_timers import megatron_timer as timer
 from internlm.utils.parallel import (
@@ -76,6 +76,8 @@ from internlm.utils.parallel import (
 )
 from internlm.utils.registry import MODEL_INITIALIZER
 from internlm.utils.timeout import llm_timeout
+from internlm.model.metrics import SchedulerMetricHook
+from internlm.core.communication.isp import ISPCommunicatorSchedulerHook
 
 RMSNorm = try_import_RMSNorm()
 logger = get_logger(__file__)
@@ -301,6 +303,28 @@ def initialize_optimizer(model: Union[nn.Module, nn.ModuleList], isp_communicato
     lr_scheduler = FineTuneCosineAnnealingWarmupLR(optimizer, **gpc.config.lr_scheduler)
 
     return optimizer, beta2_scheduler, lr_scheduler
+
+
+def get_scheduler_hooks(metric, zero_optim, isp_communicator) -> List[SchedulerHook]:
+    scheduler_hooks: List[SchedulerHook] = []
+
+    if metric is not None:
+        scheduler_hooks.append(
+            SchedulerMetricHook(
+                metric=metric,
+                skip=(
+                    gpc.is_using_parallel_mode(ParallelMode.PIPELINE)
+                    and hasattr(gpc.config.model, "num_chunks")
+                    and gpc.config.model.num_chunks > 1
+                    and gpc.config.parallel["pipeline"].get("interleaved_overlap", False)
+                ),
+            ),
+        )
+
+    if isp_communicator is not None:
+        scheduler_hooks.append(ISPCommunicatorSchedulerHook(isp_communicator, zero_optim))
+
+    return scheduler_hooks
 
 
 @llm_timeout(func_name="get_train_data_loader")
