@@ -324,6 +324,8 @@ def args_sanity_check():
         gpc.config.parallel["tensor"] = dict(size=gpc.config.parallel["tensor"], mode="mtp")
     if gpc.config.parallel["tensor"].get("mode", None) is None:
         gpc.config.parallel["tensor"]["mode"] = "mtp"
+    if gpc.config.parallel["tensor"]["mode"] == "isp":
+        assert not gpc.config.parallel.zero1.fsdp, "FSDP does not support isp"
     assert gpc.config.parallel["tensor"].get("mode", None) in [
         "mtp",
         "msp",

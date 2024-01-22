@@ -141,26 +141,3 @@ def set_model_params_layer_name(model):
                     layer_param_name = f"{layer_name}-{param_name}"
                     param.__setattr__("layer_name", layer_name)
                     param.__setattr__("param_name", f"{layer_name}-{param_name}")
-
-
-def check_sequence_parallel(model):
-    """
-    check whether the norm module has IS_SEQUENCE_PARALLEL attribute.
-    when the sequence_parallel is True, the norm module should have the IS_SEQUENCE_PARALLEL attribute
-    to illustrate the norm should conduct the all-reduce for its grad.
-    """
-
-    if not isinstance(model, nn.ModuleList):
-        model = [model]
-
-    for _chunk in model:
-        if isinstance(_chunk, NaiveAMPModel):
-            _chunk = _chunk.model
-
-        for _, module in _chunk.named_modules():
-            if isinstance(module, (RMSNorm, nn.LayerNorm)):
-                for param in module.parameters():
-                    assert hasattr(param, IS_SEQUENCE_PARALLEL), (
-                        "when the gpc.config.parallel.sequence parallel is True,"
-                        "the params of norm module should have IS_SEQUENCE_PARALLEL attribute"
-                    )

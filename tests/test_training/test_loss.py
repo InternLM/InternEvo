@@ -9,11 +9,10 @@ import torch.distributed as dist
 import internlm
 from internlm.core.context import ParallelMode
 from internlm.core.context import global_context as gpc
-from internlm.core.scheduler import SchedulerMetricHook
 from internlm.core.trainer import TrainState
 from internlm.initialize import initialize_distributed_env
 from internlm.model.loss import FlashGPTLMLoss
-from internlm.model.metrics import AccPerplex
+from internlm.model.metrics import AccPerplex, SchedulerMetricHook
 from internlm.train import (
     get_train_data_loader,
     initialize_model,
@@ -94,7 +93,7 @@ def train(
     current_time = objs[0]
 
     # initialize model
-    model = initialize_model()
+    model, _ = initialize_model()
 
     # initialize loss function
     criterion = FlashGPTLMLoss(parallel_output=True, label_smoothing=label_smoothing)

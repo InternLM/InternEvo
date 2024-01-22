@@ -111,6 +111,7 @@ jobs:
         srun -p ${SLURM_PARTITION} --kill-on-bad-exit=1 --job-name=${GITHUB_RUN_ID}-${GITHUB_JOB} --gpus-per-task=2 python ../ci_scripts/model/loaded_as_transformer.py
         cd ..
         rsync -av --remove-source-files $GITHUB_WORKSPACE/hf_ckpt ${{env.WORKSPACE_PREFIX}}/ci_clean_bak
+  
   load-chat-model-in-hf:
     if: ${{ !cancelled() }}
     needs: check-requirements

@@ -19,11 +19,10 @@ sys.path.append(project_root)
 import internlm  # noqa: E402
 from internlm.core.context import ParallelMode  # noqa: E402
 from internlm.core.context import global_context as gpc  # noqa: E402
-from internlm.core.scheduler import SchedulerMetricHook  # noqa: E402
 from internlm.core.trainer import TrainState  # noqa: E402
 from internlm.initialize import initialize_distributed_env  # noqa: E402
 from internlm.model.loss import FlashGPTLMLoss  # noqa: E402
-from internlm.model.metrics import AccPerplex  # noqa: E402
+from internlm.model.metrics import AccPerplex, SchedulerMetricHook  # noqa: E402
 from internlm.monitor import (  # noqa: E402
     initialize_monitor_manager,
     send_alert_message,
@@ -125,7 +124,7 @@ def main(args):
     uniscale_logger = initialize_llm_logger(start_time=current_time)
 
     # initialize model
-    model = initialize_model()
+    model, _ = initialize_model()
 
     with open(args.config, "r") as f:
         config_lines = f.readlines()
@@ -182,7 +181,7 @@ def main(args):
         SchedulerMetricHook(
             metric=metric,
             skip=(
-                gpc.is_using_pp()
+                gpc.is_using_parallel_mode(ParallelMode.PIPELINE)
                 and hasattr(gpc.config.model, "num_chunks")
                 and gpc.config.model.num_chunks > 1
                 and gpc.config.parallel["pipeline"].get("interleaved_overlap", False)
