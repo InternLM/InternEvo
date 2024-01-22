@@ -1,8 +1,12 @@
 # Copyright (c) InternLM. All rights reserved.
 """
-python transformers/convert2hf_internlm.py --src /path/to/src --tgt /path/to/tgt \
-       --max_shard 2G --maxx_pos 8192 \
+``convert2hf_internlm2.py`` is used to convert INTERNLM2's checkpoint to huggingface format.
+
+python transformers/convert2hf_internlm2.py --src /path/to/src --tgt /path/to/tgt \
+       --max_shard 2GB --max_pos 32768 \
        --tokenizer /path/to/tokenizer.model \
+       --rotary_type origin
+```
 """
 import argparse
 import gc
@@ -12,12 +16,57 @@ import re
 import time
 
 import torch
-from internlm_model import InternLMConfig, InternLMForCausalLM, InternLMTokenizer
+from einops import rearrange
+from internlm2_model import InternLM2ForCausalLM, InternLMConfig, InternLMTokenizer
 from tqdm import tqdm
 
 from transformers.modeling_utils import no_init_weights
 
-embedding_key_list = ["embedding.word_embeddings.weight", "embedding.weight", "tok_embeddings.weight", None]
+try:
+    from internlm.utils.storage_manager import (
+        check_folder,
+        get_fns,
+        init_storage_manager,
+        llm_load,
+    )
+
+    init_storage_manager(False, None, None)
+except ImportError:
+
+    def get_fns(folder):
+        return os.listdir(folder)
+
+    def llm_load(fn, map_location="cpu"):
+        return torch.load(fn, map_location=map_location)
+
+    def check_folder(fp):
+        assert os.path.exists(fp)
+
+
+basic_config = dict(
+    num_chunks=1,
+    checkpoint=False,
+    dtype=torch.half,
+    embed_split_hidden=False,
+    num_layers=40,
+    hidden_size=5120,
+    vocab_size=150494,
+    embed_grad_scale=1,
+    parallel_output=False,
+    num_attention_heads=40,
+    mlp_ratio=8 / 3,
+    apply_post_layer_norm=False,
+    no_bias=True,
+    deepnorm=False,
+    residual_in_fp32=False,
+    norm_type="rmsnorm",
+    drop_rate=0,
+    attn_drop_rate=0,
+    model_type="llama",
+    adapt_hf=False,
+    norm_head=False,
+)
+embedding_key_list = ["tok_embeddings.word_embeddings.weight", "tok_embeddings.weight", None]
 
 
 def _find_max_tp_pp(names):
@@ -48,15 +97,17 @@ def load_source(src):
     # config
     print("Config loading", flush=True)
     config_file = os.path.join(src, "model_config.pt")
-    assert os.path.isfile(config_file), f"model_config.pt is not found in :{os.listdir(src)}"
-    model_config = torch.load(config_file)
-    print(model_config)
+    check_folder(config_file)
+    update_config = llm_load(config_file)
+    print(update_config)
+    model_config = basic_config
+    model_config.update(update_config)
+    assert model_config["no_bias"], "Model with bias is not supported when model_type is llama."
     print("Config loaded.", flush=True)
 
     # checkpoint
     # find tp pp
-    assert os.path.isdir(src), "not a folder."
-    ckpt_names = os.listdir(src)
+    ckpt_names = get_fns(src)
     max_tp, max_pp = _find_max_tp_pp(ckpt_names)
 
     # 2-d array tp_rank, pp_rank
@@ -65,7 +116,7 @@ def load_source(src):
     for tp in tqdm(range(max_tp)):
         for pp in tqdm(range(max_pp)):
             ckpt_name = os.path.join(src, f"model_tp{tp}_pp{pp}.pt")
-            states[tp][pp] = torch.load(ckpt_name, map_location="cpu")
+            states[tp][pp] = llm_load(ckpt_name, map_location="cpu")
     print("Source Checkpoint Loaded", flush=True)
     return model_config, states
 
@@ -111,6 +162,21 @@ def merge(states):
     return merged_states
 
 
+def permute(qkv, num_heads, num_kv_heads, head_dim, adapt_hf=True):
+    if adapt_hf:
+        return qkv
+
+    print(f"adapt_hf is {adapt_hf}, do permuting...")
+    q_per_kv = num_heads // num_kv_heads
+    qkv = rearrange(qkv.T, "o (g n i) -> o g n i", n=q_per_kv + 2, i=head_dim)
+    q, k, v = qkv[..., :q_per_kv, :], qkv[..., -2:-1, :], qkv[..., -1:, :]
+    q = torch.cat([q[..., ::2], q[..., 1::2]], dim=-1)
+    k = torch.cat([k[..., ::2], k[..., 1::2]], dim=-1)
+    qkv = torch.cat((q, k, v), dim=2)
+    qkv = rearrange(qkv, "o g n i -> o (g n i)").T
+    return qkv
+
+
 def convert(src, tgt, tokenizer, dtype, max_shard_size, max_pos, rope_scaling):
     """
     Convert state_dict to hf format.
@@ -129,101 +195,66 @@ def convert(src, tgt, tokenizer, dtype, max_shard_size, max_pos, rope_scaling):
     num_shards = len(states)
     print("Converting to huggingface format...", flush=True)
 
-    n_heads = model_config["num_attention_heads"]
-    dim = model_config["hidden_size"]
-    # n_heads_per_shard = n_heads // num_shards
-    # dims_per_head = dim // n_heads
     intermediate_size = None
 
     print("Start converting...", flush=True)
     state_dict = {}
     for layer_i in tqdm(range(model_config["num_layers"])):
-        wqkvs = [
-            states[tp].pop(f"blocks.{layer_i}.mixer.Wqkv.weight").reshape(3, n_heads // num_shards, -1, dim)
-            for tp in range(num_shards)
-        ]
-        bqkvs = [
-            states[tp].pop(f"blocks.{layer_i}.mixer.Wqkv.bias").reshape(3, n_heads // num_shards, -1)
-            for tp in range(num_shards)
-        ]
         state_dict.update(
             {
-                f"model.layers.{layer_i}.input_layernorm.weight": states[0][f"blocks.{layer_i}.norm1.weight"].clone(),
-                f"model.layers.{layer_i}.post_attention_layernorm.weight": states[0][
-                    f"blocks.{layer_i}.norm2.weight"
+                f"model.layers.{layer_i}.attention_norm.weight": states[0][
+                    f"layers.{layer_i}.attention_norm.weight"
                 ].clone(),
+                f"model.layers.{layer_i}.ffn_norm.weight": states[0][f"layers.{layer_i}.ffn_norm.weight"].clone(),
             }
         )
-        state_dict[f"model.layers.{layer_i}.self_attn.q_proj.weight"] = torch.cat(
-            [wqkvs[i][0] for i in range(num_shards)],
-            dim=0,
-        ).reshape(dim, dim)
-        state_dict[f"model.layers.{layer_i}.self_attn.q_proj.bias"] = torch.cat(
-            [bqkvs[i][0] for i in range(num_shards)],
-            dim=0,
-        ).reshape(-1)
-        state_dict[f"model.layers.{layer_i}.self_attn.k_proj.weight"] = torch.cat(
-            [wqkvs[i][1] for i in range(num_shards)],
-            dim=0,
-        ).reshape(dim, dim)
-        state_dict[f"model.layers.{layer_i}.self_attn.k_proj.bias"] = torch.cat(
-            [bqkvs[i][1] for i in range(num_shards)],
-            dim=0,
-        ).reshape(-1)
-        state_dict[f"model.layers.{layer_i}.self_attn.v_proj.weight"] = torch.cat(
-            [wqkvs[i][2] for i in range(num_shards)],
-            dim=0,
-        ).reshape(dim, dim)
-        state_dict[f"model.layers.{layer_i}.self_attn.v_proj.bias"] = torch.cat(
-            [bqkvs[i][2] for i in range(num_shards)],
-            dim=0,
-        ).reshape(-1)
+        state_dict[f"model.layers.{layer_i}.attention.wqkv.weight"] = permute(
+            torch.cat([states[i][f"layers.{layer_i}.attention.wqkv.weight"] for i in range(num_shards)], dim=0),
+            num_heads=model_config["num_attention_heads"],
+            num_kv_heads=model_config["num_kv_attention_heads"],
+            head_dim=model_config["hidden_size"] // model_config["num_attention_heads"],
+            adapt_hf=model_config.get("adapt_hf", True),
+        )
 
-        state_dict[f"model.layers.{layer_i}.self_attn.o_proj.weight"] = torch.cat(
-            [states[i][f"blocks.{layer_i}.mixer.out_proj.weight"] for i in range(num_shards)], dim=1
+        state_dict[f"model.layers.{layer_i}.attention.wo.weight"] = torch.cat(
+            [states[i][f"layers.{layer_i}.attention.wo.weight"] for i in range(num_shards)], dim=1
         )
-        state_dict[f"model.layers.{layer_i}.self_attn.o_proj.bias"] = states[0][f"blocks.{layer_i}.mixer.out_proj.bias"]
-        state_dict[f"model.layers.{layer_i}.mlp.gate_proj.weight"] = torch.cat(
-            [states[i][f"blocks.{layer_i}.mlp.w1.weight"] for i in range(num_shards)], dim=0
+        state_dict[f"model.layers.{layer_i}.feed_forward.w1.weight"] = torch.cat(
+            [states[i][f"layers.{layer_i}.feed_forward.w1.weight"] for i in range(num_shards)], dim=0
         )
-        intermediate_size, _ = state_dict[f"model.layers.{layer_i}.mlp.gate_proj.weight"].shape
-        state_dict[f"model.layers.{layer_i}.mlp.down_proj.weight"] = torch.cat(
-            [states[i][f"blocks.{layer_i}.mlp.w3.weight"] for i in range(num_shards)], dim=1
+
+        intermediate_size = states[0][f"layers.{layer_i}.feed_forward.w2.weight"].shape[1] * num_shards
+        state_dict[f"model.layers.{layer_i}.feed_forward.w2.weight"] = torch.cat(
+            [states[i][f"layers.{layer_i}.feed_forward.w2.weight"] for i in range(num_shards)], dim=1
         )
-        state_dict[f"model.layers.{layer_i}.mlp.up_proj.weight"] = torch.cat(
-            [states[i][f"blocks.{layer_i}.mlp.w2.weight"] for i in range(num_shards)], dim=0
+        state_dict[f"model.layers.{layer_i}.feed_forward.w3.weight"] = torch.cat(
+            [states[i][f"layers.{layer_i}.feed_forward.w3.weight"] for i in range(num_shards)], dim=0
         )
 
     # embedding
+    if model_config["embed_split_hidden"]:
+        embed_concat_dim = 1
+    else:
+        embed_concat_dim = 0
     for embedding_key in embedding_key_list:
         if embedding_key in states[0]:
             break
     if embedding_key is None:
         raise KeyError("Cannot find embedding key!")
-    if model_config["embed_split_hidden"]:
-        embed_concat_dim = 1
-        tok_emb_list = [states[i][embedding_key] for i in range(num_shards)]
-    else:
-        embed_concat_dim = 0
-        _, size_1 = states[0][embedding_key].shape
-        embdim_pertp = size_1 // num_shards
-        tok_emb_list = [
-            torch.concat(
-                [
-                    states[tp][embedding_key][:, embdim_pertp * local_rank : embdim_pertp * (local_rank + 1)]
-                    for tp in range(num_shards)
-                ],
-                dim=0,
-            )
-            for local_rank in range(num_shards)
-        ]
     state_dict.update(
         {
             "model.norm.weight": states[0]["norm.weight"],
-            "model.embed_tokens.weight": torch.cat(tok_emb_list, dim=embed_concat_dim),
-            "lm_head.weight": torch.cat([states[i]["head.weight"] for i in range(num_shards)], dim=0),
+            "model.tok_embeddings.weight": torch.cat(
+                [states[i][embedding_key] for i in range(num_shards)], dim=embed_concat_dim
+            ),
         },
     )
+    if model_config["norm_head"]:
+        state_dict["output.weight"] = torch.nn.functional.normalize(
+            torch.cat([states[i]["output.weight"] for i in range(num_shards)], dim=-1), dim=-1
+        )
+    else:
+        state_dict["output.weight"] = torch.cat([states[i]["output.weight"] for i in range(num_shards)], dim=0)
 
     # initialize model
     # tokenizer
@@ -236,10 +267,12 @@ def convert(src, tgt, tokenizer, dtype, max_shard_size, max_pos, rope_scaling):
         num_attention_heads=model_config["num_attention_heads"],
         num_hidden_layers=model_config["num_layers"],
         rms_norm_eps=model_config["layer_norm_epsilon"],
-        bias=True,
+        bias=not model_config["no_bias"],
         rope_theta=model_config.get("rope_base", 10000),
         rope_scaling=rope_scaling,
     )
+    if "num_kv_attention_heads" in model_config:
+        config.num_key_value_heads = model_config["num_kv_attention_heads"]
     # tokenizer
     config.max_position_embeddings = max_pos
     # set bos eos pad to avoid improper generation
@@ -253,7 +286,7 @@ def convert(src, tgt, tokenizer, dtype, max_shard_size, max_pos, rope_scaling):
     print("Initializing model...", flush=True)
     start = time.time()
     with no_init_weights():
-        model = InternLMForCausalLM._from_config(config, torch_dtype=dtype)
+        model = InternLM2ForCausalLM._from_config(config, torch_dtype=dtype)
     print(f"Initializing model takes {time.time() - start}s", flush=True)
     model.load_state_dict(state_dict)
 
@@ -266,13 +299,13 @@ def convert(src, tgt, tokenizer, dtype, max_shard_size, max_pos, rope_scaling):
     # fix auto_map in config
     with open(os.path.join(tgt, "config.json")) as fp:
         config_dict = json.load(fp)
-    config_dict["auto_map"]["AutoModel"] = "modeling_internlm.InternLMForCausalLM"
+    config_dict["auto_map"]["AutoModel"] = "modeling_internlm2.InternLM2ForCausalLM"
     with open(os.path.join(tgt, "config.json"), "w") as fp:
         json.dump(config_dict, fp, indent=2)
 
 
 def convert_tokenizer(src, tgt):
-    assert os.path.isfile(src)
+    check_folder(src)
     tokenizer = InternLMTokenizer(src)
     tokenizer.save_pretrained(tgt)
 
@@ -310,8 +343,10 @@ def parse_args():
     # tokenizer
     parser.add_argument("--tokenizer", type=str, default=None, help="Tokenizer model.")
     # rope
-    parser.add_argument("--rotary_type", type=str, default="origin", help="Rope type", choices=["origin", "dynamic"])
-    parser.add_argument("--scaling_factor", type=float, default=1.0, help="Scaling factor of dynamic rope.")
+    parser.add_argument(
+        "--rotary_type", type=str, default="dynamic", choices=["dynamic", "origin"], help="Type of rotary embedding"
+    )
+    parser.add_argument("--scaling_factor", type=float, default=2.0, help="Scaling factor of dynamic rotary embedding")
     args = parser.parse_args()
 
     return args
