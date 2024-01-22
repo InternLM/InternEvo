@@ -93,7 +93,7 @@ def train(
     current_time = objs[0]
 
     # initialize model
-    model = initialize_model()
+    model, _ = initialize_model()
 
     # initialize loss function
     criterion = FlashGPTLMLoss(parallel_output=True, label_smoothing=label_smoothing)

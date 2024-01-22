@@ -278,7 +278,7 @@ def exam_loss(args):
     seed_all(1024)
 
     # initialize model
-    model = initialize_model()
+    model, _ = initialize_model()
 
     # initialize loss function
     criterion = FlashGPTLMLoss(parallel_output=True, label_smoothing=gpc.config.loss.label_smoothing)
@@ -302,7 +302,7 @@ def exam_loss(args):
         SchedulerMetricHook(
             metric=metric,
             skip=(
-                gpc.is_using_pp()
+                gpc.is_using_parallel_mode(ParallelMode.PIPELINE)
                 and hasattr(gpc.config.model, "num_chunks")
                 and gpc.config.model.num_chunks > 1
                 and gpc.config.parallel["pipeline"].get("interleaved_overlap", False)

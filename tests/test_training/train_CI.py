@@ -124,7 +124,7 @@ def main(args):
     uniscale_logger = initialize_llm_logger(start_time=current_time)
 
     # initialize model
-    model = initialize_model()
+    model, _ = initialize_model()
 
     with open(args.config, "r") as f:
         config_lines = f.readlines()
@@ -181,7 +181,7 @@ def main(args):
         SchedulerMetricHook(
             metric=metric,
             skip=(
-                gpc.is_using_pp()
+                gpc.is_using_parallel_mode(ParallelMode.PIPELINE)
                 and hasattr(gpc.config.model, "num_chunks")
                 and gpc.config.model.num_chunks > 1
                 and gpc.config.parallel["pipeline"].get("interleaved_overlap", False)

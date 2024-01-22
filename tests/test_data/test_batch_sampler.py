@@ -123,7 +123,7 @@ def do_warmup(args):
     # test no-packed datasets.
     for _, val_dl in val_dls.items():
         for _, batch in enumerate(val_dl):
-            if gpc.is_using_pp():
+            if gpc.is_using_parallel_mode(ParallelMode.PIPELINE):
                 total_val_bsz = len(batch[1])
                 batch[0]["input_ids"] = batch[0]["input_ids"].to(torch.bfloat16)
                 assert total_val_bsz % micro_bsz == 0
