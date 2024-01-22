@@ -31,7 +31,7 @@ if [[ ! -f ${SRC_DATASET_META} ]]; then
    exit 1
 fi
 
-python tools/alpaca_tokenizer.py ${SRC_DATASET_META} ${RESULTS} tools/V7_sft.model --split_ratio ${split_ratio}
+python tools/alpaca_tokenizer.py ${SRC_DATASET_META} ${RESULTS} tools/tokenizer_internlm.model --split_ratio ${split_ratio}
 [[ $? -ne 0 ]] && { echo "test alpaca_tokenizer.py failed.";  exit_code=$(($exit_code + 1)); }
 
 file_list=(${TRAIN_DATASET} ${TRAIN_DATASET_META} ${VALID_DATASET} ${VALID_DATASET_META})
