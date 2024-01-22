@@ -11,7 +11,7 @@ from tools.load_internlm_model import (
     initialize_internlm_model,
     internlm_interactive_generation,
 )
-from tools.transformers.interface import GenerationConfig
+from tools.interface import GenerationConfig
 
 logger = logging.getLogger(__file__)
 
