@@ -26,7 +26,7 @@ def is_replica_zero_parallel_parameter(p):
 def is_tensor_data_parallel_parameter(p):
     return (
         gpc.is_initialized(ParallelMode.TENSOR)
-        and gpc.config.parallel.tensor.mode == "isp"
+        and gpc.config.parallel["tensor"].get("mode", "mtp") == "isp"
         and hasattr(p, IS_TENSOR_DATA_PARALLEL)
         and getattr(p, IS_TENSOR_DATA_PARALLEL)
     )
@@ -35,7 +35,7 @@ def is_tensor_data_parallel_parameter(p):
 def is_tensor_zero_parallel_parameter(p):
     return (
         gpc.is_initialized(ParallelMode.TENSOR)
-        and gpc.config.parallel.tensor.mode != "isp"
+        and gpc.config.parallel["tensor"].get("mode", "mtp") != "isp"
         and hasattr(p, IS_TENSOR_ZERO_PARALLEL)
         and getattr(p, IS_TENSOR_ZERO_PARALLEL)
     )
@@ -44,7 +44,7 @@ def is_tensor_zero_parallel_parameter(p):
 def is_weight_zero_parallel_parameter(p):
     return (
         gpc.is_initialized(ParallelMode.WEIGHT)
-        and gpc.config.parallel.tensor.mode == "isp"
+        and gpc.config.parallel["tensor"].get("mode", "mtp") == "isp"
         and hasattr(p, IS_WEIGHT_ZERO_PARALLEL)
         and getattr(p, IS_WEIGHT_ZERO_PARALLEL)
     )
@@ -58,7 +58,9 @@ def sync_model_param(model):
     """
 
     sync_moe_param = gpc.is_using_parallel_mode(ParallelMode.EXPERT_DATA)
-    sync_parallel_mode = ParallelMode.WEIGHT_DATA if gpc.config.parallel.tensor["mode"] == "isp" else ParallelMode.DATA
+    sync_parallel_mode = (
+        ParallelMode.WEIGHT_DATA if gpc.config.parallel["tensor"].get("mode", "mtp") == "isp" else ParallelMode.DATA
+    )
     for param in model.parameters():
         if sync_moe_param and getattr(param, "is_expert", False):
             ranks = gpc.get_ranks_in_group(ParallelMode.EXPERT_DATA)
@@ -79,7 +81,9 @@ def sync_model_replica_param_group(model):
         model (:class:`torch.nn.Module`): A pyTorch model on whose parameters you check the consistency.
     """
 
-    parallel_mode = ParallelMode.WEIGHT if gpc.config.parallel.tensor["mode"] == "isp" else ParallelMode.TENSOR
+    parallel_mode = (
+        ParallelMode.WEIGHT if gpc.config.parallel["tensor"].get("mode", "mtp") == "isp" else ParallelMode.TENSOR
+    )
     if gpc.is_using_parallel_mode(parallel_mode):
         for param in model.parameters():
             if is_replica_zero_parallel_parameter(param):

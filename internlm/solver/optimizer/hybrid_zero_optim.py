@@ -84,7 +84,10 @@ class HybridZeroOptimizer(BaseOptimizer):
         clip_grad_norm = zero_cfg.clip_grad_norm
         self._overlap_sync_grad = zero_cfg.overlap_sync_grad
         self._overlap_sync_param = zero_cfg.overlap_sync_param
-        self.use_isp = gpc.config.parallel.tensor.mode == "isp"
+        self.use_isp = (
+            isinstance(gpc.config.parallel["tensor"], dict)
+            and gpc.config.parallel["tensor"].get("mode", "mtp") == "isp"
+        )
 
         super().__init__(optim=optimizer)
 

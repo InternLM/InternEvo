@@ -94,6 +94,8 @@ def set_fp32_attr_for_model(model: Union[nn.Module, nn.ModuleList]):
 
 
 def set_parallel_attr_for_param_groups(model: Union[nn.Module, nn.ModuleList]):
+    tp_mode = gpc.config.parallel["tensor"].get("mode", "mtp")
+
     def _check_module(module):
         # layer_norm
         if isinstance(module, (RMSNorm, nn.LayerNorm)):
@@ -103,17 +105,17 @@ def set_parallel_attr_for_param_groups(model: Union[nn.Module, nn.ModuleList]):
         # embedding and head
         if isinstance(module, (Embedding1D, ParallelGPT2Embeddings, BaseScaleColumnParallelLinear)):
             for param in module.parameters():
-                if gpc.is_initialized(ParallelMode.TENSOR) and gpc.config.parallel.tensor.mode == "isp":
+                if gpc.is_initialized(ParallelMode.TENSOR) and tp_mode == "isp":
                     setattr(param, IS_TENSOR_DATA_PARALLEL, True)
-                elif gpc.is_initialized(ParallelMode.TENSOR) and gpc.config.parallel.tensor.mode != "isp":
+                elif gpc.is_initialized(ParallelMode.TENSOR) and tp_mode != "isp":
                     setattr(param, IS_TENSOR_ZERO_PARALLEL, True)
 
         # for linear module
         if isinstance(module, (ColumnParallelLinear, RowParallelLinear)):
             for param in module.parameters():
-                if gpc.is_initialized(ParallelMode.TENSOR) and gpc.config.parallel.tensor.mode != "isp":
+                if gpc.is_initialized(ParallelMode.TENSOR) and tp_mode != "isp":
                     setattr(param, IS_TENSOR_ZERO_PARALLEL, True)
-                elif gpc.is_initialized(ParallelMode.WEIGHT) and gpc.config.parallel.tensor.mode == "isp":
+                elif gpc.is_initialized(ParallelMode.WEIGHT) and tp_mode == "isp":
                     setattr(param, IS_WEIGHT_ZERO_PARALLEL, True)
 
     if not isinstance(model, nn.ModuleList):
@@ -187,13 +189,15 @@ def initialize_model(pre_process_func: Optional[Callable] = None, post_process_f
 
     # Change random state mode to ParallelMode.DATA after model is built, guaranteeing the random
     # state in the same dp group are all the same.
-    random_mode = ParallelMode.WEIGHT_DATA if gpc.config.parallel.tensor["mode"] == "isp" else ParallelMode.DATA
+    random_mode = (
+        ParallelMode.WEIGHT_DATA if gpc.config.parallel["tensor"].get("mode", "mtp") == "isp" else ParallelMode.DATA
+    )
     set_mode(random_mode)
 
     # if fsdp enabled, wrap the model
     model = wrap_FSDP_model(model)
 
-    if gpc.config.parallel.tensor.mode != "isp":
+    if gpc.config.parallel["tensor"].get("mode", "mtp") != "isp":
         isp_communicator = None
     else:
         isp_communicator = ISPCommunicator(

@@ -308,7 +308,9 @@ def compute_norm(
         Total norm of the parameters, need total_norm**(1/norm) before using.
     """
 
-    weight_parallel_mode = ParallelMode.WEIGHT if gpc.config.parallel.tensor.mode == "isp" else ParallelMode.TENSOR
+    weight_parallel_mode = (
+        ParallelMode.WEIGHT if gpc.config.parallel["tensor"].get("mode", "mtp") == "isp" else ParallelMode.TENSOR
+    )
     enable_cuda_kernels = gradients[0].device.type == "cuda"
     # Norm parameters.
     norm_type = float(norm_type)
