@@ -1214,6 +1214,7 @@ class InternLM2ForCausalLM(InternLM2PreTrainedModel):
                 self.query = query
                 self.history = history
                 self.response = ""
+                self.chat = []
                 self.received_inputs = False
                 self.queue.put((self.response, history + [(self.query, self.response)]))
 
@@ -1228,11 +1229,15 @@ class InternLM2ForCausalLM(InternLM2PreTrainedModel):
                     self.received_inputs = True
                     return
 
-                token = self.tokenizer.decode([value[-1]], skip_special_tokens=True)
+                self.cache.extend(value.tolist())
+                token = self.tokenizer.decode(self.cache, skip_special_tokens=True)
                 if token.strip() != "<|im_end|>":
                     self.response = self.response + token
                     history = self.history + [(self.query, self.response)]
                     self.queue.put((self.response, history))
+                    self.cache = []
+                else:
+                    self.end()
 
             def end(self):
                 self.queue.put(None)

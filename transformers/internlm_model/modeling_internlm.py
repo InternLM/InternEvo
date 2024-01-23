@@ -1114,6 +1114,7 @@ class InternLMForCausalLM(InternLMPreTrainedModel):
                 self.query = query
                 self.history = history
                 self.response = ""
+                self.cache = []
                 self.received_inputs = False
                 self.queue.put((self.response, history + [(self.query, self.response)]))
 
@@ -1128,11 +1129,17 @@ class InternLMForCausalLM(InternLMPreTrainedModel):
                     self.received_inputs = True
                     return
 
-                token = self.tokenizer.decode([value[-1]], skip_special_tokens=True)
+                self.cache.extend(value.tolist())
+                token = self.tokenizer.decode(self.cache, skip_special_tokens=True)
+                if "�" in token and len(token) <= 5:
+                    return
                 if token.strip() != "<eoa>":
                     self.response = self.response + token
                     history = self.history + [(self.query, self.response)]
                     self.queue.put((self.response, history))
+                    self.cache = []
+                else:
+                    self.end()
 
             def end(self):
                 self.queue.put(None)
