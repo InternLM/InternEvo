@@ -13,6 +13,7 @@ import gc
 import json
 import os
 import re
+import sys
 import time
 
 import torch
@@ -25,6 +26,8 @@ from internlm2_model import (
 from tqdm import tqdm
 
 from transformers.modeling_utils import no_init_weights
+
+sys.path.insert(0, os.getcwd())
 
 try:
     from internlm.utils.storage_manager import (
