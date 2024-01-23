@@ -1134,11 +1134,12 @@ class InternLM2ForCausalLM(InternLM2PreTrainedModel):
         return reordered_past
 
     def build_inputs(self, tokenizer, query: str, history: List[Tuple[str, str]] = [], meta_instruction=""):
-        prompt = ""
-        if meta_instruction:
-            prompt += f"""<s><|im_start|>system\n{meta_instruction}<|im_end|>\n"""
+        if tokenizer.add_bos_token:
+            prompt = ""
         else:
-            prompt += "<s>"
+            prompt = tokenizer.bos_token
+        if meta_instruction:
+            prompt += f"""<|im_start|>system\n{meta_instruction}<|im_end|>\n"""
         for record in history:
             prompt += f"""<|im_start|>user\n{record[0]}<|im_end|>\n<|im_start|>assistant\n{record[1]}<|im_end|>\n"""
         prompt += f"""<|im_start|>user\n{query}<|im_end|>\n<|im_start|>assistant\n"""

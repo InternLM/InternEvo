@@ -67,6 +67,12 @@ class InternLM2Converter(SpmConverter):
     def tokenizer(self, proto):
         model_type = proto.trainer_spec.model_type
         vocab_scores = self.vocab(proto)
+        # special tokens
+        added_tokens = self.original_tokenizer.added_tokens_decoder
+        for i in range(len(vocab_scores)):
+            piece, score = vocab_scores[i]
+            if i in added_tokens:
+                vocab_scores[i] = (added_tokens[i].content, score)
         if model_type == 1:
             raise RuntimeError("InternLM2 is supposed to be a BPE model!")
 
@@ -77,11 +83,7 @@ class InternLM2Converter(SpmConverter):
                 BPE(bpe_vocab, merges, unk_token=proto.trainer_spec.unk_piece, fuse_unk=True, byte_fallback=True)
             )
             tokenizer.add_special_tokens(
-                [
-                    AddedToken("<unk>", normalized=False, special=True),
-                    AddedToken("<s>", normalized=False, special=True),
-                    AddedToken("</s>", normalized=False, special=True),
-                ]
+                [ added_token for index, added_token in added_tokens.items()]
             )
         else:
             raise Exception(
