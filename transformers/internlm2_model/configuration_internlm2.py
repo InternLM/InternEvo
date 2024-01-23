@@ -17,21 +17,21 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
-""" InternLM model configuration"""
+""" InternLM2 model configuration"""
 
 from transformers.configuration_utils import PretrainedConfig
 from transformers.utils import logging
 
 logger = logging.get_logger(__name__)
 
-INTERNLM_PRETRAINED_CONFIG_ARCHIVE_MAP = {}
+INTERNLM2_PRETRAINED_CONFIG_ARCHIVE_MAP = {}
 
 
-class InternLMConfig(PretrainedConfig):
+class InternLM2Config(PretrainedConfig):
     r"""
-    This is the configuration class to store the configuration of a [`InternLMModel`]. It is used to instantiate
-    an InternLM model according to the specified arguments, defining the model architecture. Instantiating a
-    configuration with the defaults will yield a similar configuration to that of the InternLM-7B.
+    This is the configuration class to store the configuration of a [`InternLM2Model`]. It is used to instantiate
+    an InternLM2 model according to the specified arguments, defining the model architecture. Instantiating a
+    configuration with the defaults will yield a similar configuration to that of the InternLM2-7B.
 
     Configuration objects inherit from [`PretrainedConfig`] and can be used to control the model outputs. Read the
     documentation from [`PretrainedConfig`] for more information.
@@ -39,8 +39,8 @@ class InternLMConfig(PretrainedConfig):
 
     Args:
         vocab_size (`int`, *optional*, defaults to 32000):
-            Vocabulary size of the InternLM model. Defines the number of different tokens that can be represented by the
-            `inputs_ids` passed when calling [`InternLMModel`]
+            Vocabulary size of the InternLM2 model. Defines the number of different tokens that can be represented by the
+            `inputs_ids` passed when calling [`InternLM2Model`]
         hidden_size (`int`, *optional*, defaults to 4096):
             Dimension of the hidden representations.
         intermediate_size (`int`, *optional*, defaults to 11008):
@@ -73,19 +73,8 @@ class InternLMConfig(PretrainedConfig):
             Whether to tie weight embeddings
         Example:
 
-    ```python
-    >>> from transformers import InternLMModel, InternLMConfig
-
-    >>> # Initializing a InternLM internlm-7b style configuration
-    >>> configuration = InternLMConfig()
-
-    >>> # Initializing a model from the internlm-7b style configuration
-    >>> model = InternLMModel(configuration)
-
-    >>> # Accessing the model configuration
-    >>> configuration = model.config
-    ```"""
-    model_type = "internlm"
+    """
+    model_type = "internlm2"
     _auto_class = "AutoConfig"
 
     def __init__(  # pylint: disable=W0102

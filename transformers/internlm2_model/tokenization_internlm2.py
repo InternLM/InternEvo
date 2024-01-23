@@ -34,7 +34,7 @@ VOCAB_FILES_NAMES = {"vocab_file": "./tokenizer.model"}
 PRETRAINED_VOCAB_FILES_MAP = {}
 
 
-class InternLMTokenizer(PreTrainedTokenizer):
+class InternLM2Tokenizer(PreTrainedTokenizer):
     """
     Construct a InternLM tokenizer. Based on byte-level Byte-Pair-Encoding.
 
