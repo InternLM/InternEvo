@@ -34,12 +34,12 @@ This folder contains the `InternLM2` model in transformers format and some scrip
 `convert2hf_internlm.py` can convert saved training InternLM weights into the transformers format with a single command. Execute the command in the root directory of repository:
 
 ```bash
-python transformers/convert2hf_internlm.py --src origin_ckpt/ --tgt hf_ckpt/ --tokenizer ./tools/v13.model --max_pos 4096 --rotary_type origin
+python transformers/convert2hf_internlm.py --src origin_ckpt/ --tgt hf_ckpt/ --tokenizer ./tools/tokenizer_internlm2.model --max_pos 4096 --rotary_type origin
 ```
 
 ```bash
 # dynamic NTK
-python transformers/convert2hf_internlm.py --src origin_ckpt/ --tgt hf_ckpt/ --tokenizer ./tools/v13.model --max_pos 4096 --rotary_type dynamic --scaling_factor 2.0
+python transformers/convert2hf_internlm.py --src origin_ckpt/ --tgt hf_ckpt/ --tokenizer ./tools/tokenizer_internlm2.model --max_pos 4096 --rotary_type dynamic --scaling_factor 2.0
 ```
 
 Then, you can load it using the `from_pretrained` interface:
@@ -66,12 +66,12 @@ python transformers/revert_internlm.py --src /path/to/src --tgt /path/to/tgt --t
 `convert2hf_internlm2.py` can convert saved training InternLM2 weights into the transformers format with a single command. Execute the command in the root directory of repository:
 
 ```bash
-python transformers/convert2hf_internlm2.py --src origin_ckpt/ --tgt hf_ckpt/ --tokenizer ./tools/v13.model --max_pos 32768 --rotary_type origin
+python transformers/convert2hf_internlm2.py --src origin_ckpt/ --tgt hf_ckpt/ --tokenizer ./tools/tokenizer_internlm2.model --max_pos 32768 --rotary_type origin
 ```
 
 ```bash
 # dynamic NTK
-python transformers/convert2hf_internlm2.py --src origin_ckpt/ --tgt hf_ckpt/ --tokenizer ./tools/v13.model --max_pos 32768 --rotary_type dynamic --scaling_factor 2.0
+python transformers/convert2hf_internlm2.py --src origin_ckpt/ --tgt hf_ckpt/ --tokenizer ./tools/tokenizer_internlm2.model --max_pos 32768 --rotary_type dynamic --scaling_factor 2.0
 ```
 
 Then, you can load it using the `from_pretrained` interface:

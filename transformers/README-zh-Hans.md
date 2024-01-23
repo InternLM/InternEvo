@@ -34,12 +34,12 @@
 `convert2hf_internlm.py` 可以将训练保存的权重一键转换为 transformers 格式。在仓库根目录运行以下命令：
 
 ```bash
-python transformers/convert2hf_internlm.py --src origin_ckpt/ --tgt hf_ckpt/ --tokenizer ./tools/v13.model --max_pos 4096 --rotary_type origin
+python transformers/convert2hf_internlm.py --src origin_ckpt/ --tgt hf_ckpt/ --tokenizer ./tools/tokenizer_internlm2.model --max_pos 4096 --rotary_type origin
 ```
 
 ```bash
 # dynamic NTK
-python transformers/convert2hf_internlm.py --src origin_ckpt/ --tgt hf_ckpt/ --tokenizer ./tools/v13.model --max_pos 4096 --rotary_type dynamic --scaling_factor 2.0
+python transformers/convert2hf_internlm.py --src origin_ckpt/ --tgt hf_ckpt/ --tokenizer ./tools/tokenizer_internlm2.model --max_pos 4096 --rotary_type dynamic --scaling_factor 2.0
 ```
 
 然后可以使用 `from_pretrained` 接口加载：
@@ -66,12 +66,12 @@ python transformers/revert_internlm.py --src /path/to/src --tgt /path/to/tgt --t
 `convert2hf_internlm2.py` 可以将训练保存的权重一键转换为 transformers 格式。在仓库根目录运行以下命令：
 
 ```bash
-python transformers/convert2hf_internlm2.py --src origin_ckpt/ --tgt hf_ckpt/ --tokenizer ./tools/v13.model --max_pos 32768 --rotary_type origin
+python transformers/convert2hf_internlm2.py --src origin_ckpt/ --tgt hf_ckpt/ --tokenizer ./tools/tokenizer_internlm2.model --max_pos 32768 --rotary_type origin
 ```
 
 ```bash
 # dynamic NTK
-python transformers/convert2hf_internlm2.py --src origin_ckpt/ --tgt hf_ckpt/ --tokenizer ./tools/v13.model --max_pos 32768 --rotary_type dynamic --scaling_factor 2.0
+python transformers/convert2hf_internlm2.py --src origin_ckpt/ --tgt hf_ckpt/ --tokenizer ./tools/tokenizer_internlm2.model --max_pos 32768 --rotary_type dynamic --scaling_factor 2.0
 ```
 
 然后可以使用 `from_pretrained` 接口加载：
