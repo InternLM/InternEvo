@@ -17,7 +17,11 @@ import time
 
 import torch
 from einops import rearrange
-from internlm2_model import InternLM2ForCausalLM, InternLMConfig, InternLMTokenizer
+from internlm2_model import (
+    InternLM2Config,
+    InternLM2ForCausalLM,
+    InternLM2TokenizerFast,
+)
 from tqdm import tqdm
 
 from transformers.modeling_utils import no_init_weights
@@ -251,16 +255,16 @@ def convert(src, tgt, tokenizer, dtype, max_shard_size, max_pos, rope_scaling):
     )
     if model_config["norm_head"]:
         state_dict["output.weight"] = torch.nn.functional.normalize(
-            torch.cat([states[i]["output.weight"] for i in range(num_shards)], dim=-1), dim=-1
+            torch.cat([states[i]["output.weight"] for i in range(num_shards)], dim=0), dim=-1
         )
     else:
         state_dict["output.weight"] = torch.cat([states[i]["output.weight"] for i in range(num_shards)], dim=0)
 
     # initialize model
     # tokenizer
-    tokenizer = InternLMTokenizer(tokenizer)
+    tokenizer = InternLM2TokenizerFast(tokenizer)
     # config
-    config = InternLMConfig(
+    config = InternLM2Config(
         vocab_size=model_config["vocab_size"],
         hidden_size=model_config["hidden_size"],
         intermediate_size=intermediate_size,
@@ -302,12 +306,6 @@ def convert(src, tgt, tokenizer, dtype, max_shard_size, max_pos, rope_scaling):
     config_dict["auto_map"]["AutoModel"] = "modeling_internlm2.InternLM2ForCausalLM"
     with open(os.path.join(tgt, "config.json"), "w") as fp:
         json.dump(config_dict, fp, indent=2)
-
-
-def convert_tokenizer(src, tgt):
-    check_folder(src)
-    tokenizer = InternLMTokenizer(src)
-    tokenizer.save_pretrained(tgt)
 
 
 def get_rope_scaling(args):
