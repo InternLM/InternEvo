@@ -129,6 +129,7 @@ beta2_scheduler = dict(
     cur_iter=-1,
 )
 
+use_fp32_norm = False
 model = dict(
     checkpoint=False,  # The proportion of layers for activation aheckpointing, the optional value are True/False/[0-1]
     num_attention_heads=NUM_ATTENTION_HEAD,

@@ -209,7 +209,7 @@ class ISPCommunicator:
 
         # init memory pool if necessary.
         if self.enable_memory_pool:
-            self.memory_pool = MemoryPool(model_conf)
+            self.memory_pool = MemoryPool(model_conf, with_bias=True)
         else:
             self.memory_pool = None
 
