@@ -40,9 +40,9 @@ $ python tools/tokenizer.py --text_input_path your_input_text_path --bin_output_
 $ python tools/tokenizer.py --text_input_path raw_data.txt --bin_output_path cn/output.bin
 ```
 
-需要注意的是，生成的`bin`文件需要保存在`cn`或者`en`或者`code`或者`ja`或者`ar`或者`kaoshi`这五个目录下，以区分数据集的类型。
+需要注意的是，生成的`bin`文件需要保存在`cn`或者`en`这两个目录下，以区分数据集的类型。
 
-其中，`cn`表示中文数据集；`en`表示英文数据集；`code`表示代码数据集；`ja`表示日语数据集；`ar`表示阿拉伯语数据集；`kaoshi`表示考试数据集。
+其中，`cn`表示中文数据集；`en`表示英文数据集。
 
 生成的bin文件的格式如下：
 

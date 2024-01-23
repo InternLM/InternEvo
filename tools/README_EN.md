@@ -41,7 +41,7 @@ Next, we can run the following command to generate `bin` and `meta` files for ra
 $ python tools/tokenizer.py --text_input_path your_input_text_path --bin_output_path your_output_bin_path
 ```
 
-It should be noted that the generated `bin` files should be placed in one of the following directories to clarify the data type: `cn`(Chinese), `en`(English), `code`(code data), `ja`(Japanese), `ar`(Arabic) and `kaoshi`(kaoshi data).
+It should be noted that the generated `bin` files should be placed in one of the following directories to clarify the data type: `cn`(Chinese) and `en`(English).
 
 The format of generated `bin` file is as follows.
 
