@@ -1,10 +1,7 @@
 # coding=utf-8
-# Copyright 2022 EleutherAI and the HuggingFace Inc. team. All rights reserved.
+# Copyright (c) The InternLM team and The HuggingFace Inc. team. All rights reserved.
 #
-# This code is based on EleutherAI's GPT-NeoX library and the GPT-NeoX
-# and OPT implementations in this library. It has been modified from its
-# original forms to accommodate minor architectural differences compared
-# to GPT-NeoX and OPT used by the Meta AI team that trained the model.
+# This code is based on transformers/src/transformers/models/llama/tokenization_llama.py
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -35,7 +32,7 @@ VOCAB_FILES_NAMES = {"vocab_file": "./tokenizer.model"}
 
 PRETRAINED_VOCAB_FILES_MAP = {}
 
-
+# Modified from transformers.model.llama.tokenization_llama.LlamaTokenizer -> InternLM2Tokenizer
 class InternLMTokenizer(PreTrainedTokenizer):
     """
     Construct a InternLM tokenizer. Based on byte-level Byte-Pair-Encoding.
@@ -80,8 +77,6 @@ class InternLMTokenizer(PreTrainedTokenizer):
             clean_up_tokenization_spaces=clean_up_tokenization_spaces,
             **kwargs,
         )
-
-        """ Initialization"""
 
     @property
     def no_prefix_space_tokens(self):

@@ -38,6 +38,7 @@ logger = logging.get_logger(__name__)
 
 VOCAB_FILES_NAMES = {"vocab_file": "./tokenizer.model"}
 
+# Modified from transformers.convert_slow_tokenizer.LlamaConverter
 class InternLM2Converter(SpmConverter):
     handle_byte_fallback = True
 
@@ -105,6 +106,7 @@ class InternLM2Converter(SpmConverter):
 SLOW_TO_FAST_CONVERTERS["InternLM2Tokenizer"] = InternLM2Converter
 
 
+# Modified from transformers.model.llama.tokenization_llama_fast.LlamaTokenizerFast -> InternLM2TokenizerFast
 class InternLM2TokenizerFast(PreTrainedTokenizerFast):
     vocab_files_names = VOCAB_FILES_NAMES
     slow_tokenizer_class = InternLM2Tokenizer

@@ -1,10 +1,7 @@
 # coding=utf-8
-# Copyright (c) InternLM. All rights reserved.
+# Copyright (c) The InternLM team and The HuggingFace Inc. team. All rights reserved.
 #
-# This code is based on EleutherAI's GPT-NeoX library and the GPT-NeoX
-# and OPT implementations in this library. It has been modified from its
-# original forms to accommodate minor architectural differences compared
-# to GPT-NeoX and OPT used by the Meta AI team that trained the model.
+# This code is based on transformers/src/transformers/models/llama/configuration_llama.py
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -27,6 +24,7 @@ logger = logging.get_logger(__name__)
 INTERNLM_PRETRAINED_CONFIG_ARCHIVE_MAP = {}
 
 
+# Modified from transformers.model.llama.configuration_llama.LlamaConfig
 class InternLMConfig(PretrainedConfig):
     r"""
     This is the configuration class to store the configuration of a [`InternLMModel`]. It is used to instantiate

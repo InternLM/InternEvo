@@ -74,7 +74,7 @@ def _get_unpad_data(attention_mask):
     )
 
 
-# Copied from transformers.models.bart.modeling_bart._make_causal_mask
+# Copied from transformers.models.llama.modeling_llama._make_causal_mask
 def _make_causal_mask(
     input_ids_shape: torch.Size, dtype: torch.dtype, device: torch.device, past_key_values_length: int = 0
 ):
@@ -92,7 +92,7 @@ def _make_causal_mask(
     return mask[None, None, :, :].expand(bsz, 1, tgt_len, tgt_len + past_key_values_length)
 
 
-# Copied from transformers.models.bart.modeling_bart._expand_mask
+# Copied from transformers.models.llama.modeling_llama._expand_mask
 def _expand_mask(mask: torch.Tensor, dtype: torch.dtype, tgt_len: Optional[int] = None):
     """
     Expands attention_mask from `[bsz, seq_len]` to `[bsz, 1, tgt_seq_len, src_seq_len]`.
@@ -106,6 +106,8 @@ def _expand_mask(mask: torch.Tensor, dtype: torch.dtype, tgt_len: Optional[int] 
 
     return inverted_mask.masked_fill(inverted_mask.to(torch.bool), torch.finfo(dtype).min)
 
+
+# Copied from transformers.models.llama.modeling_llama.LlamaRMSNorm with Llama->InternLM
 class InternLMRMSNorm(nn.Module):
     """RMSNorm implemention."""
 
@@ -128,6 +130,7 @@ class InternLMRMSNorm(nn.Module):
         return self.weight * hidden_states
 
 
+# Copied from transformers.models.llama.modeling_llama.LlamaRotaryEmbedding with Llama->InternLM
 class InternLMRotaryEmbedding(torch.nn.Module):
     """Implement InternLM's rotary embedding.
 
@@ -169,6 +172,7 @@ class InternLMRotaryEmbedding(torch.nn.Module):
         )
 
 
+# Copied from transformers.models.llama.modeling_llama.LlamaDynamicNTKScalingRotaryEmbedding with Llama->InternLM
 class InternLMDynamicNTKScalingRotaryEmbedding(torch.nn.Module):
     """Implement InternLM's DyanmicNTK extrapolation method, thereby broadening the model support context to 16K.
 
@@ -229,12 +233,15 @@ class InternLMDynamicNTKScalingRotaryEmbedding(torch.nn.Module):
         )
 
 
+# Copied from transformers.model.llama.modeling_llama.rotate_half
 def rotate_half(x):
     """Rotates half the hidden dims of the input."""
     x1 = x[..., : x.shape[-1] // 2]
     x2 = x[..., x.shape[-1] // 2 :]
     return torch.cat((-x2, x1), dim=-1)
 
+
+# Copied from transformers.model.llama.modeling_llama.apply_rotary_pos_emb
 def apply_rotary_pos_emb(q, k, cos, sin, position_ids):
     if position_ids.size(1) == 1:
         q_cos = cos[position_ids].unsqueeze(1).expand(q.shape)
@@ -255,6 +262,7 @@ def apply_rotary_pos_emb(q, k, cos, sin, position_ids):
     return q_embed, k_embed
 
 
+# Copied from transformers.models.llama.modeling_llama.LlamaMLP with Llama->InternLM
 class InternLMMLP(nn.Module):
     def __init__(
         self,
@@ -272,6 +280,7 @@ class InternLMMLP(nn.Module):
         return self.down_proj(self.act_fn(self.gate_proj(x)) * self.up_proj(x))
 
 
+# Copied from transformers.models.llama.modeling_llama.LlamaAttention with Llama->InternLM
 class InternLMAttention(nn.Module):
     """Multi-headed attention from 'Attention Is All You Need' paper"""
 
@@ -377,10 +386,11 @@ class InternLMAttention(nn.Module):
             attn_weights = None
 
         return attn_output, attn_weights, past_key_value
-    
+
+# Copied from transformers.models.llama.modeling_llama.LlamaFlashAttention2 with Llama->InternLM
 class InternLMFlashAttention2(InternLMAttention):
     """
-    InternLM2 flash attention module. This module inherits from `InternLM2Attention` as the weights of the module stays
+    InternLM flash attention module. This module inherits from `InternLMAttention` as the weights of the module stays
     untouched. The only required change would be on the forward pass where it needs to correctly call the public API of
     flash attention and deal with padding tokens in case the input contains any of them.
     """
@@ -395,7 +405,7 @@ class InternLMFlashAttention2(InternLMAttention):
         use_cache: bool = False,
         **kwargs,
     ) -> Tuple[torch.Tensor, Optional[torch.Tensor], Optional[Tuple[torch.Tensor]]]:
-        # InternLM2FlashAttention2 attention does not support output_attentions
+        # InternLMFlashAttention2 attention does not support output_attentions
         bsz, q_len, _ = hidden_states.size()
 
         query_states = self.q_proj(hidden_states).view(bsz, q_len, self.num_heads, self.head_dim).transpose(1, 2)
@@ -526,6 +536,7 @@ INTERNLM_ATTENTION_CLASSES = {
     "flash_attention_2": InternLMFlashAttention2,
 }
 
+# Copied from transformers.models.llama.modeling_llama.LlamaDecoderLayer with Llama->InternLM
 class InternLMDecoderLayer(nn.Module):
     def __init__(self, config: InternLMConfig):
         super().__init__()
@@ -611,6 +622,7 @@ INTERNLM_START_DOCSTRING = r"""
 """
 
 
+# Copied from transformers.models.llama.modeling_llama.LlamaPretrainedModel with Llama->InternLM
 @add_start_docstrings(
     "The bare InternLM Model outputting raw hidden-states without any specific head on top.",
     INTERNLM_START_DOCSTRING,
@@ -692,6 +704,7 @@ INTERNLM_INPUTS_DOCSTRING = r"""
 """
 
 
+# Copied from transformers.models.llama.modeling_llama.LlamaModel with Llama->InternLM
 @add_start_docstrings(
     "The bare InternLM Model outputting raw hidden-states without any specific head on top.",
     INTERNLM_START_DOCSTRING,
@@ -884,6 +897,7 @@ class InternLMModel(InternLMPreTrainedModel):
         )
 
 
+# Copied from transformers.models.llama.modeling_llama.LlamaForCausalLM with Llama->InternLM
 class InternLMForCausalLM(InternLMPreTrainedModel):
     _auto_class = "AutoModelForCausalLM"
 
