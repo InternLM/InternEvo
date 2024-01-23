@@ -383,5 +383,5 @@ $ torchrun --nnodes=1 --nproc_per_node=8 train.py --config ./configs/7B_sft.py -
 ![dynamic_ntk_answer](./imgs/dynamic_ntk_answer.png)
 
 关于 Dyanmic NTK 的原理，详细请参考
-1. https://www.reddit.com/r/LocalLLaMA/comments/14mrgpr/dynamically_scaled_rope_further_increases
-2. https://kexue.fm/archives/9675
+1. [dynamically_scaled_rope_further_increases](https://www.reddit.com/r/LocalLLaMA/comments/14mrgpr/dynamically_scaled_rope_further_increases)
+2. [https://kexue.fm/archives/9675](https://kexue.fm/archives/9675)
