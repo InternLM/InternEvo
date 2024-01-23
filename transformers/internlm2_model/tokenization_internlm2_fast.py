@@ -1,7 +1,7 @@
 # coding=utf-8
 # Copyright (c) The InternLM team and The HuggingFace Inc. team. All rights reserved.
 #
-# This code is based on transformers/src/transformers/models/llama/modeling_tokenization_fast.py
+# This code is based on transformers/src/transformers/models/llama/tokenization_llama_fast.py
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
