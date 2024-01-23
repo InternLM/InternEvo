@@ -47,13 +47,13 @@ msgid "数据准备 （预训练）"
 msgstr "Dataset Preparation (Pre-training)"
 
 #: ../../../usage.md:11
-msgid "InternLM训练任务的数据集包括一系列的`bin`和`meta`文件。使用`tokenizer`从原始文本文件生成训练用数据集。通过在`tools/tokenizer.py`中指定模型参数路径的方式来导入tokenizer模型。目前提供`V7_sft.model`来生成tokens。若想使用不同的模型，可直接修改`tokernizer.py`中的模型参数路径。"
+msgid "InternLM训练任务的数据集包括一系列的`bin`和`meta`文件。使用`tokenizer`从原始文本文件生成训练用数据集。通过在`tools/tokenizer.py`中指定模型参数路径的方式来导入tokenizer模型。目前提供`tokenizer_internlm.model`来生成tokens。若想使用不同的模型，可直接修改`tokernizer.py`中的模型参数路径。"
 msgstr ""
 "The dataset for the InternLM training task includes a series of `bin` and"
 " `meta` files. A `tokenizer` is used to generate the training dataset "
 "from the original text files. The tokenizer model is imported by "
 "specifying the model parameter path in `tools/tokenizer.py`. Currently, "
-"`V7_sft.model` is provided to generate tokens. If you want to use a "
+"`tokenizer_internlm.model` is provided to generate tokens. If you want to use a "
 "different model, you can directly modify the model parameter path in "
 "`tokenizer.py`."
 

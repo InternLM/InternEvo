@@ -1,12 +1,19 @@
 This directory provide some tools for model training with the following file structure.
 
+
 ```bash
-├── transformers  # tools for adapting Hugging Face's transformers
-│   ├── configuration_internlm.py  # tools for adapting config
-│   ├── modeling_internlm.py  # tools for adapting model
-│   └── tokenization_internlm.py  # tools for adapting tokenizer
-│   └── convert2hf.py  # tools for adapting models to Hugging Face's format
-└── tokenizer.py  # tools for generating `bin` and `meta` file for raw data
+├── alpaca_tokenizer.py # tools for processing alpaca
+├── interface.py # interface for generation
+├── internlm_sft_on_moss.py # example for SFT training on moss dataset
+├── intern_moss_example.py # example for training on moss dataset
+├── load_internlm_model.py # tools for loading InternLM checkpoints and generating
+├── openai_api.py # stream deployment with OpenAI APIs
+├── pal_inference.py # tools for PAL reasoning
+├── README_EN.md
+├── README.md
+├── tokenizer_internlm2.model  # tokenizer for InternLM2
+├── tokenizer_internlm.model # tokenizer for InternLM
+└── tokenizer.py # tools for generating `bin` and `meta` file for raw data
 ```
 
 # tokenizer.py
