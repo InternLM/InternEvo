@@ -509,7 +509,6 @@ def build_model_with_cfg(
     dropout_selective_checkpoint=True,
     use_scaled_init: bool = True,
     use_swiglu: bool = True,
-    use_fp32_norm: bool = True,
     use_flash_attn: bool = True,
     rope_base: int = 10000,
 ):

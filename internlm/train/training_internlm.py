@@ -89,7 +89,7 @@ def set_fp32_attr_for_model(model: Union[nn.Module, nn.ModuleList]):
 
     for _chunk in model:
         for _, module in _chunk.named_modules():
-            if isinstance(module, (RMSNorm, nn.LayerNorm)) and gpc.config.model.get("use_fp32_norm", False):
+            if isinstance(module, (RMSNorm, nn.LayerNorm)) and gpc.config.get("use_fp32_norm", False):
                 set_fp32_attr_to_module(module)
 
 
