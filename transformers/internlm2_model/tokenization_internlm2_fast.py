@@ -15,12 +15,12 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""Tokenization classes for IntermLM."""
+"""Tokenization Fast class for InternLM."""
 import os
 from shutil import copyfile
 from typing import Any, Dict, Optional, Tuple
 
-from tokenizers import processors, decoders, Tokenizer, AddedToken, normalizers
+from tokenizers import processors, decoders, Tokenizer, normalizers
 from tokenizers.models import BPE
 
 from transformers.tokenization_utils_fast import PreTrainedTokenizerFast
