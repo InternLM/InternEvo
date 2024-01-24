@@ -477,6 +477,17 @@ class ParallelContext(metaclass=SingletonMeta):
         # set parallel size as attributes for global context
         parallel_config = self.config.get("parallel", None)
         if parallel_config is not None:
+            # set default value for parallel size
+            if "zero1" not in parallel_config:
+                parallel_config._add_item("zero1", dict(size=-1, fsdp=False))
+            if "pipeline" not in parallel_config:
+                parallel_config._add_item("pipeline", dict(size=1, interleaved_overlap=False))
+            if "tensor" not in parallel_config:
+                parallel_config._add_item("tensor", dict(size=1, mode="mtp"))
+            if "weight" not in parallel_config:
+                parallel_config._add_item("weight", dict(size=1, overlap=False, memory_pool=False))
+
+            # get value from config
             self._set_parallel_size_from_config(parallel_config, "weight", "weight_parallel_size")
             self._set_parallel_size_from_config(parallel_config, "tensor", "tensor_parallel_size")
             self._set_parallel_size_from_config(parallel_config, "pipeline", "pipeline_parallel_size")

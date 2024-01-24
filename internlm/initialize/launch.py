@@ -466,7 +466,7 @@ def launch(
         logger.info(
             f"Distributed environment is initialized, "
             f"data parallel size: {gpc.data_parallel_size}, pipeline parallel size: {gpc.pipeline_parallel_size}, "
-            f"tensor parallel size: {gpc.tensor_parallel_size}",
+            f"tensor parallel size: {gpc.tensor_parallel_size}, weight parallel size: {gpc.weight_parallel_size}",
         )
         if gpc.config.model.get("num_experts", 1) > 1:
             logger.info(
@@ -474,14 +474,6 @@ def launch(
                 f"expert parallel size: {gpc.expert_parallel_size} | "
                 f"number of local experts: {gpc.config.model.num_experts//gpc.expert_parallel_size}"
             )
-
-    print(
-        f"global_rank:{gpc.get_global_rank()} wp_rank:{gpc.get_local_rank(ParallelMode.WEIGHT)} "
-        f"sp_rank:{gpc.get_local_rank(ParallelMode.SEQUENCE)} pp_rank:{gpc.get_local_rank(ParallelMode.PIPELINE)} "
-        f"zo1_rank:{gpc.get_local_rank(ParallelMode.ZERO1)} dp_rank:{gpc.get_local_rank(ParallelMode.DATA)} "
-        f"wdp_rank:{gpc.get_local_rank(ParallelMode.WEIGHT_DATA)}",
-        flush=True,
-    )
 
 
 def launch_from_slurm(
