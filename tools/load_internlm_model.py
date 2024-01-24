@@ -13,7 +13,7 @@ from internlm.initialize.launch import launch_from_torch
 from internlm.train import initialize_model
 from internlm.utils.registry import MODEL_INITIALIZER
 from internlm.utils.storage_manager import get_fns, init_storage_manager, llm_load
-from tools.transformers.interface import GenerationConfig
+from tools.interface import GenerationConfig
 
 logger = logging.getLogger(__file__)
 logging.basicConfig(level=logging.INFO)
@@ -283,7 +283,7 @@ if __name__ == "__main__":
 
     prompt = """<|User|>:{query}<eoh>\n<|Bot|>:"""
     prompt = prompt.replace("{query}", "hello")
-    tokenizer = SentencePieceProcessor("tools/V7_sft.model")  # pylint: disable=E1121
+    tokenizer = SentencePieceProcessor("tools/tokenizer_internlm.model")  # pylint: disable=E1121
 
     generation_config = GenerationConfig()
     output_generator = internlm_interactive_generation(
