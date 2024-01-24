@@ -2,18 +2,33 @@ import inspect
 import logging
 import os
 import re
+import sys
 from typing import Callable, Dict, List, Optional, Union
 
 import torch
 
-from internlm.apis.inference import SequenceGenerator
-from internlm.core.context import ParallelMode
-from internlm.core.context import global_context as gpc
-from internlm.initialize.launch import launch_from_torch
-from internlm.train import initialize_model
-from internlm.utils.registry import MODEL_INITIALIZER
-from internlm.utils.storage_manager import get_fns, init_storage_manager, llm_load
-from tools.interface import GenerationConfig
+sys.path.append(os.getcwd())
+
+from internlm.apis.inference import (  # noqa: E402 # pylint: disable=C0413
+    SequenceGenerator,
+)
+from internlm.core.context import ParallelMode  # noqa: E402 # pylint: disable=C0413
+from internlm.core.context import (  # noqa: E402 # pylint: disable=C0413
+    global_context as gpc,
+)
+from internlm.initialize.launch import (  # noqa: E402 # pylint: disable=C0413
+    launch_from_torch,
+)
+from internlm.train import initialize_model  # noqa: E402 # pylint: disable=C0413
+from internlm.utils.registry import (  # noqa: E402 # pylint: disable=C0413
+    MODEL_INITIALIZER,
+)
+from internlm.utils.storage_manager import (  # noqa: E402 # pylint: disable=C0413
+    get_fns,
+    init_storage_manager,
+    llm_load,
+)
+from tools.interface import GenerationConfig  # noqa: E402 # pylint: disable=C0413
 
 logger = logging.getLogger(__file__)
 logging.basicConfig(level=logging.INFO)
@@ -134,11 +149,11 @@ def initialize_internlm_model(
     """Initialize internlm model.
 
     Args:
-        model_type (str): The types of models supported by internlm framework, such as "INTERNLM".
+        model_type (str): The types of models supported by internlm framework, such as "INTERNLM", "INTERNLM2.
         ckpt_dir (str): Directory where model checkpoints are stored. Its format needs to be like this:
             (a) local path, such as: "local:{your local path}";
             (b) boto3 path, such as: "boto3:s3://{bucket name}.{ip}/{your ceph path}".
-        model_config (Optional[Union[Dict, str]], optional): Configuration of models. Defaults to None.
+        model_config (Optional[Union[Dict, str]], optional): Configuration of models.
         del_model_prefix (bool, optional):  Whether to remove the "model." string in the key in state_dict.
             Defaults to False.
         param_dtype (torch.dtype, optional): The dtype of the model at inference time. This value can be a string.
@@ -256,34 +271,34 @@ if __name__ == "__main__":
     >>> torchrun --master_port 12331 --nnodes=1 --node_rank=0 --nproc_per_node=1 tools/load_internlm_model.py
     """
     model = initialize_internlm_model(
-        model_type="INTERNLM",
+        model_type="INTERNLM2",
         ckpt_dir="[Please replace this with the directory where the internlm model weights are stored]",
+        # config for 7B INTERNLM2
         model_config=dict(
-            checkpoint=False,
+            vocab_size=92544,
+            mlp_ratio=3.5,
             num_attention_heads=32,
-            embed_split_hidden=True,
-            vocab_size=103168,
-            embed_grad_scale=1,
-            parallel_output=False,
             hidden_size=4096,
             num_layers=32,
-            mlp_ratio=8 / 3,
-            apply_post_layer_norm=False,
-            dtype="torch.bfloat16",
-            norm_type="rmsnorm",
-            layer_norm_epsilon=1e-5,
-            use_flash_attn=True,
+            num_kv_attention_heads=8,
+            adapt_hf=False,
+            rope_base=1000000,
+            norm_head=False,
+            checkpoint=1,
+            embed_split_hidden=True,
             num_chunks=1,
-            use_dynamic_ntk_rope=True,
+            no_bias=True,
         ),
         del_model_prefix=True,
     )
 
     from sentencepiece import SentencePieceProcessor
 
-    prompt = """<|User|>:{query}<eoh>\n<|Bot|>:"""
-    prompt = prompt.replace("{query}", "hello")
-    tokenizer = SentencePieceProcessor("tools/tokenizer_internlm.model")  # pylint: disable=E1121
+    query = "hello"
+    # [UNUSED_TOKEN_146] -> <|im_start|>：92543
+    # [UNUSED_TOKEN_145] -> <|im_end|>：92542
+    prompt = f"""[UNUSED_TOEKN_146]user\n{query}[UNUSED_TOEKN_145]\n[UNUSED_TOEKN_146]assistant\n"""
+    tokenizer = SentencePieceProcessor("tools/tokenizer_internlm2.model")  # pylint: disable=E1121
 
     generation_config = GenerationConfig()
     output_generator = internlm_interactive_generation(
@@ -291,7 +306,7 @@ if __name__ == "__main__":
         tokenizer=tokenizer,
         prompt=prompt,
         generation_config=generation_config,
-        additional_eos_token_list=[103028],
+        additional_eos_token_list=[92542],
     )
 
     for text in output_generator:

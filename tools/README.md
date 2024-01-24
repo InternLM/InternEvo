@@ -15,6 +15,14 @@
 └── tokenizer.py # 将原始数据转换成bin和meta文件的工具
 ```
 
+# load_internlm_model.py
+
+改文件用于加载原生训练的 InternLM 模型和 InternLM2 模型并进行推理示例。 `initialize_internlm_model` 函数的 `ckpt_dir` 参数为模型路径，`model_type` 为模型的类型（目前支持 `INTERNLM` `INTERNLM2` `INTERNLM_MoE` 和 `LLAMA2`），`model_config` 为模型配置。
+
+```bash
+torchrun --nproc_per_node=1 tools/load_internlm_model.py
+```
+
 # tokenizer.py
 
 生成原始数据的`bin`和`meta`文件需要使用`tokenizer`，我们通过在`tools/tokenizer.py`中指定模型参数路径的方式来导入tokenizer模型。目前我们提供了`tokenizer_internlm.model`来生成tokens。若想使用不同的模型，可直接修改`tokernizer.py`中的模型参数路径。
@@ -65,6 +73,8 @@ $ python tools/tokenizer.py --text_input_path raw_data.txt --bin_output_path cn/
 例如，对于第一个`sequence`，`starting index`为 0，有 11 个`tokens`；对于第二个`sequence`，由于第一个`sequence`转换为`string`后的长度为`89`，因此它的`starting index`为 90，有 15 个`tokens`。
 
 `json`和`jsonl`类型的文件的`bin`和`meta`文件格式和`txt`一致，此处不再赘叙。
+
+# alpaca_tokenizer.py
 
 # pal_inference.py
 
