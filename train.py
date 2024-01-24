@@ -1,12 +1,10 @@
 #!/usr/bin/env python
 # -*- encoding: utf-8 -*-
 
-from pickle import FALSE
 import socket
 import time
 import traceback
 from functools import partial
-from typing import List
 
 import torch
 import torch.distributed as dist
@@ -17,8 +15,7 @@ from internlm.core.context import global_context as gpc
 from internlm.core.trainer import TrainState
 from internlm.initialize import initialize_distributed_env
 from internlm.model.loss import FlashGPTLMLoss
-from internlm.model.metrics import AccPerplex, SchedulerMetricHook
-from internlm.core.communication.isp import ISPCommunicatorSchedulerHook
+from internlm.model.metrics import AccPerplex
 from internlm.monitor import initialize_monitor_manager, send_alert_message
 from internlm.monitor.monitor import monitor_manager as mm
 from internlm.train import (
@@ -37,7 +34,6 @@ from internlm.utils.common import (
     get_megatron_flops_2,
     launch_time,
     parse_args,
-    SchedulerHook,
 )
 from internlm.utils.evaluation import evaluate_on_val_dls
 from internlm.utils.gputest import empty_cache_and_diag

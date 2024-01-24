@@ -69,7 +69,12 @@ from internlm.solver.lr_scheduler import FineTuneCosineAnnealingWarmupLR
 from internlm.solver.optimizer import FSDPadaptOptimizer, HybridZeroOptimizer
 from internlm.solver.optimizer.utils import ParamBcastSyncHandler
 from internlm.train.utils import create_param_groups
-from internlm.utils.common import DummyProfile, SchedulerHook, get_current_device
+from internlm.utils.common import (
+    DummyProfile,
+    SchedulerHook,
+    get_current_device,
+    launch_time,
+)
 from internlm.utils.logger import get_logger
 from internlm.utils.megatron_timers import megatron_timer as timer
 from internlm.utils.parallel import (
@@ -509,30 +514,6 @@ def load_new_batch(train_dl: DataLoader, train_iter: Iterable, train_state: Trai
     return batch, train_iter
 
 
-# def initialize_llm_profile(profiling: bool = False, start_time: str = None):
-#     """Initialize and return the profiler context manager instance."""
-
-#     if profiling and gpc.get_local_rank(ParallelMode.DATA) == 0 and gpc.get_local_rank(ParallelMode.TENSOR) == 0:
-#         llm_profile = torch.profiler.profile
-#         logger.info(f"Do profiling in rank {gpc.get_global_rank()}!")
-#     else:
-#         llm_profile = DummyProfile
-
-#     return llm_profile(
-#         activities=[torch.profiler.ProfilerActivity.CPU, torch.profiler.ProfilerActivity.CUDA],
-#         schedule=torch.profiler.schedule(skip_first=5, wait=1, warmup=1, active=1, repeat=1),
-#         on_trace_ready=torch.profiler.tensorboard_trace_handler(
-#             f"{gpc.config.JOB_NAME}/{start_time}/traces/rank{gpc.get_global_rank()}_"
-#             + f"dp{gpc.get_local_rank(ParallelMode.DATA)}_"
-#             + f"tp{gpc.get_local_rank(ParallelMode.TENSOR)}_"
-#             + f"pp{gpc.get_local_rank(ParallelMode.PIPELINE)}",
-#         ),
-#         with_stack=True,
-#         with_modules=True,
-#         profile_memory=True,
-#     )
-
-
 def initialize_llm_profile(profiling: bool = False, start_time: str = None):
     """Initialize and return the profiler context manager instance."""
 
@@ -549,7 +530,7 @@ def initialize_llm_profile(profiling: bool = False, start_time: str = None):
             f"RUN/{gpc.config.JOB_NAME}/{start_time}/traces/rank{gpc.get_global_rank()}_"
             + f"dp{gpc.get_local_rank(ParallelMode.DATA)}_"
             + f"wp{gpc.get_local_rank(ParallelMode.WEIGHT)}_"
-            + f"sp{gpc.get_local_rank(ParallelMode.SEQUENCE)}",
+            + f"tp{gpc.get_local_rank(ParallelMode.TENSOR)}",
         ),
         with_stack=True,
         with_modules=True,

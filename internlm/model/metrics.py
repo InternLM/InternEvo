@@ -6,8 +6,8 @@ from torch_scatter import scatter
 
 from internlm.core.context import ParallelMode
 from internlm.core.context import global_context as gpc
-from internlm.utils.megatron_timers import megatron_timer as timer
 from internlm.utils.common import SchedulerHook
+from internlm.utils.megatron_timers import megatron_timer as timer
 
 
 class AccPerplex:
