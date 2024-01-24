@@ -13,6 +13,7 @@ from internlm.core.context import IS_REPLICA_ZERO_PARALLEL, Config, ParallelMode
 from internlm.core.context import global_context as gpc
 from internlm.core.context.parallel_context import (
     IS_TENSOR_DATA_PARALLEL,
+    IS_TENSOR_EXPERT_DATA_PARALLEL,
     IS_TENSOR_ZERO_PARALLEL,
     IS_WEIGHT_ZERO_PARALLEL,
 )
@@ -177,7 +178,9 @@ class HybridZeroOptimizer(BaseOptimizer):
             # TODO _broadcast_parallel_mode is not only used in broadcast, maybe can change its name
             self._broadcast_parallel_mode.append(zero_mode)
 
-            if param_group["name"] != "embed_head" and self.use_isp:
+            if self._is_moe_group(param_group):
+                grad_reduce_mode = ParallelMode.EXPERT_DATA
+            elif param_group["name"] != "embed_head" and self.use_isp:
                 grad_reduce_mode = ParallelMode.WEIGHT_DATA
             else:
                 grad_reduce_mode = ParallelMode.DATA
@@ -623,17 +626,21 @@ class HybridZeroOptimizer(BaseOptimizer):
             grads = [self.padding_grad.to(dtype)]
             params = [self.padding_tensor.to(dtype)]
 
-            if group_id == 0:
+            if self.optim.param_groups[group_id]["name"] in ("default", "fp32"):
                 for param in params:
                     if self.use_isp:
                         setattr(param, IS_WEIGHT_ZERO_PARALLEL, True)
                     else:
                         setattr(param, IS_TENSOR_ZERO_PARALLEL, True)
-            elif group_id == 1:
+            elif self.optim.param_groups[group_id]["name"] == "embed_head":
+                # should be isp mode
                 for param in params:
                     setattr(param, IS_TENSOR_DATA_PARALLEL, True)
+            elif self._is_moe_group(self.optim.param_groups[group_id]):
+                for param in params:
+                    setattr(param, IS_TENSOR_EXPERT_DATA_PARALLEL, True)
             else:
-                raise NotImplementedError("group_id > 1 is not yet implemented.")
+                raise NotImplementedError("unrecognized parameter group.")
 
         norm = 0
         if self._clip_grad_norm > 0:
@@ -656,6 +663,8 @@ class HybridZeroOptimizer(BaseOptimizer):
                     delattr(param, IS_TENSOR_ZERO_PARALLEL)
                 if hasattr(param, IS_WEIGHT_ZERO_PARALLEL):
                     delattr(param, IS_WEIGHT_ZERO_PARALLEL)
+                if hasattr(param, IS_TENSOR_EXPERT_DATA_PARALLEL):
+                    delattr(param, IS_TENSOR_EXPERT_DATA_PARALLEL)
 
         return norm
 

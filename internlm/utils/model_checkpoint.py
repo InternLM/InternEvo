@@ -354,14 +354,14 @@ def save_model_checkpoint(folder, model):
                         llm_save(topo_fp, saved_obj=topo)
 
         # try to save expert parameter to separate files if model have moe layer
-        # expert_dp_size = gpc.get_world_size(ParallelMode.EXPERT_DATA)
-        # expert_dp_rank = gpc.get_local_rank(ParallelMode.EXPERT_DATA)
-        # should_save_rank_pair.clear()
-        # for i in range(tp_size):
-        #     should_save_rank_pair.add((i, i % expert_dp_size))
+        expert_dp_size = gpc.get_world_size(ParallelMode.EXPERT_DATA)
+        expert_dp_rank = gpc.get_local_rank(ParallelMode.EXPERT_DATA)
+        should_save_rank_pair.clear()
+        for i in range(tp_size):
+            should_save_rank_pair.add((i, i % expert_dp_size))
 
-        # if (tp_rank, expert_dp_rank) in should_save_rank_pair:
-        #     try_save_moe_checkpoint(folder, model, tp_rank, pp_rank)
+        if (tp_rank, expert_dp_rank) in should_save_rank_pair:
+            try_save_moe_checkpoint(folder, model, tp_rank, pp_rank)
 
     torch.distributed.barrier()
 

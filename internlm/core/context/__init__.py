@@ -1,6 +1,7 @@
 from .parallel_context import (
     IS_REPLICA_ZERO_PARALLEL,
     IS_TENSOR_DATA_PARALLEL,
+    IS_TENSOR_EXPERT_DATA_PARALLEL,
     IS_TENSOR_ZERO_PARALLEL,
     IS_WEIGHT_ZERO_PARALLEL,
     Config,
@@ -34,6 +35,7 @@ __all__ = [
     "IS_TENSOR_DATA_PARALLEL",
     "IS_REPLICA_ZERO_PARALLEL",
     "IS_WEIGHT_ZERO_PARALLEL",
+    "IS_TENSOR_EXPERT_DATA_PARALLEL",
     "global_context",
     "ParallelContext",
     "ParallelMode",
