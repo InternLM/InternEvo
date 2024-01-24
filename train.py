@@ -19,6 +19,7 @@ from internlm.model.metrics import AccPerplex
 from internlm.monitor import initialize_monitor_manager, send_alert_message
 from internlm.monitor.monitor import monitor_manager as mm
 from internlm.train import (
+    get_scheduler_hooks,
     get_train_data_loader,
     get_validation_data_loader,
     initialize_llm_profile,
@@ -26,7 +27,6 @@ from internlm.train import (
     initialize_optimizer,
     load_new_batch,
     record_current_batch_training_metrics,
-    get_scheduler_hooks,
 )
 from internlm.utils.common import (
     BatchSkipper,
