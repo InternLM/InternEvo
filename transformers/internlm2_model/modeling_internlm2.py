@@ -1215,7 +1215,7 @@ class InternLM2ForCausalLM(InternLM2PreTrainedModel):
                 self.query = query
                 self.history = history
                 self.response = ""
-                self.chat = []
+                self.cache = []
                 self.received_inputs = False
                 self.queue.put((self.response, history + [(self.query, self.response)]))
 
