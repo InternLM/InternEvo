@@ -14,7 +14,12 @@ from internlm.core.context import ParallelMode
 from internlm.core.context import global_context as gpc
 from internlm.core.engine import Engine
 from internlm.core.naive_amp import NaiveAMPModel
-from internlm.utils.common import check_data_is_packed, get_current_device, move_to_device, SchedulerHook
+from internlm.utils.common import (
+    SchedulerHook,
+    check_data_is_packed,
+    get_current_device,
+    move_to_device,
+)
 from internlm.utils.logger import get_logger
 from internlm.utils.timeout import llm_timeout
 

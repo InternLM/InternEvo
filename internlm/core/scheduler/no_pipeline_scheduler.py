@@ -11,7 +11,7 @@ import torch.distributed as dist
 from internlm.core.context import ParallelMode
 from internlm.core.context import global_context as gpc
 from internlm.core.engine import Engine
-from internlm.utils.common import conditional_context, SchedulerHook
+from internlm.utils.common import SchedulerHook, conditional_context
 from internlm.utils.logger import get_logger
 from internlm.utils.timeout import llm_timeout
 
