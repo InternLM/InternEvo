@@ -142,7 +142,7 @@ if __name__ == "__main__":
     openai.api_base = "http://localhost:8000/internlm"
     openai.api_key = "none"
     for chunk in openai.ChatCompletion.create(
-        model="internlm-chat-7b",
+        model="internlm2-chat-7b",
         messages=[
             {"role": "user", "content": "你好"},
         ],
