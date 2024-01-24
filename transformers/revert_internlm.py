@@ -1,3 +1,4 @@
+# Copyright (c) InternLM. All rights reserved.
 """
 python revert_internlm.py  --src /path/to/src --tgt /path/to/tgt \
     --tp_size 2 --embed_split --use_flash --version 1
