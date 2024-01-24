@@ -344,7 +344,7 @@ def get_scheduler_hooks(metric, zero_optim, isp_communicator) -> List[SchedulerH
             ),
         )
 
-    if isp_communicator is not None:
+    if isp_communicator is not None and gpc.config.parallel["weight"].get("overlap", False):
         scheduler_hooks.append(ISPCommunicatorSchedulerHook(isp_communicator, zero_optim))
 
     return scheduler_hooks

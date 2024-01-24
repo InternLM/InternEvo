@@ -164,15 +164,7 @@ class HybridZeroOptimizer(BaseOptimizer):
             # add the fp16 params to fp16_param_groups for bookkeeping
             self._fp16_param_groups[group_id] = group_params
 
-            # to find real zero mode. if zero is not used, set all param group as ParallelMode.ZERO1
-            # if zero is used, expert dp group will use ParallelMode.EXPERT_DATA as the real zero mode
-            # zero_mode = (
-            #     ParallelMode.ZERO1
-            #     if gpc.get_world_size(ParallelMode.ZERO1) == 1 or param_group["dp_mode"] == ParallelMode.DATA
-            #     else ParallelMode.EXPERT_DATA
-            # )
             zero_mode = param_group["optimizer_mode"]
-
             self._zero_local_rank.append(gpc.get_local_rank(zero_mode))
             self._zero_world_size.append(gpc.get_world_size(zero_mode))
             # TODO _broadcast_parallel_mode is not only used in broadcast, maybe can change its name

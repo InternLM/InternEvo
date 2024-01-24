@@ -8,7 +8,7 @@ from internlm.model.utils import is_moe_param
 from internlm.utils.parallel import is_tensor_data_parallel_parameter
 
 
-def split_params_into_different_groups_for_optimizer_with_new_partition_strategy(
+def split_params_into_different_groups_for_optimizer(
     param_groups: Tuple[Dict],
 ) -> Tuple[Dict]:
     """Split parameters into different groups for optimizer
@@ -24,8 +24,9 @@ def split_params_into_different_groups_for_optimizer_with_new_partition_strategy
         Tuple[Dict]: list of params groups for optimizer
         Output Example:
         >>> (
-        >>>     {'name': 'default','params': [tensor],'weight_decay' :xxx},
-        >>>     {'name': 'embed_head', 'params': [tensor],'weight_decay' :xxx},
+        >>>     {'name': 'default', 'params': [tensor], 'weight_decay' :xxx},
+        >>>     {'name': 'embed_head', 'params': [tensor], 'weight_decay' :xxx},
+        >>>     {'name': 'fp32', 'params': [tensor], 'weight_decay' :xxx},
         >>> )
     """
 
@@ -38,8 +39,9 @@ def split_params_into_different_groups_for_optimizer_with_new_partition_strategy
 
     # create new groups for IS_TENSOR_DATA_PARALLEL parameter group
     new_groups = {}
-    if gpc.config.parallel.tensor.mode == "isp":
+    if isinstance(gpc.config.parallel["tensor"], dict) and gpc.config.parallel["tensor"].get("mode", "mtp") == "isp":
         new_groups["embed_head"] = {"name": "embed_head", "params": [], "optimizer_mode": ParallelMode.DATA}
+    # create new groups for fp32 parameter group
     new_groups["fp32"] = {"name": "fp32", "params": [], "optimizer_mode": ParallelMode.ZERO1}
 
     if gpc.config.model.get("num_experts", 1) > 1:
@@ -71,7 +73,7 @@ def split_params_into_different_groups_for_optimizer_with_new_partition_strategy
         pgroup["params"] = origin_params
         pgroup["optimizer_mode"] = ParallelMode.ZERO1
 
-    # param groups may contain empty groups, such as embed_head
+    # param groups may contain empty groups, such as fp32
     param_groups.extend(new_groups.values())
 
     return tuple(param_groups)
@@ -79,5 +81,4 @@ def split_params_into_different_groups_for_optimizer_with_new_partition_strategy
 
 def create_param_groups(model, weight_decay):
     parameters = {"params": list(model.parameters()), "name": "default", "weight_decay": weight_decay}
-    # return split_params_into_different_groups_for_optimizer(parameters)
-    return split_params_into_different_groups_for_optimizer_with_new_partition_strategy(parameters)
+    return split_params_into_different_groups_for_optimizer(parameters)

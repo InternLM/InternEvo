@@ -373,8 +373,8 @@ class PackedFlashInternLm1D(nn.Module):
 
         checkpoint_layer_num = int(num_layers * checkpoint)
         self.tp_mode = "mtp"
-        if isinstance(gpc.config.parallel.tensor, dict):
-            self.tp_mode = gpc.config.parallel.tensor.get("mode", "mtp")
+        if isinstance(gpc.config.parallel["tensor"], dict):
+            self.tp_mode = gpc.config.parallel["tensor"].get("mode", "mtp")
 
         if is_reward:
             head_cls = RewardModelLinear
