@@ -239,13 +239,6 @@ def reduce_grads(gradients, parameters, weight_parallel_mode, fine_grained=False
     if fine_grained:
         parallel_grads = {}
 
-    if is_tensor_data_parallel_parameter(parameters[0]) or is_tensor_zero_parallel_parameter(parameters[0]):
-        param_parallel_mode = ParallelMode.TENSOR
-    elif gpc.is_using_parallel_mode(weight_parallel_mode):
-        param_parallel_mode = weight_parallel_mode
-    else:
-        param_parallel_mode = ParallelMode.TENSOR
-
     def append_grad(g, p):
         if fine_grained:
             param_name = p.param_name if hasattr(p, "param_name") else "unknown-padding"
@@ -255,7 +248,7 @@ def reduce_grads(gradients, parameters, weight_parallel_mode, fine_grained=False
         elif only_output:
             param_name = p.param_name if hasattr(p, "param_name") else "unknown-padding"
             if (
-                gpc.config.model["vocab_size"] == g.shape[0] * gpc.get_world_size(param_parallel_mode)
+                gpc.config.model["vocab_size"] == g.shape[0] * gpc.get_world_size(ParallelMode.TENSOR)
                 and gpc.config.model["hidden_size"] == g.shape[1]
                 and "embedding" not in param_name.lower()
             ):
@@ -451,13 +444,6 @@ def compute_vocab_grad_norm(
     norm_type = float(norm_type)
     vocab_size = gpc.config.model["vocab_size"]
 
-    if is_tensor_data_parallel_parameter(parameters[0]) or is_tensor_zero_parallel_parameter(parameters[0]):
-        param_parallel_mode = ParallelMode.TENSOR
-    elif gpc.is_using_parallel_mode(weight_parallel_mode):
-        param_parallel_mode = weight_parallel_mode
-    else:
-        param_parallel_mode = ParallelMode.TENSOR
-
     param_grads = reduce_grads(gradients, parameters, weight_parallel_mode, only_output=True)
 
     vocab_grad_norm = torch.zeros((vocab_size,), dtype=torch.float32).to(get_current_device())
@@ -465,7 +451,7 @@ def compute_vocab_grad_norm(
         for grad in param_grads:
             # get grad norm of each vocab
             vocab_slice_size = grad.shape[0]
-            local_tp_rank = gpc.get_local_rank(param_parallel_mode)
+            local_tp_rank = gpc.get_local_rank(ParallelMode.TENSOR)
             for i in range(vocab_slice_size):
                 cur_vocab_grad_norm = get_norm([grad[i, :]], norm_type, enable_cuda_kernels)[0]
                 vocab_grad_norm[i + vocab_slice_size * local_tp_rank] += get_tensor_norm(
