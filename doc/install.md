@@ -27,6 +27,7 @@ export CXX=${GCC_HOME}/bin/c++
 ### 环境安装
 可以通过pip命令直接安装，命令如下：
 ```bash
+
 pip install InternEvo==xxx (xxx是需要安装的版本号信息)
 ```
 这种方式仅安装了InternEvo项目，其依赖的软件包及子模块尚未安装。
@@ -65,7 +66,7 @@ cd ../../
 ```
 
 ### 环境镜像
-用户可以使用提供的 dockerfile 结合 docker.Makefile 来构建自己的镜像，或者也可以从 https://hub.docker.com/r/internlm/internlm 获取安装了 InternLM 运行环境的镜像。
+用户可以使用提供的 dockerfile 结合 docker.Makefile 来构建自己的镜像，或者也可以从 https://hub.docker.com/r/internlm/internlm 获取安装了 InternEvo 运行环境的镜像。
 
 #### 镜像配置及构造
 dockerfile 的配置以及构造均通过 docker.Makefile 文件实现，在 InternEvo 根目录下执行如下命令即可 build 镜像：
