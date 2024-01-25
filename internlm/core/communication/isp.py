@@ -24,11 +24,9 @@ class ISPCommModelConfig:
     model config for isp communicator.
     """
 
-    hidden_size: int = 0
-    mlp_ratio: float = 0
     dtype: torch.dtype = torch.half
     device: torch.device = torch.device("cuda")
-    modules: List[str] = None
+    module_shapes: Dict[str, torch.Size] = None
 
 
 class MemoryPool:
@@ -41,11 +39,9 @@ class MemoryPool:
         model_conf: ISPCommModelConfig,
         with_bias: bool = False,
     ) -> None:
-        self._hidden_size = model_conf.hidden_size
-        self._mlp_ratio = model_conf.mlp_ratio
         self._dtype = model_conf.dtype
         self._device = model_conf.device
-        self._module_shapes = self._init_module_shape(model_conf.modules)
+        self._module_shapes = model_conf.module_shapes
 
         # due to intern sequence parallel communication overlap, we need
         # **two** memory pools for current block weights and the next block weights.
@@ -74,21 +70,6 @@ class MemoryPool:
         self._reduce_scatter_memory_pool = {}
         # memory pool for constant zero tensors, allocated lazily.
         self._zero_const_pool = {}
-
-    def _init_module_shape(self, modules: List[str]) -> Dict[str, torch.Size]:
-        mlp_hidden_size = 256 * ((int(self._hidden_size * self._mlp_ratio) + 256 - 1) // 256)
-
-        # TODO: the memory pool should be more generic.
-        # Currently, it only supports llama-class models with specific naming structure.
-        static_shapes = {
-            "Wqkv": torch.Size((3 * self._hidden_size, self._hidden_size)),
-            "out_proj": torch.Size((self._hidden_size, self._hidden_size)),
-            "w1": torch.Size((mlp_hidden_size, self._hidden_size)),
-            "w2": torch.Size((mlp_hidden_size, self._hidden_size)),
-            "w3": torch.Size((self._hidden_size, mlp_hidden_size)),
-        }
-
-        return {name: static_shapes[name] for name in modules}
 
     def allocate_constant_zero(self, size: tuple) -> torch.Tensor:
         if size not in self._zero_const_pool:
@@ -180,9 +161,9 @@ class ISPCommunicator:
         self.overlap = overlap
         self.enable_memory_pool = overlap and enable_memory_pool
         self.model_conf = model_conf
-        self.module_name = model_conf.modules.copy()
         self.is_forward = True
         self.reduce_scatter_handlers = {}
+        self._module_shapes = {}
 
         # real overlap state for each chunk.
         self._overlap_states: Dict[int, ISPOverlapState] = {}
@@ -207,12 +188,6 @@ class ISPCommunicator:
         # key: transformer block index; value: isp modules
         self._index_to_isp_module = None
 
-        # init memory pool if necessary.
-        if self.enable_memory_pool:
-            self.memory_pool = MemoryPool(model_conf, with_bias=True)
-        else:
-            self.memory_pool = None
-
         # init overlap states if necessary.
         if self.overlap:
             # just want to share same for loop for modulelist and module.
@@ -228,6 +203,13 @@ class ISPCommunicator:
                 self._register_sync_parameters_hook()
             # switch to chunk 0 at first.
             self.switch_current_model_chunk(0)
+            self.model_conf.module_shapes = self._module_shapes
+
+            # init memory pool if necessary.
+            if self.enable_memory_pool:
+                self.memory_pool = MemoryPool(self.model_conf, with_bias=True)
+            else:
+                self.memory_pool = None
 
     def _parse_model_structure(self, cid: int, model: nn.Module) -> None:
         self._overlap_states[cid] = ISPOverlapState()
@@ -246,10 +228,16 @@ class ISPCommunicator:
                     self._overlap_states[cid].index_to_isp_module[idx] = []
                     for sub_name, sub in block.named_children():
                         for name, child in sub.named_children():
-                            if name == "out_proj":
+                            if name in ["out_proj", "wo"]:
                                 self._overlap_states[cid].isp_outs.append(child)
                                 self._overlap_states[cid].module_to_index[child] = idx
                             if isinstance(child, ISPLinear):
+                                if name not in self._module_shapes:
+                                    origin_shape = tuple(
+                                        [child.weight.shape[0] * gpc.weight_parallel_size]
+                                        + list(child.weight.shape[1:])
+                                    )
+                                    self._module_shapes[name] = torch.Size(origin_shape)
                                 self._overlap_states[cid].module_to_index[child] = idx
                                 self._overlap_states[cid].isp_modules.append(child)
                                 self._overlap_states[cid].index_to_isp_module[idx].append(child)

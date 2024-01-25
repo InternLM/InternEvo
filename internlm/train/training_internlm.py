@@ -222,11 +222,8 @@ def initialize_model(pre_process_func: Optional[Callable] = None, post_process_f
         isp_communicator = ISPCommunicator(
             model,
             ISPCommModelConfig(
-                gpc.config.model.hidden_size,
-                gpc.config.model.mlp_ratio,
                 gpc.config.model.dtype,
                 get_current_device(),
-                ["Wqkv", "out_proj", "w1", "w2", "w3"],
             ),
             gpc.config.parallel.weight.overlap,
             gpc.config.model.checkpoint,
