@@ -7,11 +7,11 @@ import streamlit as st
 import torch
 from sentencepiece import SentencePieceProcessor
 
+from tools.interface import GenerationConfig
 from tools.load_internlm_model import (
     initialize_internlm_model,
     internlm_interactive_generation,
 )
-from tools.transformers.interface import GenerationConfig
 
 logger = logging.getLogger(__file__)
 
@@ -69,7 +69,7 @@ def load_model():
         model_config=MODEL_CONFIG_MAP["internlm-chat-7b-v1.1"],
         del_model_prefix=True,
     )
-    tokenizer = SentencePieceProcessor("tools/V7_sft.model")  # pylint: disable=E1121
+    tokenizer = SentencePieceProcessor("tools/tokenizer_internlm.model")  # pylint: disable=E1121
     return model, tokenizer
 
 
