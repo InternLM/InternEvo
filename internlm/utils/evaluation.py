@@ -47,8 +47,9 @@ def switch_evaluation_pipeline_scheduler(trainer, num_microbatches, tensor_shape
 
 
 @contextmanager
-def switch_sequence_parallel_mode():
+def switch_evaluation_mode():
     prev_mode = gpc.config.parallel.sequence_parallel
+    prev_evaluation = gpc.evaluation
     try:
         # when training x.shape is torch.Size([1024, 4096]), linear all gather in dim=0(sequence dim)
         # but evaluation x.shape is torch.Size([1, 1024, 4096]), gather in dim=0 is error.
@@ -56,9 +57,11 @@ def switch_sequence_parallel_mode():
             gpc.config.parallel.sequence_parallel = True
         else:
             gpc.config.parallel.sequence_parallel = False
+        gpc.evaluation = True
         yield
     finally:
         gpc.config.parallel.sequence_parallel = prev_mode
+        gpc.evaluation = prev_evaluation
 
 
 def evaluate_on_val_dls(
@@ -70,7 +73,7 @@ def evaluate_on_val_dls(
     update_panel: bool = False,
     streaming: bool = False,
 ):
-    with switch_sequence_parallel_mode():
+    with switch_evaluation_mode():
         torch.cuda.empty_cache()
         trainer.eval()
         verbose = gpc.is_rank_for_log()
