@@ -18,6 +18,7 @@ jobs:
     - name: mask env
       run: |
         echo "::add-mask::${{env.WORKSPACE_PREFIX}}"
+        echo "::add-mask::$path_prefix"
     - uses: actions/checkout@v3
       with:
          fetch-depth: 2
@@ -42,6 +43,7 @@ jobs:
     - name: mask env
       run: |
         echo "::add-mask::${{env.WORKSPACE_PREFIX}}"
+        echo "::add-mask::$path_prefix"
     - uses: actions/checkout@v3
 
     - name: raw-chinese-data
@@ -63,6 +65,7 @@ jobs:
     - name: mask env
       run: |
         echo "::add-mask::${{env.WORKSPACE_PREFIX}}"
+        echo "::add-mask::$path_prefix"
     - uses: actions/checkout@v3
 
     - name: slurm-train
@@ -100,6 +103,7 @@ jobs:
     - name: mask env
       run: |
         echo "::add-mask::${{env.WORKSPACE_PREFIX}}"
+        echo "::add-mask::$path_prefix"
     - uses: actions/checkout@v3
 
     - name: convert-model-then-load
@@ -120,6 +124,7 @@ jobs:
     - name: mask env
       run: |
         echo "::add-mask::${{env.WORKSPACE_PREFIX}}"
+        echo "::add-mask::$path_prefix"
     - uses: actions/checkout@v3
 
     - name: chat-model-in-hf
