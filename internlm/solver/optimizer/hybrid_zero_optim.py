@@ -665,12 +665,29 @@ class HybridZeroOptimizer(BaseOptimizer):
     ):
         # compute norm for gradients that have been reduced
         params, grads = self._param_store.get_reduced_param_for_compute_norm(group_id=group_id, last_bucket=last_bucket)
-
+        params_is_padding = False
         total_param_norms = {}
         if len(params) == 0:
+            params_is_padding = True
             dtype = self.param_groups[group_id]["dtype"]
             grads = [self.padding_grad.to(dtype)]
             params = [self.padding_tensor.to(dtype)]
+
+            if self.optim.param_groups[group_id]["name"] in ("default", "fp32"):
+                for param in params:
+                    if self.use_isp:
+                        setattr(param, IS_WEIGHT_ZERO_PARALLEL, True)
+                    else:
+                        setattr(param, IS_TENSOR_ZERO_PARALLEL, True)
+            elif self.optim.param_groups[group_id]["name"] == "embed_head":
+                # should be isp mode
+                for param in params:
+                    setattr(param, IS_TENSOR_DATA_PARALLEL, True)
+            elif self._is_moe_group(self.optim.param_groups[group_id]):
+                for param in params:
+                    setattr(param, IS_TENSOR_EXPERT_DATA_PARALLEL, True)
+            else:
+                raise NotImplementedError("unrecognized parameter group.")
 
         if self._clip_grad_norm > 0:
             total_param_norms = compute_param_norm(
@@ -680,16 +697,48 @@ class HybridZeroOptimizer(BaseOptimizer):
                 previous_param_norms=previous_param_norms,
                 zero_mode=self._broadcast_parallel_mode[group_id],
             )
+
+        if params_is_padding:
+            for param in params:
+                if hasattr(param, IS_REPLICA_ZERO_PARALLEL):
+                    delattr(param, IS_REPLICA_ZERO_PARALLEL)
+                if hasattr(param, IS_TENSOR_DATA_PARALLEL):
+                    delattr(param, IS_TENSOR_DATA_PARALLEL)
+                if hasattr(param, IS_TENSOR_ZERO_PARALLEL):
+                    delattr(param, IS_TENSOR_ZERO_PARALLEL)
+                if hasattr(param, IS_WEIGHT_ZERO_PARALLEL):
+                    delattr(param, IS_WEIGHT_ZERO_PARALLEL)
+                if hasattr(param, IS_TENSOR_EXPERT_DATA_PARALLEL):
+                    delattr(param, IS_TENSOR_EXPERT_DATA_PARALLEL)
+
         return total_param_norms
 
     def _compute_vocab_grad_norm_stage(
         self, group_id: int = 0, last_bucket: bool = False, last_stage: bool = False, previous_vocab_grad_norm=None
     ):
         params, grads = self._param_store.get_reduced_param_for_compute_norm(group_id=group_id, last_bucket=last_bucket)
+        params_is_padding = False
         if len(params) == 0:
+            params_is_padding = True
             dtype = self.param_groups[group_id]["dtype"]
             grads = [self.padding_grad.to(dtype)]
             params = [self.padding_tensor.to(dtype)]
+
+            if self.optim.param_groups[group_id]["name"] in ("default", "fp32"):
+                for param in params:
+                    if self.use_isp:
+                        setattr(param, IS_WEIGHT_ZERO_PARALLEL, True)
+                    else:
+                        setattr(param, IS_TENSOR_ZERO_PARALLEL, True)
+            elif self.optim.param_groups[group_id]["name"] == "embed_head":
+                # should be isp mode
+                for param in params:
+                    setattr(param, IS_TENSOR_DATA_PARALLEL, True)
+            elif self._is_moe_group(self.optim.param_groups[group_id]):
+                for param in params:
+                    setattr(param, IS_TENSOR_EXPERT_DATA_PARALLEL, True)
+            else:
+                raise NotImplementedError("unrecognized parameter group.")
 
         vocab_grad_norm = None
 
@@ -702,19 +751,49 @@ class HybridZeroOptimizer(BaseOptimizer):
                 zero_mode=self._broadcast_parallel_mode[group_id],
             )
 
+        if params_is_padding:
+            for param in params:
+                if hasattr(param, IS_REPLICA_ZERO_PARALLEL):
+                    delattr(param, IS_REPLICA_ZERO_PARALLEL)
+                if hasattr(param, IS_TENSOR_DATA_PARALLEL):
+                    delattr(param, IS_TENSOR_DATA_PARALLEL)
+                if hasattr(param, IS_TENSOR_ZERO_PARALLEL):
+                    delattr(param, IS_TENSOR_ZERO_PARALLEL)
+                if hasattr(param, IS_WEIGHT_ZERO_PARALLEL):
+                    delattr(param, IS_WEIGHT_ZERO_PARALLEL)
+                if hasattr(param, IS_TENSOR_EXPERT_DATA_PARALLEL):
+                    delattr(param, IS_TENSOR_EXPERT_DATA_PARALLEL)
+
         return vocab_grad_norm
 
     def _count_zero_grads_stage(
         self, group_id: int = 0, last_bucket: bool = False, last_stage: bool = False, previous_zero_grad_count=None
     ):
         params, grads = self._param_store.get_reduced_param_for_compute_norm(group_id=group_id, last_bucket=last_bucket)
-
+        params_is_padding = False
         total_zero_grad_count = {}
 
         if len(params) == 0:
+            params_is_padding = True
             dtype = self.param_groups[group_id]["dtype"]
             grads = [self.padding_grad.to(dtype)]
             params = [self.padding_tensor.to(dtype)]
+
+            if self.optim.param_groups[group_id]["name"] in ("default", "fp32"):
+                for param in params:
+                    if self.use_isp:
+                        setattr(param, IS_WEIGHT_ZERO_PARALLEL, True)
+                    else:
+                        setattr(param, IS_TENSOR_ZERO_PARALLEL, True)
+            elif self.optim.param_groups[group_id]["name"] == "embed_head":
+                # should be isp mode
+                for param in params:
+                    setattr(param, IS_TENSOR_DATA_PARALLEL, True)
+            elif self._is_moe_group(self.optim.param_groups[group_id]):
+                for param in params:
+                    setattr(param, IS_TENSOR_EXPERT_DATA_PARALLEL, True)
+            else:
+                raise NotImplementedError("unrecognized parameter group.")
 
         if self._clip_grad_norm > 0:
             total_zero_grad_count = compute_zero_grad_count(
@@ -724,6 +803,20 @@ class HybridZeroOptimizer(BaseOptimizer):
                 previous_zero_grad_count=previous_zero_grad_count,
                 zero_mode=self._broadcast_parallel_mode[group_id],
             )
+
+        if params_is_padding:
+            for param in params:
+                if hasattr(param, IS_REPLICA_ZERO_PARALLEL):
+                    delattr(param, IS_REPLICA_ZERO_PARALLEL)
+                if hasattr(param, IS_TENSOR_DATA_PARALLEL):
+                    delattr(param, IS_TENSOR_DATA_PARALLEL)
+                if hasattr(param, IS_TENSOR_ZERO_PARALLEL):
+                    delattr(param, IS_TENSOR_ZERO_PARALLEL)
+                if hasattr(param, IS_WEIGHT_ZERO_PARALLEL):
+                    delattr(param, IS_WEIGHT_ZERO_PARALLEL)
+                if hasattr(param, IS_TENSOR_EXPERT_DATA_PARALLEL):
+                    delattr(param, IS_TENSOR_EXPERT_DATA_PARALLEL)
+
         return total_zero_grad_count
 
     @llm_timeout(func_name="optim_step")
