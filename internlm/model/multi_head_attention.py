@@ -97,7 +97,7 @@ class DistributedAttention(torch.nn.Module):
     def forward(
         self, qkv: Tensor = None, kv: Tensor = None, q: Tensor = None, k: Tensor = None, v: Tensor = None, **kwargs: Any
     ) -> Tensor:
-        if gpc.evaluation is True:
+        if gpc.is_evaluating is True:
             # when conducting evaluation, the scatter and gather index should add 1.
             eval_scatter_gather_idx = {key: [x + 1 for x in value] for key, value in self._scatter_gather_idx.items()}
             return self._forward(qkv=qkv, kv=kv, q=q, k=k, v=v, scatter_gather=eval_scatter_gather_idx, **kwargs)
