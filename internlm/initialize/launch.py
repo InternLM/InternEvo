@@ -28,7 +28,6 @@ else:
     get_numa = True
 
 logger = get_logger(__file__)
-GLOBAL_SEED = 1024
 
 
 def get_default_parser():
@@ -552,9 +551,6 @@ def initialize_distributed_env(
         )
     else:
         assert launcher in ["slurm", "torch"], "launcher only support slurm or torch"
-
-    global GLOBAL_SEED
-    GLOBAL_SEED = seed
 
     if args_check:
         args_sanity_check()
