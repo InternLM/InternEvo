@@ -1,12 +1,10 @@
 #!/usr/bin/env python
 # -*- encoding: utf-8 -*-
 
-from pickle import FALSE
 import socket
 import time
 import traceback
 from functools import partial
-from typing import List
 
 import torch
 import torch.distributed as dist
@@ -17,11 +15,11 @@ from internlm.core.context import global_context as gpc
 from internlm.core.trainer import TrainState
 from internlm.initialize import initialize_distributed_env
 from internlm.model.loss import FlashGPTLMLoss
-from internlm.model.metrics import AccPerplex, SchedulerMetricHook
-from internlm.core.communication.isp import ISPCommunicatorSchedulerHook
+from internlm.model.metrics import AccPerplex
 from internlm.monitor import initialize_monitor_manager, send_alert_message
 from internlm.monitor.monitor import monitor_manager as mm
 from internlm.train import (
+    get_scheduler_hooks,
     get_train_data_loader,
     get_validation_data_loader,
     initialize_llm_profile,
@@ -36,7 +34,6 @@ from internlm.utils.common import (
     get_megatron_flops_2,
     launch_time,
     parse_args,
-    SchedulerHook,
 )
 from internlm.utils.evaluation import evaluate_on_val_dls
 from internlm.utils.gputest import empty_cache_and_diag
@@ -69,28 +66,6 @@ def initialize_llm_logger(start_time: str):
         logger = uniscale_logger
 
     return uniscale_logger
-
-
-def get_scheduler_hooks(metric, zero_optim, isp_communicator) -> List[SchedulerHook]:
-    scheduler_hooks: List[SchedulerHook] = []
-
-    if metric is not None:
-        scheduler_hooks.append(
-            SchedulerMetricHook(
-                metric=metric,
-                skip=(
-                    gpc.is_using_parallel_mode(ParallelMode.PIPELINE)
-                    and hasattr(gpc.config.model, "num_chunks")
-                    and gpc.config.model.num_chunks > 1
-                    and gpc.config.parallel["pipeline"].get("interleaved_overlap", False)
-                ),
-            ),
-        )
-
-    if isp_communicator is not None:
-        scheduler_hooks.append(ISPCommunicatorSchedulerHook(isp_communicator, zero_optim))
-
-    return scheduler_hooks
 
 
 def main(args):

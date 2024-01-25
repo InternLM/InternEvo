@@ -168,11 +168,6 @@ class MHA(nn.Module):
             sequence_parallel=sequence_parallel,
             **factory_kwargs,
         )
-        # need to assign tp attribute so that internlm know it is tensor parallel module
-        if gpc.get_world_size(ParallelMode.TENSOR) > 1:
-            for name in ["wo", "wq", "wk", "wv"]:
-                for param in getattr(self, name).parameters():
-                    setattr(param, IS_TENSOR_PARALLEL, True)
 
     def forward(self, x, seqlen=None, inference_params=None, **kwargs):
         if kwargs.get("indexes", None) is not None:
@@ -594,16 +589,6 @@ class PackedFlashLlamaLayer1D(nn.Module):
                 dtype=dtype,
             )
 
-        for _, param in self.feed_forward.named_parameters():
-            if gpc.get_world_size(ParallelMode.TENSOR) > 1:
-                setattr(param, IS_TENSOR_PARALLEL, True)
-        for param in self.attention_norm.parameters():
-            if gpc.config.parallel.sequence_parallel is True:
-                setattr(param, IS_SEQUENCE_PARALLEL, True)
-        for param in self.ffn_norm.parameters():
-            if gpc.config.parallel.sequence_parallel is True:
-                setattr(param, IS_SEQUENCE_PARALLEL, True)
-
         self.dropout2 = nn.Dropout(drop_rate)
         self.use_swiglu = use_swiglu
         self.use_scaled_init = use_scaled_init
@@ -857,9 +842,8 @@ class PackedFlashLlama1D(nn.Module):
                     normal_(std=embedding_init_std)(param)
                 else:
                     uniform_(std=embedding_init_std)(param)
-                if gpc.get_world_size(ParallelMode.TENSOR) > 1:
-                    setattr(param, IS_TENSOR_PARALLEL, True)
         self.embed_grad_scale = embed_grad_scale
+
         self.layers = nn.ModuleList(
             [
                 PackedFlashLlamaLayer1D(
@@ -901,9 +885,6 @@ class PackedFlashLlama1D(nn.Module):
                     self.norm = RMSNorm(hidden_size, eps=layer_norm_epsilon)
                 else:
                     self.norm = nn.LayerNorm(hidden_size, eps=layer_norm_epsilon)
-                for param in self.norm.parameters():
-                    if gpc.config.parallel.sequence_parallel is True:
-                        setattr(param, IS_SEQUENCE_PARALLEL, True)
 
             self.output = head_cls(
                 in_features=hidden_size,
@@ -920,8 +901,6 @@ class PackedFlashLlama1D(nn.Module):
                     normal_(std=out_head_init_std)(param)
                 else:
                     uniform_(std=out_head_init_std)(param)
-                if gpc.get_world_size(ParallelMode.TENSOR) > 1:
-                    setattr(param, IS_TENSOR_PARALLEL, True)
 
         self.parallel_output = parallel_output
 

@@ -468,67 +468,6 @@ class Initializer_Nettest(ProcessGroupInitializer):
         return local_rank, group_world_size, process_group, cpu_group, ranks_in_group, mode
 
 
-class Initializer_Expert(ProcessGroupInitializer):
-    """A ProcessGroupInitializer for expert parallelism.
-
-    Args:
-        rank (int): The rank of current process.
-        world_size (int): Size of whole communication world.
-        data_parallel_size (int): Size of data parallel.
-        pipeline_parallel_size (int): Size of pipeline parallel.
-        tensor_parallel_size (int): Size of tensor parallel.
-        zero1_parallel_size (int): Size of zero-1 parallel.
-        expert_parallel_size (int): Size of expert parallel.
-    """
-
-    def __init__(self, *args, **kwargs):
-        super().__init__(*args, **kwargs)
-        self.num_expert_parallel_group = self.world_size // self.expert_parallel_size
-
-        assert self.world_size % self.num_expert_parallel_group == 0
-
-        # TODO: to match expert parallel with differnt data parallel size
-        assert self.data_parallel_size == self.expert_parallel_size
-
-    def init_dist_group(self, use_cpu: bool = False):
-        """Initialize expert parallel groups, and assign local_ranks and groups to each gpu.
-
-        Example: world_size = 8, model_parallel_size = 2, expert_parallel_size = 4
-            model_parallel_group = [0,1], [2,3], [4,5], [6,7]
-            expert_parallel_group = [0,2,4,6], [1,3,5,7]
-
-        Returns:
-            Tuple (local_rank, group_world_size, process_group, ranks_in_group, mode):
-                A expert parallelism's information tuple.
-        """
-        local_rank = None
-        ranks_in_group = None
-        process_group = None
-        cpu_group = None
-        group_world_size = None
-        mode = ParallelMode.EXPERT
-
-        for i in range(self.num_expert_parallel_group):
-            ranks = list(range(i, self.world_size, self.num_expert_parallel_group))
-            group = dist.new_group(ranks, timeout=LLM_NCCL_TIMEOUT)
-            if use_cpu:
-                group_cpu = (
-                    dist.new_group(ranks, backend="gloo", timeout=LLM_NCCL_TIMEOUT)
-                    if dist.get_backend() != "gloo"
-                    else group
-                )
-            else:
-                group_cpu = None
-            if self.rank in ranks:
-                local_rank = ranks.index(self.rank)
-                group_world_size = len(ranks)
-                process_group = group
-                cpu_group = group_cpu
-                ranks_in_group = ranks
-
-        return local_rank, group_world_size, process_group, cpu_group, ranks_in_group, mode
-
-
 class Initializer_Expert_Data(ProcessGroupInitializer):
     """A ProcessGroupInitializer for expert data parallelism.
 
@@ -544,21 +483,28 @@ class Initializer_Expert_Data(ProcessGroupInitializer):
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
-        self.num_expert_parallel_group = self.world_size // self.expert_parallel_size
+
+        self.ranks_num_per_pp = self.world_size // self.pipeline_parallel_size
+        assert self.data_parallel_size % self.expert_parallel_size == 0
 
     def _get_expert_parallel_ranks(self):
         """
         Create expert and data parallel groups
-        Example: world_size = 8, model_parallel_size = 2, expert_parallel_size = 2
+        Example: world_size = 8, tensor_parallel_size = 2, expert_parallel_size = 2
         model_parallel_group = [0,1], [2,3], [4,5], [6,7]
         data_parallel_group = [0,2,4,6],                [1,3,5,7]
         expert_parallel_group = [0,2], [4,6],           [1,3], [5,7]
         expert_data_parallel_group = [0,4], [2,6],      [1,5], [3,7]
         """
         data_parallel_groups = []
-        model_parallel_size = self.pipeline_parallel_size * self.tensor_parallel_size
-        for i in range(model_parallel_size):
-            data_parallel_groups.append(list(range(i, self.world_size, model_parallel_size)))
+        for i in range(self.pipeline_parallel_size):
+            for j in range(self.sequence_parallel_size):
+                data_parallel_groups.append(
+                    [
+                        i * self.ranks_num_per_pp + j + k * self.sequence_parallel_size
+                        for k in range(self.data_parallel_size)
+                    ]
+                )
 
         expert_parallel_groups = []
         expert_data_parallel_groups = []

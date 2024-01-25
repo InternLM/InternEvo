@@ -1,14 +1,15 @@
 #!/usr/bin/env python
 # -*- encoding: utf-8 -*-
 
-from abc import ABC, abstractmethod
 import bisect
 import inspect
 import os
 import random
+from abc import ABC, abstractmethod
 from contextlib import contextmanager
 from datetime import datetime
 from typing import Union
+
 import numpy as np
 import torch
 

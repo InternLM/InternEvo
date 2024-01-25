@@ -20,6 +20,7 @@ from internlm.utils.logger import get_logger
 from internlm.utils.parallel import (
     is_replica_zero_parallel_parameter,
     is_tensor_data_parallel_parameter,
+    is_tensor_expert_data_parallel_parameter,
     is_tensor_zero_parallel_parameter,
     is_weight_zero_parallel_parameter,
 )
@@ -289,6 +290,9 @@ def reduce_grads(gradients, parameters, weight_parallel_mode, fine_grained=False
         elif is_weight_zero_parallel_parameter(p):
             # process all ranks for IS_WEIGHT_ZERO_PARALLEL parameter group
             append_grad(g, p)
+        elif is_tensor_expert_data_parallel_parameter(p):
+            # process all ranks for IS_TENSOR_EXPERT_DATA_PARALLEL parameter group
+            append_grad(g, p)
         elif gpc.get_local_rank(weight_parallel_mode) != 0:
             continue
         else:
@@ -315,7 +319,9 @@ def compute_norm(
         Total norm of the parameters, need total_norm**(1/norm) before using.
     """
 
-    weight_parallel_mode = ParallelMode.WEIGHT if gpc.config.parallel.tensor.mode == "isp" else ParallelMode.TENSOR
+    weight_parallel_mode = (
+        ParallelMode.WEIGHT if gpc.config.parallel["tensor"].get("mode", "mtp") == "isp" else ParallelMode.TENSOR
+    )
     enable_cuda_kernels = gradients[0].device.type == "cuda"
     # Norm parameters.
     norm_type = float(norm_type)

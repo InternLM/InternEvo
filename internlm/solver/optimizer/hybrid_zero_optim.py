@@ -13,6 +13,7 @@ from internlm.core.context import IS_REPLICA_ZERO_PARALLEL, Config, ParallelMode
 from internlm.core.context import global_context as gpc
 from internlm.core.context.parallel_context import (
     IS_TENSOR_DATA_PARALLEL,
+    IS_TENSOR_EXPERT_DATA_PARALLEL,
     IS_TENSOR_ZERO_PARALLEL,
     IS_WEIGHT_ZERO_PARALLEL,
 )
@@ -84,7 +85,10 @@ class HybridZeroOptimizer(BaseOptimizer):
         clip_grad_norm = zero_cfg.clip_grad_norm
         self._overlap_sync_grad = zero_cfg.overlap_sync_grad
         self._overlap_sync_param = zero_cfg.overlap_sync_param
-        self.use_isp = gpc.config.parallel.tensor.mode == "isp"
+        self.use_isp = (
+            isinstance(gpc.config.parallel["tensor"], dict)
+            and gpc.config.parallel["tensor"].get("mode", "mtp") == "isp"
+        )
 
         super().__init__(optim=optimizer)
 
@@ -160,21 +164,15 @@ class HybridZeroOptimizer(BaseOptimizer):
             # add the fp16 params to fp16_param_groups for bookkeeping
             self._fp16_param_groups[group_id] = group_params
 
-            # to find real zero mode. if zero is not used, set all param group as ParallelMode.ZERO1
-            # if zero is used, expert dp group will use ParallelMode.EXPERT_DATA as the real zero mode
-            # zero_mode = (
-            #     ParallelMode.ZERO1
-            #     if gpc.get_world_size(ParallelMode.ZERO1) == 1 or param_group["dp_mode"] == ParallelMode.DATA
-            #     else ParallelMode.EXPERT_DATA
-            # )
             zero_mode = param_group["optimizer_mode"]
-
             self._zero_local_rank.append(gpc.get_local_rank(zero_mode))
             self._zero_world_size.append(gpc.get_world_size(zero_mode))
             # TODO _broadcast_parallel_mode is not only used in broadcast, maybe can change its name
             self._broadcast_parallel_mode.append(zero_mode)
 
-            if param_group["name"] != "embed_head" and self.use_isp:
+            if self._is_moe_group(param_group):
+                grad_reduce_mode = ParallelMode.EXPERT_DATA
+            elif param_group["name"] != "embed_head" and self.use_isp:
                 grad_reduce_mode = ParallelMode.WEIGHT_DATA
             else:
                 grad_reduce_mode = ParallelMode.DATA
@@ -620,17 +618,21 @@ class HybridZeroOptimizer(BaseOptimizer):
             grads = [self.padding_grad.to(dtype)]
             params = [self.padding_tensor.to(dtype)]
 
-            if group_id == 0:
+            if self.optim.param_groups[group_id]["name"] in ("default", "fp32"):
                 for param in params:
                     if self.use_isp:
                         setattr(param, IS_WEIGHT_ZERO_PARALLEL, True)
                     else:
                         setattr(param, IS_TENSOR_ZERO_PARALLEL, True)
-            elif group_id == 1:
+            elif self.optim.param_groups[group_id]["name"] == "embed_head":
+                # should be isp mode
                 for param in params:
                     setattr(param, IS_TENSOR_DATA_PARALLEL, True)
+            elif self._is_moe_group(self.optim.param_groups[group_id]):
+                for param in params:
+                    setattr(param, IS_TENSOR_EXPERT_DATA_PARALLEL, True)
             else:
-                raise NotImplementedError("group_id > 1 is not yet implemented.")
+                raise NotImplementedError("unrecognized parameter group.")
 
         norm = 0
         if self._clip_grad_norm > 0:
@@ -653,6 +655,8 @@ class HybridZeroOptimizer(BaseOptimizer):
                     delattr(param, IS_TENSOR_ZERO_PARALLEL)
                 if hasattr(param, IS_WEIGHT_ZERO_PARALLEL):
                     delattr(param, IS_WEIGHT_ZERO_PARALLEL)
+                if hasattr(param, IS_TENSOR_EXPERT_DATA_PARALLEL):
+                    delattr(param, IS_TENSOR_EXPERT_DATA_PARALLEL)
 
         return norm
 
