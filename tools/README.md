@@ -1,17 +1,23 @@
 本目录提供辅助模型训练的一些工具，文件结构如下所示：
 
 ```bash
-├── transformers  # 适配hugging face的transformers的一些工具
-│   ├── configuration_internlm.py  # config适配工具
-│   ├── modeling_internlm.py  # model适配工具
-│   ├── tokenization_internlm.py  # tokenizer适配工具
-│   └── convert2hf.py  # 模型适配hugging face工具
-└── tokenizer.py  # 将原始数据转换成bin和meta文件的工具
+├── alpaca_tokenizer.py # 处理 alpaca 数据的工具
+├── interface.py # 生成用的接口
+├── internlm_sft_on_moss.py # 在 moss 数据集上进行 SFT 训练的样例
+├── intern_moss_example.py # 在 moss 数据集上进行训练的样例
+├── load_internlm_model.py # 加载 InternLM 原生格式并进行推理的工具
+├── openai_api.py # 使用 OpenAI 接口实现的流式部署
+├── pal_inference.py # PAL 范式推理的工具
+├── README_EN.md
+├── README.md
+├── tokenizer_internlm2.model # InternLM2 的 tokenizer 模型
+├── tokenizer_internlm.model # InternLM 的 tokenizer 模型
+└── tokenizer.py # 将原始数据转换成bin和meta文件的工具
 ```
 
 # tokenizer.py
 
-生成原始数据的`bin`和`meta`文件需要使用`tokenizer`，我们通过在`tools/tokenizer.py`中指定模型参数路径的方式来导入tokenizer模型。目前我们提供了`V7_sft.model`来生成tokens。若想使用不同的模型，可直接修改`tokernizer.py`中的模型参数路径。
+生成原始数据的`bin`和`meta`文件需要使用`tokenizer`，我们通过在`tools/tokenizer.py`中指定模型参数路径的方式来导入tokenizer模型。目前我们提供了`tokenizer_internlm.model`来生成tokens。若想使用不同的模型，可直接修改`tokernizer.py`中的模型参数路径。
 
 可以运行以下命令生成原始数据对应的`bin`和`meta`文件，其中参数`text_input_path`表示原始文本数据路径，目前支持`txt`、`json`和`jsonl`三种输入格式，`bin_output_path`表示生成的`bin`文件的保存路径。
 
@@ -34,9 +40,9 @@ $ python tools/tokenizer.py --text_input_path your_input_text_path --bin_output_
 $ python tools/tokenizer.py --text_input_path raw_data.txt --bin_output_path cn/output.bin
 ```
 
-需要注意的是，生成的`bin`文件需要保存在`cn`或者`en`或者`code`或者`ja`或者`ar`或者`kaoshi`这五个目录下，以区分数据集的类型。
+需要注意的是，生成的`bin`文件需要保存在`cn`或者`en`这两个目录下，以区分数据集的类型。
 
-其中，`cn`表示中文数据集；`en`表示英文数据集；`code`表示代码数据集；`ja`表示日语数据集；`ar`表示阿拉伯语数据集；`kaoshi`表示考试数据集。
+其中，`cn`表示中文数据集；`en`表示英文数据集。
 
 生成的bin文件的格式如下：
 

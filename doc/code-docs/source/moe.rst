@@ -29,10 +29,10 @@
         moe_gate_k=1,
     )
 
-* num_experts：专家网络个数。在InternLM中，每个专家有着相同的网络结构但维护着不同的训练参数。
-* moe_gate_k：门控策略。决定如何将输入标记路由到不同的专家进行计算。目前InternLM支持top1gating和top2gating两种门控策略。关于这些门控策略的详细的信息可以参考 `GShard <https://arxiv.org/pdf/2006.16668.pdf>`_。
+* num_experts：专家网络个数。在InternEvo中，每个专家有着相同的网络结构但维护着不同的训练参数。
+* moe_gate_k：门控策略。决定如何将输入标记路由到不同的专家进行计算。目前InternEvo支持top1gating和top2gating两种门控策略。关于这些门控策略的详细的信息可以参考 `GShard <https://arxiv.org/pdf/2006.16668.pdf>`_。
 
-注意：在目前的InternLM中，每个专家都是根据配置文件中HIDDEN_SIZE和MLP_RATIO构造的一个 `SwiGLU网络 <https://arxiv.org/pdf/2002.05202.pdf>`_，同时支持张量并行。用户可以根据需要构造自己的专家网络。
+注意：在目前的InternEvo中，每个专家都是根据配置文件中HIDDEN_SIZE和MLP_RATIO构造的一个 `SwiGLU网络 <https://arxiv.org/pdf/2002.05202.pdf>`_，同时支持张量并行。用户可以根据需要构造自己的专家网络。
 
 
 2. 损失相关配置
@@ -44,7 +44,7 @@
     )
 
 
-在top1gating和top2gating门控策略中，不同的专家处理的标记数量存在差异。为了提高模型效果，应尽量保证输入标记被均匀地路由到不同的专家上。InternLM采用 `GShard <https://arxiv.org/pdf/2006.16668.pdf>`_ 提出的负载平衡损失优化门控策略。
+在top1gating和top2gating门控策略中，不同的专家处理的标记数量存在差异。为了提高模型效果，应尽量保证输入标记被均匀地路由到不同的专家上。InternEvo采用 `GShard <https://arxiv.org/pdf/2006.16668.pdf>`_ 提出的负载平衡损失优化门控策略。
 Moe_loss_coeff项决定着负载平衡损失项将如何添加到最终的损失项中（ :math:`l=l_{nll}+k·l_{moe}` ）。关于该部分的详细信息可以进一步参考 `GShard <https://arxiv.org/pdf/2006.16668.pdf>`_。
 
 注意：这些参数需要和其他参数一起使用，具体请参考 :doc:`/usage` “训练配置”相关章节的内容。
@@ -58,8 +58,8 @@ internlm.model.modeling_moe提供了一个标准的混合专家模型的实现�
 
     model_type = "INTERNLM_MoE"
 
-并配置好稀疏专家网络的相关参数后，就可以像正常启动InternLM一样进行混合专家模型的分布式训练，具体请参考 :doc:`/usage` “启动训练”相关章节的内容。
+并配置好稀疏专家网络的相关参数后，就可以像正常启动InternEvo一样进行混合专家模型的分布式训练，具体请参考 :doc:`/usage` “启动训练”相关章节的内容。
 
 .. autoclass:: internlm.model.moe.MoE
 
-注意：InternLM支持用户定义自己的MoE结构。internlm.model.moe.MoE是定义MoE网络的接口，目前使用SwiGLU网络实现了专家模型并支持top1gating和top2gating两种门控策略。用户可以在MoE接口中对专家网络和门控策略进行扩展。
+注意：InternEvo支持用户定义自己的MoE结构。internlm.model.moe.MoE是定义MoE网络的接口，目前使用SwiGLU网络实现了专家模型并支持top1gating和top2gating两种门控策略。用户可以在MoE接口中对专家网络和门控策略进行扩展。

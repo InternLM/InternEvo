@@ -19,31 +19,7 @@ env:
   SLURM_PARTITION: llm_s
 
 jobs:
-  check-requirements:
-    runs-on: [t_cluster]
-    steps:
-    - name: mask env
-      run: |
-        echo "::add-mask::${{env.WORKSPACE_PREFIX}}"
-    - uses: actions/checkout@v3
-      with:
-         fetch-depth: 2
-    - name: check-requirements
-      run: |
-        changed_files=$(git diff --name-only -r HEAD^1 HEAD)
-        echo $changed_files
-        if [[ $changed_files =~ "runtime.txt" ]]; then
-          pip install -r requirements/runtime.txt
-        fi
-
-        if [[ $changed_files =~ "torch.txt"  ]]; then
-          pip install -r requirements/torch.txt
-        fi
-
-
   unit_tests_core_pipeline:
-    if: ${{ !cancelled() }}
-    needs: check-requirements
     runs-on: [t_cluster]
     timeout-minutes: 20
     steps:
@@ -54,13 +30,11 @@ jobs:
 
     - name: core_pipeline
       run: |
-        source /mnt/petrelfs/share_data/llm_env/env/llm-flash2.0
+        source $evo_env
         export PYTHONPATH=$PWD:$PYTHONPATH
         srun -p ${SLURM_PARTITION} --kill-on-bad-exit=1 --job-name=internlm-ut-${GITHUB_RUN_ID}-${GITHUB_JOB} -N 1 -n 1 --gres=gpu:8 python -m pytest -s -v ./tests/test_core/test_pipeline.py
 
   unit_tests_utils_storage_manager:
-    if: ${{ !cancelled() }}
-    needs: check-requirements
     runs-on: [t_cluster]
     timeout-minutes: 20
     steps:
@@ -71,13 +45,11 @@ jobs:
 
     - name: utils_storage_manager
       run: |
-        source /mnt/petrelfs/share_data/llm_env/env/llm-flash2.0
+        source $evo_env
         export PYTHONPATH=$PWD:$PYTHONPATH
         srun -p ${SLURM_PARTITION} --kill-on-bad-exit=1 --job-name=internlm-ut-${GITHUB_RUN_ID}-${GITHUB_JOB} -N 1 -n 1 --gres=gpu:8 python -m pytest -s -v ./tests/test_utils/test_storage_manager.py
 
   unit_tests_model_fused_precision:
-    if: ${{ !cancelled() }}
-    needs: check-requirements
     runs-on: [t_cluster]
     timeout-minutes: 5
     steps:
@@ -88,13 +60,11 @@ jobs:
 
     - name: model_fused_precision
       run: |
-        source /mnt/petrelfs/share_data/llm_env/env/llm-flash2.0
+        source $evo_env
         export PYTHONPATH=$PWD:$PYTHONPATH
         srun -p ${SLURM_PARTITION} --kill-on-bad-exit=1 --job-name=internlm-ut-${GITHUB_RUN_ID}-${GITHUB_JOB} -N 1 -n 1 --gres=gpu:8 python -m pytest -s -v ./tests/test_model/test_fused_precision/test_fused_precision.py
 
   unit_tests_data_batch_sampler:
-    if: ${{ !cancelled() }}
-    needs: check-requirements
     runs-on: [t_cluster]
     timeout-minutes: 10
     steps:
@@ -105,13 +75,11 @@ jobs:
 
     - name: data_batch_sample
       run: |
-        source /mnt/petrelfs/share_data/llm_env/env/llm-flash2.0
+        source $evo_env
         export PYTHONPATH=$PWD:$PYTHONPATH
         srun -p ${SLURM_PARTITION} --kill-on-bad-exit=1 --job-name=internlm-ut-${GITHUB_RUN_ID}-${GITHUB_JOB} -N 1 -n 1 --gres=gpu:8 python -m pytest -s -v ./tests/test_data/test_batch_sampler.py
 
   unit_tests_utils_timeout:
-    if: ${{ !cancelled() }}
-    needs: check-requirements
     runs-on: [t_cluster]
     timeout-minutes: 5
     steps:
@@ -122,13 +90,11 @@ jobs:
 
     - name: utils_timeout
       run: |
-        source /mnt/petrelfs/share_data/llm_env/env/llm-flash2.0
+        source $evo_env
         export PYTHONPATH=$PWD:$PYTHONPATH
         srun -p ${SLURM_PARTITION} --kill-on-bad-exit=1 --job-name=internlm-ut-${GITHUB_RUN_ID}-${GITHUB_JOB} -N 1 -n 1 --gres=gpu:1 python -m pytest -s -v ./tests/test_utils/test_timeout.py
 
   unit_tests_utils_model_checkpoint:
-    if: ${{ !cancelled() }}
-    needs: check-requirements
     runs-on: [t_cluster]
     timeout-minutes: 5
     steps:
@@ -139,6 +105,6 @@ jobs:
 
     - name: utils_model_checkpoint
       run: |
-        source /mnt/petrelfs/share_data/llm_env/env/llm-flash2.0
+        source $evo_env
         export PYTHONPATH=$PWD:$PYTHONPATH
         srun -p ${SLURM_PARTITION} --kill-on-bad-exit=1 --job-name=internlm-ut-${GITHUB_RUN_ID}-${GITHUB_JOB} -N 1 -n 1 --gres=gpu:2 python -m pytest -s -v  ./tests/test_utils/test_model_checkpoint.py

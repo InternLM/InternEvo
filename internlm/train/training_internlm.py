@@ -535,12 +535,6 @@ def initialize_llm_profile(profiling: bool = False, start_time: str = None):
     )
 
 
-tgs_list = []
-tflops_list = []
-tflops_list_2 = []
-loss_list = []
-
-
 @llm_timeout(func_name="record_current_batch_training_metrics")
 def record_current_batch_training_metrics(
     get_tflops_func,
@@ -752,34 +746,3 @@ def record_current_batch_training_metrics(
             step_count=batch_count,
             cur_step_loss=loss.item(),
         )
-
-        loss_list.append(loss.item())
-        if batch_count >= 5:
-            tgs_list.append(tgs_origin)
-            tflops_list.append(tflops)
-            tflops_list_2.append(tflops_2)
-        if batch_count == gpc.config.data.total_steps - 1:
-            print(tgs_list, flush=True)
-            if len(tgs_list) <= 0:
-                return
-            avg_tgs = sum(tgs_list) / len(tgs_list)
-            for tgs in tgs_list.copy():
-                if abs(tgs - avg_tgs) > 400:
-                    tgs_list.remove(tgs)
-            print(f"avg_tgs: {sum(tgs_list)/len(tgs_list)}", flush=True)
-
-            print(tflops_list, flush=True)
-            avg_tflops = sum(tflops_list) / len(tflops_list)
-            for tf in tflops_list.copy():
-                if abs(tf - avg_tflops) > 10:
-                    tflops_list.remove(tf)
-            print(f"avg_tflops: {sum(tflops_list)/len(tflops_list)}", flush=True)
-
-            print(tflops_list_2, flush=True)
-            avg_tflops_2 = sum(tflops_list_2) / len(tflops_list_2)
-            for tf in tflops_list_2.copy():
-                if abs(tf - avg_tflops_2) > 10:
-                    tflops_list_2.remove(tf)
-            print(f"avg_tflops_2: {sum(tflops_list_2)/len(tflops_list_2)}", flush=True)
-
-            print("loss: ", loss_list, flush=True)

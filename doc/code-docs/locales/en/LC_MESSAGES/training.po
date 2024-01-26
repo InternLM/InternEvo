@@ -7,7 +7,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: InternLM \n"
 "Report-Msgid-Bugs-To: \n"
-"POT-Creation-Date: 2023-09-14 12:23+0800\n"
+"POT-Creation-Date: 2024-01-23 18:01+0800\n"
 "PO-Revision-Date: YEAR-MO-DA HO:MI+ZONE\n"
 "Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
 "Language: en\n"
@@ -24,10 +24,10 @@ msgstr "Training API"
 
 #: ../../source/training.rst:4
 msgid ""
-"InternLM 的训练 API 由 ``internlm.core.trainer.Trainer`` "
+"InternEvo 的训练 API 由 ``internlm.core.trainer.Trainer`` "
 "管理。在定义了训练引擎和调度器之后，我们可以调用 Trainer API 来执行模型训练、评估、梯度清零和参数更新等。"
 msgstr ""
-"InternLM training API is managed in ``internlm.core.trainer.Trainer``. "
+"InternEvo training API is managed in ``internlm.core.trainer.Trainer``. "
 "After defining the training engine and runtime scheduler, we can call "
 "training API to perform training, evaluation, zero gradients and "
 "parameter update steps."
@@ -106,7 +106,7 @@ msgid "返回"
 msgstr ""
 
 #: internlm.core.trainer.Trainer.execute_schedule:8 of
-msgid "A tuple of (output, label, loss)."
+msgid "A tuple of (output, label, loss, moe_loss)."
 msgstr ""
 
 #: internlm.core.trainer.Trainer.execute_schedule of
@@ -158,3 +158,7 @@ msgstr ""
 
 #~ msgid "InternLM训练流程图"
 #~ msgstr "InternLM training process"
+
+#~ msgid "A tuple of (output, label, loss)."
+#~ msgstr ""
+
