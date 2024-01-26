@@ -113,3 +113,16 @@ jobs:
       run: |
         source $evo_env
         srun -p ${SLURM_PARTITION} --kill-on-bad-exit=1 --job-name=${GITHUB_RUN_ID}-${GITHUB_JOB} -N 1 -n 1 --gres=gpu:8 python -m pytest -s ./tests/test_model/test_norm.py
+
+  load_ckpt_then_assert_loss:
+    runs-on: [t_cluster]
+    timeout-minutes: 10
+    steps:
+    - uses: actions/checkout@v3
+      with:
+         ref: ${{ github.event_name == 'schedule' && 'develop' || github.event_name == 'workflow_dispatch' && '' }}
+
+    - name: test_ckpt_loss
+      run: |
+        source $evo_env
+        srun -p ${SLURM_PARTITION} --kill-on-bad-exit=1 --job-name=${GITHUB_RUN_ID}-${GITHUB_JOB} -N 1 -n 1 --gres=gpu:8 python -m pytest -s ./tests/test_training/test_load_ckpt_loss.py
