@@ -1,12 +1,11 @@
 from typing import Any, Tuple
 
 import torch
-import torch.distributed as dist
 from torch import Tensor
 
 
 # Based on https://github.com/pytorch/pytorch/pull/40762
-class _AllToAll(torch.autograd.Function):
+class AllToAll(torch.autograd.Function):
     """
     All to all communication
     """
@@ -14,26 +13,51 @@ class _AllToAll(torch.autograd.Function):
     @staticmethod
     def forward(
         ctx: Any,
-        # TODO: replace with DS process group
-        group: torch.distributed.ProcessGroup,
         inputs: Tensor,
-        input_splits=None,
-        output_splits=None,
+        group: torch.distributed.ProcessGroup,
+        output_split_sizes=None,
+        input_split_sizes=None,
+        async_op=False,
     ) -> Tensor:  # type: ignore
+
+        ctx.input_shape = inputs.shape
+        ctx.output_split_sizes = output_split_sizes
+        ctx.input_split_sizes = input_split_sizes
         ctx.group = group
-        ctx.input_splits = input_splits
-        ctx.output_splits = output_splits
+
         inputs = inputs.contiguous()
-        output = (
+        out = (
             torch.empty_like(inputs)
-            if output_splits is None
-            else inputs.new_empty(size=[sum(output_splits)] + list(inputs.size()[1:]))
+            if output_split_sizes is None
+            else inputs.new_empty(size=[sum(output_split_sizes)] + list(inputs.size()[1:]))
         )
-        dist.all_to_all_single(
-            output, inputs, output_split_sizes=output_splits, input_split_sizes=input_splits, group=group
+        handle = torch.distributed.all_to_all_single(
+            out,
+            inputs,
+            output_split_sizes=output_split_sizes,
+            input_split_sizes=input_split_sizes,
+            group=group,
+            async_op=async_op,
         )
-        return output
+
+        # if async_op=False, handle will be None
+        return out, handle
 
     @staticmethod
-    def backward(ctx: Any, *grad_output: Tensor) -> Tuple[None, Tensor]:
-        return (None, _AllToAll.apply(ctx.group, *grad_output, ctx.output_splits, ctx.input_splits), None, None)
+    def backward(ctx: Any, grad_output: Tensor, _) -> Tuple[None, Tensor]:
+        if ctx.needs_input_grad[0]:
+            grad_output = grad_output.contiguous()
+            out = torch.empty(ctx.input_shape, device=grad_output.device, dtype=grad_output.dtype)
+            torch.distributed.all_to_all_single(
+                out,
+                grad_output,
+                output_split_sizes=ctx.input_split_sizes,
+                input_split_sizes=ctx.output_split_sizes,
+                group=ctx.group,
+            )
+            return out, None, None, None, None
+        return None, None, None, None, None
+
+
+def all_to_all(x, group, output_split_sizes=None, input_split_sizes=None, async_op=False):
+    return AllToAll.apply(x, group, output_split_sizes, input_split_sizes, async_op)

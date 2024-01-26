@@ -20,7 +20,7 @@ from internlm.utils.megatron_timers import megatron_timer as timer
 from internlm.utils.registry import MODEL_INITIALIZER
 
 from .base_moe import BaseMoELayer
-from .utils import _AllToAll
+from .utils import all_to_all
 
 # global llm logger
 logger = get_logger(__file__)
@@ -463,7 +463,8 @@ class GShardMOELayer(BaseMoELayer):
         if self.wall_clock_breakdown:
             timer("falltoall").start()
 
-        dispatched_inputs = _AllToAll.apply(self.ep_group, dispatched_inputs)
+        if gpc.get_world_size(ParallelMode.EXPERT) > 1:
+            dispatched_inputs, _ = all_to_all(dispatched_inputs, self.ep_group)
 
         if self.wall_clock_breakdown:
             timer("falltoall").stop()
@@ -477,7 +478,8 @@ class GShardMOELayer(BaseMoELayer):
         if self.wall_clock_breakdown:
             timer("salltoall").start()
 
-        expert_output = _AllToAll.apply(self.ep_group, expert_output)
+        if gpc.get_world_size(ParallelMode.EXPERT) > 1:
+            expert_output, _ = all_to_all(expert_output, self.ep_group)
 
         if self.wall_clock_breakdown:
             timer("salltoall").stop()
