@@ -13,7 +13,7 @@ from internlm.core.gradient_handler import PipelineSharedModuleGradientHandler
 from internlm.core.scheduler import InterleavedPipelineScheduler, NonPipelineScheduler, PipelineScheduler
 from internlm.model.metrics import SchedulerMetricHook
 from internlm.solver.pipeline_utils import partition_uniform
-from internlm.train import initialize_optimizer
+from internlm.train import initialize_optimizer, set_parallel_attr_for_param_groups
 
 
 class MlpModel(nn.Module):
@@ -66,6 +66,8 @@ def init_model_and_optim(
     # pp model
     pp_model = _build_generic_model_1d(num_layers=num_layers, num_chunks=num_chunks, embedding=embedding)
     pp_model = pp_model.to(dtype)
+
+    set_parallel_attr_for_param_groups(pp_model)
 
     # pp scheduler
     scheduler_hooks = [
