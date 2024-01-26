@@ -118,7 +118,7 @@ def exam_pipeline_parallel(args):
         )
         output_list.append(output)
 
-    engine.step()
+    # engine.step()
 
     # torch related
     if gpc.is_last_rank(ParallelMode.PIPELINE):

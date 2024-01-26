@@ -16,6 +16,8 @@ from tests.test_utils.common_fixture import (  # noqa # pylint: disable=unused-i
     LOCAL_SAVE_PATH,
     del_tmp_file,
     init_config,
+    init_dist_and_model,
+    reset_singletons,
 )
 
 # (TOTAL_STEP, CKPT_EVERY, SNPASHOT_EVERY)
