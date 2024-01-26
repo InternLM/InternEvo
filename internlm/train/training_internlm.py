@@ -538,7 +538,6 @@ def initialize_llm_profile(profiling: bool = False, start_time: str = None):
 @llm_timeout(func_name="record_current_batch_training_metrics")
 def record_current_batch_training_metrics(
     get_tflops_func,
-    get_tflops_func_2,
     logger,
     writer,
     success_update,
@@ -623,7 +622,6 @@ def record_current_batch_training_metrics(
         tgs_SMA = round(tgs_statistic["SMA_tg_50"] / tgs_statistic["SMA_time_50"], 2)
 
         tflops = get_tflops_func((time.time() - start_time))
-        tflops_2 = get_tflops_func_2((time.time() - start_time))
 
         tgs_origin = round(
             num_tokens_in_batch
@@ -635,7 +633,6 @@ def record_current_batch_training_metrics(
 
         infos = {
             "tflops": tflops,
-            "tflops2": tflops_2,
             "step": batch_count,
             "loss": loss.item() - moe_loss.item() if moe_loss is not None else loss.item(),
             "tgs (tokens/gpu/second)": tgs_origin,

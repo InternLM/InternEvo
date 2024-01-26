@@ -31,7 +31,6 @@ from internlm.train import (
 from internlm.utils.common import (
     BatchSkipper,
     get_megatron_flops,
-    get_megatron_flops_2,
     launch_time,
     parse_args,
 )
@@ -85,18 +84,6 @@ def main(args):
         global_batch_size=gpc.config.data.micro_bsz * gpc.config.data.micro_num * gpc.get_world_size(ParallelMode.DATA),
         global_world_size=gpc.get_world_size(ParallelMode.GLOBAL),
         mlp_ratio=gpc.config.model["mlp_ratio"],
-    )
-
-    get_tflops_func_2 = partial(
-        get_megatron_flops_2,
-        checkpoint=gpc.config.model.checkpoint,
-        seq_len=gpc.config.SEQ_LEN,
-        hidden_size=gpc.config.model.hidden_size,
-        num_layers=gpc.config.model.num_layers,
-        vocab_size=gpc.config.model.vocab_size,
-        global_batch_size=gpc.config.data.micro_bsz * gpc.config.data.micro_num * gpc.get_world_size(ParallelMode.DATA),
-        global_world_size=gpc.get_world_size(ParallelMode.GLOBAL),
-        mlp_ratio=gpc.config.MLP_RATIO,
     )
 
     # get and broadcast current time
@@ -265,7 +252,6 @@ def main(args):
             # calculate and record the training metrics, eg. loss, accuracy and so on.
             record_current_batch_training_metrics(
                 get_tflops_func=get_tflops_func,
-                get_tflops_func_2=get_tflops_func_2,
                 logger=logger,
                 writer=writer,
                 success_update=success_update,
