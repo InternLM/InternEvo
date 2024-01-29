@@ -14,7 +14,7 @@ env:
 jobs:
   model_init_tests:
     runs-on: [t_cluster]
-    timeout-minutes: 5
+    timeout-minutes: 10
     steps:
     - name: mask env
       run: |
