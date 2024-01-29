@@ -9,7 +9,6 @@ import torch
 from torch import distributed as dist
 from torch import nn
 
-from internlm.core.context import ParallelMode
 from internlm.core.context import global_context as gpc
 from internlm.core.naive_amp import NaiveAMPModel
 from internlm.model.embedding import Embedding1D
@@ -356,7 +355,6 @@ class ISPCommunicator:
     def _pre_forward_hook_for_block(self, *args):  # pylint: disable=W0613
         for module in self._index_to_isp_module[self._ckpt_block_num - 1]:
             self._all_gather_module_weight(module)
-            # self._wait_handle(module)
 
     def _post_forward_hook_for_module(self, module: nn.Module, *args):  # pylint: disable=W0613
         self._clear_handle(module)
@@ -402,10 +400,6 @@ class ISPCommunicator:
             embedding.register_forward_hook(self._post_forward_hook_for_embedding)
 
         if self._ckpt_block_num >= 1:
-            # if gpc.is_last_rank(parallel_mode=ParallelMode.PIPELINE):
-            #     for head in self._head:
-            #         head.register_full_backward_pre_hook(self._pre_backward_hook_for_head)
-            # else:
             self._last_ckpt_block.register_forward_pre_hook(self._pre_forward_hook_for_block)
 
         for out_proj in self._isp_outs:
