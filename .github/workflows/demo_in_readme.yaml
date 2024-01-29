@@ -12,32 +12,7 @@ env:
   SLURM_PARTITION: llm_s
 
 jobs:
-  check-requirements:
-    runs-on: [t_cluster]
-    steps:
-    - name: mask env
-      run: |
-        echo "::add-mask::${{env.WORKSPACE_PREFIX}}"
-        echo "::add-mask::$path_prefix"
-    - uses: actions/checkout@v3
-      with:
-         fetch-depth: 2
-    - name: check-requirements
-      run: |
-        source activate internlm-env-test
-        changed_files=$(git diff --name-only -r HEAD^1 HEAD)
-        echo $changed_files
-        if [[ $changed_files =~ "runtime.txt" ]]; then
-          pip install -r requirements/runtime.txt
-        fi
-
-        if [[ $changed_files =~ "torch.txt"  ]]; then
-          pip install -r requirements/torch.txt
-        fi
-
   dataset-preparation:
-    if: ${{ !cancelled() }}
-    needs: check-requirements
     runs-on: [t_cluster]
     steps:
     - name: mask env
@@ -48,17 +23,15 @@ jobs:
 
     - name: raw-chinese-data
       run: |
-        source activate internlm-env-test
+        source $evo_env
         sh ./ci_scripts/data/tokenizer_chinese.sh ${GITHUB_RUN_ID}-${GITHUB_JOB}
 
     - name: alpaca-data
       run: |
-        source activate internlm-env-test
+        source $evo_env
         sh ./ci_scripts/data/tokenizer_alpaca.sh
 
   train:
-    if: ${{ !cancelled() }}
-    needs: check-requirements
     runs-on: [t_cluster]
     timeout-minutes: 30
     steps:
@@ -71,32 +44,30 @@ jobs:
     - name: slurm-train
       id: basic_train
       run: |
-        source activate internlm-env-test
+        source $evo_env
         sh ./ci_scripts/train/slurm_train.sh ${GITHUB_RUN_ID}-${GITHUB_JOB}
 
     - name: load_preset_ckpt
       if: ${{ failure() && steps.basic_train.conclusion == 'failure' }}
       run: |
-        source activate internlm-env-test
+        source $evo_env
         export PYTHONPATH=$PWD:$PYTHONPATH
         sh ./ci_scripts/train/load_ckpt.sh 7B_load_preset_ckpt ${GITHUB_RUN_ID}-${GITHUB_JOB}
 
     - name: load_new_ckpt
       run: |
-        source activate internlm-env-test
+        source $evo_env
         export PYTHONPATH=$PWD:$PYTHONPATH
         sh ./ci_scripts/train/load_ckpt.sh 7B_load_new_ckpt ${GITHUB_RUN_ID}-${GITHUB_JOB}
         rsync -av --remove-source-files $GITHUB_WORKSPACE/llm_ckpts ${{env.WORKSPACE_PREFIX}}/ci_clean_bak
 
     - name: torchrun-train
       run: |
-        source activate internlm-env-test
+        source $evo_env
         sh ./ci_scripts/train/torchrun.sh ${GITHUB_RUN_ID}-${GITHUB_JOB}
         rsync -av --remove-source-files $GITHUB_WORKSPACE/llm_ckpts ${{env.WORKSPACE_PREFIX}}/ci_clean_bak
 
   convert-model-then-load:
-    if: ${{ !cancelled() }}
-    needs: check-requirements
     runs-on: [t_cluster]
     timeout-minutes: 15
     steps:
@@ -108,7 +79,7 @@ jobs:
 
     - name: convert-model-then-load
       run: |
-        source activate internlm-env-test
+        source $evo_env
         export PYTHONPATH=$PWD:$PYTHONPATH
         sh ./ci_scripts/model/convert_to_hf.sh
         cd ./hf_ckpt
@@ -116,8 +87,6 @@ jobs:
         cd ..
         rsync -av --remove-source-files $GITHUB_WORKSPACE/hf_ckpt ${{env.WORKSPACE_PREFIX}}/ci_clean_bak
   load-chat-model-in-hf:
-    if: ${{ !cancelled() }}
-    needs: check-requirements
     runs-on: [t_cluster]
     timeout-minutes: 15
     steps:
@@ -129,5 +98,5 @@ jobs:
 
     - name: chat-model-in-hf
       run: |
-        source activate internlm-env-test
+        source $evo_env
         srun -p ${SLURM_PARTITION} --kill-on-bad-exit=1 --job-name=${GITHUB_RUN_ID}-${GITHUB_JOB} --gpus-per-task=2 python ./ci_scripts/model/demo_load_7B_chat_model.py

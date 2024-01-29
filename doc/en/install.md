@@ -25,6 +25,14 @@ export CXX=${GCC_HOME}/bin/c++
 ```
 
 ### Environment Installation
+Install through pip command:
+```bash
+pip install InternEvo==xxx (xxx is the version you want to install)
+```
+This installs only InternEvo project, do not involve the required packages or submodules.
+
+Or install through source code:
+
 Clone the project `InternEvo` and its dependent submodules from the github repository, as follows:
 ```bash
 git clone git@github.com:InternLM/InternEvo.git --recurse-submodules
@@ -59,7 +67,7 @@ cd ../../
 ```
 
 ### Environment Image
-Users can use the provided dockerfile combined with docker.Makefile to build their own images, or obtain images with InternLM runtime environment installed from https://hub.docker.com/r/internlm/internlm.
+Users can use the provided dockerfile combined with docker.Makefile to build their own images, or obtain images with InternEvo runtime environment installed from https://hub.docker.com/r/internlm/internlm.
 
 #### Image Configuration and Build
 The configuration and build of the Dockerfile are implemented through the docker.Makefile. To build the image, execute the following command in the root directory of InternEvo:
@@ -83,4 +91,4 @@ For the local standard image built with dockerfile or pulled, use the following 
 ```bash
 docker run --gpus all -it -m 500g --cap-add=SYS_PTRACE --cap-add=IPC_LOCK --shm-size 20g --network=host --name myinternlm internlm/internlm:torch1.13.1-cuda11.7.1-flashatten1.0.5-centos7 bash
 ```
-The default directory in the container is `/InternEvo`, please start training according to the [Usage](./usage.md).
+The default directory in the container is `/InternLM`, please start training according to the [Usage](./usage.md).

@@ -3,9 +3,9 @@
 
 .. Brief introduction to training parallelism, and how-to guide about config setting
 
-InternLM 支持张量并行、流水线并行、序列并行、数据并行和 ZeRO1.5 等并行化训练策略。在初始化分布式环境时，我们需要指定张量并行大小、流水线并行大小、数据并行大小以及 ZeRO1.5 策略。
+InternEvo 支持张量并行、流水线并行、序列并行、数据并行和 ZeRO1.5 等并行化训练策略。在初始化分布式环境时，我们需要指定张量并行大小、流水线并行大小、数据并行大小以及 ZeRO1.5 策略。
 
-InternLM 的并行设置由配置文件中的 ``parallel`` 字段指定，用户可以通过修改配置文件 `config file <https://github.com/InternLM/InternLM/blob/main/configs/7B_sft.py>`_ 来更改并行配置。以下是一个并行训练配置示例：
+InternEvo 的并行设置由配置文件中的 ``parallel`` 字段指定，用户可以通过修改配置文件 `config file <https://github.com/InternLM/InternEvo/blob/develop/configs/7B_sft.py>`_ 来更改并行配置。以下是一个并行训练配置示例：
 
 .. code-block:: python
 
@@ -35,8 +35,8 @@ InternLM 的并行设置由配置文件中的 ``parallel`` 字段指定，用户
 张量并行
 -----------------
 
-InternLM 的张量并行实现方案基于 `flash attention <https://github.com/Dao-AILab/flash-attention>`_, 主要对 `attention <https://github.com/InternLM/InternLM/blob/main/internlm/model/multi_head_attention.py>`_ 和
-`linear <https://github.com/InternLM/InternLM/blob/main/internlm/model/linear.py>`_ 这两个模块进行张量并行操作。
+InternEvo 的张量并行实现方案基于 `flash attention <https://github.com/Dao-AILab/flash-attention>`_, 主要对 `attention <https://github.com/InternLM/InternEvo/blob/develop/internlm/model/multi_head_attention.py>`_ 和
+`linear <https://github.com/InternLM/InternEvo/blob/develop/internlm/model/linear.py>`_ 这两个模块进行张量并行操作。
 
 用户可通过配置文件中的 ``parallel.tensor`` 字段来设置张量并行大小。
 
@@ -49,7 +49,7 @@ InternLM 的张量并行实现方案基于 `flash attention <https://github.com/
 流水线并行
 -----------------
 
-InternLM 在流水线并行中使用 `1F1B <https://arxiv.org/pdf/2104.04473.pdf>`_ （1F1B，一次前向传递后跟一次反向传递）策略。对于 1F1B 策略，有两种实现方式：
+InternEvo 在流水线并行中使用 `1F1B <https://arxiv.org/pdf/2104.04473.pdf>`_ （1F1B，一次前向传递后跟一次反向传递）策略。对于 1F1B 策略，有两种实现方式：
 
 1. 非交错调度器，内存高效。
 2. 交错调度器，内存高效且时间高效（GPU空泡较少）。
@@ -101,7 +101,7 @@ InternLM 在流水线并行中使用 `1F1B <https://arxiv.org/pdf/2104.04473.pdf
 序列并行
 -----------------
 
-序列并行是一种在不引入额外计算、通信和内存开销的情况下，减少层 ``layer_norm`` 和 ``dropout`` 操作中的激活值内存。InternLM 中的序列并行实现基于 `flash attention <https://github.com/Dao-AILab/flash-attention>`_。这个并行策略有助于降低模型的内存消耗，提高了模型在资源受限环境中的可扩展性。
+序列并行是一种在不引入额外计算、通信和内存开销的情况下，减少层 ``layer_norm`` 和 ``dropout`` 操作中的激活值内存。InternEvo 中的序列并行实现基于 `flash attention <https://github.com/Dao-AILab/flash-attention>`_。这个并行策略有助于降低模型的内存消耗，提高了模型在资源受限环境中的可扩展性。
 
 如果要启用序列并行, 用户需要设置 ``parallel.sequence_parallel = True``。
 
@@ -114,7 +114,7 @@ InternLM 在流水线并行中使用 `1F1B <https://arxiv.org/pdf/2104.04473.pdf
 数据并行
 -----------------
 
-InternLM 支持数据并行。数据并行大小为:
+InternEvo 支持数据并行。数据并行大小为:
 
 `Data parallel size = Total number of GPUs / Pipeline parallel size / Tensor parallel size`
 
