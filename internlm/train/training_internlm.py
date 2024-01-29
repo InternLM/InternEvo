@@ -224,9 +224,9 @@ def initialize_model(pre_process_func: Optional[Callable] = None, post_process_f
             ISPCommModelConfig(
                 gpc.config.model.dtype,
                 get_current_device(),
+                gpc.config.model.checkpoint,
             ),
             gpc.config.parallel.weight.overlap,
-            gpc.config.model.checkpoint,
             gpc.config.parallel.weight.memory_pool,
             gpc.get_group(ParallelMode.WEIGHT),
         )

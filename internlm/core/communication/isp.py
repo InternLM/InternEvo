@@ -26,6 +26,7 @@ class ISPCommModelConfig:
 
     dtype: torch.dtype = torch.half
     device: torch.device = torch.device("cuda")
+    activation_checkpointing: float = 0.0
     module_shapes: Dict[str, torch.Size] = None
 
 
@@ -131,7 +132,8 @@ class ISPOverlapState:
         self.num_blocks: int = 0
         self.embedding: List[nn.Module] = []
         self.head: List[nn.Module] = []
-        self.last_block: nn.Moudle = None
+        self.ckpt_block_num: int = 0
+        self.last_ckpt_block: nn.Module = None
         self.isp_outs: List[nn.Module] = []
         self.isp_modules: List[nn.Module] = []
         self.index_to_isp_module: Dict[int, nn.Module] = {}
@@ -152,12 +154,10 @@ class ISPCommunicator:
         model: Union[nn.Module, nn.ModuleList],
         model_conf: ISPCommModelConfig,
         overlap: bool = False,
-        activation_checkpointing: bool = False,
         enable_memory_pool: bool = False,
         process_group: dist.ProcessGroup = None,
     ) -> None:
         self.process_group = process_group
-        self.model_checkpoint = activation_checkpointing
         self.overlap = overlap
         self.enable_memory_pool = overlap and enable_memory_pool
         self.model_conf = model_conf
@@ -172,7 +172,8 @@ class ISPCommunicator:
         self._num_blocks = None
         self._head = None
         self._embedding = None
-        self._last_block = None
+        self._ckpt_block_num = None
+        self._last_ckpt_block = None
         self._isp_outs = None
         self._isp_modules = None
         # key: isp module; value: module global all-gather op handle
@@ -222,7 +223,10 @@ class ISPCommunicator:
             elif isinstance(children, Embedding1D):
                 self._overlap_states[cid].embedding.append(children)
             elif isinstance(children, nn.ModuleList):
-                self._overlap_states[cid].last_block = children[-1]
+                self._overlap_states[cid].ckpt_block_num = int(self.model_conf.activation_checkpointing * len(children))
+                self._overlap_states[cid].last_ckpt_block = children[
+                    max(0, self._overlap_states[cid].ckpt_block_num - 1)
+                ]
 
                 for idx, block in enumerate(children):
                     self._overlap_states[cid].index_to_isp_module[idx] = []
@@ -335,7 +339,7 @@ class ISPCommunicator:
     def _pre_forward_hook_for_out_proj(self, module: nn.Module, *args):  # pylint: disable=W0613
         block_index = self._module_to_index[module]
 
-        if self.model_checkpoint and self.is_forward is False:
+        if (block_index - 1 < self._ckpt_block_num) and self.is_forward is False:
             if block_index - 1 >= 0:
                 self._all_gather_block_weight(block_index - 1)
         else:
@@ -350,13 +354,13 @@ class ISPCommunicator:
         self._wait_handle(module)
 
     def _pre_forward_hook_for_block(self, *args):  # pylint: disable=W0613
-        for module in self._index_to_isp_module[self._num_blocks - 1]:
+        for module in self._index_to_isp_module[self._ckpt_block_num - 1]:
             self._all_gather_module_weight(module)
-            self._wait_handle(module)
+            # self._wait_handle(module)
 
     def _post_forward_hook_for_module(self, module: nn.Module, *args):  # pylint: disable=W0613
         self._clear_handle(module)
-        if not (self.model_checkpoint and self.is_forward is False):
+        if not ((self._module_to_index[module] < self._ckpt_block_num) and self.is_forward is False):
             self._clear_weight(module)
 
     def _post_backward_hook_for_head(self, *args):  # pylint: disable=W0613
@@ -377,7 +381,8 @@ class ISPCommunicator:
         module_index = self._isp_modules.index(module)
         if module_index - 1 >= 0:
             next_module = self._isp_modules[module_index - 1]
-            self._all_gather_module_weight(next_module)
+            if self._module_to_index[next_module] >= self._ckpt_block_num:
+                self._all_gather_module_weight(next_module)
 
     def _post_backward_hook_for_module(self, module, *args):  # pylint: disable=W0613
         self._clear_handle(module)
@@ -396,12 +401,12 @@ class ISPCommunicator:
         for embedding in self._embedding:
             embedding.register_forward_hook(self._post_forward_hook_for_embedding)
 
-        if self.model_checkpoint:
-            if gpc.is_last_rank(parallel_mode=ParallelMode.PIPELINE):
-                for head in self._head:
-                    head.register_full_backward_pre_hook(self._pre_backward_hook_for_head)
-            else:
-                self._last_block.register_forward_pre_hook(self._pre_forward_hook_for_block)
+        if self._ckpt_block_num >= 1:
+            # if gpc.is_last_rank(parallel_mode=ParallelMode.PIPELINE):
+            #     for head in self._head:
+            #         head.register_full_backward_pre_hook(self._pre_backward_hook_for_head)
+            # else:
+            self._last_ckpt_block.register_forward_pre_hook(self._pre_forward_hook_for_block)
 
         for out_proj in self._isp_outs:
             out_proj.register_forward_pre_hook(self._pre_forward_hook_for_out_proj)
@@ -414,7 +419,7 @@ class ISPCommunicator:
         # 1. register post_backward_hook @head module to prefetch for the last block's last module
         # 2. register pre_backward_hook @isp_module to wait handle for current module and to prefetch for next module
         # 3. register post_backward_hook @isp_module to release resource
-        if not self.model_checkpoint:
+        if self._ckpt_block_num < self._num_blocks:
             for head in self._head:
                 head.register_full_backward_hook(self._post_backward_hook_for_head)
 
@@ -443,7 +448,8 @@ class ISPCommunicator:
         self._bias_global_output = self._overlap_states[chunk_id].bias_global_output
         self._module_to_index = self._overlap_states[chunk_id].module_to_index
         self._index_to_isp_module = self._overlap_states[chunk_id].index_to_isp_module
-        self._last_block = self._overlap_states[chunk_id].last_block
+        self._ckpt_block_num = self._overlap_states[chunk_id].ckpt_block_num
+        self._last_ckpt_block = self._overlap_states[chunk_id].last_ckpt_block
         self._head = self._overlap_states[chunk_id].head
         self._embedding = self._overlap_states[chunk_id].embedding
         self._num_blocks = self._overlap_states[chunk_id].num_blocks
@@ -514,7 +520,7 @@ class ISPCommunicatorSchedulerHook(SchedulerHook):
         self._zero_optim = zero_optim
 
     def before_forward(self, scheduler, inputs) -> None:
-        if self._isp_communicator.model_checkpoint:
+        if self._isp_communicator._ckpt_block_num > 0:
             self._isp_communicator.is_forward = True
         # switch model chunk before forward
         chunk_id = 0 if gpc.virtual_pipeline_parallel_rank is None else gpc.virtual_pipeline_parallel_rank
@@ -530,7 +536,7 @@ class ISPCommunicatorSchedulerHook(SchedulerHook):
         pass
 
     def before_backward(self, scheduler, outputs, outputs_grad) -> None:
-        if self._isp_communicator.model_checkpoint:
+        if self._isp_communicator._ckpt_block_num > 0:
             self._isp_communicator.is_forward = False
         # switch model chunk before backward
         chunk_id = 0 if gpc.virtual_pipeline_parallel_rank is None else gpc.virtual_pipeline_parallel_rank
