@@ -216,24 +216,7 @@ def initialize_model(pre_process_func: Optional[Callable] = None, post_process_f
     # if fsdp enabled, wrap the model
     model = wrap_FSDP_model(model)
 
-    if gpc.config.parallel["tensor"].get("mode", "mtp") != "isp":
-        isp_communicator = None
-    else:
-        isp_communicator = ISPCommunicator(
-            model,
-            ISPCommModelConfig(
-                gpc.config.model.dtype,
-                get_current_device(),
-            ),
-            gpc.config.parallel.weight.overlap,
-            gpc.config.model.checkpoint,
-            gpc.config.parallel.weight.memory_pool,
-            gpc.get_group(ParallelMode.WEIGHT),
-        )
-        # register communicator for isp linear.
-        ISPLinear.register_communicator(isp_communicator)
-
-    return model, isp_communicator
+    return model
 
 
 def wrap_FSDP_model(model: Union[nn.Module, nn.ModuleList]):
@@ -267,6 +250,36 @@ def wrap_FSDP_model(model: Union[nn.Module, nn.ModuleList]):
         )
 
     return model
+
+
+def initialize_isp_communicator(model: Union[nn.Module, nn.ModuleList]):
+    """
+    Initialize communicator for isp tensor parallel mode.
+
+    Args:
+        model (:class:`torch.nn.Module`): Your model instance to be trained or evaluated.
+
+    Returns:
+        An isp communicator for managing comp/comm overlap and memory pool.
+    """
+    if gpc.config.parallel["tensor"].get("mode", "mtp") != "isp":
+        isp_communicator = None
+    else:
+        isp_communicator = ISPCommunicator(
+            model,
+            ISPCommModelConfig(
+                gpc.config.model.dtype,
+                get_current_device(),
+                gpc.config.model.checkpoint,
+            ),
+            gpc.config.parallel.weight.overlap,
+            gpc.config.parallel.weight.memory_pool,
+            gpc.get_group(ParallelMode.WEIGHT),
+        )
+        # register communicator for isp linear.
+        ISPLinear.register_communicator(isp_communicator)
+
+    return isp_communicator
 
 
 @llm_timeout(func_name="initialize_optimizer")

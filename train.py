@@ -22,6 +22,7 @@ from internlm.train import (
     get_scheduler_hooks,
     get_train_data_loader,
     get_validation_data_loader,
+    initialize_isp_communicator,
     initialize_llm_profile,
     initialize_model,
     initialize_optimizer,
@@ -96,7 +97,10 @@ def main(args):
     uniscale_logger = initialize_llm_logger(start_time=current_time)
 
     # initialize model
-    model, isp_communicator = initialize_model()
+    model = initialize_model()
+
+    # initialize isp communicator
+    isp_communicator = initialize_isp_communicator(model)
 
     with open(args.config, "r") as f:
         config_lines = f.readlines()
