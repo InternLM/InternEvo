@@ -38,6 +38,7 @@ from internlm.solver.optimizer.utils import (
 from internlm.utils.common import get_current_device
 from internlm.utils.logger import get_logger
 from internlm.utils.megatron_timers import megatron_timer as timer
+from internlm.utils.parallel import is_using_isp
 from internlm.utils.timeout import llm_timeout
 
 from .base_optimizer import BaseOptimizer
@@ -85,10 +86,7 @@ class HybridZeroOptimizer(BaseOptimizer):
         clip_grad_norm = zero_cfg.clip_grad_norm
         self._overlap_sync_grad = zero_cfg.overlap_sync_grad
         self._overlap_sync_param = zero_cfg.overlap_sync_param
-        self.use_isp = (
-            isinstance(gpc.config.parallel["tensor"], dict)
-            and gpc.config.parallel["tensor"].get("mode", "mtp") == "isp"
-        )
+        self.use_isp = is_using_isp()
 
         super().__init__(optim=optimizer)
 

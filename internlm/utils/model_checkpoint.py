@@ -30,6 +30,7 @@ from internlm.solver.optimizer import HybridZeroOptimizer, reload_zero_fp32_buff
 from internlm.utils.common import get_current_device
 from internlm.utils.logger import get_logger
 from internlm.utils.megatron_timers import megatron_timer as timer
+from internlm.utils.parallel import is_using_isp
 from internlm.utils.storage_manager import (
     get_fns,
     get_storage_manager,
@@ -325,7 +326,7 @@ def save_model_checkpoint(folder, model):
         # even if pp is not considered, it will definitely not be written on the same machine.
 
         # for tensor parallel mode with isp
-        if gpc.config.parallel["tensor"].get("mode", "mtp") == "isp":
+        if is_using_isp():
             if wdp_rank == 0 or dp_rank == 0:
                 fn = f"model_tp{tp_rank}_wp{wp_rank}_pp{pp_rank}.pt"
                 fp = os.path.join(folder, fn)
@@ -564,7 +565,7 @@ def load_model_checkpoint(folder, model):
     for fn in fns:
         if fn.startswith("model_t") and not fn.endswith(".md5"):
             segements = os.path.splitext(fn)[0].split("_")
-            if gpc.config.parallel["tensor"].get("mode", "mtp") == "isp":
+            if is_using_isp():
                 max_pp = max(max_pp, int(segements[-1][2:]))
                 max_wp = max(max_wp, int(segements[-2][2:]))
                 max_tp = max(max_tp, int(segements[-3][2:]))
@@ -590,7 +591,7 @@ def load_model_checkpoint(folder, model):
             dp_size == max_zo + 1
         ), f"The weights are save for {max_zo+1} FSDP shards , while current has {dp_size} FSDP shards"
 
-    if gpc.config.parallel["tensor"].get("mode", "mtp") == "isp":
+    if is_using_isp():
         should_load_name = f"model_tp{tp_rank}_wp{wp_rank}_pp{pp_rank}.pt"
     elif gpc.config.parallel.zero1.fsdp:
         should_load_name = f"model_tp{tp_rank}_pp{pp_rank}_dp{dp_rank}.pt"
@@ -702,7 +703,7 @@ def save_optimizer_checkpoint(optim, state_path):
 
     states = optim.state_dict()
     if isinstance(optim, HybridZeroOptimizer):
-        if gpc.config.parallel["tensor"].get("mode", "mtp") == "isp":
+        if is_using_isp():
             fp = f"optimizer_tp{tp_rank}_wp{wp_rank}_pp{pp_rank}_dp{dp_rank}.pt"
             llm_save(os.path.join(state_path, fp), states)
         else:
@@ -752,7 +753,7 @@ def load_optimizer_checkpoint(folder, optim):
     max_tp, max_wp, max_pp, max_zero, max_dp = 0, 0, 0, 0, 0
     for fn in fns:
         if fn.startswith("optimizer_") and not fn.endswith(".md5"):
-            if gpc.config.parallel["tensor"].get("mode", "mtp") == "isp":
+            if is_using_isp():
                 _, tp, wp, pp, dp = os.path.splitext(fn)[0].split("_")
                 max_dp = max(max_dp, int(dp[2:]))
                 max_tp = max(max_tp, int(tp[2:]))
@@ -770,12 +771,12 @@ def load_optimizer_checkpoint(folder, optim):
     pp_size = gpc.get_world_size(ParallelMode.PIPELINE)
     dp_size = gpc.get_world_size(ParallelMode.DATA)
 
-    if gpc.config.parallel["tensor"].get("mode", "mtp") == "isp":
+    if is_using_isp():
         assert dp_size == max_dp + 1, (
             f"The optimizer states are save for {max_dp+1} data parallelism, "
             f"while current has {dp_size} data parallelism"
         )
-    if gpc.config.parallel["tensor"].get("mode", "mtp") != "isp":
+    if not is_using_isp():
         assert zero_size == max_zero + 1, (
             f"The optimizer states are save for {max_zero+1} zero parallel, "
             f"while current has {zero_size} zero broadcast range."
@@ -795,7 +796,7 @@ def load_optimizer_checkpoint(folder, optim):
     wp_rank = gpc.get_local_rank(ParallelMode.WEIGHT)
     pp_rank = gpc.get_local_rank(ParallelMode.PIPELINE)
     dp_rank = gpc.get_local_rank(ParallelMode.DATA)
-    if gpc.config.parallel["tensor"].get("mode", "mtp") == "isp":
+    if is_using_isp():
         fp = f"optimizer_tp{tp_rank}_wp{wp_rank}_pp{pp_rank}_dp{dp_rank}.pt"
     else:
         fp = f"optimizer_tp{tp_rank}_pp{pp_rank}_zo{zero_rank}.pt"

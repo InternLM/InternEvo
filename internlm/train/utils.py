@@ -5,7 +5,7 @@ import torch
 from internlm.core.context.parallel_context import ParallelMode
 from internlm.core.context.parallel_context import global_context as gpc
 from internlm.model.utils import is_moe_param
-from internlm.utils.parallel import is_tensor_data_parallel_parameter
+from internlm.utils.parallel import is_tensor_data_parallel_parameter, is_using_isp
 
 
 def split_params_into_different_groups_for_optimizer(
@@ -39,7 +39,7 @@ def split_params_into_different_groups_for_optimizer(
 
     # create new groups for IS_TENSOR_DATA_PARALLEL parameter group
     new_groups = {}
-    if isinstance(gpc.config.parallel["tensor"], dict) and gpc.config.parallel["tensor"].get("mode", "mtp") == "isp":
+    if is_using_isp():
         new_groups["embed_head"] = {"name": "embed_head", "params": [], "optimizer_mode": ParallelMode.DATA}
     # create new groups for fp32 parameter group
     new_groups["fp32"] = {"name": "fp32", "params": [], "optimizer_mode": ParallelMode.ZERO1}

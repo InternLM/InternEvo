@@ -22,6 +22,7 @@ from internlm.utils.parallel import (
     is_tensor_data_parallel_parameter,
     is_tensor_expert_data_parallel_parameter,
     is_tensor_zero_parallel_parameter,
+    is_using_isp,
     is_weight_zero_parallel_parameter,
 )
 
@@ -312,9 +313,7 @@ def compute_norm(
         Total norm of the parameters, need total_norm**(1/norm) before using.
     """
 
-    weight_parallel_mode = (
-        ParallelMode.WEIGHT if gpc.config.parallel["tensor"].get("mode", "mtp") == "isp" else ParallelMode.TENSOR
-    )
+    weight_parallel_mode = ParallelMode.WEIGHT if is_using_isp() else ParallelMode.TENSOR
     enable_cuda_kernels = gradients[0].device.type == "cuda"
     # Norm parameters.
     norm_type = float(norm_type)

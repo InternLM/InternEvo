@@ -78,6 +78,7 @@ from internlm.utils.common import (
 from internlm.utils.logger import get_logger
 from internlm.utils.megatron_timers import megatron_timer as timer
 from internlm.utils.parallel import (
+    is_using_isp,
     is_replica_zero_parallel_parameter,
     is_tensor_data_parallel_parameter,
     is_tensor_expert_data_parallel_parameter,
@@ -105,8 +106,6 @@ def set_fp32_attr_for_model(model: Union[nn.Module, nn.ModuleList]):
 
 
 def set_parallel_attr_for_param_groups(model: Union[nn.Module, nn.ModuleList]):
-    tp_mode = gpc.config.parallel["tensor"].get("mode", "mtp")
-
     def _check_module(module):
         # layer_norm
         if isinstance(module, (RMSNorm, nn.LayerNorm)):
@@ -120,9 +119,9 @@ def set_parallel_attr_for_param_groups(model: Union[nn.Module, nn.ModuleList]):
         # embedding and head
         if isinstance(module, (Embedding1D, ParallelGPT2Embeddings, BaseScaleColumnParallelLinear)):
             for param in module.parameters():
-                if gpc.is_initialized(ParallelMode.TENSOR) and tp_mode == "isp":
+                if gpc.is_initialized(ParallelMode.TENSOR) and is_using_isp():
                     setattr(param, IS_TENSOR_DATA_PARALLEL, True)
-                elif gpc.is_initialized(ParallelMode.TENSOR) and tp_mode != "isp":
+                elif gpc.is_initialized(ParallelMode.TENSOR) and not is_using_isp():
                     setattr(param, IS_TENSOR_ZERO_PARALLEL, True)
 
         # for linear module
@@ -131,9 +130,9 @@ def set_parallel_attr_for_param_groups(model: Union[nn.Module, nn.ModuleList]):
                 if gpc.is_initialized(ParallelMode.EXPERT_DATA) and is_moe_param(param):
                     # module should be MoE experts's linear
                     setattr(param, IS_TENSOR_EXPERT_DATA_PARALLEL, True)
-                elif not is_moe_param(param) and gpc.is_initialized(ParallelMode.TENSOR) and tp_mode != "isp":
+                elif not is_moe_param(param) and gpc.is_initialized(ParallelMode.TENSOR) and not is_using_isp():
                     setattr(param, IS_TENSOR_ZERO_PARALLEL, True)
-                elif not is_moe_param(param) and gpc.is_initialized(ParallelMode.WEIGHT) and tp_mode == "isp":
+                elif not is_moe_param(param) and gpc.is_initialized(ParallelMode.WEIGHT) and is_using_isp():
                     setattr(param, IS_WEIGHT_ZERO_PARALLEL, True)
 
     if not isinstance(model, nn.ModuleList):
@@ -208,9 +207,7 @@ def initialize_model(pre_process_func: Optional[Callable] = None, post_process_f
 
     # Change random state mode to ParallelMode.DATA after model is built, guaranteeing the random
     # state in the same dp group are all the same.
-    random_mode = (
-        ParallelMode.WEIGHT_DATA if gpc.config.parallel["tensor"].get("mode", "mtp") == "isp" else ParallelMode.DATA
-    )
+    random_mode = ParallelMode.WEIGHT_DATA if is_using_isp() else ParallelMode.DATA
     set_mode(random_mode)
 
     # if fsdp enabled, wrap the model
@@ -262,9 +259,8 @@ def initialize_isp_communicator(model: Union[nn.Module, nn.ModuleList]):
     Returns:
         An isp communicator for managing comp/comm overlap and memory pool.
     """
-    if gpc.config.parallel["tensor"].get("mode", "mtp") != "isp":
-        isp_communicator = None
-    else:
+    isp_communicator = None
+    if is_using_isp():
         isp_communicator = ISPCommunicator(
             model,
             ISPCommModelConfig(
