@@ -78,11 +78,11 @@ from internlm.utils.common import (
 from internlm.utils.logger import get_logger
 from internlm.utils.megatron_timers import megatron_timer as timer
 from internlm.utils.parallel import (
-    is_using_isp,
     is_replica_zero_parallel_parameter,
     is_tensor_data_parallel_parameter,
     is_tensor_expert_data_parallel_parameter,
     is_tensor_zero_parallel_parameter,
+    is_using_isp,
     is_weight_zero_parallel_parameter,
     set_model_params_layer_name,
     sync_model_param,

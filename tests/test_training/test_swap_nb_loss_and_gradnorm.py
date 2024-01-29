@@ -278,7 +278,7 @@ def exam_loss(args):
     seed_all(1024)
 
     # initialize model
-    model, _ = initialize_model()
+    model = initialize_model()
 
     # initialize loss function
     criterion = FlashGPTLMLoss(parallel_output=True, label_smoothing=gpc.config.loss.label_smoothing)

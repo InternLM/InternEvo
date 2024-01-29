@@ -124,7 +124,7 @@ def main(args):
     uniscale_logger = initialize_llm_logger(start_time=current_time)
 
     # initialize model
-    model, _ = initialize_model()
+    model = initialize_model()
 
     with open(args.config, "r") as f:
         config_lines = f.readlines()
