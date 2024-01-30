@@ -19,6 +19,7 @@ jobs:
     - name: mask env
       run: |
         echo "::add-mask::${{env.WORKSPACE_PREFIX}}"
+        echo "::add-mask::$path_prefix"
     - uses: actions/checkout@v3
 
     - name: acc_tests
@@ -34,6 +35,7 @@ jobs:
     - name: mask env
       run: |
         echo "::add-mask::${{env.WORKSPACE_PREFIX}}"
+        echo "::add-mask::$path_prefix"
     - uses: actions/checkout@v3
 
     - name: loss_tests
@@ -41,3 +43,19 @@ jobs:
         source $evo_env
         export PYTHONPATH=$PWD:$PYTHONPATH
         srun -p ${SLURM_PARTITION} --kill-on-bad-exit=1 --job-name=internlm-loss-test-${GITHUB_RUN_ID}-${GITHUB_JOB} -N 1 -n 1 --gres=gpu:8 python -m pytest -s ./tests/test_training/test_swap_nb_loss_and_gradnorm.py
+
+  notify_to_feishu:
+    if: ${{ always() && !cancelled() && contains(needs.*.result, 'failure') && (github.ref_name == 'develop' || github.ref_name == 'main') }}
+    needs: [
+      acc_tests,
+      check_loss_when_swapping_micro_num_and_micro_bsz
+      ]
+    runs-on: [t_cluster]
+    steps:
+    - name: mask env
+      run: |
+        echo "::add-mask::${{env.WORKSPACE_PREFIX}}"
+        echo "::add-mask::$path_prefix"
+    - name: notify
+      run: |
+        curl -X POST -H "Content-Type: application/json" -d '{"msg_type":"post","content":{"post":{"zh_cn":{"title":"InternEvo GitHubAction Failed","content":[[{"tag":"text","text":""},{"tag":"a","text":"Please click here for details ","href":"https://github.com/'${{ github.repository }}'/actions/runs/'${GITHUB_RUN_ID}'"},{"tag":"at","user_id":"'${{ secrets.USER_ID }}'"}]]}}}}'  ${{ secrets.WEBHOOK_URL }}

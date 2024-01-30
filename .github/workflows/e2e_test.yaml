@@ -12,8 +12,12 @@ env:
 jobs:
   training_8GPU:
     runs-on: [t_cluster]
-    timeout-minutes: 5
+    timeout-minutes: 10
     steps:
+    - name: mask env
+      run: |
+        echo "::add-mask::${{env.WORKSPACE_PREFIX}}"
+        echo "::add-mask::$path_prefix"
     - uses: actions/checkout@v3
 
     - name: training_8GPU
