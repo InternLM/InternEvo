@@ -498,8 +498,10 @@ class ParallelContext(metaclass=SingletonMeta):
         # the user should not set the data parallel size manually
         # instead, it should be calculated based on other parallel config
         self.sequence_parallel_size = self.tensor_parallel_size
-        self.data_parallel_size = self.world_size // self.pipeline_parallel_size // self.sequence_parallel_size
-        self.weight_data_parallel_size = self.world_size // self.pipeline_parallel_size // self.weight_parallel_size
+        self.data_parallel_size = max(1, self.world_size // self.pipeline_parallel_size // self.sequence_parallel_size)
+        self.weight_data_parallel_size = max(
+            1, self.world_size // self.pipeline_parallel_size // self.weight_parallel_size
+        )
         if isinstance(parallel_config["tensor"], dict) and parallel_config["tensor"]["mode"] == "isp":
             if self.zero1_parallel_size == -1:
                 self.zero1_parallel_size = self.weight_data_parallel_size
