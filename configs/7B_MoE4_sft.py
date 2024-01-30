@@ -149,7 +149,7 @@ model = dict(
     num_chunks=1,  # if num_chunks > 1, interleaved pipeline scheduler is used.
     num_experts=4,
     moe_use_residual=False,
-    moe_gate_k=2,
+    moe_type="GShard",
 )
 """
 zero1 parallel (dict):
@@ -197,6 +197,17 @@ monitor = dict(
     tensorboard=dict(
         queue_max_length=10,
     ),
+)
+
+# custom moe impl configs
+moe = dict(
+    top_k=2,
+    capacity_factor=1.0,
+    eval_capacity_factor=1.0,
+    min_capacity=4,
+    noisy_gate_policy=None,
+    drop_tokens=True,
+    use_rts=True,
 )
 
 model_type = "INTERNLM_MoE"

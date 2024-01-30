@@ -1,13 +1,11 @@
-import typing
-
 import torch
 
+import internlm.moe  # noqa # pylint: disable=W0611
 from internlm.core.context import ParallelMode
 from internlm.core.context import global_context as gpc
 from internlm.model.linear import FeedForward
-from internlm.moe.experts import Experts
-from internlm.moe.sharded_moe import MOELayer, TopKGate
 from internlm.utils.logger import get_logger
+from internlm.utils.registry import MODEL_INITIALIZER
 
 # global llm logger
 logger = get_logger(__file__)
@@ -39,75 +37,30 @@ class MoE(torch.nn.Module):
         self,
         hidden_size,
         num_experts=1,
+        ep_group=None,
         ep_size=1,
-        k=1,
-        capacity_factor=1.0,
-        eval_capacity_factor=1.0,
-        min_capacity=4,
-        noisy_gate_policy: typing.Optional[str] = None,
-        drop_tokens: bool = True,
-        use_rts: bool = True,
-        using_default_moe: bool = True,
-        use_residual=False,
         device=None,
         dtype=None,
     ):
 
         super().__init__()
 
-        assert (
-            num_experts % ep_size == 0
-        ), f"Number of experts ({num_experts}) should be divisible by expert parallel size ({ep_size})"
-        self.ep_size = ep_size
-        self.num_experts = num_experts
-        self.num_local_experts = num_experts // self.ep_size
+        if not hasattr(gpc.config, "moe"):
+            gpc.config.moe = dict()
 
-        assert noisy_gate_policy is None or noisy_gate_policy in ["None", "Jitter", "RSample"], (
-            "Unsupported noisy_gate_policy: " + noisy_gate_policy
+        self.moe_layer = MODEL_INITIALIZER.get_module(module_name=gpc.config.model.moe_type)(
+            hidden_size=hidden_size,
+            num_experts=num_experts,
+            ep_group=ep_group,
+            ep_size=ep_size,
+            device=device,
+            dtype=dtype,
+            **(gpc.config.moe)
         )
-
-        # for elastic expert paralle, experts may have multiple groups
-        expert_group_name = f"moe_ep_size_{self.ep_size}"
-        if expert_group_name not in gpc.expert_parallel_group_names:
-            gpc.expert_parallel_group_names.append(expert_group_name)
-        experts = torch.nn.ModuleList(
-            [
-                FeedForward(
-                    hidden_size,
-                    int(hidden_size * gpc.config.model.mlp_ratio),
-                    out_features=hidden_size,
-                    process_group=gpc.get_group(ParallelMode.TENSOR),
-                    bias=False,
-                    device=device,
-                    dtype=dtype,
-                )
-                for _ in range(self.num_local_experts)
-            ]
-        )
-        experts = Experts(experts, self.num_local_experts, expert_group_name)
-
-        if using_default_moe:
-            self.moe_layer = MOELayer(
-                TopKGate(
-                    hidden_size,
-                    num_experts,
-                    k,
-                    capacity_factor,
-                    eval_capacity_factor,
-                    min_capacity,
-                    noisy_gate_policy,
-                    drop_tokens,
-                    use_rts,
-                ),
-                experts,
-                gpc.get_group(ParallelMode.EXPERT),
-                self.ep_size,
-                self.num_local_experts,
-            )
 
         # residual network, see https://arxiv.org/pdf/2201.05596.pdf, seems useful for convergence
-        self.use_residual = use_residual
-        if use_residual:
+        self.use_residual = gpc.config.model.moe_use_residual
+        if self.use_residual:
             self.residual_mlp = FeedForward(
                 hidden_size,
                 int(hidden_size * gpc.config.model.mlp_ratio),
