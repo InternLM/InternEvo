@@ -53,16 +53,9 @@ class PackedFlashBaseLayer1D(nn.Module):
         norm_type (str): Use RMS norm or layernorm."rmsnorm" by default.
         use_flash_attn (bool): Whether use flash-attn. True by default.
         num_experts (int): The number of experts. <=1 means dense, >1 means MoE. 1 by default.
-        moe_gate_k (int, optional): default=1, top-k gating value, only supports k=1 or k=2.
-        moe_capacity_factor (float, optional): default=1.0, the capacity of the expert at training time.
-        moe_eval_capacity_factor (float, optional): default=1.0, the capacity of the expert at eval time.
-        moe_min_capacity (int, optional): default=4, the minimum capacity per expert regardless of the capacity_factor.
-        moe_noisy_gate_policy (str, optional): default=None, noisy gate policy, valid options are 'Jitter', 'RSample'.
-        moe_drop_tokens (bool, optional): default=True, whether to drop tokens - (setting to False is equivalent to
-                                          infinite capacity).
-        moe_use_rts (bool, optional): default=True, whether to use Random Token Selection.
         moe_use_residual (bool, optional): default=False, make this MoE layer a Residual MoE
                                           (https://arxiv.org/abs/2201.05596) layer.
+        moe_type (str): determine which moe impl will be used, default is GShardMoE
     """
 
     def __init__(
@@ -86,14 +79,6 @@ class PackedFlashBaseLayer1D(nn.Module):
         use_swiglu: bool = True,
         use_flash_attn: bool = True,
         num_experts: int = 1,
-        moe_gate_k: int = 1,
-        moe_capacity_factor: float = 1.0,
-        moe_eval_capacity_factor: float = 1.0,
-        moe_min_capacity: int = 4,
-        moe_noisy_gate_policy: str = None,
-        moe_drop_tokens: bool = True,
-        moe_use_rts: bool = True,
-        moe_use_residual: bool = False,
     ):
         super().__init__()
         self.checkpoint = checkpoint
@@ -131,14 +116,6 @@ class PackedFlashBaseLayer1D(nn.Module):
         set_fp32_attr_to_module(self.norm2)
 
         self.num_experts = num_experts
-        self.moe_gate_k = moe_gate_k
-        self.moe_capacity_factor = moe_capacity_factor
-        self.moe_eval_capacity_factor = moe_eval_capacity_factor
-        self.moe_min_capacity = moe_min_capacity
-        self.moe_noisy_gate_policy = moe_noisy_gate_policy
-        self.moe_drop_tokens = moe_drop_tokens
-        self.moe_use_rts = moe_use_rts
-        self.moe_use_residual = moe_use_residual
         ep_size = gpc.get_world_size(ParallelMode.EXPERT)
         if num_experts <= 1:  # dense, not MoE
             if use_swiglu:
@@ -174,15 +151,8 @@ class PackedFlashBaseLayer1D(nn.Module):
             self.mlp = MoE(
                 hidden_size=hidden_size,
                 num_experts=num_experts,
+                ep_group=gpc.get_group(ParallelMode.EXPERT),
                 ep_size=ep_size,
-                k=moe_gate_k,
-                capacity_factor=moe_capacity_factor,
-                eval_capacity_factor=moe_eval_capacity_factor,
-                min_capacity=moe_min_capacity,
-                noisy_gate_policy=moe_noisy_gate_policy,
-                drop_tokens=moe_drop_tokens,
-                use_rts=moe_use_rts,
-                use_residual=moe_use_residual,
                 device=device,
                 dtype=dtype,
             )
@@ -316,16 +286,9 @@ class PackedFlashInternLm1D(nn.Module):
         norm_type (str): Normalization type. Use RMSNorm or LayerNorm. "rmsnorm" by default.
         use_flash_attn (bool): Whether to use flash-attn. True by default.
         num_experts (int): The number of experts. <=1 means dense, >1 means MoE. 1 by default.
-        moe_gate_k (int, optional): default=1, top-k gating value, only supports k=1 or k=2.
-        moe_capacity_factor (float, optional): default=1.0, the capacity of the expert at training time.
-        moe_eval_capacity_factor (float, optional): default=1.0, the capacity of the expert at eval time.
-        moe_min_capacity (int, optional): default=4, the minimum capacity per expert regardless of the capacity_factor.
-        moe_noisy_gate_policy (str, optional): default=None, noisy gate policy, valid options are 'Jitter', 'RSample'.
-        moe_drop_tokens (bool, optional): default=True, whether to drop tokens - (setting to False is equivalent
-                                          to infinite capacity).
-        moe_use_rts (bool, optional): default=True, whether to use Random Token Selection.
         moe_use_residual (bool, optional): default=False, make this MoE layer a Residual MoE
                                           (https://arxiv.org/abs/2201.05596) layer.
+        moe_type (str): determine which moe impl will be used, default is GShardMoE
     """
 
     def __init__(
@@ -357,14 +320,6 @@ class PackedFlashInternLm1D(nn.Module):
         use_swiglu: bool = True,
         use_flash_attn: bool = True,
         num_experts: bool = 1,
-        moe_gate_k: int = 1,
-        moe_capacity_factor: float = 1.0,
-        moe_eval_capacity_factor: float = 1.0,
-        moe_min_capacity: int = 4,
-        moe_noisy_gate_policy: str = None,
-        moe_drop_tokens: bool = True,
-        moe_use_rts: bool = True,
-        moe_use_residual: bool = False,
     ):
         super().__init__()
 
@@ -415,14 +370,6 @@ class PackedFlashInternLm1D(nn.Module):
                     use_swiglu=use_swiglu,
                     use_flash_attn=use_flash_attn,
                     num_experts=num_experts,
-                    moe_gate_k=moe_gate_k,
-                    moe_capacity_factor=moe_capacity_factor,
-                    moe_eval_capacity_factor=moe_eval_capacity_factor,
-                    moe_min_capacity=moe_min_capacity,
-                    moe_noisy_gate_policy=moe_noisy_gate_policy,
-                    moe_drop_tokens=moe_drop_tokens,
-                    moe_use_rts=moe_use_rts,
-                    moe_use_residual=moe_use_residual,
                 )
                 for lid in range(num_layers)
             ]
@@ -559,14 +506,8 @@ def build_model_with_moe_cfg(
     use_swiglu: bool = True,
     use_flash_attn: bool = True,
     num_experts: int = 1,
-    moe_gate_k: int = 1,
-    moe_capacity_factor: float = 1.0,
-    moe_eval_capacity_factor: float = 1.0,
-    moe_min_capacity: int = 4,
-    moe_noisy_gate_policy: str = None,
-    moe_drop_tokens: bool = True,
-    moe_use_rts: bool = True,
-    moe_use_residual: bool = False,
+    moe_use_residual: bool = False,  # pylint: disable=W0613
+    moe_type: str = None,  # pylint: disable=W0613
 ):
     """
     Build model with config.
@@ -598,16 +539,9 @@ def build_model_with_moe_cfg(
         use_swiglu (bool): Whether to use swiglu. True by default.
         use_flash_attn (bool): Whether to use flash-attn. True by default.
         num_experts (int): The number of experts. <=1 means dense, >1 means MoE. 1 by default.
-        moe_gate_k (int, optional): default=1, top-k gating value, only supports k=1 or k=2.
-        moe_capacity_factor (float, optional): default=1.0, the capacity of the expert at training time.
-        moe_eval_capacity_factor (float, optional): default=1.0, the capacity of the expert at eval time.
-        moe_min_capacity (int, optional): default=4, the minimum capacity per expert regardless of the capacity_factor.
-        moe_noisy_gate_policy (str, optional): default=None, noisy gate policy, valid options are 'Jitter', 'RSample'.
-        moe_drop_tokens (bool, optional): default=True, whether to drop tokens - (setting to False is equivalent
-                                          to infinite capacity).
-        moe_use_rts (bool, optional): default=True, whether to use Random Token Selection.
         moe_use_residual (bool, optional): default=False, make this MoE layer a Residual MoE
                                            (https://arxiv.org/abs/2201.05596) layer.
+        moe_type (str): determine which moe impl will be used, default is GShardMoE
     """
 
     cfg = dict(
@@ -633,14 +567,6 @@ def build_model_with_moe_cfg(
         use_swiglu=use_swiglu,
         use_flash_attn=use_flash_attn,
         num_experts=num_experts,
-        moe_gate_k=moe_gate_k,
-        moe_capacity_factor=moe_capacity_factor,
-        moe_eval_capacity_factor=moe_eval_capacity_factor,
-        moe_min_capacity=moe_min_capacity,
-        moe_noisy_gate_policy=moe_noisy_gate_policy,
-        moe_drop_tokens=moe_drop_tokens,
-        moe_use_rts=moe_use_rts,
-        moe_use_residual=moe_use_residual,
     )
 
     return _build_generic_model_1d(num_layers=num_layers, num_chunks=num_chunks, **cfg)
