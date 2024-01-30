@@ -16,6 +16,7 @@ import numpy as np
 import torch
 import torch.distributed as dist
 
+from internlm.accelerator import internlm_accelerator
 from internlm.utils.common import SingletonMeta
 from internlm.utils.logger import get_logger
 from internlm.utils.timeout import LLM_NCCL_TIMEOUT
@@ -560,10 +561,10 @@ class ParallelContext(metaclass=SingletonMeta):
         """
         global_rank = self.get_global_rank()
         if device_ordinal is None:
-            devices_per_node = torch.cuda.device_count()
+            devices_per_node = internlm_accelerator.device_count()
             device_ordinal = global_rank % devices_per_node
 
-        torch.cuda.set_device(device_ordinal)
+        internlm_accelerator.set_device(device_ordinal)
         logger.info(f"process rank {global_rank} is bound to host:{socket.gethostname()} device: {device_ordinal}")
 
     def set_seed(self, seed: int, dpseed_with_tpoffset: bool = False):
@@ -578,7 +579,7 @@ class ParallelContext(metaclass=SingletonMeta):
         random.seed(seed)
         np.random.seed(seed)
         torch.manual_seed(seed)
-        assert torch.cuda.is_available()
+        assert internlm_accelerator.is_available()
 
         # data parallel seed are kept the same in the same pipeline stage
         dp_seed = seed

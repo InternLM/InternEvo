@@ -12,13 +12,18 @@ from flash_attn.utils.distributed import (
     reduce_scatter_raw,
 )
 from torch import Tensor
-from torch.cuda.amp import custom_bwd
 from torch.distributed import ProcessGroup
 
+from internlm.accelerator import get_accelerator, internlm_accelerator
 from internlm.core.context import global_context as gpc
 from internlm.utils.logger import get_logger
 
 logger = get_logger(__file__)
+
+if internlm_accelerator is None:
+    internlm_accelerator = get_accelerator()
+
+custom_bwd = internlm_accelerator.return_custom_bwd()
 
 
 def _split(input_, parallel_mode, dim=-1):

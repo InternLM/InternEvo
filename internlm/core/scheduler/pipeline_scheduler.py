@@ -6,10 +6,11 @@
 from contextlib import contextmanager
 from typing import Callable, List, Optional, Tuple, Union
 
-import torch.cuda
+import torch
 import torch.distributed as dist
 
 import internlm.core.communication as comm
+from internlm.accelerator import internlm_accelerator
 from internlm.core.context import ParallelMode
 from internlm.core.context import global_context as gpc
 from internlm.core.engine import Engine
@@ -309,7 +310,7 @@ class PipelineScheduler(BaseScheduler):
         moe_loss = (
             sum(moe_losses) * gpc.config.loss.moe_loss_coeff
             if hasattr(gpc.config.model, "num_experts") and gpc.config.model.num_experts > 1
-            else torch.tensor(0.0, device=torch.cuda.current_device(), dtype=gpc.config.model.get("dtype"))
+            else torch.tensor(0.0, device=internlm_accelerator.current_device(), dtype=gpc.config.model.get("dtype"))
         )
         moe_loss /= self.num_microbatches
         accum_moe_loss.add_(moe_loss.detach())
@@ -860,7 +861,7 @@ class InterleavedPipelineScheduler(PipelineScheduler):
         moe_loss = (
             sum(moe_losses) * gpc.config.loss.moe_loss_coeff
             if hasattr(gpc.config.model, "num_experts") and gpc.config.model.num_experts > 1
-            else torch.tensor(0.0, device=torch.cuda.current_device(), dtype=gpc.config.model.get("dtype"))
+            else torch.tensor(0.0, device=internlm_accelerator.current_device(), dtype=gpc.config.model.get("dtype"))
         )
         moe_loss /= self.num_microbatches
 

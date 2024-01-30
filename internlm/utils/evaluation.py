@@ -4,6 +4,7 @@ import torch
 import torch.distributed as dist
 from tqdm import tqdm
 
+from internlm.accelerator import internlm_accelerator
 from internlm.core.context import ParallelMode
 from internlm.core.context import global_context as gpc
 from internlm.core.scheduler import SchedulerMetricHook
@@ -67,7 +68,7 @@ def evaluate_on_val_dls(
     streaming: bool = False,
 ):
     with switch_sequence_parallel_mode():
-        torch.cuda.empty_cache()
+        internlm_accelerator.empty_cache()
         trainer.eval()
         verbose = gpc.is_rank_for_log()
         data_cfg = gpc.config.data
@@ -78,7 +79,7 @@ def evaluate_on_val_dls(
                 continue
 
             val_metric = AccPerplex(
-                device=torch.cuda.current_device(),
+                device=internlm_accelerator.current_device(),
                 tp_pg=gpc.get_group(ParallelMode.TENSOR),
                 dp_pg=gpc.get_group(ParallelMode.DATA),
             )
@@ -171,5 +172,5 @@ def evaluate_on_val_dls(
                     )
 
         trainer.train()
-        torch.cuda.empty_cache()
+        internlm_accelerator.empty_cache()
         dist.barrier()

@@ -6,6 +6,7 @@ from torch import nn
 from torch.testing import assert_close
 
 import internlm
+from internlm.accelerator import get_accelerator, internlm_accelerator
 from internlm.core.context import ParallelMode
 from internlm.core.context import global_context as gpc
 from internlm.core.engine import Engine
@@ -18,6 +19,9 @@ from internlm.core.scheduler import (
 )
 from internlm.solver.pipeline_utils import partition_uniform
 from internlm.train import initialize_optimizer
+
+if internlm_accelerator is None:
+    internlm_accelerator = get_accelerator()
 
 
 class MlpModel(nn.Module):
@@ -150,7 +154,7 @@ def build_environment(rank, world_size, config):
     os.environ["WORLD_SIZE"] = str(world_size)
     os.environ["MASTER_ADDR"] = "127.0.0.1"
     os.environ["MASTER_PORT"] = "33333"
-    torch.cuda.empty_cache()
+    internlm_accelerator.empty_cache()
     # launcher="torch"
     internlm.launch_from_torch(config=config, seed=1024)
 
@@ -175,9 +179,9 @@ def seed_all(seed, cuda_deterministic=False):
     random.seed(seed)
     np.random.seed(seed)
     torch.manual_seed(seed)
-    if torch.cuda.is_available():
-        torch.cuda.manual_seed(seed)
-        torch.cuda.manual_seed_all(seed)
+    if internlm_accelerator.is_available():
+        internlm_accelerator.manual_seed(seed)
+        internlm_accelerator.manual_seed_all(seed)
     if cuda_deterministic:  # slower, more reproducible
         torch.backends.cudnn.deterministic = True
         torch.backends.cudnn.benchmark = False

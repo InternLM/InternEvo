@@ -8,6 +8,7 @@ from functools import partial
 import torch
 from torch.utils.tensorboard import SummaryWriter
 
+from internlm.accelerator import internlm_accelerator
 from internlm.core.context import global_context as gpc
 
 
@@ -78,7 +79,7 @@ please make sure this folder is located at local file system."
 
     writer.add_text(
         tag=f"mapping_{tb_log_file_name}",
-        text_string=f"file_path={tb_logdir} hostname={socket.gethostname()} device={torch.cuda.current_device()}",
+        text_string=f"file_path={tb_logdir} hostname={socket.gethostname()} device={internlm_accelerator.current_device()}",
         global_step=step_count,
     )
     writer.add_scaler = partial(writer.add_scalar, new_style=True)

@@ -7,6 +7,7 @@ from typing import Any, Callable, Iterable, List, Optional
 
 import torch
 
+from internlm.accelerator import internlm_accelerator
 from internlm.core.context import global_context as gpc
 from internlm.core.engine import Engine
 from internlm.utils.common import conditional_context
@@ -123,7 +124,9 @@ class NonPipelineScheduler(BaseScheduler):
                 moe_loss = (
                     sum(moe_losses) * gpc.config.loss.moe_loss_coeff
                     if hasattr(gpc.config.model, "num_experts") and gpc.config.model.num_experts > 1
-                    else torch.tensor(0.0, device=torch.cuda.current_device(), dtype=gpc.config.model.get("dtype"))
+                    else torch.tensor(
+                        0.0, device=internlm_accelerator.current_device(), dtype=gpc.config.model.get("dtype")
+                    )
                 )
                 moe_loss /= scale_loss
                 loss /= scale_loss

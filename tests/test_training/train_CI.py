@@ -17,6 +17,7 @@ project_root = os.path.abspath(os.path.join(script_dir, "../../"))
 sys.path.append(project_root)
 
 import internlm  # noqa: E402
+from internlm.accelerator import get_accelerator, internlm_accelerator
 from internlm.core.context import ParallelMode  # noqa: E402
 from internlm.core.context import global_context as gpc  # noqa: E402
 from internlm.core.scheduler import SchedulerMetricHook  # noqa: E402
@@ -51,6 +52,9 @@ from internlm.utils.model_checkpoint import CheckpointManager  # noqa: E402
 from internlm.utils.parallel import get_parallel_log_file_name  # noqa: E402
 from internlm.utils.simple_memory_profiler import SimpleMemoryProfiler  # noqa: E402
 from internlm.utils.writer import Writer  # noqa: E402
+
+if internlm_accelerator is None:
+    internlm_accelerator = get_accelerator()
 
 # global llm logger
 logger = get_logger(__file__)
@@ -171,7 +175,7 @@ def main(args):
 
     # initialize metric for calculating accuracy and perplexity
     metric = AccPerplex(
-        device=torch.cuda.current_device(),
+        device=internlm_accelerator.current_device(),
         tp_pg=gpc.get_group(ParallelMode.TENSOR),
         dp_pg=gpc.get_group(ParallelMode.DATA),
         dataset_types=dataset_types,

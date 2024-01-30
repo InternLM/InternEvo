@@ -7,6 +7,7 @@ import torch.nn.functional as F
 from einops import rearrange
 from torch import nn
 
+from internlm.accelerator import internlm_accelerator
 from internlm.core.context import IS_SEQUENCE_PARALLEL, IS_TENSOR_PARALLEL, ParallelMode
 from internlm.core.context.parallel_context import global_context as gpc
 from internlm.initialize.initialize_tensor import (
@@ -212,7 +213,7 @@ class MHA(nn.Module):
                     q = q.to(torch.bfloat16)
                 if kv.dtype not in [torch.float16, torch.bfloat16]:
                     kv = kv.to(torch.bfloat16)
-                with torch.cuda.amp.autocast(dtype=torch.bfloat16):
+                with internlm_accelerator.amp.autocast(dtype=torch.bfloat16):
                     context = self.inner_cross_attn(q, kv).to(self.dtype)
             else:
                 context = self.inner_cross_attn(q, kv)
@@ -315,7 +316,7 @@ class MHA(nn.Module):
                             total_q = total_q.to(torch.bfloat16)
                         if total_kv.dtype not in [torch.float16, torch.bfloat16]:
                             total_kv = total_kv.to(torch.bfloat16)
-                        with torch.cuda.amp.autocast(dtype=torch.bfloat16):
+                        with internlm_accelerator.amp.autocast(dtype=torch.bfloat16):
                             output = FlashAttnVarlenKVPackedFunc.apply(
                                 total_q,
                                 total_kv,
@@ -380,7 +381,7 @@ class MHA(nn.Module):
                         q = q.to(torch.bfloat16)
                     if kv.dtype not in [torch.float16, torch.bfloat16]:
                         kv = kv.to(torch.bfloat16)
-                    with torch.cuda.amp.autocast(dtype=torch.bfloat16):
+                    with internlm_accelerator.amp.autocast(dtype=torch.bfloat16):
                         context = self.inner_cross_attn(q, kv, causal=True).to(self.dtype)
                 else:
                     context = self.inner_cross_attn(q, kv, causal=True)
@@ -425,7 +426,7 @@ class MHA(nn.Module):
                     q = q.to(torch.bfloat16)
                 if kv.dtype not in [torch.float16, torch.bfloat16]:
                     kv = kv.to(torch.bfloat16)
-                with torch.cuda.amp.autocast(dtype=torch.bfloat16):
+                with internlm_accelerator.amp.autocast(dtype=torch.bfloat16):
                     context = flash_attn_varlen_kvpacked_func(
                         q=q,
                         kv=kv,

@@ -13,6 +13,7 @@ import numpy as np
 import torch
 
 import internlm
+from internlm.accelerator import internlm_accelerator
 
 CURRENT_TIME = None
 
@@ -36,7 +37,7 @@ def get_master_node():
 
 def move_norm_to_cuda(norm: Union[float, torch.Tensor]) -> Union[float, torch.Tensor]:
     if torch.is_tensor(norm) and norm.device.type != "cuda":
-        norm = norm.to(torch.cuda.current_device())
+        norm = norm.to(internlm_accelerator.current_device())
     return norm
 
 
@@ -84,7 +85,7 @@ def get_tensor_norm(norm: Union[float, torch.Tensor], move_to_cuda) -> torch.Ten
     if isinstance(norm, float):
         norm = torch.Tensor([norm])
     if move_to_cuda:
-        norm = norm.to(torch.cuda.current_device())
+        norm = norm.to(internlm_accelerator.current_device())
     return norm
 
 
@@ -93,8 +94,8 @@ def get_current_device() -> torch.device:
     Returns currently selected device (gpu/cpu).
     If cuda available, return gpu, otherwise return cpu.
     """
-    if torch.cuda.is_available():
-        return torch.device(f"cuda:{torch.cuda.current_device()}")
+    if internlm_accelerator.is_available():
+        return torch.device(f"cuda:{internlm_accelerator.current_device()}")
     else:
         return torch.device("cpu")
 
@@ -141,9 +142,9 @@ def set_random_seed(seed):
         random.seed(seed)
         np.random.seed(seed)
         torch.manual_seed(seed)
-        torch.cuda.manual_seed(seed)
+        internlm_accelerator.manual_seed(seed)
         # if you are using multi-GPU.
-        torch.cuda.manual_seed_all(seed)
+        internlm_accelerator.manual_seed_all(seed)
 
 
 @contextmanager

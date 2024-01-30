@@ -20,9 +20,13 @@ try:
 except ImportError:
     GPUtil, psutil = None, None
 
+from internlm.accelerator import get_accelerator, internlm_accelerator
 from internlm.core.context import ParallelMode
 from internlm.core.context import global_context as gpc
 from internlm.utils.common import get_current_device
+
+if internlm_accelerator is None:
+    internlm_accelerator = get_accelerator()
 
 logger = get_logger(__file__)
 
@@ -50,7 +54,7 @@ def empty_cache_and_diag(batch_count, interval=50):
                 # to exit due to NCCL errors.
                 # bench_net()
         # do empty_cache after the bench
-        torch.cuda.empty_cache()
+        internlm_accelerator.empty_cache()
         # do garbage collection
         gc.collect()
 
@@ -88,7 +92,7 @@ def flops(batch, seqlen, headdim, nheads, time_f):
 def get_gpu_temperature():
     """Get current GPU temperature."""
     try:
-        gpu_id = torch.cuda.current_device()
+        gpu_id = internlm_accelerator.current_device()
     except AssertionError:
         gpu_id = -1
 
@@ -296,12 +300,12 @@ def warmup_process_group():
 
         dist.barrier()
         del buffer
-        torch.cuda.empty_cache()
+        internlm_accelerator.empty_cache()
 
 
 def cuda_memory_analyze(step=0, print_mm_suage=False):
     global n_caching_allocator_flushes
-    torch.cuda.synchronize()
+    internlm_accelerator.synchronize()
 
     g_rank = gpc.get_global_rank()
     tp_rank = gpc.get_local_rank(ParallelMode.TENSOR)
@@ -312,16 +316,16 @@ def cuda_memory_analyze(step=0, print_mm_suage=False):
     if print_mm_suage and gpc.get_local_rank(ParallelMode.DATA) == 0:
         logger.info(
             f"{rank_id}: Step {step}: "
-            f"Allocated {round(torch.cuda.memory_allocated() / (1024 * 1024 * 1024),4 )} GB, "
-            f"Max_Allocated {round(torch.cuda.max_memory_allocated() / (1024 * 1024 * 1024),4)} GB, "
-            f"Reserved {round(torch.cuda.memory_reserved()/ (1024 * 1024 * 1024),4)} GB, "
-            f"Max_Reserved {round(torch.cuda.max_memory_reserved()/ (1024 * 1024 * 1024),4)} GB "
+            f"Allocated {round(internlm_accelerator.memory_allocated() / (1024 * 1024 * 1024),4 )} GB, "
+            f"Max_Allocated {round(internlm_accelerator.max_memory_allocated() / (1024 * 1024 * 1024),4)} GB, "
+            f"Reserved {round(internlm_accelerator.memory_reserved()/ (1024 * 1024 * 1024),4)} GB, "
+            f"Max_Reserved {round(internlm_accelerator.max_memory_reserved()/ (1024 * 1024 * 1024),4)} GB "
         )
 
-        torch.cuda.reset_peak_memory_stats()
+        internlm_accelerator.reset_peak_memory_stats()
 
     # warn user about caching allocator flushes
-    memory_stats = torch.cuda.memory_stats()
+    memory_stats = internlm_accelerator.memory_stats()
     alloc_retries = memory_stats.get("num_alloc_retries")
     if alloc_retries is None:
         alloc_retries = 0
@@ -334,7 +338,7 @@ def cuda_memory_analyze(step=0, print_mm_suage=False):
                 "performance. if this is happening frequently consider adjusting "
                 "settings to reduce memory consumption. If you are unable to "
                 "make the cache flushes go away consider adding "
-                "torch.cuda.empty_cache() calls in your training loop to ensure "
+                "internlm_accelerator.empty_cache() calls in your training loop to ensure "
                 "that all ranks flush their caches at the same time"
             )
         n_caching_allocator_flushes = alloc_retries

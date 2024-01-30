@@ -10,6 +10,7 @@ import torch.distributed as dist
 from tqdm import tqdm
 
 import internlm
+from internlm.accelerator import get_accelerator, internlm_accelerator
 from internlm.core.context import ParallelMode
 from internlm.core.context import global_context as gpc
 from internlm.core.context.parallel_context import Config
@@ -25,6 +26,9 @@ from internlm.train import (
 )
 from internlm.utils.evaluation import switch_evaluation_no_pipeline_scheduler
 from internlm.utils.logger import get_logger
+
+if internlm_accelerator is None:
+    internlm_accelerator = get_accelerator()
 
 logger = get_logger(__file__)
 
@@ -129,7 +133,7 @@ def build_environment(rank, world_size, config):
     os.environ["WORLD_SIZE"] = str(world_size)
     os.environ["MASTER_ADDR"] = "127.0.0.1"
     os.environ["MASTER_PORT"] = "33333"
-    torch.cuda.empty_cache()
+    internlm_accelerator.empty_cache()
     # launcher="torch"
     internlm.launch_from_torch(config=config, seed=1024)
     args_sanity_check()
@@ -139,9 +143,9 @@ def seed_all(seed, cuda_deterministic=False):
     random.seed(seed)
     np.random.seed(seed)
     torch.manual_seed(seed)
-    if torch.cuda.is_available():
-        torch.cuda.manual_seed(seed)
-        torch.cuda.manual_seed_all(seed)
+    if internlm_accelerator.is_available():
+        internlm_accelerator.manual_seed(seed)
+        internlm_accelerator.manual_seed_all(seed)
     if cuda_deterministic:  # slower, more reproducible
         torch.backends.cudnn.deterministic = True
         torch.backends.cudnn.benchmark = False
@@ -164,7 +168,7 @@ def evaluate_on_val_dls(
     trainer,
     val_dls,
 ):
-    torch.cuda.empty_cache()
+    internlm_accelerator.empty_cache()
     trainer.eval()
     verbose = gpc.is_rank_for_log()
     data_cfg = gpc.config.data
@@ -174,7 +178,7 @@ def evaluate_on_val_dls(
             continue
 
         val_metric = AccPerplex(
-            device=torch.cuda.current_device(),
+            device=internlm_accelerator.current_device(),
             tp_pg=gpc.get_group(ParallelMode.TENSOR),
             dp_pg=gpc.get_group(ParallelMode.DATA),
         )
@@ -213,7 +217,7 @@ def evaluate_on_val_dls(
             val_loss = val_loss / (val_idx + 1 + 1e-6)
 
     trainer.train()
-    torch.cuda.empty_cache()
+    internlm_accelerator.empty_cache()
     dist.barrier()
     return val_loss
 
@@ -226,10 +230,10 @@ def compute_trimmed_mean(value_list):
 
 
 def check_grad_norm(grad_norm_list):
-    standard_grad_norm_list = torch.load(os.path.join(
-        os.environ["share_path"], "quailty_assurance/small_300step_norm_grad/grad_norm_list.pt"
-    ))
-    
+    standard_grad_norm_list = torch.load(
+        os.path.join(os.environ["share_path"], "quailty_assurance/small_300step_norm_grad/grad_norm_list.pt")
+    )
+
     standard_grad_norm_list = standard_grad_norm_list[-100:]
     grad_norm_list = grad_norm_list[-100:]
     standard_grad_norm_list.sort()
@@ -239,18 +243,18 @@ def check_grad_norm(grad_norm_list):
     trimmed_mean2 = compute_trimmed_mean(grad_norm_list)
     tensor_trimmed_mean1 = torch.tensor(trimmed_mean1)
     tensor_trimmed_mean2 = torch.tensor(trimmed_mean2)
-    
+
     logger.info(f"norm_mean: {tensor_trimmed_mean1}, {tensor_trimmed_mean2}")
     assert torch.allclose(tensor_trimmed_mean1, tensor_trimmed_mean2, rtol=3e-1, atol=3e-1)
     logger.info(f"grad norm check passed")
-    
+
 
 def check_meanLoss_val(all_loss, all_val):
     loss_values1 = all_loss[0][-100:]
     loss_values2 = all_loss[1][-100:]
     loss_values1.sort()
     loss_values2.sort()
-    
+
     trimmed_mean1 = compute_trimmed_mean(loss_values1)
     trimmed_mean2 = compute_trimmed_mean(loss_values2)
     tensor_trimmed_mean1 = torch.tensor(trimmed_mean1)
@@ -261,9 +265,9 @@ def check_meanLoss_val(all_loss, all_val):
 
     assert torch.allclose(tensor_trimmed_mean1, tensor_trimmed_mean2, rtol=3e-2, atol=3e-2)
     assert torch.allclose(torch.tensor(all_val[0]), torch.tensor(all_val[1]), rtol=3e-2, atol=3e-2)
-    
+
     logger.info(f"loss check passed")
-    
+
 
 def exam_loss(args):
     # init
@@ -292,7 +296,7 @@ def exam_loss(args):
 
     # initialize metric for calculating accuracy and perplexity
     metric = AccPerplex(
-        device=torch.cuda.current_device(),
+        device=internlm_accelerator.current_device(),
         tp_pg=gpc.get_group(ParallelMode.TENSOR),
         dp_pg=gpc.get_group(ParallelMode.DATA),
         dataset_types=dataset_types,
@@ -363,12 +367,12 @@ def exam_loss(args):
         # update parameters
         trainer_result = trainer.step()
         assert trainer_result is not None
-        
+
         _, grad_norm_groups = trainer_result
-        
+
         if gpc.is_rank_for_log():
             logger.info(f"train_grad_norm_groups: {grad_norm_groups['0_default']}")
-            grad_norm_list.append(grad_norm_groups['0_default'])
+            grad_norm_list.append(grad_norm_groups["0_default"])
 
         # evaluate on validation data loaders
         if valid_every > 0 and batch_count > 0 and (batch_count + 1) % valid_every == 0:
@@ -379,12 +383,12 @@ def exam_loss(args):
             if val_result != 0:
                 val_list.append(val_result)
 
-    torch.cuda.empty_cache()
+    internlm_accelerator.empty_cache()
     dist.barrier()
-    
+
     if gpc.is_rank_for_log():
         check_grad_norm(grad_norm_list)
-    
+
     return rank, loss_list, val_list
 
 
