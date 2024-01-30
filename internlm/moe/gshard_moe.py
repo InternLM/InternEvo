@@ -464,7 +464,7 @@ class GShardMOELayer(BaseMoELayer):
             timer("falltoall").start()
 
         if gpc.get_world_size(ParallelMode.EXPERT) > 1:
-            dispatched_inputs, _ = all_to_all(dispatched_inputs, self.ep_group)
+            dispatched_inputs, _ = all_to_all(dispatched_inputs, group=self.ep_group)
 
         if self.wall_clock_breakdown:
             timer("falltoall").stop()
@@ -479,7 +479,7 @@ class GShardMOELayer(BaseMoELayer):
             timer("salltoall").start()
 
         if gpc.get_world_size(ParallelMode.EXPERT) > 1:
-            expert_output, _ = all_to_all(expert_output, self.ep_group)
+            expert_output, _ = all_to_all(expert_output, group=self.ep_group)
 
         if self.wall_clock_breakdown:
             timer("salltoall").stop()

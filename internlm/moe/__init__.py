@@ -1,3 +1,3 @@
-from .sharded_moe import GShardMOELayer
+from .gshard_moe import GShardMOELayer
 
 __all__ = ["GShardMOELayer"]

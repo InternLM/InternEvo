@@ -14,9 +14,9 @@ class AllToAll(torch.autograd.Function):
     def forward(
         ctx: Any,
         inputs: Tensor,
-        group: torch.distributed.ProcessGroup,
         output_split_sizes=None,
         input_split_sizes=None,
+        group: torch.distributed.ProcessGroup = None,
         async_op=False,
     ) -> Tensor:  # type: ignore
 
@@ -59,5 +59,5 @@ class AllToAll(torch.autograd.Function):
         return None, None, None, None, None
 
 
-def all_to_all(x, group, output_split_sizes=None, input_split_sizes=None, async_op=False):
-    return AllToAll.apply(x, group, output_split_sizes, input_split_sizes, async_op)
+def all_to_all(x, output_split_sizes=None, input_split_sizes=None, group=None, async_op=False):
+    return AllToAll.apply(x, output_split_sizes, input_split_sizes, group, async_op)
