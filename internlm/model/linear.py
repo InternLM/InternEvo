@@ -12,9 +12,9 @@ from internlm.core.context import ParallelMode
 from internlm.core.context import global_context as gpc
 from internlm.model.utils import (
     Silu,
-    fused_dense_func_torch,
+    fused_dense_func,
     isp_fused_dense_func,
-    megatron_fused_dense_func_torch,
+    megatron_fused_dense_func,
 )
 
 
@@ -67,7 +67,7 @@ class ScaleColumnParallelLinear(BaseScaleColumnParallelLinear):
             weight = self.weight * self.weight_scale + (1 - self.weight_scale) * self.weight.detach()
         else:
             weight = self.weight
-        return fused_dense_func_torch(
+        return fused_dense_func(
             input,
             weight,
             self.bias,
@@ -90,7 +90,7 @@ class MegatronScaleColumnParallelLinear(BaseScaleColumnParallelLinear):
             weight = self.weight * self.weight_scale + (1 - self.weight_scale) * self.weight.detach()
         else:
             weight = self.weight
-        return megatron_fused_dense_func_torch(
+        return megatron_fused_dense_func(
             input,
             weight,
             self.bias,
@@ -140,7 +140,7 @@ class RewardModelLinear(ScaleColumnParallelLinear):
             weight = self.weight * self.weight_scale + (1 - self.weight_scale) * self.weight.detach()
         else:
             weight = self.weight
-        return fused_dense_func_torch(
+        return fused_dense_func(
             input,
             weight,
             self.bias,
@@ -154,7 +154,7 @@ class ColumnParallelLinearTorch(ColumnParallelLinear):
         # If self.sequence_parallel is True, we're doing Tensor Parallel with sequence parallelism:
         # we do an all_gather of x before doing the matmul.
         # If not, then the input is already gathered.
-        return fused_dense_func_torch(
+        return fused_dense_func(
             x,
             self.weight,
             self.bias,
@@ -169,7 +169,7 @@ class MegatronColumnParallelLinearTorch(ColumnParallelLinear):
         # If self.sequence_parallel is True, we're doing Tensor Parallel with sequence parallelism:
         # we do an all_gather of x before doing the matmul.
         # If not, then the input is already gathered.
-        return megatron_fused_dense_func_torch(
+        return megatron_fused_dense_func(
             x,
             self.weight,
             self.bias,
@@ -185,7 +185,7 @@ class RowParallelLinearTorch(RowParallelLinear):
         We're doing Tensor Parallel with sequence parallelism: we do the matmul and then
         a reduce_scatter of the result.
         """
-        out = fused_dense_func_torch(x, self.weight, self.bias)
+        out = fused_dense_func(x, self.weight, self.bias)
         reduce_fn = reduce_scatter if self.sequence_parallel else all_reduce
         return reduce_fn(out, self.process_group)
 
@@ -196,7 +196,7 @@ class MegatronRowParallelLinearTorch(RowParallelLinear):
         We're doing Tensor Parallel with sequence parallelism: we do the matmul and then
         a reduce_scatter of the result.
         """
-        out = megatron_fused_dense_func_torch(x, self.weight, self.bias)
+        out = megatron_fused_dense_func(x, self.weight, self.bias)
         reduce_fn = reduce_scatter if self.sequence_parallel else all_reduce
         return reduce_fn(out, self.process_group)
 
