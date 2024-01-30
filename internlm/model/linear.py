@@ -1,7 +1,7 @@
 #!/usr/bin/env python
 # -*- encoding: utf-8 -*-
 
-from typing import Optional
+from typing import Callable, Optional
 
 import torch
 from flash_attn.ops.fused_dense import ColumnParallelLinear, RowParallelLinear
@@ -215,6 +215,8 @@ class BaseFeedForward(nn.Module):
         device (Optional[Union[str, torch.device]]): The device will be used.
         dtype (Optional[torch.dtype]): The type of data.
         multiple_of (int): For efficient training. Reset the size of hidden feature. 256 by default.
+        column_cls (Optional[Callable]): The column parallel class for w1 and w3. None by default.
+        row_cls (Optional[Callable]): The row parallel class for w2. None by default.
     """
 
     def __init__(
@@ -227,13 +229,13 @@ class BaseFeedForward(nn.Module):
         device: Optional[torch.device] = None,
         dtype: Optional[torch.dtype] = None,
         multiple_of: int = 256,
-        colum_cls=None,
-        row_cls=None,
+        column_cls: Optional[Callable] = None,
+        row_cls: Optional[Callable] = None,
     ):
         super().__init__()
         hidden_features = multiple_of * ((hidden_features + multiple_of - 1) // multiple_of)
 
-        self.w1 = colum_cls(
+        self.w1 = column_cls(
             in_features,
             hidden_features,
             process_group,
@@ -242,16 +244,7 @@ class BaseFeedForward(nn.Module):
             device=device,
             dtype=dtype,
         )
-        self.w2 = colum_cls(
-            in_features,
-            hidden_features,
-            process_group,
-            bias,
-            sequence_parallel=gpc.config.parallel.sequence_parallel,
-            device=device,
-            dtype=dtype,
-        )
-        self.w3 = row_cls(
+        self.w2 = row_cls(
             hidden_features,
             out_features,
             process_group,
@@ -260,11 +253,20 @@ class BaseFeedForward(nn.Module):
             device=device,
             dtype=dtype,
         )
+        self.w3 = column_cls(
+            in_features,
+            hidden_features,
+            process_group,
+            bias,
+            sequence_parallel=gpc.config.parallel.sequence_parallel,
+            device=device,
+            dtype=dtype,
+        )
 
     def forward(self, x):
         w1_o = self.w1(x)
-        w2_o = self.w2(x)
-        out = self.w3(Silu(w1_o, w2_o))
+        w3_o = self.w3(x)
+        out = self.w2(Silu(w1_o, w3_o))
         return out
 
 
