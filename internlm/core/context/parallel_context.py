@@ -505,6 +505,7 @@ class ParallelContext(metaclass=SingletonMeta):
         if isinstance(parallel_config["tensor"], dict) and parallel_config["tensor"]["mode"] == "isp":
             if self.zero1_parallel_size == -1:
                 self.zero1_parallel_size = self.weight_data_parallel_size
+            self.zero1_parallel_size = max(1, self.zero1_parallel_size)
             assert (
                 self.zero1_parallel_size <= self.weight_data_parallel_size
             ), f"zero1_size:{self.zero1_parallel_size} should be less than wdp_size:{self.weight_data_parallel_size}"
@@ -515,6 +516,7 @@ class ParallelContext(metaclass=SingletonMeta):
         else:
             if self.zero1_parallel_size == -1:
                 self.zero1_parallel_size = self.data_parallel_size
+            self.zero1_parallel_size = max(1, self.zero1_parallel_size)
             assert (
                 self.zero1_parallel_size <= self.data_parallel_size
             ), f"zero1_size:{self.zero1_parallel_size} should be less than dp_size:{self.data_parallel_size}"
