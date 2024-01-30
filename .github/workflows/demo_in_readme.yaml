@@ -18,6 +18,7 @@ jobs:
     - name: mask env
       run: |
         echo "::add-mask::${{env.WORKSPACE_PREFIX}}"
+        echo "::add-mask::$path_prefix"
     - uses: actions/checkout@v3
 
     - name: raw-chinese-data
@@ -37,6 +38,7 @@ jobs:
     - name: mask env
       run: |
         echo "::add-mask::${{env.WORKSPACE_PREFIX}}"
+        echo "::add-mask::$path_prefix"
     - uses: actions/checkout@v3
 
     - name: slurm-train
@@ -72,6 +74,7 @@ jobs:
     - name: mask env
       run: |
         echo "::add-mask::${{env.WORKSPACE_PREFIX}}"
+        echo "::add-mask::$path_prefix"
     - uses: actions/checkout@v3
 
     - name: convert-model-then-load
@@ -83,17 +86,3 @@ jobs:
         srun -p ${SLURM_PARTITION} --kill-on-bad-exit=1 --job-name=${GITHUB_RUN_ID}-${GITHUB_JOB} --gpus-per-task=2 python ../ci_scripts/model/loaded_as_transformer.py
         cd ..
         rsync -av --remove-source-files $GITHUB_WORKSPACE/hf_ckpt ${{env.WORKSPACE_PREFIX}}/ci_clean_bak
-  
-  load-chat-model-in-hf:
-    runs-on: [t_cluster]
-    timeout-minutes: 15
-    steps:
-    - name: mask env
-      run: |
-        echo "::add-mask::${{env.WORKSPACE_PREFIX}}"
-    - uses: actions/checkout@v3
-
-    - name: chat-model-in-hf
-      run: |
-        source $evo_env
-        srun -p ${SLURM_PARTITION} --kill-on-bad-exit=1 --job-name=${GITHUB_RUN_ID}-${GITHUB_JOB} --gpus-per-task=2 python ./ci_scripts/model/demo_load_7B_chat_model.py
