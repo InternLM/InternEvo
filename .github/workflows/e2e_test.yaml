@@ -38,4 +38,6 @@ jobs:
     - name: training_8GPU_ISP
       run: |
         source $evo_env
+        conda activate /mnt/petrelfs/share_data/huangting.p/envs/llm-torch2.1-flash2
+        conda activate /mnt/petrelfs/share_data/huangting.p/envs/llm-torch2.1-flash2
         srun -p ${SLURM_PARTITION} --kill-on-bad-exit=1 --job-name=${GITHUB_RUN_ID}-${GITHUB_JOB} -n8 --ntasks-per-node=8 --cpus-per-task=4 --gpus-per-task=1 pytest -s -v --color=yes -m "training_8GPU_ISP" ./tests/test_training/test_loss.py

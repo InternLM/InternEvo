@@ -5,17 +5,17 @@ The required packages and corresponding version are shown as follows:
 - Python == 3.10
 - GCC == 10.2.0
 - MPFR == 4.1.0
-- CUDA >= 11.7
-- Pytorch >= 1.13.1
+- CUDA >= 11.8
+- Pytorch >= 2.1.0
 - Transformers >= 4.28.0
-- Flash-Attention >= v1.0.5
+- Flash-Attention >= v2.2.1
 - Apex == 23.05
 - GPU with Ampere or Hopper architecture (such as H100, A100)
 - Linux OS
 
 After installing the above dependencies, some system environment variables need to be updated:
 ```bash
-export CUDA_PATH={path_of_cuda_11.7}
+export CUDA_PATH={path_of_cuda_11.8}
 export GCC_HOME={path_of_gcc_10.2.0}
 export MPFR_HOME={path_of_mpfr_4.1.0}
 export LD_LIBRARY_PATH=${GCC_HOME}/lib64:${MPFR_HOME}/lib:${CUDA_PATH}/lib64:$LD_LIBRARY_PATH
@@ -47,7 +47,7 @@ pip install -r requirements/torch.txt
 pip install -r requirements/runtime.txt
 ```
 
-Install flash-attention (version v1.0.5):
+Install flash-attention (version v2.2.1):
 ```bash
 cd ./third_party/flash-attention
 python setup.py install
