@@ -6,11 +6,11 @@ import sys
 import numpy as np
 
 current_dir = os.path.dirname(os.path.abspath(__file__))
-model_path = os.path.join(current_dir, "tokenizer_internlm.model")
+model_path = os.path.join(current_dir, "tokenizer_internlm2.model")
 sys.path.append(os.path.join(current_dir, "../transformers"))
-from internlm_model import InternLMTokenizer  # noqa: E402 # pylint: disable=C0413
+from internlm2_model import InternLM2Tokenizer  # noqa: E402 # pylint: disable=C0413
 
-tokenizer = InternLMTokenizer(vocab_file=model_path, add_bos_token=True, add_eos_token=True)
+tokenizer = InternLM2Tokenizer(vocab_file=model_path, add_bos_token=True, add_eos_token=True)
 
 
 def write_bin(context: str, bin_file) -> None:
