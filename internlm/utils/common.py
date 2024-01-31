@@ -14,8 +14,10 @@ import numpy as np
 import torch
 
 import internlm
+from internlm.utils.logger import get_logger
 
 CURRENT_TIME = None
+logger = get_logger(__file__)
 
 
 def parse_args():
@@ -230,6 +232,16 @@ def get_megatron_flops(
 
     tflops = flops_per_iteration / (elapsed_time_per_iter * global_world_size * (10**12))
     return tflops
+
+
+def enable_pytorch_expandable_segments():
+    if torch.__version__ >= "2.1.0":
+        _alloc_setting = "expandable_segments:True"
+        if os.getenv("PYTORCH_CUDA_ALLOC_CONF", None) is not None:
+            _alloc_setting = os.getenv("PYTORCH_CUDA_ALLOC_CONF") + "," + _alloc_setting
+        torch.cuda.memory._set_allocator_settings(_alloc_setting)
+    else:
+        logger.warning("To support the 'expandable_segments' configuration, please upgrade torch to version 2.1.0.")
 
 
 class DummyProfile:

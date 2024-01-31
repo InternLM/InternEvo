@@ -325,6 +325,9 @@ def args_sanity_check():
         gpc.config.parallel["tensor"]["mode"] = "mtp"
     if gpc.config.parallel["tensor"]["mode"] == "isp":
         assert not gpc.config.parallel.zero1.fsdp, "FSDP does not support isp"
+        assert (
+            torch.__version__ >= "2.1.0"
+        ), f"requires torch>=2.1.0 when using isp but current version is {torch.__version__}"
     assert gpc.config.parallel["tensor"].get("mode", None) in [
         "mtp",
         "msp",

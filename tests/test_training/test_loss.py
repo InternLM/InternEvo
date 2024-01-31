@@ -17,7 +17,9 @@ from internlm.train import (
     get_train_data_loader,
     initialize_model,
     initialize_optimizer,
+    initialize_isp_communicator,
     load_new_batch,
+    get_scheduler_hooks,
 )
 from internlm.utils.common import BatchSkipper, launch_time
 from internlm.utils.gputest import empty_cache_and_diag
@@ -46,6 +48,7 @@ cur_loss_list = []
 def train(
     dp_size: int = 1,
     tp_size: int = 1,
+    wp_size: int = 1,
     pp_size: int = 1,
     num_chunks: int = 2,
     interleaved: bool = False,
@@ -62,6 +65,9 @@ def train(
     assert (
         gpc.get_world_size(ParallelMode.TENSOR) == tp_size
     ), f"tensor parallel size: {gpc.get_world_size(ParallelMode.TENSOR)} is not as expected {tp_size}"
+    assert (
+        gpc.get_world_size(ParallelMode.WEIGHT) == wp_size
+    ), f"weight parallel size: {gpc.get_world_size(ParallelMode.WEIGHT)} is not as expected {wp_size}"
     assert (
         gpc.get_world_size(ParallelMode.PIPELINE) == pp_size
     ), f"pipeline parallel size: {gpc.get_world_size(ParallelMode.PIPELINE)} is not as expected {pp_size}"
@@ -95,6 +101,9 @@ def train(
     # initialize model
     model = initialize_model()
 
+    # initialize isp communicator
+    isp_communicator = initialize_isp_communicator(model)
+
     # initialize loss function
     criterion = FlashGPTLMLoss(parallel_output=True, label_smoothing=label_smoothing)
 
@@ -104,7 +113,7 @@ def train(
     # initialize and resume train state
     train_state = TrainState(gpc.config, train_dl.batch_sampler)
 
-    optimizer, beta2_scheduler, lr_scheduler = initialize_optimizer(model=model)
+    optimizer, beta2_scheduler, lr_scheduler = initialize_optimizer(model, isp_communicator)
 
     with open(CONFIG_FILE_PATH, "r") as f:
         config_lines = f.readlines()
@@ -143,6 +152,7 @@ def train(
         ),
     ]
 
+    # initialize trainer
     trainer, train_dl, _, _ = internlm.initialize_trainer(
         model=model,
         optimizer=optimizer,
@@ -150,7 +160,7 @@ def train(
         train_dataloader=train_dl,
         lr_scheduler=lr_scheduler,
         beta2_scheduler=beta2_scheduler,
-        scheduler_hooks=scheduler_hooks,
+        scheduler_hooks=get_scheduler_hooks(metric, optimizer, isp_communicator),
     )
 
     # initialize the batch skipper
@@ -291,3 +301,13 @@ def test_training_loss_with_dp8_pp2_interleaved_overlap():
 
     check_loss_spike()
     check_loss_accuracy()
+
+
+@pytest.mark.training_8GPU_ISP
+def test_training_with_isp():
+    # update config file
+    global CONFIG_FILE_PATH
+    CONFIG_FILE_PATH = "./configs/7B_isp_sft.py"
+
+    # model training
+    train(dp_size=4, tp_size=2, wp_size=4, enable_sp=True)

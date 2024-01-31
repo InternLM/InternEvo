@@ -173,10 +173,10 @@ weight parallel (dict):
     3. memory_pool: bool, enable/disable memory pool, defaults to False.
 """
 parallel = dict(
-    zero1=dict(size=8),
-    tensor=dict(size=1, mode="mtp"),
+    zero1=dict(size=-1),
+    tensor=dict(size=2, mode="isp"),
     pipeline=dict(size=1, interleaved_overlap=True),
-    weight=dict(size=1, overlap=True, memory_pool=True),
+    weight=dict(size=4, overlap=True, memory_pool=True),
 )
 
 cudnn_deterministic = False

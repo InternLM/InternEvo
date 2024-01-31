@@ -31,6 +31,7 @@ from internlm.train import (
 )
 from internlm.utils.common import (
     BatchSkipper,
+    enable_pytorch_expandable_segments,
     get_megatron_flops,
     launch_time,
     parse_args,
@@ -69,6 +70,8 @@ def initialize_llm_logger(start_time: str):
 
 
 def main(args):
+    enable_pytorch_expandable_segments()
+
     # init setting
     skip_batches = gpc.config.data.skip_batches
     total_steps = gpc.config.data.total_steps
@@ -155,7 +158,6 @@ def main(args):
     )
 
     # initialize trainer
-
     trainer, train_dl, _, _ = internlm.initialize_trainer(
         model=model,
         optimizer=optimizer,
