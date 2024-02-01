@@ -605,8 +605,8 @@ def try_save_moe_checkpoint(folder, model, tp_rank, pp_rank):
     pipeline_stage_size = gpc.config.model.num_layers // gpc.get_world_size(ParallelMode.PIPELINE)
     moe_layer_id = pp_rank * pipeline_stage_size
     for n_module, module in model.named_modules():
-        if isinstance(module, MoE):  # and deepspeed.comm.get_rank() == 0:
-            num_local_experts = module.num_local_experts
+        if isinstance(module, MoE):
+            num_local_experts = module.moe_layer.num_local_experts
             expp_rank = gpc.get_local_rank(ParallelMode.EXPERT)
 
             # get all moe parameters
@@ -686,8 +686,8 @@ def try_load_moe_checkpoint(folder, model, state_dict, tp_rank, pp_rank):
     pipeline_stage_size = gpc.config.model.num_layers // gpc.get_world_size(ParallelMode.PIPELINE)
     moe_layer_id = pp_rank * pipeline_stage_size
     for _, module in model.named_modules():
-        if isinstance(module, MoE):  # and deepspeed.comm.get_rank() == 0:
-            num_local_experts = module.num_local_experts
+        if isinstance(module, MoE):
+            num_local_experts = module.moe_layer.num_local_experts
             expp_rank = gpc.get_local_rank(ParallelMode.EXPERT)
             # loop all local_experts
             for local_expert_id in range(num_local_experts):
