@@ -12,7 +12,6 @@ import torch.distributed as dist
 import internlm
 from internlm.core.context import ParallelMode
 from internlm.core.context import global_context as gpc
-from internlm.core.scheduler import SchedulerMetricHook
 from internlm.core.trainer import TrainState
 from internlm.initialize import initialize_distributed_env
 from internlm.model.loss import FlashGPTLMLoss
@@ -20,8 +19,10 @@ from internlm.model.metrics import AccPerplex
 from internlm.monitor import initialize_monitor_manager, send_alert_message
 from internlm.monitor.monitor import monitor_manager as mm
 from internlm.train import (
+    get_scheduler_hooks,
     get_train_data_loader,
     get_validation_data_loader,
+    initialize_isp_communicator,
     initialize_llm_profile,
     initialize_model,
     initialize_optimizer,
@@ -30,6 +31,7 @@ from internlm.train import (
 )
 from internlm.utils.common import (
     BatchSkipper,
+    enable_pytorch_expandable_segments,
     get_megatron_flops,
     launch_time,
     parse_args,
@@ -68,6 +70,8 @@ def initialize_llm_logger(start_time: str):
 
 
 def main(args):
+    enable_pytorch_expandable_segments()
+
     # init setting
     skip_batches = gpc.config.data.skip_batches
     total_steps = gpc.config.data.total_steps
@@ -98,6 +102,9 @@ def main(args):
     # initialize model
     model = initialize_model()
 
+    # initialize isp communicator
+    isp_communicator = initialize_isp_communicator(model)
+
     with open(args.config, "r") as f:
         config_lines = f.readlines()
 
@@ -111,7 +118,7 @@ def main(args):
     # initialize and resume train state
     train_state = TrainState(gpc.config, train_dl.batch_sampler)
 
-    optimizer, beta2_scheduler, lr_scheduler = initialize_optimizer(model=model)
+    optimizer, beta2_scheduler, lr_scheduler = initialize_optimizer(model, isp_communicator)
 
     ckpt_manager = CheckpointManager(
         ckpt_config=gpc.config.ckpt,
@@ -151,18 +158,6 @@ def main(args):
     )
 
     # initialize trainer
-    scheduler_hooks = [
-        SchedulerMetricHook(
-            metric=metric,
-            skip=(
-                gpc.is_using_pp()
-                and hasattr(gpc.config.model, "num_chunks")
-                and gpc.config.model.num_chunks > 1
-                and gpc.config.parallel["pipeline"].get("interleaved_overlap", False)
-            ),
-        ),
-    ]
-
     trainer, train_dl, _, _ = internlm.initialize_trainer(
         model=model,
         optimizer=optimizer,
@@ -170,7 +165,7 @@ def main(args):
         train_dataloader=train_dl,
         lr_scheduler=lr_scheduler,
         beta2_scheduler=beta2_scheduler,
-        scheduler_hooks=scheduler_hooks,
+        scheduler_hooks=get_scheduler_hooks(metric, optimizer, isp_communicator),
     )
 
     # initialize simple memory profiler
@@ -180,6 +175,7 @@ def main(args):
             optimizer.optim,
             log_folder=f"RUN/{gpc.config.JOB_NAME}/{current_time}/memory_trace/rank{gpc.get_global_rank()}_"
             + f"dp{gpc.get_local_rank(ParallelMode.DATA)}_"
+            + f"wp{gpc.get_local_rank(ParallelMode.WEIGHT)}_"
             + f"tp{gpc.get_local_rank(ParallelMode.TENSOR)}",
         )
     else:
@@ -197,6 +193,7 @@ def main(args):
         # start iterating the train data and begin training
         for batch_count in range(train_state.batch_count, total_steps):
             empty_cache_and_diag(batch_count, interval=gpc.config.data.empty_cache_and_diag_interval)
+            # torch.cuda.memory._record_memory_history()
             start_time = time.time()
             timer("one-batch").start()
             gpc.config.batch_count = batch_count
@@ -238,6 +235,9 @@ def main(args):
                     return_output_label=False,
                 )
             timer("fwd-bwd").stop()
+
+            if isp_communicator and isp_communicator.enable_memory_pool:
+                isp_communicator.memory_pool.reset_lazy_pools()
 
             # update parameters, and returns (success_update, grad_norm)
             trainer_result = trainer.step()
@@ -300,6 +300,9 @@ def main(args):
             if batch_count % 2 == 0:
                 prof.step()
 
+            # torch.cuda.memory._dump_snapshot(f"my_snapshot_{gpc.get_global_rank()}.pickle")
+            torch.cuda.reset_peak_memory_stats()
+
     ckpt_manager.wait_async_upload_finish()
 
 
@@ -324,3 +327,5 @@ if __name__ == "__main__":
             mm.monitor_exception(
                 alert_address=gpc.config.monitor.alert.feishu_alert_address, excp_info=traceback.format_exc()
             )
+
+            # torch.cuda.memory._dump_snapshot(f"my_snapshot_{gpc.get_global_rank()}.pickle")

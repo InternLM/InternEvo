@@ -15,4 +15,4 @@ torch-scatter
 pyecharts
 py-libnuma
 tensorboard
--f https://data.pyg.org/whl/torch-1.13.1+cu117.html
+-f https://data.pyg.org/whl/torch-2.1.0+cu118.html

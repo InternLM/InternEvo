@@ -19,14 +19,13 @@ from internlm.core.scheduler import (
     InterleavedPipelineScheduler,
     NonPipelineScheduler,
     PipelineScheduler,
-    SchedulerHook,
 )
 from internlm.core.scheduler.pipeline_scheduler import get_tensor_shape
 from internlm.core.trainer import Trainer
 from internlm.data.utils import unpack_data
 from internlm.solver.beta2_scheduler import Beta2Scheduler
 from internlm.solver.optimizer.hybrid_zero_optim import BaseOptimizer
-from internlm.utils.common import get_current_device
+from internlm.utils.common import SchedulerHook, get_current_device
 
 
 def initialize_trainer(
@@ -68,7 +67,7 @@ def initialize_trainer(
     assert isinstance(optimizer, BaseOptimizer), "optimizer must be instance of BaseOptimizer"
 
     # gradient handler, only support PipelineSharedModuleGradientHandler now
-    if gpc.is_using_pp():
+    if gpc.is_using_parallel_mode(ParallelMode.PIPELINE):
         gpc.config.gradient_handler = [dict(type="PipelineSharedModuleGradientHandler")]
     gradient_handler_cfg = gpc.config.get("gradient_handler", [])
     gradient_handlers = []
@@ -84,7 +83,7 @@ def initialize_trainer(
         data_fn = None
     else:
         data_fn = unpack_data
-    if gpc.is_using_pp():
+    if gpc.is_using_parallel_mode(ParallelMode.PIPELINE):
         gpc.config.NUM_MICRO_BATCHES = gpc.config.data.micro_num
         tensor_shape = get_tensor_shape()
         use_interleaved = (

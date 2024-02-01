@@ -13,7 +13,7 @@ import internlm
 from internlm.core.context import ParallelMode
 from internlm.core.context import global_context as gpc
 from internlm.core.context.parallel_context import Config
-from internlm.core.scheduler import SchedulerMetricHook
+from internlm.model.metrics import SchedulerMetricHook
 from internlm.core.trainer import TrainState
 from internlm.initialize.launch import args_sanity_check
 from internlm.model.loss import FlashGPTLMLoss

@@ -13,10 +13,9 @@ import internlm
 from internlm.core.context import ParallelMode
 from internlm.core.context import global_context as gpc
 from internlm.core.context.parallel_context import Config
-from internlm.core.scheduler import SchedulerMetricHook
 from internlm.initialize.launch import args_sanity_check
 from internlm.model.loss import FlashGPTLMLoss
-from internlm.model.metrics import AccPerplex
+from internlm.model.metrics import AccPerplex, SchedulerMetricHook
 from internlm.train import (
     get_train_data_loader,
     get_validation_data_loader,
@@ -226,10 +225,10 @@ def compute_trimmed_mean(value_list):
 
 
 def check_grad_norm(grad_norm_list):
-    standard_grad_norm_list = torch.load(os.path.join(
-        os.environ["share_path"], "quailty_assurance/small_300step_norm_grad/grad_norm_list.pt"
-    ))
-    
+    standard_grad_norm_list = torch.load(
+        os.path.join(os.environ["share_path"], "quailty_assurance/small_300step_norm_grad/grad_norm_list.pt")
+    )
+
     standard_grad_norm_list = standard_grad_norm_list[-100:]
     grad_norm_list = grad_norm_list[-100:]
     standard_grad_norm_list.sort()
@@ -239,18 +238,18 @@ def check_grad_norm(grad_norm_list):
     trimmed_mean2 = compute_trimmed_mean(grad_norm_list)
     tensor_trimmed_mean1 = torch.tensor(trimmed_mean1)
     tensor_trimmed_mean2 = torch.tensor(trimmed_mean2)
-    
+
     logger.info(f"norm_mean: {tensor_trimmed_mean1}, {tensor_trimmed_mean2}")
     assert torch.allclose(tensor_trimmed_mean1, tensor_trimmed_mean2, rtol=3e-1, atol=3e-1)
     logger.info(f"grad norm check passed")
-    
+
 
 def check_meanLoss_val(all_loss, all_val):
     loss_values1 = all_loss[0][-100:]
     loss_values2 = all_loss[1][-100:]
     loss_values1.sort()
     loss_values2.sort()
-    
+
     trimmed_mean1 = compute_trimmed_mean(loss_values1)
     trimmed_mean2 = compute_trimmed_mean(loss_values2)
     tensor_trimmed_mean1 = torch.tensor(trimmed_mean1)
@@ -261,9 +260,9 @@ def check_meanLoss_val(all_loss, all_val):
 
     assert torch.allclose(tensor_trimmed_mean1, tensor_trimmed_mean2, rtol=3e-2, atol=3e-2)
     assert torch.allclose(torch.tensor(all_val[0]), torch.tensor(all_val[1]), rtol=3e-2, atol=3e-2)
-    
+
     logger.info(f"loss check passed")
-    
+
 
 def exam_loss(args):
     # init
@@ -303,7 +302,7 @@ def exam_loss(args):
         SchedulerMetricHook(
             metric=metric,
             skip=(
-                gpc.is_using_pp()
+                gpc.is_using_parallel_mode(ParallelMode.PIPELINE)
                 and hasattr(gpc.config.model, "num_chunks")
                 and gpc.config.model.num_chunks > 1
                 and gpc.config.parallel["pipeline"].get("interleaved_overlap", False)
@@ -363,12 +362,12 @@ def exam_loss(args):
         # update parameters
         trainer_result = trainer.step()
         assert trainer_result is not None
-        
+
         _, grad_norm_groups = trainer_result
-        
+
         if gpc.is_rank_for_log():
             logger.info(f"train_grad_norm_groups: {grad_norm_groups['0_default']}")
-            grad_norm_list.append(grad_norm_groups['0_default'])
+            grad_norm_list.append(grad_norm_groups["0_default"])
 
         # evaluate on validation data loaders
         if valid_every > 0 and batch_count > 0 and (batch_count + 1) % valid_every == 0:
@@ -381,10 +380,10 @@ def exam_loss(args):
 
     torch.cuda.empty_cache()
     dist.barrier()
-    
+
     if gpc.is_rank_for_log():
         check_grad_norm(grad_norm_list)
-    
+
     return rank, loss_list, val_list
 
 

@@ -11,6 +11,7 @@ import torch
 
 from internlm.core.context import Config
 from internlm.core.context import global_context as gpc
+from internlm.core.context.process_group_initializer import ParallelMode
 from internlm.monitor import initialize_light_monitor
 from internlm.utils.common import get_master_node
 from internlm.utils.gputest import warmup_process_group
@@ -80,6 +81,9 @@ def args_sanity_check():
 
     if "tensor" not in gpc.config.parallel:
         gpc.config.parallel._add_item("tensor", 1)
+
+    if "weight" not in gpc.config.parallel:
+        gpc.config.parallel._add_item("weight", dict(size=1, overlap=False, memory_pool=False))
 
     if isinstance(gpc.config.parallel.pipeline, int):
         pp = gpc.config.parallel.pipeline
@@ -314,6 +318,35 @@ def args_sanity_check():
             gpc.config.parallel.sequence_parallel is True and gpc.config.model.use_flash_attn is False
         ), "sequence parallel does not support use_flash_attn=False"
 
+    # set default value for tensor parallel
+    if isinstance(gpc.config.parallel["tensor"], int):
+        gpc.config.parallel["tensor"] = dict(size=gpc.config.parallel["tensor"], mode="mtp")
+    if gpc.config.parallel["tensor"].get("mode", None) is None:
+        gpc.config.parallel["tensor"]["mode"] = "mtp"
+    if gpc.config.parallel["tensor"]["mode"] == "isp":
+        assert not gpc.config.parallel.zero1.fsdp, "FSDP does not support isp"
+        assert (
+            torch.__version__ >= "2.1.0"
+        ), f"requires torch>=2.1.0 when using isp but current version is {torch.__version__}"
+    assert gpc.config.parallel["tensor"].get("mode", None) in [
+        "mtp",
+        "msp",
+        "fsp",
+        "isp",
+    ], "invalid tensor parallel mode, only ['mtp', 'msp', 'fsp', 'isp'] is supported"
+
+    # adapt to old version's sequence parallel config
+    if gpc.config.parallel["tensor"].get("mode", None) in ["msp", "fsp", "isp"]:
+        gpc.config.parallel.sequence_parallel = True
+
+    # set default value for weight parallel
+    if gpc.config.parallel["weight"].get("overlap", None) is None:
+        gpc.config.parallel["weight"]["overlap"] = False
+    if gpc.config.parallel["weight"].get("memory_pool", None) is None:
+        gpc.config.parallel["weight"]["memory_pool"] = False
+    if gpc.config.parallel["tensor"]["mode"] != "isp":
+        assert gpc.config.parallel["weight"]["size"] <= 1, "weight parallel is only supported with isp"
+
     # currently only interleaved pipeline scheduler with overlap can guarantee loss accuracy
     if hasattr(gpc.config.model, "num_chunks") and gpc.config.model.num_chunks > 1:
         assert (
@@ -370,8 +403,10 @@ def args_sanity_check():
         assert (
             not optim_ckpt.overlap_sync_grad & optim_ckpt.overlap_sync_param
         ), "not support overlap and moe at the same time"
-        assert gpc.config.parallel.zero1.size == -1, "moe only support zero1, set zero1=dict(size=-1,...) can fix this"
-        assert not gpc.config.parallel.sequence_parallel, "moe not support sequence parallel for now"
+        assert gpc.config.parallel.zero1.size in (
+            -1,
+            gpc.get_world_size(ParallelMode.DATA),
+        ), "moe only support zero1, set zero1=dict(size=-1,...) can fix this"
 
 
 def launch(
@@ -435,7 +470,7 @@ def launch(
         logger.info(
             f"Distributed environment is initialized, "
             f"data parallel size: {gpc.data_parallel_size}, pipeline parallel size: {gpc.pipeline_parallel_size}, "
-            f"tensor parallel size: {gpc.tensor_parallel_size}",
+            f"tensor parallel size: {gpc.tensor_parallel_size}, weight parallel size: {gpc.weight_parallel_size}",
         )
         if gpc.config.model.get("num_experts", 1) > 1:
             logger.info(

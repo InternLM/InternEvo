@@ -3,9 +3,10 @@
 
 import math
 import warnings
-from typing import Optional
+from typing import Any, Optional, Tuple
 
 import torch
+import torch.distributed as dist
 import torch.nn.functional as F
 from einops import rearrange
 
@@ -31,12 +32,118 @@ from flash_attn.modules.mha import (
     SelfAttention,
     _update_kv_cache,
 )
-from torch import nn
+from torch import Tensor, nn
+from torch.nn import Module
 
-from internlm.core.context import IS_TENSOR_PARALLEL, ParallelMode
 from internlm.core.context import global_context as gpc
 from internlm.model.embedding import DynamicNTKScalingRotaryEmbedding, RotaryEmbedding
-from internlm.model.linear import ColumnParallelLinearTorch, RowParallelLinearTorch
+from internlm.model.linear import get_linear_cls
+
+
+# adpated from https://github.com/microsoft/DeepSpeed/blob/master/deepspeed/sequence/layer.py
+class _SeqAllToAll(torch.autograd.Function):
+    "sequence alltoall"
+
+    @staticmethod
+    def forward(ctx: Any, group: dist.ProcessGroup, input_: Tensor, scatter_idx: int, gather_idx: int) -> Tensor:
+        ctx.group = group
+        ctx.scatter_idx = scatter_idx
+        ctx.gather_idx = gather_idx
+
+        seq_world_size = dist.get_world_size(group)
+
+        input_list = [t.contiguous() for t in torch.tensor_split(input_, seq_world_size, scatter_idx)]
+        output_list = [torch.empty_like(input_list[0]) for _ in range(seq_world_size)]
+        # TODO Use all_to_all_single instead
+        dist.all_to_all(output_list, input_list, group=group)
+        return torch.cat(output_list, dim=gather_idx).contiguous()
+
+    @staticmethod
+    def backward(ctx: Any, *grad_output: Tensor) -> Tuple[None, Tensor, None, None]:
+        return (None, _SeqAllToAll.apply(ctx.group, *grad_output, ctx.gather_idx, ctx.scatter_idx), None, None)
+
+
+# adpated from https://github.com/microsoft/DeepSpeed/blob/master/deepspeed/sequence/layer.py
+class DistributedAttention(torch.nn.Module):
+    """Initialization.
+
+    Arguments:
+        local_attention (Module): local attention with q,k,v
+        sequence_process_group (ProcessGroup): sequence parallel process group
+        first_scatter_idx (int): scatter_idx for the first all2all comm
+        first_gather_idx (int): gather_idx for the first all2all comm
+        second_scatter_idx (int): scatter_idx for the second all2all comm
+        second_gather_idx (int): gather_idx for the second all2all comm
+    """
+
+    def __init__(
+        self,
+        local_attention: Module,
+        sequence_process_group: dist.ProcessGroup,
+    ) -> None:
+        super().__init__()
+        self.local_attn = local_attention
+        self.spg = sequence_process_group
+        self._scatter_gather_idx = {}
+
+        # scatter_gather_idx contains the scatter and gather index for different data packed mode
+        # key is the data packed mode, which should be in ['qkv', 'kv', 'q', 'output']
+        # value is the scatter and gather index in all2all
+        self._scatter_gather_idx["qkv"] = [2, 0]  # qkv shape:[sequence, 3, head, head_dim]
+        self._scatter_gather_idx["kv"] = [2, 0]  # kv shape: [sequence, 2, head, head_dim]
+        self._scatter_gather_idx["q"] = [1, 0]  # q/k/v shape: [sequence, head, head_dim]
+        self._scatter_gather_idx["output"] = [0, 1]  # output shape: [sequence, head, head_dim]
+
+    def forward(
+        self, qkv: Tensor = None, kv: Tensor = None, q: Tensor = None, k: Tensor = None, v: Tensor = None, **kwargs: Any
+    ) -> Tensor:
+        if gpc.is_evaluating is True:
+            # when conducting evaluation, the scatter and gather index should add 1.
+            eval_scatter_gather_idx = {key: [x + 1 for x in value] for key, value in self._scatter_gather_idx.items()}
+            return self._forward(qkv=qkv, kv=kv, q=q, k=k, v=v, scatter_gather=eval_scatter_gather_idx, **kwargs)
+        else:
+            return self._forward(qkv=qkv, kv=kv, q=q, k=k, v=v, scatter_gather=self._scatter_gather_idx, **kwargs)
+
+    def _forward(
+        self,
+        qkv: Tensor = None,
+        kv: Tensor = None,
+        q: Tensor = None,
+        k: Tensor = None,
+        v: Tensor = None,
+        scatter_gather: dict = None,
+        **kwargs: Any,
+    ) -> Tensor:
+        """forward
+
+        Arguments:
+            qkv (Tensor): packed qkv input to the layer
+            kv (Tensor): packed kv input to the layer
+            q (Tensor): q input to the layer
+            k (Tensor): k input to the layer
+            v (Tensor): v input to the layer
+            args: other args
+
+        Returns:
+            * output (Tensor): context output
+        """
+
+        if qkv is not None:
+            qkv = _SeqAllToAll.apply(self.spg, qkv, scatter_gather["qkv"][0], scatter_gather["qkv"][1])
+            context_layer = self.local_attn(qkv, **kwargs)
+        elif kv is not None:
+            q = _SeqAllToAll.apply(self.spg, q, scatter_gather["q"][0], scatter_gather["q"][1])
+            kv = _SeqAllToAll.apply(self.spg, kv, scatter_gather["kv"][0], scatter_gather["kv"][1])
+            context_layer = self.local_attn(q, kv, **kwargs)
+        else:
+            q = _SeqAllToAll.apply(self.spg, q, scatter_gather["q"][0], scatter_gather["q"][1])
+            k = _SeqAllToAll.apply(self.spg, k, scatter_gather["q"][0], scatter_gather["q"][1])
+            v = _SeqAllToAll.apply(self.spg, v, scatter_gather["q"][0], scatter_gather["q"][1])
+            context_layer = self.local_attn(q, k, v, **kwargs)
+        output = _SeqAllToAll.apply(self.spg, context_layer, scatter_gather["output"][0], scatter_gather["output"][1])
+
+        # out e.g., [s/p::h]
+        return output
 
 
 class MHA(nn.Module):
@@ -72,6 +179,7 @@ class MHA(nn.Module):
         embed_dim: int,
         num_heads: int,
         process_group: Optional[torch.distributed.ProcessGroup],
+        sequence_process_group: Optional[torch.distributed.ProcessGroup],
         max_position_embeddings: int = 2048,
         dropout: float = 0.0,
         softmax_scale: float = None,
@@ -84,6 +192,7 @@ class MHA(nn.Module):
         rope_base: int = 10000,
         device: Optional[torch.device] = None,
         dtype: Optional[torch.dtype] = None,
+        tp_mode: str = "mtp",
     ) -> None:
         factory_kwargs = {"device": device, "dtype": dtype}
         super().__init__()
@@ -97,6 +206,7 @@ class MHA(nn.Module):
         self.num_heads = num_heads
         assert self.embed_dim % num_heads == 0, "self.kdim must be divisible by num_heads"
         self.head_dim = self.embed_dim // num_heads
+        self.tp_mode = tp_mode
 
         if self.rotary_emb_dim > 0:
             if self.use_dynamic_ntk_rope:
@@ -114,7 +224,8 @@ class MHA(nn.Module):
                 )
 
         # notice here should change bias=True
-        self.Wqkv = ColumnParallelLinearTorch(
+        Wqkv_cls = get_linear_cls(self.tp_mode, "column")
+        self.Wqkv = Wqkv_cls(
             embed_dim,
             3 * embed_dim,
             process_group,
@@ -129,20 +240,22 @@ class MHA(nn.Module):
         self.inner_cross_attn = inner_cross_attn_cls(
             causal=causal, softmax_scale=softmax_scale, attention_dropout=dropout
         )
+        if self.tp_mode == "isp":
+            self.inner_attn = DistributedAttention(self.inner_attn, sequence_process_group=sequence_process_group)
+            self.inner_cross_attn = DistributedAttention(
+                self.inner_cross_attn, sequence_process_group=sequence_process_group
+            )
 
         # output projection always have the bias (for now)
-        self.out_proj = RowParallelLinearTorch(
+        out_proj_cls = get_linear_cls(self.tp_mode, "row")
+        self.out_proj = out_proj_cls(
             embed_dim,
             embed_dim,
             process_group,
+            bias=True,
             sequence_parallel=gpc.config.parallel.sequence_parallel,
             **factory_kwargs,
         )
-        # need to assign tp attribute so that internlm know it is tensor parallel module
-        if gpc.get_world_size(ParallelMode.TENSOR) > 1:
-            for name in ["out_proj", "Wqkv"]:
-                for param in getattr(self, name).parameters():
-                    setattr(param, IS_TENSOR_PARALLEL, True)
 
     def forward(self, x, seqlen=None, inference_params=None, **kwargs):
         if kwargs.get("indexes", None) is not None:
@@ -349,7 +462,6 @@ class MHA(nn.Module):
         qkv = rearrange(qkv, "t (three h d) -> t three h d", three=3, d=self.head_dim)  # total x 3 x n_head x d
         qkv = self.rotary_emb(qkv, **kwargs)
         kwargs.pop("indexes")
-
         if inference_params is None:
             if gpc.config.model.dtype is torch.float32 and gpc.config.model.use_flash_attn:
                 with torch.cuda.amp.autocast(dtype=torch.bfloat16):
@@ -364,4 +476,5 @@ class MHA(nn.Module):
 
         context = rearrange(context, "b h d -> b (h d)")  # recover the shape
         out = self.out_proj(context)
+
         return out
