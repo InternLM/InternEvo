@@ -218,7 +218,7 @@ def train_check_output(args):
         tensor1 = standard_output_with_fa[0][0]
         tensor2 = output[0][0][0]
 
-        for rtol in [1, 0.8, 0.6, 0.4, 0.2, 1e-2, 1e-3, 1e-4]:
+        for rtol in [1, 0.9, 0.8, 0.7, 0.6, 0.5, 0.4, 0.3, 0.2, 0.1, 1e-2, 1e-3, 1e-4]:
             assert torch.allclose(
                 tensor1, tensor2, atol=0, rtol=rtol
             ), f"{(tensor1 - tensor2).abs().max()} is over rtol {rtol}"
