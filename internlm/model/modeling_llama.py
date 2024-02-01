@@ -1,4 +1,3 @@
-# Copyright (c) InternLM. All rights reserved.
 import math
 from typing import Optional
 
@@ -24,7 +23,12 @@ from internlm.model.linear import (
     get_linear_cls,
     get_mlp_cls,
 )
-from internlm.model.multi_head_attention import DistributedAttention
+from internlm.model.multi_head_attention import (
+    CrossAttention,
+    DistributedAttention,
+    SelfAttention,
+    _update_kv_cache,
+)
 from internlm.model.utils import (
     gather_forward_split_backward,
     split_forward_gather_backward,
@@ -35,22 +39,6 @@ from internlm.utils.checkpoint import activation_checkpoint
 from internlm.utils.common import filter_kwargs
 from internlm.utils.logger import get_logger
 from internlm.utils.registry import MODEL_INITIALIZER
-
-try:
-    from flash_attn import flash_attn_varlen_kvpacked_func
-    from flash_attn.flash_attn_interface import FlashAttnVarlenKVPackedFunc
-    from flash_attn.modules.embedding import ParallelGPT2Embeddings
-    from flash_attn.modules.mha import (
-        CrossAttention,
-        FlashCrossAttention,
-        FlashSelfAttention,
-        SelfAttention,
-        _update_kv_cache,
-    )
-    from flash_attn.modules.mlp import ParallelFusedMLP
-    from flash_attn.ops.layer_norm import dropout_add_layer_norm
-except ImportError:
-    pass
 
 MODEL_TYPE = "LLAMA2"
 
@@ -159,6 +147,10 @@ class MHA(nn.Module):
             **factory_kwargs,
         )
 
+        if use_flash_attn:
+            from flash_attn import flash_attn_varlen_kvpacked_func
+            from flash_attn.modules.mha import FlashCrossAttention, FlashSelfAttention
+
         inner_attn_cls = FlashSelfAttention if use_flash_attn else SelfAttention
         inner_cross_attn_cls = FlashCrossAttention if use_flash_attn else CrossAttention
         self.inner_attn = inner_attn_cls(causal=causal, softmax_scale=softmax_scale, attention_dropout=dropout)
@@ -170,7 +162,7 @@ class MHA(nn.Module):
         self.inner_cross_attn_softmax_scale = softmax_scale
         self.inner_cross_attn_dropout = dropout
 
-        self.attn = flash_attn_varlen_kvpacked_func
+        self.attn = flash_attn_varlen_kvpacked_func if use_flash_attn else SelfAttention
         if self.tp_mode == "isp":
             self.attn = DistributedAttention(self.attn, sequence_process_group=sequence_process_group)
 
@@ -301,6 +293,8 @@ class MHA(nn.Module):
 
             if hasattr(inference_params, "attention_mask") and inference_params.attention_mask is not None:
                 assert self.use_flash_attn is True
+                from flash_attn.flash_attn_interface import FlashAttnVarlenKVPackedFunc
+
                 if inference_params.sequence_len_offset == 0:  # First entrance, attnmask (bs*seqlen*seqlen)
                     attn_mask = inference_params.attention_mask[:, None, ...]
                     attn_mask = torch.logical_or(
@@ -321,6 +315,7 @@ class MHA(nn.Module):
                     total_kv = kv.masked_select(attn_mask4flsh.view(bsz, -1, 1, 1, 1)).view(
                         -1, kv.shape[-3], kv.shape[-2], kv.shape[-1]
                     )
+
                     if self.dtype is torch.float32:
                         if total_q.dtype not in [torch.float16, torch.bfloat16]:
                             total_q = total_q.to(torch.bfloat16)
@@ -573,12 +568,14 @@ class PackedFlashLlamaLayer1D(nn.Module):
         else:
             self.attention_norm = nn.LayerNorm(hidden_size, eps=layer_norm_epsilon)
             self.ffn_norm = nn.LayerNorm(hidden_size, eps=layer_norm_epsilon)
-        if self.fused_dropout_add_ln:
+        if self.fused_dropout_add_ln and self.use_flash_attn:
+            from flash_attn.ops.layer_norm import dropout_add_layer_norm
+
             assert dropout_add_layer_norm is not None, "dropout_add_ln is not installed"
             assert isinstance(self.attention_norm, nn.LayerNorm) and isinstance(self.dropout1, nn.Dropout)
 
         sequence_parallel = gpc.config.parallel.get("sequence_parallel", False)
-        if use_swiglu:
+        if use_swiglu or not gpc.config.model.use_flash_attn:
             mlp_cls = get_mlp_cls(self.tp_mode)
             self.feed_forward = mlp_cls(
                 hidden_size,
@@ -590,6 +587,8 @@ class PackedFlashLlamaLayer1D(nn.Module):
                 dtype=dtype,
             )
         else:
+            from flash_attn.modules.mlp import ParallelFusedMLP
+
             self.feed_forward = ParallelFusedMLP(
                 hidden_size,
                 int(hidden_size * mlp_ratio),
@@ -842,9 +841,11 @@ class PackedFlashLlama1D(nn.Module):
                 else MegatronScaleColumnParallelLinear
             )
         if first:
-            if embed_split_hidden:
+            if embed_split_hidden or not gpc.config.model.use_flash_attn:
                 self.tok_embeddings = Embedding1D(num_embeddings=vocab_size, embedding_dim=hidden_size)
             else:
+                from flash_attn.modules.embedding import ParallelGPT2Embeddings
+
                 self.tok_embeddings = ParallelGPT2Embeddings(
                     embed_dim=hidden_size,
                     vocab_size=vocab_size,

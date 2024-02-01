@@ -11,11 +11,10 @@ from internlm.core.context import ParallelMode
 from internlm.core.context import global_context as gpc
 from internlm.model.utils import (
     Silu,
+    all_reduce,
     fused_dense_func,
     isp_fused_dense_func,
     megatron_fused_dense_func,
-    all_reduce,
-    fused_dense_func_torch,
     reduce_scatter,
 )
 
@@ -206,7 +205,11 @@ class ColumnParallelLinearTorch(nn.Linear):
         )
 
 
-class MegatronColumnParallelLinearTorch(ColumnParallelLinear):
+class MegatronColumnParallelLinearTorch(ColumnParallelLinearTorch):
+    """
+    MegatronColumnParallelLinearTorch
+    """
+
     def forward(self, x, gather_dim=0):
         # If self.sequence_parallel is True, we're doing Tensor Parallel with sequence parallelism:
         # we do an all_gather of x before doing the matmul.
@@ -280,7 +283,11 @@ class RowParallelLinearTorch(nn.Linear):
         return reduce_fn(out, self.process_group)
 
 
-class MegatronRowParallelLinearTorch(RowParallelLinear):
+class MegatronRowParallelLinearTorch(RowParallelLinearTorch):
+    """
+    MegatronRowParallelLinearTorch.
+    """
+
     def forward(self, x):
         """
         We're doing Tensor Parallel with sequence parallelism: we do the matmul and then
@@ -442,7 +449,7 @@ class MegatronFeedForward(BaseFeedForward):
         )
 
 
-class ISPLinear(ColumnParallelLinear):
+class ISPLinear(ColumnParallelLinearTorch):
     """
     Linear class for isp tensor parallel mode.
     """

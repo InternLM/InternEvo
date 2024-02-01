@@ -49,11 +49,11 @@ from internlm.data.utils import get_dataset_type_ids_map, unpack_data
 from internlm.model.embedding import Embedding1D
 from internlm.model.linear import (
     BaseScaleColumnParallelLinear,
-    ColumnParallelLinear,
+    ColumnParallelLinearTorch,
     FeedForward,
     ISPLinear,
     RewardModelLinear,
-    RowParallelLinear,
+    RowParallelLinearTorch,
     ScaleColumnParallelLinear,
 )
 from internlm.model.metrics import SchedulerMetricHook
@@ -115,7 +115,12 @@ def set_parallel_attr_for_param_groups(model: Union[nn.Module, nn.ModuleList]):
                 setattr(param, IS_REPLICA_ZERO_PARALLEL, True)
 
         # embedding and head
-        if isinstance(module, (Embedding1D, ParallelGPT2Embeddings, BaseScaleColumnParallelLinear)):
+        if gpc.config.model.use_flash_attn:
+            from flash_attn.modules.embedding import ParallelGPT2Embeddings
+
+        if isinstance(module, (Embedding1D, BaseScaleColumnParallelLinear)) or (
+            gpc.config.model.use_flash_attn and isinstance(module, ParallelGPT2Embeddings)
+        ):
             for param in module.parameters():
                 if gpc.is_initialized(ParallelMode.TENSOR) and is_using_isp():
                     setattr(param, IS_TENSOR_DATA_PARALLEL, True)
@@ -123,7 +128,7 @@ def set_parallel_attr_for_param_groups(model: Union[nn.Module, nn.ModuleList]):
                     setattr(param, IS_TENSOR_ZERO_PARALLEL, True)
 
         # for linear module
-        if isinstance(module, (ColumnParallelLinear, RowParallelLinear)):
+        if isinstance(module, (ColumnParallelLinearTorch, RowParallelLinearTorch)):
             for param in module.parameters():
                 if gpc.is_initialized(ParallelMode.EXPERT_DATA) and is_moe_param(param):
                     # module should be MoE experts's linear
