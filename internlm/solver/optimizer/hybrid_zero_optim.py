@@ -100,8 +100,6 @@ class HybridZeroOptimizer(BaseOptimizer):
         # self._overlap_communication = overlap_communication
         self._reduce_bucket_size = reduce_bucket_size
 
-        self._comm_bcast_stream = torch.cuda.Stream()
-
         # gradient scaler
         self.grad_scaler = DynamicGradScaler(
             initial_scale=initial_scale,
@@ -837,8 +835,7 @@ class HybridZeroOptimizer(BaseOptimizer):
                     fp16_param.data.copy_(fp32_param)
 
         torch.cuda.synchronize()
-        with torch.cuda.stream(self._comm_bcast_stream):
-            self.broadcast_params()
+        self.broadcast_params()
 
         timer("step").stop()
 
@@ -874,8 +871,6 @@ class HybridZeroOptimizer(BaseOptimizer):
 
         for handle in handles:
             handle.wait()
-
-        torch.cuda.synchronize()
 
     ##################
     # FP16 Utilities #

@@ -301,7 +301,6 @@ def warmup_process_group():
 
 def cuda_memory_analyze(step=0, print_mm_suage=False):
     global n_caching_allocator_flushes
-    torch.cuda.synchronize()
 
     g_rank = gpc.get_global_rank()
     tp_rank = gpc.get_local_rank(ParallelMode.TENSOR)
