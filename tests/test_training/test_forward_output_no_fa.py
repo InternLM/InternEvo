@@ -154,7 +154,7 @@ def train_check_output(args):
     except KeyError:
         assert False, "plese set environment variable 'share_path'"
 
-    batch_path = os.path.join(share_path, "quailty_assurance/temp/batch_fa_0_2.pt")
+    batch_path = os.path.join(share_path, "quailty_assurance/7B_no_flash_attention/batch_no_pack.pt")
 
     # set seed
     seed_all(1024)
@@ -214,15 +214,21 @@ def train_check_output(args):
         )
 
     if gpc.is_rank_for_log():
-        standard_output_with_fa = torch.load(os.path.join(share_path, "quailty_assurance/temp/output_fa_0_2.pt"))
+        standard_output_with_fa = torch.load(
+            os.path.join(share_path, "quailty_assurance/7B_no_flash_attention/output_with_fa.pt")
+        )
         tensor1 = standard_output_with_fa[0][0]
         tensor2 = output[0][0][0]
 
-        for rtol in [1, 0.9, 0.8, 0.7, 0.6, 0.5, 0.4, 0.3, 0.2, 0.1, 1e-2, 1e-3, 1e-4]:
-            assert torch.allclose(
-                tensor1, tensor2, atol=0, rtol=rtol
-            ), f"{(tensor1 - tensor2).abs().max()} is over rtol {rtol}"
-            logger.info(f"Check for rotol={rtol} has passed")
+        if torch.equal(tensor1, tensor2):
+            logger.info("Outputs are totally equal")
+        else:
+            logger.warning("Outputs are not totally equal")
+            for rtol in [1, 0.9, 0.8, 0.7, 0.6, 0.5, 0.4, 0.3, 0.2, 0.1, 1e-2, 1e-3, 1e-4, 1e-5]:
+                assert torch.allclose(
+                    tensor1, tensor2, atol=0, rtol=rtol
+                ), f"{(tensor1 - tensor2).abs().max()} is over rtol {rtol}"
+                logger.info(f"Check for rotol={rtol} has passed")
 
 
 def test_output():
