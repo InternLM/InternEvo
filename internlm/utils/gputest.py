@@ -268,11 +268,6 @@ def bench_gpu(use_flash_attn=True):
         )
 
 
-"""
-Useful utility functions migrated from deepseped.
-"""
-
-
 def warmup_process_group():
     # Prevent OOM from nccl communication.
     if dist.is_initialized():
@@ -300,6 +295,10 @@ def warmup_process_group():
 
 
 def cuda_memory_analyze(step=0, print_mm_suage=False):
+    """
+    Useful utility functions migrated from deepseped.
+    """
+
     global n_caching_allocator_flushes
     torch.cuda.synchronize()
 

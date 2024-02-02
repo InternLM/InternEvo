@@ -9,19 +9,24 @@ from flash_attn.modules.embedding import ParallelGPT2Embeddings
 from flash_attn.modules.mlp import ParallelFusedMLP
 from torch import nn
 
-from internlm.core.context import IS_TENSOR_PARALLEL, ParallelMode
+from internlm.core.context import ParallelMode
 from internlm.core.context.parallel_context import global_context as gpc
 from internlm.core.naive_amp import set_fp32_attr_to_module
 from internlm.initialize.initialize_tensor import normal_, scaled_init_method_normal
 from internlm.model.embedding import Embedding1D
 from internlm.model.linear import (
-    FeedForward,
+    MegatronScaleColumnParallelLinear,
     RewardModelLinear,
     ScaleColumnParallelLinear,
+    get_mlp_cls,
 )
 from internlm.model.moe import MoE
 from internlm.model.multi_head_attention import MHA
-from internlm.model.utils import gather_forward_split_backward, try_import_RMSNorm
+from internlm.model.utils import (
+    gather_forward_split_backward,
+    split_forward_gather_backward,
+    try_import_RMSNorm,
+)
 from internlm.solver.pipeline_utils import partition_uniform
 from internlm.utils.checkpoint import activation_checkpoint
 from internlm.utils.common import filter_kwargs
@@ -79,6 +84,7 @@ class PackedFlashBaseLayer1D(nn.Module):
         use_swiglu: bool = True,
         use_flash_attn: bool = True,
         num_experts: int = 1,
+        tp_mode: str = "mtp",
     ):
         super().__init__()
         self.checkpoint = checkpoint
@@ -88,10 +94,13 @@ class PackedFlashBaseLayer1D(nn.Module):
         self.use_flash_attn = use_flash_attn
 
         head_dim = hidden_size // num_attention_heads
+        self.tp_mode = tp_mode
+        parallel_mode = ParallelMode.WEIGHT if self.tp_mode == "isp" else ParallelMode.TENSOR
         self.mixer = MHA(
             embed_dim=hidden_size,
             num_heads=num_attention_heads,
-            process_group=gpc.get_group(ParallelMode.TENSOR),
+            process_group=gpc.get_group(parallel_mode),
+            sequence_process_group=gpc.get_group(ParallelMode.TENSOR),
             dropout=attn_drop_rate,
             max_position_embeddings=max_position_embeddings,
             softmax_scale=1 / math.sqrt(head_dim),
@@ -103,6 +112,7 @@ class PackedFlashBaseLayer1D(nn.Module):
             use_flash_attn=use_flash_attn,
             device=device,
             dtype=dtype,
+            tp_mode=self.tp_mode,
         )
 
         self.dropout1 = nn.Dropout(drop_rate)
@@ -112,18 +122,17 @@ class PackedFlashBaseLayer1D(nn.Module):
         else:
             self.norm1 = nn.LayerNorm(hidden_size, eps=layer_norm_epsilon)
             self.norm2 = nn.LayerNorm(hidden_size, eps=layer_norm_epsilon)
-        set_fp32_attr_to_module(self.norm1)
-        set_fp32_attr_to_module(self.norm2)
 
         self.num_experts = num_experts
         ep_size = gpc.get_world_size(ParallelMode.EXPERT)
         if num_experts <= 1:  # dense, not MoE
             if use_swiglu:
-                self.mlp = FeedForward(
+                mlp_cls = get_mlp_cls(self.tp_mode)
+                self.mlp = mlp_cls(
                     hidden_size,
                     int(hidden_size * mlp_ratio),
                     out_features=hidden_size,
-                    process_group=gpc.get_group(ParallelMode.TENSOR),
+                    process_group=gpc.get_group(parallel_mode),
                     bias=False,
                     device=device,
                     dtype=dtype,
@@ -134,7 +143,7 @@ class PackedFlashBaseLayer1D(nn.Module):
                     int(hidden_size * mlp_ratio),
                     out_features=hidden_size,
                     activation="gelu_approx",
-                    process_group=gpc.get_group(ParallelMode.TENSOR),
+                    process_group=gpc.get_group(parallel_mode),
                     bias1=False,
                     bias2=False,
                     sequence_parallel=gpc.config.model.sequence_parallel,
@@ -143,9 +152,6 @@ class PackedFlashBaseLayer1D(nn.Module):
                     device=device,
                     dtype=dtype,
                 )
-            for _, param in self.mlp.named_parameters():
-                if gpc.get_world_size(ParallelMode.TENSOR) > 1:
-                    setattr(param, IS_TENSOR_PARALLEL, True)
         else:
             # replace mlp by MoE module. The expert in MoE is a FeedForward module.
             self.mlp = MoE(
@@ -156,9 +162,6 @@ class PackedFlashBaseLayer1D(nn.Module):
                 device=device,
                 dtype=dtype,
             )
-            for _, param in self.mlp.moe_layer.experts.named_parameters():
-                if gpc.get_world_size(ParallelMode.TENSOR) > 1:
-                    setattr(param, IS_TENSOR_PARALLEL, True)
             set_fp32_attr_to_module(self.mlp.moe_layer.gate)
 
         self.dropout2 = nn.Dropout(drop_rate)
@@ -324,11 +327,18 @@ class PackedFlashInternLm1D(nn.Module):
         super().__init__()
 
         checkpoint_layer_num = int(num_layers * checkpoint)
+        self.tp_mode = "mtp"
+        if isinstance(gpc.config.parallel["tensor"], dict):
+            self.tp_mode = gpc.config.parallel["tensor"].get("mode", "mtp")
 
         if is_reward:
             head_cls = RewardModelLinear
         else:
-            head_cls = ScaleColumnParallelLinear
+            head_cls = (
+                ScaleColumnParallelLinear
+                if self.tp_mode in ["mtp", "fsp", "isp"]
+                else MegatronScaleColumnParallelLinear
+            )
         if first:
             if embed_split_hidden:
                 self.embedding = Embedding1D(num_embeddings=vocab_size, embedding_dim=hidden_size)
@@ -345,8 +355,6 @@ class PackedFlashInternLm1D(nn.Module):
                 )
             for _, param in self.embedding.named_parameters():
                 normal_(std=0.0052)(param)
-                if gpc.get_world_size(ParallelMode.TENSOR) > 1:
-                    setattr(param, IS_TENSOR_PARALLEL, True)
         self.embed_grad_scale = embed_grad_scale
         self.blocks = nn.ModuleList(
             [
@@ -370,6 +378,7 @@ class PackedFlashInternLm1D(nn.Module):
                     use_swiglu=use_swiglu,
                     use_flash_attn=use_flash_attn,
                     num_experts=num_experts,
+                    tp_mode=self.tp_mode,
                 )
                 for lid in range(num_layers)
             ]
@@ -379,7 +388,6 @@ class PackedFlashInternLm1D(nn.Module):
                 self.norm = RMSNorm(hidden_size, eps=layer_norm_epsilon)
             else:
                 self.norm = nn.LayerNorm(hidden_size, eps=layer_norm_epsilon)
-            set_fp32_attr_to_module(self.norm)
             self.head = head_cls(
                 in_features=hidden_size,
                 out_features=gpc.get_world_size(ParallelMode.TENSOR) if is_reward else vocab_size,
@@ -391,8 +399,7 @@ class PackedFlashInternLm1D(nn.Module):
             )
             for _, param in self.head.named_parameters():
                 normal_(std=0.0052)(param)
-                if gpc.get_world_size(ParallelMode.TENSOR) > 1:
-                    setattr(param, IS_TENSOR_PARALLEL, True)
+
         self.parallel_output = parallel_output
 
     def forward(self, hidden_states=None, cu_seqlens=None, input_ids=None, indexes=None, inference_params=None):
@@ -417,6 +424,10 @@ class PackedFlashInternLm1D(nn.Module):
             assert len(indexes) == 1
             # The indexes are used to indicate the actual position IDs of each token in the packed input.
             indexes = indexes[0]
+            # if the sequence parallel mode is 'isp', the indexes should also be split in sequence dimension.
+            if gpc.config.parallel.sequence_parallel and self.tp_mode == "isp":
+                indexes = split_forward_gather_backward(indexes, ParallelMode.TENSOR, dim=0)
+
         max_seqlen = (cu_seqlens[1:] - cu_seqlens[:-1]).max().item() if cu_seqlens is not None else None
 
         moe_losses = []
@@ -433,7 +444,11 @@ class PackedFlashInternLm1D(nn.Module):
         if hasattr(self, "norm"):
             hidden_states = self.norm(hidden_states.float())
         if hasattr(self, "head"):
-            hidden_states = self.head(hidden_states)
+            # Evaluation
+            if hidden_states.ndim == 3:
+                hidden_states = self.head(hidden_states, gather_dim=1)
+            else:  # Training
+                hidden_states = self.head(hidden_states, gather_dim=0)
 
         if not self.parallel_output:
             hidden_states = gather_forward_split_backward(hidden_states, ParallelMode.TENSOR, dim=-1)

@@ -95,7 +95,7 @@ grad_scaler = dict(
 hybrid_zero_optimizer = dict(
     # Enable low_level_optimzer overlap_communication
     overlap_sync_grad=True,
-    overlap_sync_param=True,
+    overlap_sync_param=False,
     # bucket size for nccl communication params
     reduce_bucket_size=512 * 1024 * 1024,
     # grad clipping
@@ -129,6 +129,7 @@ beta2_scheduler = dict(
     cur_iter=-1,
 )
 
+use_fp32_norm = False
 model = dict(
     checkpoint=False,  # The proportion of layers for activation aheckpointing, the optional value are True/False/[0-1]
     num_attention_heads=NUM_ATTENTION_HEAD,
@@ -146,23 +147,36 @@ model = dict(
     use_flash_attn=True,
     num_chunks=1,  # if num_chunks > 1, interleaved pipeline scheduler is used.
 )
-
-# zero1 parallel:
-#     1. if zero1 <= 0, The size of the zero process group is equal to the size of the dp process group,
-#         so parameters will be divided within the range of dp.
-#     2. if zero1 == 1, zero is not used, and all dp groups retain the full amount of model parameters.
-#     3. zero1 > 1 and zero1 <= dp world size, the world size of zero is a subset of dp world size.
-#         For smaller models, it is usually a better choice to split the parameters within nodes with a setting <= 8.
-# pipeline parallel (dict):
-#     1. size: int, the size of pipeline parallel.
-#     2. interleaved_overlap: bool, enable/disable communication overlap when using interleaved pipeline scheduler.
-# tensor parallel: tensor parallel size, usually the number of GPUs per node.
-
+"""
+zero1 parallel (dict):
+    1. size: int
+        * if size <= 0, the size of the zero process group is equal to the size of the dp process group,
+            so parameters will be divided within the range of dp.
+        * if size == 1, zero is not used, and all dp groups retain the full amount of model parameters.
+        * if size > 1 and size <= dp world size, the world size of zero is a subset of dp world size.
+        For smaller models, it is usually a better choice to split the parameters within nodes with a setting <= 8.
+    2. fsdp: bool, enable/disable torch's fully sharded data parallel, defaults to False.
+tensor parallel (dict):
+    1. size: int, the size of tensor parallel.
+    2. mode: str, the tensor parallel mode, should be in ['mtp', 'msp', 'fsp', 'isp'],
+        defaults to 'mtp', means the pure megatron tensor parallel without sequence parallel.
+        msp: megatron tensor parallel with sequence parallel, sequence parallel size = tensor parallel size.
+        fsp: tensor parallel by flash-attn with sequence parallel, sequence parallel size = tensor parallel size.
+        isp: customed intern sequence parallel without tensor parallel, can be used with weight parallel.
+pipeline parallel (dict):
+    1. size: int, the size of pipeline parallel.
+    2. interleaved_overlap: bool, enable/disable communication overlap when using interleaved pipeline scheduler,
+        defaults to False.
+weight parallel (dict):
+    1. size: int, the size of weight parallel.
+    2. overlap: bool, enable/disable all_gather/reduce_scatter communication overlap, defaults to False.
+    3. memory_pool: bool, enable/disable memory pool, defaults to False.
+"""
 parallel = dict(
-    zero1=dict(size=8, fsdp=False),
-    tensor=1,
+    zero1=dict(size=8),
+    tensor=dict(size=1, mode="mtp"),
     pipeline=dict(size=1, interleaved_overlap=True),
-    sequence_parallel=False,
+    weight=dict(size=1, overlap=True, memory_pool=True),
 )
 
 cudnn_deterministic = False

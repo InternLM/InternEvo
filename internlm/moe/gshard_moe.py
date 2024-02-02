@@ -167,7 +167,7 @@ def top1gating(
     # if we don't want to drop any tokens
     if not drop_tokens:
         new_capacity = torch.max(exp_counts).to(logits.device)
-        dist.all_reduce(new_capacity, op=dist.ReduceOp.MAX, group=dist.get_world_group())
+        dist.all_reduce(new_capacity, op=dist.ReduceOp.MAX, group=gpc.get_group(ParallelMode.GLOBAL))
         capacity = new_capacity
 
     # Compute l_aux
@@ -333,7 +333,6 @@ class TopKGate(Module):
     def forward(
         self, inputs: torch.Tensor, used_token: torch.Tensor = None
     ) -> Tuple[Tensor, Tensor, Tensor]:  # type: ignore
-
         if self.wall_clock_breakdown:
             timer("TopKGate").start()
 
@@ -443,7 +442,6 @@ class GShardMOELayer(BaseMoELayer):
         self.wall_clock_breakdown = False
 
     def forward(self, *inputs: Tensor) -> Tensor:
-
         if self.wall_clock_breakdown:
             timer("moe").start()
 

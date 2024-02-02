@@ -1,13 +1,15 @@
 from .parallel_context import (
-    IS_SEQUENCE_PARALLEL,
-    IS_TENSOR_PARALLEL,
+    IS_REPLICA_ZERO_PARALLEL,
+    IS_TENSOR_DATA_PARALLEL,
+    IS_TENSOR_EXPERT_DATA_PARALLEL,
+    IS_TENSOR_ZERO_PARALLEL,
+    IS_WEIGHT_ZERO_PARALLEL,
     Config,
     ParallelContext,
     global_context,
 )
 from .process_group_initializer import (
     Initializer_Data,
-    Initializer_Model,
     Initializer_Nettest,
     Initializer_Pipeline,
     Initializer_Tensor,
@@ -29,8 +31,11 @@ from .random import (
 
 __all__ = [
     "Config",
-    "IS_TENSOR_PARALLEL",
-    "IS_SEQUENCE_PARALLEL",
+    "IS_TENSOR_ZERO_PARALLEL",
+    "IS_TENSOR_DATA_PARALLEL",
+    "IS_REPLICA_ZERO_PARALLEL",
+    "IS_WEIGHT_ZERO_PARALLEL",
+    "IS_TENSOR_EXPERT_DATA_PARALLEL",
     "global_context",
     "ParallelContext",
     "ParallelMode",
@@ -41,7 +46,6 @@ __all__ = [
     "Initializer_Nettest",
     "Initializer_Zero3_dp",
     "ProcessGroupInitializer",
-    "Initializer_Model",
     "seed",
     "set_mode",
     "add_seed",
