@@ -181,6 +181,8 @@ parallel = dict(
     tensor=dict(size=1, mode="mtp"),
     pipeline=dict(size=1, interleaved_overlap=True),
     weight=dict(size=1, overlap=True, memory_pool=True),
+    expert=dict(size=4),
+    expert_weight=dict(size=1, overlap=False, memory_pool=True),
 )
 
 cudnn_deterministic = False

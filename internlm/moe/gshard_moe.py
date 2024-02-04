@@ -14,7 +14,7 @@ from torch.nn import Module
 
 from internlm.core.context import ParallelMode
 from internlm.core.context import global_context as gpc
-from internlm.model.linear import FeedForward
+from internlm.model.linear import get_mlp_cls
 from internlm.utils.logger import get_logger
 from internlm.utils.megatron_timers import megatron_timer as timer
 from internlm.utils.registry import MODEL_INITIALIZER
@@ -405,6 +405,14 @@ class GShardMOELayer(BaseMoELayer):
         assert (
             num_experts % ep_size == 0
         ), f"Number of experts ({num_experts}) should be divisible by expert parallel size ({ep_size})"
+
+        tp_mode = (
+            gpc.config.parallel["tensor"].get("mode", "mtp")
+            if isinstance(gpc.config.parallel["tensor"], dict)
+            else "mtp"
+        )
+        parallel_mode = ParallelMode.WEIGHT if tp_mode == "isp" else ParallelMode.TENSOR
+        mlp_cls = get_mlp_cls(tp_mode)
         super().__init__(
             TopKGate(
                 hidden_size,
@@ -419,11 +427,11 @@ class GShardMOELayer(BaseMoELayer):
             ),
             torch.nn.ModuleList(
                 [
-                    FeedForward(
+                    mlp_cls(
                         hidden_size,
                         int(hidden_size * gpc.config.model.mlp_ratio),
                         out_features=hidden_size,
-                        process_group=gpc.get_group(ParallelMode.TENSOR),
+                        process_group=gpc.get_group(parallel_mode),
                         bias=False,
                         device=device,
                         dtype=dtype,
