@@ -67,7 +67,7 @@ msgstr ""
 msgid ""
 "当 ``size > 1`` 且 ``size <= data_parallel_size``，则 zero1 进程组是数据并行进程组的子集"
 msgstr ""
-"When ``zero1 > 1`` and ``zero1 <= data_parallel_world_size``, the zero1 "
+"When ``size > 1`` and ``size <= data_parallel_size``, the zero1 "
 "process group is a subset of the data parallel process group."
 
 #: ../../source/parallel.rst:25
