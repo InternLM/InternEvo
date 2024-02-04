@@ -58,7 +58,7 @@ MTP(Megatron-LM Tensor Parallel)， 为默认的张量并行模型，引用自 `
   :scale: 50%
   :class: with-border
 
-  Transformer layer with tensor parallelism. Adopted from `Megatron-LM Tensor Parallel <https://arxiv.org/abs/2205.05198>`_
+  Transformer layer with tensor parallelism.
 
 MTP 主要对 `attention <https://github.com/InternLM/InternEvo/blob/develop/internlm/model/multi_head_attention.py>`_ 和 `linear <https://github.com/InternLM/InternEvo/blob/develop/internlm/model/linear.py>`_ 这两个模块进行张量并行操作。假设张量并行大小为 ``tp``，输入数据的序列长度为 ``seqlen``，隐藏层大小为 ``hidden size``，则张量并行期间产生的激活值 ``shape`` 为 ``[seqlen, hidden_size/tp]``。
 
@@ -72,7 +72,7 @@ MSP(Megatron-LM Sequence Parallel)，引用自 `Megatron-LM Sequence Parallel <h
   :scale: 50%
   :class: with-border
 
-  Transformer layer with tensor and sequence parallelism. Adopted from `Megatron-LM Sequence Parallel <https://arxiv.org/abs/2205.05198>`_
+  Transformer layer with tensor and sequence parallelism.
 
 与 MTP 对比，我们可以发现，MSP 主要针对未进行张量并行的模块，如 ``LayerNorm`` 和 ``Dropout`` 等模型进行序列化并行操作。需要注意的是，序列化并行大小与张量并行大小相等，且共用通信组。假设张量并行大小为 ``tp``，输入数据的序列长度为 ``seqlen``，隐藏层大小为 ``hidden size``，则序列化并行期间产生的激活值形状为 ``[seqlen/tp, hidden_size]``，张量并行期间产生的激活值形状为 ``[seqlen, hidden_size/tp]``。
 
