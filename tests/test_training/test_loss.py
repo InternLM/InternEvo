@@ -1,6 +1,7 @@
 import math
 import os
 import subprocess
+import shutil
 
 import pytest
 import torch
@@ -12,7 +13,7 @@ from internlm.core.context import global_context as gpc
 from internlm.core.trainer import TrainState
 from internlm.initialize import initialize_distributed_env
 from internlm.model.loss import FlashGPTLMLoss
-from internlm.model.metrics import AccPerplex, SchedulerMetricHook
+from internlm.model.metrics import AccPerplex
 from internlm.train import (
     get_train_data_loader,
     initialize_model,
@@ -53,6 +54,7 @@ def train(
     num_chunks: int = 2,
     interleaved: bool = False,
     enable_sp: bool = False,
+    enable_ckpt: bool = False,
 ):
     # initialize distributed environment
     initialize_distributed_env(config=CONFIG_FILE_PATH)
@@ -91,6 +93,14 @@ def train(
     total_steps = gpc.config.data.total_steps
     skip_batches = gpc.config.data.skip_batches
     label_smoothing = gpc.config.loss.label_smoothing
+
+    # update ckpt config
+    if enable_ckpt:
+        gpc.config.ckpt.enable_save_ckpt = True
+        gpc.config.ckpt.checkpoint_every = 5
+        gpc.config.ckpt.save_ckpt_folder = "local:llm_ckpts/"
+        gpc.config.ckpt.load_ckpt_info["content"] = ("all",)
+        gpc.config.ckpt.oss_snapshot_freq = 100
 
     # get and broadcast current time
     current_time = launch_time()
@@ -138,19 +148,6 @@ def train(
         dp_pg=gpc.get_group(ParallelMode.DATA),
         dataset_types=dataset_types,
     )
-
-    # initialize trainer
-    scheduler_hooks = [
-        SchedulerMetricHook(
-            metric=metric,
-            skip=(
-                gpc.is_using_parallel_mode(ParallelMode.PIPELINE)
-                and hasattr(gpc.config.model, "num_chunks")
-                and gpc.config.model.num_chunks > 1
-                and gpc.config.parallel["pipeline"].get("interleaved_overlap", False)
-            ),
-        ),
-    ]
 
     # initialize trainer
     trainer, train_dl, _, _ = internlm.initialize_trainer(
@@ -213,6 +210,9 @@ def train(
             cur_loss_list.append((loss.item() - moe_loss.item() if moe_loss is not None else loss.item()))
         timer("fwd-bwd").stop()
 
+        if isp_communicator and isp_communicator.enable_memory_pool:
+            isp_communicator.memory_pool.reset_lazy_pools()
+
         # update parameters, and returns (success_update, grad_norm)
         trainer_result = trainer.step()
         assert trainer_result is not None
@@ -225,6 +225,14 @@ def train(
             train_state.inf_nan_skip_batches += 1  # record the amount of updating parameters unsuccessfully.
 
         timer("one-batch").stop()
+
+        # checkpoint the training states in specific steps, which is determined by the args "checkpoint_every"
+        # # save batch sampler that tracks the true consumed samples
+        now_break = ckpt_manager.try_save_checkpoint(train_state)
+        if now_break:
+            break
+
+    ckpt_manager.wait_async_upload_finish()
 
 
 def check_loss_spike():
@@ -311,3 +319,25 @@ def test_training_with_isp():
 
     # model training
     train(dp_size=4, tp_size=2, wp_size=4, enable_sp=True)
+
+
+@pytest.mark.training_8GPU_ISP_SAVE_CKPT
+def test_training_with_isp_save_ckpt():
+    # update config file
+    global CONFIG_FILE_PATH
+    CONFIG_FILE_PATH = "./configs/7B_isp_sft.py"
+
+    # model training save ckpt
+    train(dp_size=4, tp_size=2, wp_size=4, enable_sp=True, enable_ckpt=True)
+
+
+@pytest.mark.training_8GPU_ISP_LOAD_CKPT
+def test_training_with_isp_load_ckpt():
+    # update config file
+    global CONFIG_FILE_PATH
+    CONFIG_FILE_PATH = "./configs/7B_isp_sft.py"
+
+    shutil.rmtree("./llm_ckpts/10")
+
+    # model training load ckpt
+    train(dp_size=4, tp_size=2, wp_size=4, enable_sp=True, enable_ckpt=True)

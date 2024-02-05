@@ -22,7 +22,7 @@ jobs:
     - name: training_8GPU
       run: |
         source $evo_env
-        srun -p ${SLURM_PARTITION} --kill-on-bad-exit=1 --job-name=${GITHUB_RUN_ID}-${GITHUB_JOB} -n8 --ntasks-per-node=8 --cpus-per-task=4 --gpus-per-task=1 pytest -s -v --color=yes -m "training_8GPU" ./tests/test_training
+        srun -p ${SLURM_PARTITION} --kill-on-bad-exit=1 --job-name=${GITHUB_RUN_ID}-${GITHUB_JOB} -n8 --ntasks-per-node=8 --cpus-per-task=4 --gpus-per-task=1 pytest -s -v --color=yes -m "training_8GPU" ./tests/test_training/test_loss.py
 
   training_16GPU_8DP2TP:
     runs-on: [t_cluster]
@@ -40,7 +40,7 @@ jobs:
       run: |
         source $evo_env
         sed -i 's/^.*tensor=.*/    tensor=2,/' ./configs/7B_sft.py
-        srun -p ${SLURM_PARTITION} --kill-on-bad-exit=1 --job-name=${GITHUB_RUN_ID}-${GITHUB_JOB} -n16 --ntasks-per-node=8 --cpus-per-task=4 --gpus-per-task=1 pytest -s -v --color=yes -m "training_16GPU_8DP2TP" ./tests/test_training
+        srun -p ${SLURM_PARTITION} --kill-on-bad-exit=1 --job-name=${GITHUB_RUN_ID}-${GITHUB_JOB} -n16 --ntasks-per-node=8 --cpus-per-task=4 --gpus-per-task=1 pytest -s -v --color=yes -m "training_16GPU_8DP2TP" ./tests/test_training/test_loss.py
 
   training_16GPU_8DP2TPSP:
     runs-on: [t_cluster]
@@ -57,9 +57,8 @@ jobs:
     - name: training_16GPU_8DP2TPSP
       run: |
         source $evo_env
-        sed -i 's/^.*tensor=.*/    tensor=2,/' ./configs/7B_sft.py
-        sed -i 's/^.*sequence_parallel=.*/    sequence_parallel=True,/' ./configs/7B_sft.py
-        srun -p ${SLURM_PARTITION} --kill-on-bad-exit=1 --job-name=${GITHUB_RUN_ID}-${GITHUB_JOB} -n16 --ntasks-per-node=8 --cpus-per-task=4 --gpus-per-task=1 pytest -s -v --color=yes -m "training_16GPU_8DP2TPSP" ./tests/test_training
+        sed -i 's/^.*tensor=.*/    tensor=dict(size=2, mode="fsp"),/' ./configs/7B_sft.py
+        srun -p ${SLURM_PARTITION} --kill-on-bad-exit=1 --job-name=${GITHUB_RUN_ID}-${GITHUB_JOB} -n16 --ntasks-per-node=8 --cpus-per-task=4 --gpus-per-task=1 pytest -s -v --color=yes -m "training_16GPU_8DP2TPSP" ./tests/test_training/test_loss.py
             
   training_16GPU_8DP2PP:
     runs-on: [t_cluster]
@@ -77,7 +76,7 @@ jobs:
       run: |
         source $evo_env
         sed -i 's/^.*pipeline=.*/    pipeline=dict(size=2),/' ./configs/7B_sft.py
-        srun -p ${SLURM_PARTITION} --kill-on-bad-exit=1 --job-name=${GITHUB_RUN_ID}-${GITHUB_JOB} -n16 --ntasks-per-node=8 --cpus-per-task=4 --gpus-per-task=1 pytest -s -v --color=yes -m "training_16GPU_8DP2PP" ./tests/test_training
+        srun -p ${SLURM_PARTITION} --kill-on-bad-exit=1 --job-name=${GITHUB_RUN_ID}-${GITHUB_JOB} -n16 --ntasks-per-node=8 --cpus-per-task=4 --gpus-per-task=1 pytest -s -v --color=yes -m "training_16GPU_8DP2PP" ./tests/test_training/test_loss.py
 
   training_16GPU_8DP2PP_InterleavedOverlap:
     runs-on: [t_cluster]
@@ -96,7 +95,42 @@ jobs:
         source $evo_env
         sed -i 's/^.*pipeline=.*/    pipeline=dict(size=2, interleaved_overlap=True),/' ./configs/7B_sft.py
         sed -i 's/^.*num_chunks=.*/    num_chunks=2,/' ./configs/7B_sft.py
-        srun -p ${SLURM_PARTITION} --kill-on-bad-exit=1 --job-name=${GITHUB_RUN_ID}-${GITHUB_JOB} -n16 --ntasks-per-node=8 --cpus-per-task=4 --gpus-per-task=1 pytest -s -v --color=yes -m "training_16GPU_8DP2PP_InterleavedOverlap" ./tests/test_training
+        srun -p ${SLURM_PARTITION} --kill-on-bad-exit=1 --job-name=${GITHUB_RUN_ID}-${GITHUB_JOB} -n16 --ntasks-per-node=8 --cpus-per-task=4 --gpus-per-task=1 pytest -s -v --color=yes -m "training_16GPU_8DP2PP_InterleavedOverlap" ./tests/test_training/test_loss.py
+
+  training_8GPU_ISP:
+    runs-on: [t_cluster]
+    timeout-minutes: 10
+    steps:
+    - name: mask env
+      run: |
+        echo "::add-mask::${{env.WORKSPACE_PREFIX}}"
+        echo "::add-mask::$path_prefix"
+    - uses: actions/checkout@v3
+
+    - name: training_8GPU_ISP
+      run: |
+        source $evo_env
+        conda activate /mnt/petrelfs/share_data/huangting.p/envs/llm-torch2.1-flash2
+        conda activate /mnt/petrelfs/share_data/huangting.p/envs/llm-torch2.1-flash2
+        srun -p ${SLURM_PARTITION} --kill-on-bad-exit=1 --job-name=${GITHUB_RUN_ID}-${GITHUB_JOB} -n8 --ntasks-per-node=8 --cpus-per-task=4 --gpus-per-task=1 pytest -s -v --color=yes -m "training_8GPU_ISP" ./tests/test_training/test_loss.py
+
+  training_8GPU_ISP_CKPT:
+    runs-on: [t_cluster]
+    timeout-minutes: 20
+    steps:
+    - name: mask env
+      run: |
+        echo "::add-mask::${{env.WORKSPACE_PREFIX}}"
+        echo "::add-mask::$path_prefix"
+    - uses: actions/checkout@v3
+
+    - name: training_8GPU_ISP_CKPT
+      run: |
+        source $evo_env
+        conda activate /mnt/petrelfs/share_data/huangting.p/envs/llm-torch2.1-flash2
+        conda activate /mnt/petrelfs/share_data/huangting.p/envs/llm-torch2.1-flash2
+        srun -p ${SLURM_PARTITION} --kill-on-bad-exit=1 --job-name=${GITHUB_RUN_ID}-${GITHUB_JOB} -n8 --ntasks-per-node=8 --cpus-per-task=4 --gpus-per-task=1 pytest -s -v --color=yes -m "training_8GPU_ISP_SAVE_CKPT" ./tests/test_training/test_loss.py
+        srun -p ${SLURM_PARTITION} --kill-on-bad-exit=1 --job-name=${GITHUB_RUN_ID}-${GITHUB_JOB} -n8 --ntasks-per-node=8 --cpus-per-task=4 --gpus-per-task=1 pytest -s -v --color=yes -m "training_8GPU_ISP_LOAD_CKPT" ./tests/test_training/test_loss.py
 
   unit_test_optimizer:
     runs-on: [t_cluster]
