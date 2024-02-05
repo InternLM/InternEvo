@@ -31,6 +31,7 @@ from internlm.core.context import (
     IS_TENSOR_DATA_PARALLEL,
     IS_TENSOR_EXPERT_DATA_PARALLEL,
     IS_TENSOR_ZERO_PARALLEL,
+    IS_WEIGHT_EXPERT_DATA_PARALLEL,
     IS_WEIGHT_ZERO_PARALLEL,
     ParallelMode,
 )
@@ -83,6 +84,7 @@ from internlm.utils.parallel import (
     is_tensor_expert_data_parallel_parameter,
     is_tensor_zero_parallel_parameter,
     is_using_isp,
+    is_weight_expert_data_parallel_parameter,
     is_weight_zero_parallel_parameter,
     set_model_params_layer_name,
     sync_model_param,
@@ -127,9 +129,10 @@ def set_parallel_attr_for_param_groups(model: Union[nn.Module, nn.ModuleList]):
         # for linear module
         if isinstance(module, (ColumnParallelLinear, RowParallelLinear)):
             for param in module.parameters():
-                if gpc.is_initialized(ParallelMode.EXPERT_DATA) and is_moe_param(param):
-                    # module should be MoE experts's linear
+                if is_moe_param(param) and gpc.is_initialized(ParallelMode.TENSOR) and not is_using_isp():
                     setattr(param, IS_TENSOR_EXPERT_DATA_PARALLEL, True)
+                elif is_moe_param(param) and gpc.is_initialized(ParallelMode.WEIGHT) and is_using_isp():
+                    setattr(param, IS_WEIGHT_EXPERT_DATA_PARALLEL, True)
                 elif not is_moe_param(param) and gpc.is_initialized(ParallelMode.TENSOR) and not is_using_isp():
                     setattr(param, IS_TENSOR_ZERO_PARALLEL, True)
                 elif not is_moe_param(param) and gpc.is_initialized(ParallelMode.WEIGHT) and is_using_isp():
@@ -153,6 +156,7 @@ def set_parallel_attr_for_param_groups(model: Union[nn.Module, nn.ModuleList]):
                 or is_tensor_zero_parallel_parameter(param)
                 or is_weight_zero_parallel_parameter(param)
                 or is_tensor_expert_data_parallel_parameter(param)
+                or is_weight_expert_data_parallel_parameter(param)
             ), f"parameter with name:{name} has no parallel attribution."
 
 
@@ -270,7 +274,6 @@ def initialize_isp_communicator(model: Union[nn.Module, nn.ModuleList]):
             ),
             gpc.config.parallel.weight.overlap,
             gpc.config.parallel.weight.memory_pool,
-            gpc.get_group(ParallelMode.WEIGHT),
         )
         # register communicator for isp linear.
         ISPLinear.register_communicator(isp_communicator)

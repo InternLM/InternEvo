@@ -172,17 +172,23 @@ pipeline parallel (dict):
     2. interleaved_overlap: bool, enable/disable communication overlap when using interleaved pipeline scheduler,
         defaults to False.
 weight parallel (dict):
-    1. size: int, the size of weight parallel.
+    1. size: int, the size of weight parallel for non-moe module.
     2. overlap: bool, enable/disable all_gather/reduce_scatter communication overlap, defaults to False.
     3. memory_pool: bool, enable/disable memory pool, defaults to False.
+expert parallel (dict):
+    1. size: int, the size of expert parallel, each device would save {num_expert/ep_size} local experts.
+expert parallel (dict):
+    1. size: int, the size of weight parallel for each expert module. the overlap and memory_pool would
+        inherit from weight parallel setting.
+
 """
 parallel = dict(
     zero1=dict(size=-1, fsdp=False),
-    tensor=dict(size=1, mode="mtp"),
+    tensor=dict(size=1, mode="isp"),
     pipeline=dict(size=1, interleaved_overlap=True),
-    weight=dict(size=1, overlap=True, memory_pool=True),
+    weight=dict(size=8, overlap=False, memory_pool=True),
     expert=dict(size=4),
-    expert_weight=dict(size=1, overlap=False, memory_pool=True),
+    expert_weight=dict(size=1),
 )
 
 cudnn_deterministic = False

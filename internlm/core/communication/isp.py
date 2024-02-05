@@ -451,11 +451,11 @@ class ISPCommunicator:
     # communication operation interfaces
 
     def all_gather(self, tensor: torch.Tensor, module: nn.Module, is_bias: bool = False):
-        if dist.get_world_size(self.process_group) <= 1:
+        if dist.get_world_size(module.process_group) <= 1:
             return tensor
 
         if not self.overlap:
-            result, _ = all_gather_raw(tensor, self.process_group, async_op=False)
+            result, _ = all_gather_raw(tensor, module.process_group, async_op=False)
         elif is_bias:
             result = self._bias_global_output[module]
         else:
@@ -470,11 +470,11 @@ class ISPCommunicator:
         op: dist.ReduceOp,
         is_bias: bool = False,
     ):
-        if dist.get_world_size(self.process_group) <= 1:
+        if dist.get_world_size(model.process_group) <= 1:
             return tensor, None
 
         if not self.overlap:
-            result, handle = reduce_scatter_raw(tensor, self.process_group, op=op, async_op=True)
+            result, handle = reduce_scatter_raw(tensor, model.process_group, op=op, async_op=True)
         else:
             if is_bias:
                 assert hasattr(model.bias, "isp_reduce_scatter_name")
@@ -485,16 +485,18 @@ class ISPCommunicator:
 
             self.reduce_scatter_handlers[key] = reduce_scatter_raw(
                 tensor,
-                self.process_group,
+                model.process_group,
                 op=op,
                 async_op=True,
-                memory_pool_allocator=self.memory_pool.allocate_reduce_scatter_memory,
+                memory_pool_allocator=self.memory_pool.allocate_reduce_scatter_memory
+                if self.enable_memory_pool
+                else None,
             )
 
             result, handle = (
                 self._get_constant_zero(
                     (
-                        tensor.shape[0] // dist.get_world_size(self.process_group),
+                        tensor.shape[0] // dist.get_world_size(model.process_group),
                         *tensor.shape[1:],
                     )
                 ),

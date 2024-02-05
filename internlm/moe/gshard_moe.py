@@ -411,7 +411,7 @@ class GShardMOELayer(BaseMoELayer):
             if isinstance(gpc.config.parallel["tensor"], dict)
             else "mtp"
         )
-        parallel_mode = ParallelMode.WEIGHT if tp_mode == "isp" else ParallelMode.TENSOR
+        parallel_mode = ParallelMode.EXPERT_WEIGHT if tp_mode == "isp" else ParallelMode.TENSOR
         mlp_cls = get_mlp_cls(tp_mode)
         super().__init__(
             TopKGate(

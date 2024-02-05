@@ -31,6 +31,7 @@ IS_TENSOR_DATA_PARALLEL = "is_tensor_data_parallel"
 IS_TENSOR_ZERO_PARALLEL = "is_tensor_zero_parallel"
 IS_WEIGHT_ZERO_PARALLEL = "is_weight_zero_parallel"
 IS_TENSOR_EXPERT_DATA_PARALLEL = "is_tensor_expert_data_parallel"
+IS_WEIGHT_EXPERT_DATA_PARALLEL = "is_weight_expert_data_parallel"
 
 logger = get_logger(__file__)
 
@@ -448,7 +449,7 @@ class ParallelContext(metaclass=SingletonMeta):
         eps = self.expert_parallel_size
         ewps = self.expert_weight_parallel_size
         edps = self.expert_data_parallel_size
-        if self.config.parallel["tensor"]["mode"] == "isp":
+        if isinstance(self.config.parallel["tensor"], dict) and self.config.parallel["tensor"]["mode"] == "isp":
             assert ws == eps * edps * ewps * pps, (
                 f"Expected the world size {ws} to be equal to expert parallel "
                 f"size ({eps}) * expert data parallel size ({edps}) * expert "
@@ -508,7 +509,7 @@ class ParallelContext(metaclass=SingletonMeta):
             if "expert" not in parallel_config:
                 parallel_config._add_item("expert", dict(size=1))
             if "expert_weight" not in parallel_config:
-                parallel_config._add_item("expert_weight", dict(size=1, overlap=False, memory_pool=False))
+                parallel_config._add_item("expert_weight", dict(size=1))
 
             # get value from config
             self._set_parallel_size_from_config(parallel_config, "weight", "weight_parallel_size")
