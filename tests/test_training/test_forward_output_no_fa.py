@@ -11,10 +11,9 @@ import internlm
 from internlm.core.context import ParallelMode
 from internlm.core.context import global_context as gpc
 from internlm.core.context.parallel_context import Config
-from internlm.core.scheduler import SchedulerMetricHook
 from internlm.initialize.launch import args_sanity_check
 from internlm.model.loss import FlashGPTLMLoss
-from internlm.model.metrics import AccPerplex
+from internlm.model.metrics import AccPerplex, SchedulerMetricHook
 from internlm.train import get_train_data_loader, initialize_model, initialize_optimizer
 from internlm.utils.logger import get_logger
 

@@ -201,6 +201,8 @@ jobs:
       training_16GPU_8DP2TPSP,
       training_16GPU_8DP2PP,
       training_16GPU_8DP2PP_InterleavedOverlap,
+      training_8GPU_ISP,
+      training_8GPU_ISP_CKPT,
       unit_test_optimizer,
       unit_test_model,
       load_ckpt_then_assert_loss
