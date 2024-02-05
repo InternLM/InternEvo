@@ -1,7 +1,5 @@
 import math
 import os
-import subprocess
-import shutil
 
 import pytest
 import torch
@@ -97,8 +95,9 @@ def train(
     # update ckpt config
     if enable_ckpt:
         gpc.config.ckpt.enable_save_ckpt = True
-        gpc.config.ckpt.checkpoint_every = 5
+        gpc.config.ckpt.checkpoint_every = 10
         gpc.config.ckpt.save_ckpt_folder = "local:llm_ckpts/"
+        gpc.config.ckpt.load_ckpt_folder = "local:llm_ckpts/"
         gpc.config.ckpt.load_ckpt_info["content"] = ("all",)
         gpc.config.ckpt.oss_snapshot_freq = 100
 
@@ -337,7 +336,8 @@ def test_training_with_isp_load_ckpt():
     global CONFIG_FILE_PATH
     CONFIG_FILE_PATH = "./configs/7B_isp_sft.py"
 
-    shutil.rmtree("./llm_ckpts/10")
+    global TOTAL_STEPS
+    TOTAL_STEPS = 20
 
     # model training load ckpt
     train(dp_size=4, tp_size=2, wp_size=4, enable_sp=True, enable_ckpt=True)
