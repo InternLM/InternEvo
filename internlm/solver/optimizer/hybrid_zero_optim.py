@@ -17,6 +17,7 @@ from internlm.core.context.parallel_context import (
     IS_TENSOR_ZERO_PARALLEL,
     IS_WEIGHT_ZERO_PARALLEL,
 )
+from internlm.moe.utils import is_moe_param
 from internlm.monitor import send_alert_message
 from internlm.solver.optimizer.store import (
     BucketStore,
@@ -362,7 +363,10 @@ class HybridZeroOptimizer(BaseOptimizer):
                     if (
                         self._isp_communicator
                         and self._isp_communicator.overlap
-                        and gpc.config.parallel.weight.size > 1
+                        and (
+                            (is_moe_param(param) and gpc.config.parallel.expert_weight.size > 1)
+                            or (not is_moe_param(param) and gpc.config.parallel.weight.size > 1)
+                        )
                     ):
                         accum_grad_obj.register_hook(accum_grad_hook)
 

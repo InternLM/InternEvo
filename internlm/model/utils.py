@@ -596,12 +596,6 @@ def try_import_RMSNorm():
         return RMSNorm
 
 
-def is_moe_param(param: torch.Tensor) -> bool:
-    if hasattr(param, "is_expert") and param.is_expert:
-        return True
-    return False
-
-
 def Silu(w1_o, w2_o):
     return F.silu(w1_o) * w2_o
 

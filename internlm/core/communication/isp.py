@@ -154,9 +154,7 @@ class ISPCommunicator:
         model_conf: ISPCommModelConfig,
         overlap: bool = False,
         enable_memory_pool: bool = False,
-        process_group: dist.ProcessGroup = None,
     ) -> None:
-        self.process_group = process_group
         self.overlap = overlap
         self.enable_memory_pool = overlap and enable_memory_pool
         self.model_conf = model_conf
@@ -229,36 +227,35 @@ class ISPCommunicator:
 
                 for idx, block in enumerate(children):
                     self._overlap_states[cid].index_to_isp_module[idx] = []
-                    for sub_name, sub in block.named_children():
-                        for name, child in sub.named_children():
-                            if name in ["out_proj", "wo"]:
-                                self._overlap_states[cid].isp_outs.append(child)
-                                self._overlap_states[cid].module_to_index[child] = idx
-                            if isinstance(child, ISPLinear):
-                                if name not in self._module_shapes:
-                                    origin_shape = tuple(
-                                        [child.weight.shape[0] * gpc.weight_parallel_size]
-                                        + list(child.weight.shape[1:])
-                                    )
-                                    self._module_shapes[name] = torch.Size(origin_shape)
-                                self._overlap_states[cid].module_to_index[child] = idx
-                                self._overlap_states[cid].isp_modules.append(child)
-                                self._overlap_states[cid].index_to_isp_module[idx].append(child)
-
-                                setattr(child, "isp_name", name)
-
-                                full_name = f"{cid}.{idx}.{sub_name}.{name}"
-                                setattr(
-                                    child.weight,
-                                    "isp_reduce_scatter_name",
-                                    f"{full_name}.weight",
+                    for name, child in block.named_modules():
+                        if name in ["out_proj", "wo"]:
+                            self._overlap_states[cid].isp_outs.append(child)
+                            self._overlap_states[cid].module_to_index[child] = idx
+                        if isinstance(child, ISPLinear):
+                            if name not in self._module_shapes:
+                                origin_shape = tuple(
+                                    [child.weight.shape[0] * dist.get_world_size(child.process_group)]
+                                    + list(child.weight.shape[1:])
                                 )
-                                if child.bias is not None:
-                                    setattr(
-                                        child.bias,
-                                        "isp_reduce_scatter_name",
-                                        f"{full_name}.bias",
-                                    )
+                                self._module_shapes[name] = torch.Size(origin_shape)
+                            self._overlap_states[cid].module_to_index[child] = idx
+                            self._overlap_states[cid].isp_modules.append(child)
+                            self._overlap_states[cid].index_to_isp_module[idx].append(child)
+
+                            setattr(child, "isp_name", name)
+
+                            full_name = f"{cid}.{idx}.{name}"
+                            setattr(
+                                child.weight,
+                                "isp_reduce_scatter_name",
+                                f"{full_name}.weight",
+                            )
+                            if child.bias is not None:
+                                setattr(
+                                    child.bias,
+                                    "isp_reduce_scatter_name",
+                                    f"{full_name}.bias",
+                                )
 
         self._overlap_states[cid].num_blocks = len(self._overlap_states[cid].index_to_isp_module)
 
@@ -290,7 +287,7 @@ class ISPCommunicator:
         if with_bias:
             bias_output, bias_handle = all_gather_raw(
                 module.bias,
-                self.process_group,
+                module.process_group,
                 async_op=True,
                 memory_pool_allocator=bias_memory_pool_allocator,
             )
@@ -299,7 +296,7 @@ class ISPCommunicator:
 
         weight_output, weight_handle = all_gather_raw(
             module.weight,
-            self.process_group,
+            module.process_group,
             async_op=True,
             memory_pool_allocator=weight_memory_pool_allocator,
         )

@@ -61,3 +61,9 @@ class AllToAll(torch.autograd.Function):
 
 def all_to_all(x, output_split_sizes=None, input_split_sizes=None, group=None, async_op=False):
     return AllToAll.apply(x, output_split_sizes, input_split_sizes, group, async_op)
+
+
+def is_moe_param(param: torch.Tensor) -> bool:
+    if hasattr(param, "is_expert") and param.is_expert:
+        return True
+    return False

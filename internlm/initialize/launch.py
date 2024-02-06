@@ -413,8 +413,6 @@ def args_sanity_check():
             -1,
             gpc.get_world_size(ParallelMode.DATA),
         ), "moe only support zero1, set zero1=dict(size=-1,...) can fix this"
-        if gpc.config.parallel["tensor"]["mode"] == "isp":
-            assert gpc.config.parallel["weight"]["overlap"] is False
         if gpc.config.parallel["tensor"]["mode"] != "isp":
             assert (
                 gpc.config.parallel["expert_weight"]["size"] <= 1
