@@ -280,7 +280,7 @@ def test_training_loss_with_dp4_tp2():
 @pytest.mark.training_8GPU_4DP2TPSP
 def test_training_loss_with_dp4_tp2_sp():
     # model training
-    train(dp_size=4, tp_size=2, enable_sp=True)
+    train(dp_size=4, tp_size=2, tp_mode="fsp", enable_sp=True)
 
     # print loss value
     print(f"cur_loss_list: {cur_loss_list}", flush=True)
@@ -356,7 +356,7 @@ def test_training_with_isp():
     CONFIG_FILE_PATH = "./configs/7B_isp_sft.py"
 
     # model training
-    train(dp_size=4, tp_size=2, wp_size=4, enable_sp=True)
+    train(dp_size=4, tp_size=2, wp_size=4, tp_mode="isp", enable_sp=True)
 
 
 @pytest.mark.training_8GPU_ISP_SAVE_CKPT
@@ -366,7 +366,7 @@ def test_training_with_isp_save_ckpt():
     CONFIG_FILE_PATH = "./configs/7B_isp_sft.py"
 
     # model training save ckpt
-    train(dp_size=4, tp_size=2, wp_size=4, enable_sp=True, enable_ckpt=True)
+    train(dp_size=4, tp_size=2, wp_size=4, tp_mode="isp", enable_sp=True, enable_ckpt=True)
 
 
 @pytest.mark.training_8GPU_ISP_LOAD_CKPT
@@ -379,4 +379,4 @@ def test_training_with_isp_load_ckpt():
     TOTAL_STEPS = 20
 
     # model training load ckpt
-    train(dp_size=4, tp_size=2, wp_size=4, enable_sp=True, enable_ckpt=True)
+    train(dp_size=4, tp_size=2, wp_size=4, tp_mode="isp", enable_sp=True, enable_ckpt=True)
