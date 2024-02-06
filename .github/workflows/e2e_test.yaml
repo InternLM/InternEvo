@@ -37,8 +37,7 @@ jobs:
 
     - name: training_8GPU_ISP
       run: |
-        conda activate ${evo_env_torch21_flash2}
-        conda activate ${evo_env_torch21_flash2}
+        source activate ${evo_env_torch21_flash2}
         srun -p ${SLURM_PARTITION} --kill-on-bad-exit=1 --job-name=${GITHUB_RUN_ID}-${GITHUB_JOB} -n8 --ntasks-per-node=8 --cpus-per-task=4 --gpus-per-task=1 pytest -s -v --color=yes -m "training_8GPU_ISP" ./tests/test_training/test_loss.py
 
   training_8GPU_ISP_CKPT:
@@ -53,7 +52,6 @@ jobs:
 
     - name: training_8GPU_ISP_CKPT
       run: |
-        conda activate ${evo_env_torch21_flash2}
-        conda activate ${evo_env_torch21_flash2}
+        source activate ${evo_env_torch21_flash2}
         srun -p ${SLURM_PARTITION} --kill-on-bad-exit=1 --job-name=${GITHUB_RUN_ID}-${GITHUB_JOB} -n8 --ntasks-per-node=8 --cpus-per-task=4 --gpus-per-task=1 pytest -s -v --color=yes -m "training_8GPU_ISP_SAVE_CKPT" ./tests/test_training/test_loss.py
         srun -p ${SLURM_PARTITION} --kill-on-bad-exit=1 --job-name=${GITHUB_RUN_ID}-${GITHUB_JOB} -n8 --ntasks-per-node=8 --cpus-per-task=4 --gpus-per-task=1 pytest -s -v --color=yes -m "training_8GPU_ISP_LOAD_CKPT" ./tests/test_training/test_loss.py
