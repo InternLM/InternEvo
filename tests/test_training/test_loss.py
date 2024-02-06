@@ -29,17 +29,18 @@ CONFIG_FILE_PATH = os.getenv("CONFIG_FILE_PATH", "./configs/7B_sft.py")
 TOTAL_STEPS = 10
 LOSS_SPIKE_LIMIT = 1.5
 LOSS_DEVIATION_LIMIT = 0.2
+# dp_size = 4
 BASELINE_LOSS_LIST = [
-    11.64188003540039,
-    7.9205322265625,
-    6.944362163543701,
-    6.147305488586426,
-    6.060564994812012,
-    5.660439491271973,
-    5.19430685043335,
-    5.157323837280273,
-    4.769168376922607,
-    4.449280738830566,
+    11.680583953857422, 
+    7.83256721496582, 
+    6.745327949523926, 
+    6.187380790710449, 
+    5.421087265014648, 
+    5.3960981369018555, 
+    5.090664863586426, 
+    4.77808952331543, 
+    4.6484055519104, 
+    4.634660720825195
 ]
 cur_loss_list = []
 
@@ -51,6 +52,7 @@ def train(
     pp_size: int = 1,
     num_chunks: int = 2,
     interleaved: bool = False,
+    tp_mode: str = "mtp",
     enable_sp: bool = False,
     enable_ckpt: bool = False,
 ):
@@ -84,6 +86,7 @@ def train(
         assert gpc.config.parallel.get(
             "sequence_parallel", False
         ), "sequence_parallel must be True when enable_sp is True"
+    assert gpc.config.parallel["tensor"]["mode"] == tp_mode
 
     # init setting
     gpc.config.data.total_steps = TOTAL_STEPS
@@ -250,10 +253,10 @@ def check_loss_accuracy():
             ), f"The loss accuracy is abnormal, {target}->{cur}, please check it!"
 
 
-@pytest.mark.training_8GPU
-def test_training_loss_with_dp8():
+@pytest.mark.training_4GPU
+def test_training_loss_with_dp4():
     # model training
-    train(dp_size=8)
+    train(dp_size=4)
 
     # print loss value
     print(f"cur_loss_list: {cur_loss_list}", flush=True)
@@ -262,10 +265,10 @@ def test_training_loss_with_dp8():
     check_loss_accuracy()
 
 
-@pytest.mark.training_16GPU_8DP2TP
-def test_training_loss_with_dp8_tp2():
+@pytest.mark.training_8GPU_4DP2TP
+def test_training_loss_with_dp4_tp2():
     # model training
-    train(dp_size=8, tp_size=2)
+    train(dp_size=4, tp_size=2)
 
     # print loss value
     print(f"cur_loss_list: {cur_loss_list}", flush=True)
@@ -274,10 +277,10 @@ def test_training_loss_with_dp8_tp2():
     check_loss_accuracy()
 
 
-@pytest.mark.training_16GPU_8DP2TPSP
-def test_training_loss_with_dp8_tp2_sp():
+@pytest.mark.training_8GPU_4DP2TPSP
+def test_training_loss_with_dp4_tp2_sp():
     # model training
-    train(dp_size=8, tp_size=2, enable_sp=True)
+    train(dp_size=4, tp_size=2, enable_sp=True)
 
     # print loss value
     print(f"cur_loss_list: {cur_loss_list}", flush=True)
@@ -286,10 +289,10 @@ def test_training_loss_with_dp8_tp2_sp():
     check_loss_accuracy()
 
 
-@pytest.mark.training_16GPU_8DP2PP
-def test_training_loss_with_dp8_pp2():
+@pytest.mark.training_8GPU_4DP2PP
+def test_training_loss_with_dp4_pp2():
     # model training
-    train(dp_size=8, pp_size=2)
+    train(dp_size=4, pp_size=2)
 
     # print loss value
     print(f"cur_loss_list: {cur_loss_list}", flush=True)
@@ -298,10 +301,46 @@ def test_training_loss_with_dp8_pp2():
     check_loss_accuracy()
 
 
-@pytest.mark.training_16GPU_8DP2PP_InterleavedOverlap
-def test_training_loss_with_dp8_pp2_interleaved_overlap():
+@pytest.mark.training_8GPU_4DP2PP_InterleavedOverlap
+def test_training_loss_with_dp4_pp2_interleaved_overlap():
     # model training
-    train(dp_size=8, pp_size=2, interleaved=True)
+    train(dp_size=4, pp_size=2, interleaved=True)
+
+    # print loss value
+    print(f"cur_loss_list: {cur_loss_list}", flush=True)
+
+    check_loss_spike()
+    check_loss_accuracy()
+
+
+@pytest.mark.training_16GPU_4DP2TP2PP_MTP
+def test_training_loss_with_dp4_tp2_pp2_mtp():
+    # model training
+    train(dp_size=4, tp_size=2, pp_size=2)
+
+    # print loss value
+    print(f"cur_loss_list: {cur_loss_list}", flush=True)
+
+    check_loss_spike()
+    check_loss_accuracy()
+
+
+@pytest.mark.training_16GPU_4DP2TP2PP_MSP
+def test_training_loss_with_dp4_tp2_pp2_msp():
+    # model training
+    train(dp_size=4, tp_size=2, pp_size=2, tp_mode="msp")
+
+    # print loss value
+    print(f"cur_loss_list: {cur_loss_list}", flush=True)
+
+    check_loss_spike()
+    check_loss_accuracy()
+
+
+@pytest.mark.training_16GPU_4DP2TP2PP_FSP
+def test_training_loss_with_dp4_tp2_pp2_fsp():
+    # model training
+    train(dp_size=4, tp_size=2, pp_size=2, tp_mode="fsp")
 
     # print loss value
     print(f"cur_loss_list: {cur_loss_list}", flush=True)
