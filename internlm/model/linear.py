@@ -309,15 +309,6 @@ class FeedForward(BaseFeedForward):
             ColumnParallelLinearTorch,
             RowParallelLinearTorch,
         )
-        self.w3 = ColumnParallelLinearTorch(
-            in_features,
-            hidden_features,
-            process_group,
-            bias,
-            sequence_parallel=gpc.config.parallel.sequence_parallel,
-            device=device,
-            dtype=dtype,
-        )
 
 
 class MegatronFeedForward(BaseFeedForward):
