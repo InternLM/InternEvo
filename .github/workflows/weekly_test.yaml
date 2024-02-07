@@ -11,26 +11,34 @@ jobs:
     runs-on: [t_cluster]
     timeout-minutes: 10
     steps:
+    - name: mask env
+      run: |
+        echo "::add-mask::${{env.WORKSPACE_PREFIX}}"
+        echo "::add-mask::$path_prefix"
     - uses: actions/checkout@v3
       with:
          ref: ${{ github.event_name == 'schedule' && 'develop' || github.event_name == 'workflow_dispatch' && '' }}
 
     - name: training_8GPU
       run: |
-        source /mnt/petrelfs/share_data/llm_env/env/llm-flash2.0
+        source $evo_env
         srun -p ${SLURM_PARTITION} --kill-on-bad-exit=1 --job-name=${GITHUB_RUN_ID}-${GITHUB_JOB} -n8 --ntasks-per-node=8 --cpus-per-task=4 --gpus-per-task=1 pytest -s -v --color=yes -m "training_8GPU" ./tests/test_training
 
   training_16GPU_8DP2TP:
     runs-on: [t_cluster]
     timeout-minutes: 10
     steps:
+    - name: mask env
+      run: |
+        echo "::add-mask::${{env.WORKSPACE_PREFIX}}"
+        echo "::add-mask::$path_prefix"
     - uses: actions/checkout@v3
       with:
          ref: ${{ github.event_name == 'schedule' && 'develop' || github.event_name == 'workflow_dispatch' && '' }}
 
     - name: training_16GPU_8DP2TP
       run: |
-        source /mnt/petrelfs/share_data/llm_env/env/llm-flash2.0
+        source $evo_env
         sed -i 's/^.*tensor=.*/    tensor=2,/' ./configs/7B_sft.py
         srun -p ${SLURM_PARTITION} --kill-on-bad-exit=1 --job-name=${GITHUB_RUN_ID}-${GITHUB_JOB} -n16 --ntasks-per-node=8 --cpus-per-task=4 --gpus-per-task=1 pytest -s -v --color=yes -m "training_16GPU_8DP2TP" ./tests/test_training
 
@@ -38,13 +46,17 @@ jobs:
     runs-on: [t_cluster]
     timeout-minutes: 10
     steps:
+    - name: mask env
+      run: |
+        echo "::add-mask::${{env.WORKSPACE_PREFIX}}"
+        echo "::add-mask::$path_prefix"
     - uses: actions/checkout@v3
       with:
          ref: ${{ github.event_name == 'schedule' && 'develop' || github.event_name == 'workflow_dispatch' && '' }}
 
     - name: training_16GPU_8DP2TPSP
       run: |
-        source /mnt/petrelfs/share_data/llm_env/env/llm-flash2.0
+        source $evo_env
         sed -i 's/^.*tensor=.*/    tensor=2,/' ./configs/7B_sft.py
         sed -i 's/^.*sequence_parallel=.*/    sequence_parallel=True,/' ./configs/7B_sft.py
         srun -p ${SLURM_PARTITION} --kill-on-bad-exit=1 --job-name=${GITHUB_RUN_ID}-${GITHUB_JOB} -n16 --ntasks-per-node=8 --cpus-per-task=4 --gpus-per-task=1 pytest -s -v --color=yes -m "training_16GPU_8DP2TPSP" ./tests/test_training
@@ -53,13 +65,17 @@ jobs:
     runs-on: [t_cluster]
     timeout-minutes: 10
     steps:
+    - name: mask env
+      run: |
+        echo "::add-mask::${{env.WORKSPACE_PREFIX}}"
+        echo "::add-mask::$path_prefix"
     - uses: actions/checkout@v3
       with:
          ref: ${{ github.event_name == 'schedule' && 'develop' || github.event_name == 'workflow_dispatch' && '' }}
 
     - name: training_16GPU_8DP2PP
       run: |
-        source /mnt/petrelfs/share_data/llm_env/env/llm-flash2.0
+        source $evo_env
         sed -i 's/^.*pipeline=.*/    pipeline=dict(size=2),/' ./configs/7B_sft.py
         srun -p ${SLURM_PARTITION} --kill-on-bad-exit=1 --job-name=${GITHUB_RUN_ID}-${GITHUB_JOB} -n16 --ntasks-per-node=8 --cpus-per-task=4 --gpus-per-task=1 pytest -s -v --color=yes -m "training_16GPU_8DP2PP" ./tests/test_training
 
@@ -67,13 +83,17 @@ jobs:
     runs-on: [t_cluster]
     timeout-minutes: 10
     steps:
+    - name: mask env
+      run: |
+        echo "::add-mask::${{env.WORKSPACE_PREFIX}}"
+        echo "::add-mask::$path_prefix"
     - uses: actions/checkout@v3
       with:
          ref: ${{ github.event_name == 'schedule' && 'develop' || github.event_name == 'workflow_dispatch' && '' }}
 
     - name: training_16GPU_8DP2PP_InterleavedOverlap
       run: |
-        source /mnt/petrelfs/share_data/llm_env/env/llm-flash2.0
+        source $evo_env
         sed -i 's/^.*pipeline=.*/    pipeline=dict(size=2, interleaved_overlap=True),/' ./configs/7B_sft.py
         sed -i 's/^.*num_chunks=.*/    num_chunks=2,/' ./configs/7B_sft.py
         srun -p ${SLURM_PARTITION} --kill-on-bad-exit=1 --job-name=${GITHUB_RUN_ID}-${GITHUB_JOB} -n16 --ntasks-per-node=8 --cpus-per-task=4 --gpus-per-task=1 pytest -s -v --color=yes -m "training_16GPU_8DP2PP_InterleavedOverlap" ./tests/test_training
@@ -82,34 +102,81 @@ jobs:
     runs-on: [t_cluster]
     timeout-minutes: 35
     steps:
+    - name: mask env
+      run: |
+        echo "::add-mask::${{env.WORKSPACE_PREFIX}}"
+        echo "::add-mask::$path_prefix"
     - uses: actions/checkout@v3
       with:
          ref: ${{ github.event_name == 'schedule' && 'develop' || github.event_name == 'workflow_dispatch' && '' }}
 
     - name: test_optimizer
       run: |
-        source /mnt/petrelfs/share_data/llm_env/env/llm-flash2.0
+        source $evo_env
         srun -p ${SLURM_PARTITION} --kill-on-bad-exit=1 --job-name=${GITHUB_RUN_ID}-${GITHUB_JOB} -N 1 -n 1 --gres=gpu:8 python -m pytest -s ./tests/test_solver/test_optimizer.py
 
   unit_test_model:
     runs-on: [t_cluster]
     timeout-minutes: 10
     steps:
+    - name: mask env
+      run: |
+        echo "::add-mask::${{env.WORKSPACE_PREFIX}}"
+        echo "::add-mask::$path_prefix"
     - uses: actions/checkout@v3
       with:
          ref: ${{ github.event_name == 'schedule' && 'develop' || github.event_name == 'workflow_dispatch' && '' }}
 
     - name: test_embedding_accuracy
       run: |
-        source /mnt/petrelfs/share_data/llm_env/env/llm-flash2.0
+        source $evo_env
         srun -p ${SLURM_PARTITION} --kill-on-bad-exit=1 --job-name=${GITHUB_RUN_ID}-${GITHUB_JOB} -N 1 -n 1 --gres=gpu:8 python -m pytest -s ./tests/test_model/test_embedding.py
         
     - name: test_model_internlm_accuracy
       run: |
-        source /mnt/petrelfs/share_data/llm_env/env/llm-flash2.0
+        source $evo_env
         srun -p ${SLURM_PARTITION} --kill-on-bad-exit=1 --job-name=${GITHUB_RUN_ID}-${GITHUB_JOB} -N 1 -n 1 --gres=gpu:8 python -m pytest -s ./tests/test_model/test_model_internlm.py
         
     - name: test_norm_accuracy
       run: |
-        source /mnt/petrelfs/share_data/llm_env/env/llm-flash2.0
+        source $evo_env
         srun -p ${SLURM_PARTITION} --kill-on-bad-exit=1 --job-name=${GITHUB_RUN_ID}-${GITHUB_JOB} -N 1 -n 1 --gres=gpu:8 python -m pytest -s ./tests/test_model/test_norm.py
+
+  load_ckpt_then_assert_loss:
+    runs-on: [t_cluster]
+    timeout-minutes: 10
+    steps:
+    - name: mask env
+      run: |
+        echo "::add-mask::${{env.WORKSPACE_PREFIX}}"
+        echo "::add-mask::$path_prefix"
+    - uses: actions/checkout@v3
+      with:
+         ref: ${{ github.event_name == 'schedule' && 'develop' || github.event_name == 'workflow_dispatch' && '' }}
+
+    - name: test_ckpt_loss
+      run: |
+        source $evo_env
+        srun -p ${SLURM_PARTITION} --kill-on-bad-exit=1 --job-name=${GITHUB_RUN_ID}-${GITHUB_JOB} -N 1 -n 1 --gres=gpu:8 python -m pytest -s ./tests/test_training/test_load_ckpt_loss.py
+
+  notify_to_feishu:
+    if: ${{ always() && !cancelled() && contains(needs.*.result, 'failure') && (github.ref_name == 'develop' || github.ref_name == 'main') }}
+    needs: [
+      training_8GPU,
+      training_16GPU_8DP2TP,
+      training_16GPU_8DP2TPSP,
+      training_16GPU_8DP2PP,
+      training_16GPU_8DP2PP_InterleavedOverlap,
+      unit_test_optimizer,
+      unit_test_model,
+      load_ckpt_then_assert_loss
+      ]
+    runs-on: [t_cluster]
+    steps:
+    - name: mask env
+      run: |
+        echo "::add-mask::${{env.WORKSPACE_PREFIX}}"
+        echo "::add-mask::$path_prefix"
+    - name: notify
+      run: |
+        curl -X POST -H "Content-Type: application/json" -d '{"msg_type":"post","content":{"post":{"zh_cn":{"title":"InternEvo GitHubAction Failed","content":[[{"tag":"text","text":""},{"tag":"a","text":"Please click here for details ","href":"https://github.com/'${{ github.repository }}'/actions/runs/'${GITHUB_RUN_ID}'"},{"tag":"at","user_id":"'${{ secrets.USER_ID }}'"}]]}}}}'  ${{ secrets.WEBHOOK_URL }}

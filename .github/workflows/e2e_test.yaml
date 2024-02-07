@@ -12,11 +12,32 @@ env:
 jobs:
   training_8GPU:
     runs-on: [t_cluster]
-    timeout-minutes: 5
+    timeout-minutes: 10
     steps:
+    - name: mask env
+      run: |
+        echo "::add-mask::${{env.WORKSPACE_PREFIX}}"
+        echo "::add-mask::$path_prefix"
     - uses: actions/checkout@v3
 
     - name: training_8GPU
       run: |
-        source /mnt/petrelfs/share_data/llm_env/env/llm-flash2.0
-        srun -p ${SLURM_PARTITION} --kill-on-bad-exit=1 --job-name=${GITHUB_RUN_ID}-${GITHUB_JOB} -n8 --ntasks-per-node=8 --cpus-per-task=4 --gpus-per-task=1 pytest -s -v --color=yes -m "training_8GPU" ./tests/test_training
+        source $evo_env
+        srun -p ${SLURM_PARTITION} --kill-on-bad-exit=1 --job-name=${GITHUB_RUN_ID}-${GITHUB_JOB} -n8 --ntasks-per-node=8 --cpus-per-task=4 --gpus-per-task=1 pytest -s -v --color=yes -m "training_8GPU" ./tests/test_training/test_loss.py
+
+  training_8GPU_ISP:
+    runs-on: [t_cluster]
+    timeout-minutes: 10
+    steps:
+    - name: mask env
+      run: |
+        echo "::add-mask::${{env.WORKSPACE_PREFIX}}"
+        echo "::add-mask::$path_prefix"
+    - uses: actions/checkout@v3
+
+    - name: training_8GPU_ISP
+      run: |
+        source $evo_env
+        conda activate /mnt/petrelfs/share_data/huangting.p/envs/llm-torch2.1-flash2
+        conda activate /mnt/petrelfs/share_data/huangting.p/envs/llm-torch2.1-flash2
+        srun -p ${SLURM_PARTITION} --kill-on-bad-exit=1 --job-name=${GITHUB_RUN_ID}-${GITHUB_JOB} -n8 --ntasks-per-node=8 --cpus-per-task=4 --gpus-per-task=1 pytest -s -v --color=yes -m "training_8GPU_ISP" ./tests/test_training/test_loss.py

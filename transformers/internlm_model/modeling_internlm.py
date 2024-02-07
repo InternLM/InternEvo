@@ -1,10 +1,6 @@
-# coding=utf-8
-# Copyright 2022 EleutherAI and the HuggingFace Inc. team. All rights reserved.
+# Copyright (c) The InternLM team and The HuggingFace Inc. team. All rights reserved.
 #
-# This code is based on EleutherAI's GPT-NeoX library and the GPT-NeoX
-# and OPT implementations in this library. It has been modified from its
-# original forms to accommodate minor architectural differences compared
-# to GPT-NeoX and OPT used by the Meta AI team that trained the model.
+# This code is based on transformers/src/transformers/models/llama/modeling_llama.py
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -52,8 +48,33 @@ logger = logging.get_logger(__name__)
 
 _CONFIG_FOR_DOC = "InternLMConfig"
 
+flash_attn_func, flash_attn_varlen_func = None, None
+pad_input, index_first_axis, unpad_input = None, None, None
+def _import_flash_attn():
+    global flash_attn_func, flash_attn_varlen_func
+    global pad_input, index_first_axis, unpad_input
+    try:
+        from flash_attn import flash_attn_func as _flash_attn_func, flash_attn_varlen_func as _flash_attn_varlen_func
+        from flash_attn.bert_padding import pad_input as _pad_input, index_first_axis as _index_first_axis, unpad_input as _unpad_input
+        flash_attn_func, flash_attn_varlen_func = _flash_attn_func, _flash_attn_varlen_func
+        pad_input, index_first_axis, unpad_input = _pad_input, _index_first_axis, _unpad_input
+    except ImportError:
+        raise ImportError("flash_attn is not installed.")
+    
 
-# Copied from transformers.models.bart.modeling_bart._make_causal_mask
+def _get_unpad_data(attention_mask):
+    seqlens_in_batch = attention_mask.sum(dim=-1, dtype=torch.int32)
+    indices = torch.nonzero(attention_mask.flatten(), as_tuple=False).flatten()
+    max_seqlen_in_batch = seqlens_in_batch.max().item()
+    cu_seqlens = nn.functional.pad(torch.cumsum(seqlens_in_batch, dim=0, dtype=torch.torch.int32), (1, 0))
+    return (
+        indices,
+        cu_seqlens,
+        max_seqlen_in_batch,
+    )
+
+
+# Copied from transformers.models.llama.modeling_llama._make_causal_mask
 def _make_causal_mask(
     input_ids_shape: torch.Size, dtype: torch.dtype, device: torch.device, past_key_values_length: int = 0
 ):
@@ -71,7 +92,7 @@ def _make_causal_mask(
     return mask[None, None, :, :].expand(bsz, 1, tgt_len, tgt_len + past_key_values_length)
 
 
-# Copied from transformers.models.bart.modeling_bart._expand_mask
+# Copied from transformers.models.llama.modeling_llama._expand_mask
 def _expand_mask(mask: torch.Tensor, dtype: torch.dtype, tgt_len: Optional[int] = None):
     """
     Expands attention_mask from `[bsz, seq_len]` to `[bsz, 1, tgt_seq_len, src_seq_len]`.
@@ -86,6 +107,7 @@ def _expand_mask(mask: torch.Tensor, dtype: torch.dtype, tgt_len: Optional[int] 
     return inverted_mask.masked_fill(inverted_mask.to(torch.bool), torch.finfo(dtype).min)
 
 
+# Copied from transformers.models.llama.modeling_llama.LlamaRMSNorm with Llama->InternLM
 class InternLMRMSNorm(nn.Module):
     """RMSNorm implemention."""
 
@@ -108,6 +130,7 @@ class InternLMRMSNorm(nn.Module):
         return self.weight * hidden_states
 
 
+# Copied from transformers.models.llama.modeling_llama.LlamaRotaryEmbedding with Llama->InternLM
 class InternLMRotaryEmbedding(torch.nn.Module):
     """Implement InternLM's rotary embedding.
 
@@ -129,8 +152,8 @@ class InternLMRotaryEmbedding(torch.nn.Module):
         freqs = torch.einsum("i,j->ij", t, self.inv_freq)
         # Different from paper, but it uses a different permutation in order to obtain the same calculation
         emb = torch.cat((freqs, freqs), dim=-1)
-        self.register_buffer("cos_cached", emb.cos()[None, None, :, :], persistent=False)
-        self.register_buffer("sin_cached", emb.sin()[None, None, :, :], persistent=False)
+        self.register_buffer("cos_cached", emb.cos().to(torch.float32), persistent=False)
+        self.register_buffer("sin_cached", emb.sin().to(torch.float32), persistent=False)
 
     def forward(self, x, seq_len=None):
         # x: [bs, num_attention_heads, seq_len, head_size]
@@ -141,14 +164,15 @@ class InternLMRotaryEmbedding(torch.nn.Module):
             freqs = torch.einsum("i,j->ij", t, self.inv_freq)
             # Different from paper, but it uses a different permutation in order to obtain the same calculation
             emb = torch.cat((freqs, freqs), dim=-1).to(x.device)
-            self.register_buffer("cos_cached", emb.cos()[None, None, :, :], persistent=False)
-            self.register_buffer("sin_cached", emb.sin()[None, None, :, :], persistent=False)
+            self.register_buffer("cos_cached", emb.cos(), persistent=False)
+            self.register_buffer("sin_cached", emb.sin(), persistent=False)
         return (
-            self.cos_cached[:, :, :seq_len, ...].to(dtype=x.dtype),
-            self.sin_cached[:, :, :seq_len, ...].to(dtype=x.dtype),
+            self.cos_cached[:seq_len, ...].to(dtype=x.dtype),
+            self.sin_cached[:seq_len, ...].to(dtype=x.dtype),
         )
 
 
+# Copied from transformers.models.llama.modeling_llama.LlamaDynamicNTKScalingRotaryEmbedding with Llama->InternLM
 class InternLMDynamicNTKScalingRotaryEmbedding(torch.nn.Module):
     """Implement InternLM's DyanmicNTK extrapolation method, thereby broadening the model support context to 16K.
 
@@ -163,7 +187,7 @@ class InternLMDynamicNTKScalingRotaryEmbedding(torch.nn.Module):
     def __init__(self, dim, max_position_embeddings=2048, base=10000, device=None, scaling_factor=1.0):
         super().__init__()
         inv_freq = 1.0 / (base ** (torch.arange(0, dim, 2).float().to(device) / dim))
-        self.register_buffer("inv_freq", inv_freq)
+        self.register_buffer("inv_freq", inv_freq, persistent=False)
         self.dim = dim
         self.base = base
         self.scaling_factor = scaling_factor
@@ -175,8 +199,8 @@ class InternLMDynamicNTKScalingRotaryEmbedding(torch.nn.Module):
         freqs = torch.einsum("i,j->ij", t, self.inv_freq)
         # Different from paper, but it uses a different permutation in order to obtain the same calculation
         emb = torch.cat((freqs, freqs), dim=-1)
-        self.register_buffer("cos_cached", emb.cos()[None, None, :, :], persistent=False)
-        self.register_buffer("sin_cached", emb.sin()[None, None, :, :], persistent=False)
+        self.register_buffer("cos_cached", emb.cos(), persistent=False)
+        self.register_buffer("sin_cached", emb.sin(), persistent=False)
 
     def _update_cached(self, x, seq_len=None):
         self.max_seq_len_cached = max(seq_len, self.max_position_embeddings)
@@ -190,8 +214,8 @@ class InternLMDynamicNTKScalingRotaryEmbedding(torch.nn.Module):
         t = torch.arange(self.max_seq_len_cached, device=inv_freq.device, dtype=inv_freq.dtype)
         freqs = torch.einsum("i,j->ij", t, inv_freq)
         emb = torch.cat((freqs, freqs), dim=-1)
-        self.register_buffer("cos_cached", emb.cos()[None, None, :, :], persistent=False)
-        self.register_buffer("sin_cached", emb.sin()[None, None, :, :], persistent=False)
+        self.register_buffer("cos_cached", emb.cos(), persistent=False)
+        self.register_buffer("sin_cached", emb.sin(), persistent=False)
 
     def forward(self, x, seq_len=None):
         # x: [bs, num_attention_heads, seq_len, head_size]
@@ -204,11 +228,12 @@ class InternLMDynamicNTKScalingRotaryEmbedding(torch.nn.Module):
             self._update_cached(x, seq_len)
 
         return (
-            self.cos_cached[:, :, :seq_len, ...].to(dtype=x.dtype),
-            self.sin_cached[:, :, :seq_len, ...].to(dtype=x.dtype),
+            self.cos_cached[:seq_len, ...].to(dtype=x.dtype),
+            self.sin_cached[:seq_len, ...].to(dtype=x.dtype),
         )
 
 
+# Copied from transformers.model.llama.modeling_llama.rotate_half
 def rotate_half(x):
     """Rotates half the hidden dims of the input."""
     x1 = x[..., : x.shape[-1] // 2]
@@ -216,25 +241,28 @@ def rotate_half(x):
     return torch.cat((-x2, x1), dim=-1)
 
 
+# Copied from transformers.model.llama.modeling_llama.apply_rotary_pos_emb
 def apply_rotary_pos_emb(q, k, cos, sin, position_ids):
-    # The first two dimensions of cos and sin are always 1, so we can `squeeze` them.
-    cos = cos.squeeze(1).squeeze(0)  # [seq_len, dim]
-    sin = sin.squeeze(1).squeeze(0)  # [seq_len, dim]
-    cos = cos.unsqueeze(0).unsqueeze(0).expand(len(position_ids), -1, -1, -1)
-    sin = sin.unsqueeze(0).unsqueeze(0).expand(len(position_ids), -1, -1, -1)
-    if q.size(2) == 1:
-        q_embed = (q * cos[:, :, -1, :]) + (rotate_half(q) * sin[:, :, -1, :])
+    if position_ids.size(1) == 1:
+        q_cos = cos[position_ids].unsqueeze(1).expand(q.shape)
+        q_sin = sin[position_ids].unsqueeze(1).expand(q.shape)
+        q_embed = (q * q_cos) + (rotate_half(q) * q_sin)
+
+        position_ids = position_ids.flatten() + 1
+        max_length = max(position_ids)
+        position_ids = torch.stack([torch.cat([torch.ones(max_length - w, dtype=torch.long), torch.arange(w)]) for w in position_ids])
+        k_cos = cos[position_ids].unsqueeze(1).expand(k.shape)
+        k_sin = sin[position_ids].unsqueeze(1).expand(k.shape)
+        k_embed = (k * k_cos) + (rotate_half(k) * k_sin)
     else:
+        cos = cos[position_ids].unsqueeze(1)
+        sin = sin[position_ids].unsqueeze(1)
         q_embed = (q * cos) + (rotate_half(q) * sin)
-
-    if k.size(2) == 1:
-        k_embed = (k * cos[:, :, -1, :]) + (rotate_half(k) * sin[:, :, -1, :])
-    else:
         k_embed = (k * cos) + (rotate_half(k) * sin)
-
     return q_embed, k_embed
 
 
+# Copied from transformers.models.llama.modeling_llama.LlamaMLP with Llama->InternLM
 class InternLMMLP(nn.Module):
     def __init__(
         self,
@@ -252,6 +280,7 @@ class InternLMMLP(nn.Module):
         return self.down_proj(self.act_fn(self.gate_proj(x)) * self.up_proj(x))
 
 
+# Copied from transformers.models.llama.modeling_llama.LlamaAttention with Llama->InternLM
 class InternLMAttention(nn.Module):
     """Multi-headed attention from 'Attention Is All You Need' paper"""
 
@@ -273,6 +302,7 @@ class InternLMAttention(nn.Module):
         self.v_proj = nn.Linear(self.hidden_size, self.num_heads * self.head_dim, bias=config.bias)
         self.o_proj = nn.Linear(self.num_heads * self.head_dim, self.hidden_size, bias=config.bias)
         self.rotary_emb = self._init_rope()
+        self.is_causal = True
 
     def _init_rope(self):
         if self.config.rotary["type"] == "origin":
@@ -315,7 +345,6 @@ class InternLMAttention(nn.Module):
             key_states = torch.cat([past_key_value[0], key_states], dim=2)
             value_states = torch.cat([past_key_value[1], value_states], dim=2)
 
-        # print(use_cache)
         past_key_value = (key_states, value_states) if use_cache else None
 
         kv_seq_len = key_states.shape[-2]
@@ -358,12 +387,163 @@ class InternLMAttention(nn.Module):
 
         return attn_output, attn_weights, past_key_value
 
+# Copied from transformers.models.llama.modeling_llama.LlamaFlashAttention2 with Llama->InternLM
+class InternLMFlashAttention2(InternLMAttention):
+    """
+    InternLM flash attention module. This module inherits from `InternLMAttention` as the weights of the module stays
+    untouched. The only required change would be on the forward pass where it needs to correctly call the public API of
+    flash attention and deal with padding tokens in case the input contains any of them.
+    """
 
+    def forward(
+        self,
+        hidden_states: torch.Tensor,
+        attention_mask: Optional[torch.LongTensor] = None,
+        position_ids: Optional[torch.LongTensor] = None,
+        past_key_value: Optional[Tuple[torch.Tensor]] = None,
+        output_attentions: bool = False,
+        use_cache: bool = False,
+        **kwargs,
+    ) -> Tuple[torch.Tensor, Optional[torch.Tensor], Optional[Tuple[torch.Tensor]]]:
+        # InternLMFlashAttention2 attention does not support output_attentions
+        bsz, q_len, _ = hidden_states.size()
+
+        query_states = self.q_proj(hidden_states).view(bsz, q_len, self.num_heads, self.head_dim).transpose(1, 2)
+        key_states = self.k_proj(hidden_states).view(bsz, q_len, self.num_heads, self.head_dim).transpose(1, 2)
+        value_states = self.v_proj(hidden_states).view(bsz, q_len, self.num_heads, self.head_dim).transpose(1, 2)
+
+        if past_key_value is not None:
+            # reuse k, v, self_attention
+            key_states = torch.cat([past_key_value[0], key_states], dim=2)
+            value_states = torch.cat([past_key_value[1], value_states], dim=2)
+
+        past_key_value = (key_states, value_states) if use_cache else None
+
+        kv_seq_len = key_states.shape[-2]
+        cos, sin = self.rotary_emb(value_states, seq_len=kv_seq_len)
+        query_states, key_states = apply_rotary_pos_emb(query_states, key_states, cos, sin, position_ids)
+
+        query_states = query_states.transpose(1, 2)
+        key_states = key_states.transpose(1, 2)
+        value_states = value_states.transpose(1, 2)
+
+        attn_output = self._flash_attention_forward(
+            query_states, key_states, value_states, attention_mask, q_len
+        )
+        attn_output = attn_output.reshape(bsz, q_len, self.hidden_size).contiguous()
+        attn_output = self.o_proj(attn_output)
+
+        if not output_attentions:
+            attn_weights = None
+
+        return attn_output, attn_weights, past_key_value
+
+    def _flash_attention_forward(
+        self, query_states, key_states, value_states, attention_mask, query_length, dropout=0.0, softmax_scale=None
+    ):
+        """
+        Calls the forward method of Flash Attention - if the input hidden states contain at least one padding token
+        first unpad the input, then computes the attention scores and pad the final attention scores.
+
+        Args:
+            query_states (`torch.Tensor`):
+                Input query states to be passed to Flash Attention API
+            key_states (`torch.Tensor`):
+                Input key states to be passed to Flash Attention API
+            value_states (`torch.Tensor`):
+                Input value states to be passed to Flash Attention API
+            attention_mask (`torch.Tensor`):
+                The padding mask - corresponds to a tensor of size `(batch_size, seq_len)` where 0 stands for the
+                position of padding tokens and 1 for the position of non-padding tokens.
+            dropout (`int`, *optional*):
+                Attention dropout
+            softmax_scale (`float`, *optional*):
+                The scaling of QK^T before applying softmax. Default to 1 / sqrt(head_dim)
+        """
+        # Contains at least one padding token in the sequence
+        causal = self.is_causal and query_length != 1
+        if attention_mask is not None:
+            batch_size = query_states.shape[0]
+            query_states, key_states, value_states, indices_q, cu_seq_lens, max_seq_lens = self._unpad_input(
+                query_states, key_states, value_states, attention_mask, query_length
+            )
+
+            cu_seqlens_q, cu_seqlens_k = cu_seq_lens
+            max_seqlen_in_batch_q, max_seqlen_in_batch_k = max_seq_lens
+
+            attn_output_unpad = flash_attn_varlen_func(
+                query_states,
+                key_states,
+                value_states,
+                cu_seqlens_q=cu_seqlens_q,
+                cu_seqlens_k=cu_seqlens_k,
+                max_seqlen_q=max_seqlen_in_batch_q,
+                max_seqlen_k=max_seqlen_in_batch_k,
+                dropout_p=dropout,
+                softmax_scale=softmax_scale,
+                causal=causal,
+            )
+
+            attn_output = pad_input(attn_output_unpad, indices_q, batch_size, query_length)
+        else:
+            attn_output = flash_attn_func(
+                query_states, key_states, value_states, dropout, softmax_scale=softmax_scale, causal=causal
+            )
+
+        return attn_output
+
+    def _unpad_input(self, query_layer, key_layer, value_layer, attention_mask, query_length):
+        indices_k, cu_seqlens_k, max_seqlen_in_batch_k = _get_unpad_data(attention_mask)
+        batch_size, kv_seq_len, num_heads, head_dim = key_layer.shape
+
+        key_layer = index_first_axis(
+            key_layer.reshape(batch_size * kv_seq_len, num_heads, head_dim), indices_k
+        )
+        value_layer = index_first_axis(
+            value_layer.reshape(batch_size * kv_seq_len, num_heads, head_dim), indices_k
+        )
+
+        if query_length == kv_seq_len:
+            query_layer = index_first_axis(
+                query_layer.reshape(batch_size * kv_seq_len, self.num_heads, head_dim), indices_k
+            )
+            cu_seqlens_q = cu_seqlens_k
+            max_seqlen_in_batch_q = max_seqlen_in_batch_k
+            indices_q = indices_k
+        elif query_length == 1:
+            max_seqlen_in_batch_q = 1
+            cu_seqlens_q = torch.arange(
+                batch_size + 1, dtype=torch.int32, device=query_layer.device
+            )  # There is a memcpy here, that is very bad.
+            indices_q = cu_seqlens_q[:-1]
+            query_layer = query_layer.squeeze(1)
+        else:
+            # The -q_len: slice assumes left padding.
+            attention_mask = attention_mask[:, -query_length:]
+            query_layer, indices_q, cu_seqlens_q, max_seqlen_in_batch_q = unpad_input(query_layer, attention_mask)
+
+        return (
+            query_layer,
+            key_layer,
+            value_layer,
+            indices_q.to(torch.int64),
+            (cu_seqlens_q, cu_seqlens_k),
+            (max_seqlen_in_batch_q, max_seqlen_in_batch_k),
+        )
+
+INTERNLM_ATTENTION_CLASSES = {
+    "eager": InternLMAttention,
+    "flash_attention_2": InternLMFlashAttention2,
+}
+
+# Copied from transformers.models.llama.modeling_llama.LlamaDecoderLayer with Llama->InternLM
 class InternLMDecoderLayer(nn.Module):
     def __init__(self, config: InternLMConfig):
         super().__init__()
         self.hidden_size = config.hidden_size
-        self.self_attn = InternLMAttention(config=config)
+        
+        self.self_attn = INTERNLM_ATTENTION_CLASSES[config.attn_implementation](config=config)
+
         self.mlp = InternLMMLP(
             hidden_size=self.hidden_size,
             intermediate_size=config.intermediate_size,
@@ -442,6 +622,7 @@ INTERNLM_START_DOCSTRING = r"""
 """
 
 
+# Copied from transformers.models.llama.modeling_llama.LlamaPretrainedModel with Llama->InternLM
 @add_start_docstrings(
     "The bare InternLM Model outputting raw hidden-states without any specific head on top.",
     INTERNLM_START_DOCSTRING,
@@ -520,9 +701,10 @@ INTERNLM_INPUTS_DOCSTRING = r"""
             more detail.
         return_dict (`bool`, *optional*):
             Whether or not to return a [`~utils.ModelOutput`] instead of a plain tuple.
-"""  # noqa: E501
+"""
 
 
+# Copied from transformers.models.llama.modeling_llama.LlamaModel with Llama->InternLM
 @add_start_docstrings(
     "The bare InternLM Model outputting raw hidden-states without any specific head on top.",
     INTERNLM_START_DOCSTRING,
@@ -540,8 +722,10 @@ class InternLMModel(InternLMPreTrainedModel):
         super().__init__(config)
         self.padding_idx = config.pad_token_id
         self.vocab_size = config.vocab_size
+        self.config = config
 
         self.embed_tokens = nn.Embedding(config.vocab_size, config.hidden_size, self.padding_idx)
+        
         self.layers = nn.ModuleList([InternLMDecoderLayer(config) for _ in range(config.num_hidden_layers)])
         self.norm = InternLMRMSNorm(config.hidden_size, eps=config.rms_norm_eps)
 
@@ -600,6 +784,9 @@ class InternLMModel(InternLMPreTrainedModel):
 
         return_dict = return_dict if return_dict is not None else self.config.use_return_dict
 
+        if self.config.attn_implementation == "flash_attention_2":
+            _import_flash_attn()
+
         # retrieve input_ids and inputs_embeds
         if input_ids is not None and inputs_embeds is not None:
             raise ValueError("You cannot specify both decoder_input_ids and decoder_inputs_embeds at the same time")
@@ -628,14 +815,16 @@ class InternLMModel(InternLMPreTrainedModel):
 
         if inputs_embeds is None:
             inputs_embeds = self.embed_tokens(input_ids)
-        # embed positions
-        if attention_mask is None:
-            attention_mask = torch.ones(
-                (batch_size, seq_length_with_past), dtype=torch.bool, device=inputs_embeds.device
+        if self.config.attn_implementation == "flash_attention_2":
+            attention_mask = attention_mask if (attention_mask is not None and 0 in attention_mask) else None
+        else:
+            if attention_mask is None:
+                attention_mask = torch.ones(
+                    (batch_size, seq_length_with_past), dtype=torch.bool, device=inputs_embeds.device
+                )
+            attention_mask = self._prepare_decoder_attention_mask(
+                attention_mask, (batch_size, seq_length), inputs_embeds, past_key_values_length
             )
-        attention_mask = self._prepare_decoder_attention_mask(
-            attention_mask, (batch_size, seq_length), inputs_embeds, past_key_values_length
-        )
 
         hidden_states = inputs_embeds
 
@@ -708,6 +897,7 @@ class InternLMModel(InternLMPreTrainedModel):
         )
 
 
+# Copied from transformers.models.llama.modeling_llama.LlamaForCausalLM with Llama->InternLM
 class InternLMForCausalLM(InternLMPreTrainedModel):
     _auto_class = "AutoModelForCausalLM"
 
@@ -760,6 +950,7 @@ class InternLMForCausalLM(InternLMPreTrainedModel):
                 config.vocab_size]` or -100 (see `input_ids` docstring). Tokens with indices set to `-100` are ignored
                 (masked), the loss is only computed for the tokens with labels in `[0, ..., config.vocab_size]`.
         Returns:
+
         Example:
         ```python
         >>> from transformers import AutoTokenizer, InternLMForCausalLM
@@ -771,7 +962,9 @@ class InternLMForCausalLM(InternLMPreTrainedModel):
         >>> generate_ids = model.generate(inputs.input_ids, max_length=30)
         >>> tokenizer.batch_decode(generate_ids, skip_special_tokens=True, clean_up_tokenization_spaces=False)[0]
         "Hey, are you consciours? Can you talk to me?\nI'm not consciours, but I can talk to you."
-        ```"""
+        ```
+
+        """
 
         output_attentions = output_attentions if output_attentions is not None else self.config.output_attentions
         output_hidden_states = (
@@ -856,12 +1049,17 @@ class InternLMForCausalLM(InternLMPreTrainedModel):
         for layer_past in past_key_values:
             reordered_past += (tuple(past_state.index_select(0, beam_idx) for past_state in layer_past),)
         return reordered_past
-
-    def build_inputs(self, tokenizer, query: str, history: List[Tuple[str, str]] = []):
-        prompt = ""
+    
+    def build_inputs(self, tokenizer, query: str, history: List[Tuple[str, str]] = [], meta_instruction=""):
+        if tokenizer.add_bos_token:
+            prompt = ""
+        else:
+            prompt = tokenizer.bos_token
+        if meta_instruction:
+            prompt += f"""<|System|>:{meta_instruction}\n"""
         for record in history:
-            prompt += f"""<|User|>:{record[0]}<eoh>\n<|Bot|>:{record[1]}<eoa>\n"""
-        prompt += f"""<|User|>:{query}<eoh>\n<|Bot|>:"""
+            prompt += f"""<|User|>:{record[0]}\n<|Bot|>:{record[1]}<eoa>\n"""
+        prompt += f"""<|User|>:{query}\n<|Bot|>:"""
         return tokenizer([prompt], return_tensors="pt")
 
     @torch.no_grad()
@@ -875,9 +1073,12 @@ class InternLMForCausalLM(InternLMPreTrainedModel):
         do_sample: bool = True,
         temperature: float = 0.8,
         top_p: float = 0.8,
+        meta_instruction: str = "You are an AI assistant whose name is InternLM (书生·浦语).\n"
+"- InternLM (书生·浦语) is a conversational language model that is developed by Shanghai AI Laboratory (上海人工智能实验室). It is designed to be helpful, honest, and harmless.\n"
+"- InternLM (书生·浦语) can understand and communicate fluently in the language chosen by the user such as English and 中文.",
         **kwargs,
     ):
-        inputs = self.build_inputs(tokenizer, query, history)
+        inputs = self.build_inputs(tokenizer, query, history, meta_instruction)
         inputs = {k: v.to(self.device) for k, v in inputs.items() if torch.is_tensor(v)}
         outputs = self.generate(
             **inputs,
@@ -912,6 +1113,11 @@ class InternLMForCausalLM(InternLMPreTrainedModel):
         ('你好，有什么可以帮助您的吗', [('你好', '你好，有什么可以帮助您的吗')])
         ('你好，有什么可以帮助您的吗？', [('你好', '你好，有什么可以帮助您的吗？')])
         """
+        if BaseStreamer is None:
+            raise ModuleNotFoundError(
+                "The version of `transformers` is too low. Please make sure "
+                "that you have installed `transformers>=4.28.0`."
+            )
 
         response_queue = queue.Queue(maxsize=20)
 
@@ -942,7 +1148,6 @@ class InternLMForCausalLM(InternLMPreTrainedModel):
                 token = self.tokenizer.decode(self.cache, skip_special_tokens=True)
                 if "�" in token and len(token) <= 5:
                     return
-
                 if token.strip() != "<eoa>":
                     self.response = self.response + token
                     history = self.history + [(self.query, self.response)]

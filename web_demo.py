@@ -14,7 +14,7 @@ import torch
 from transformers import AutoModelForCausalLM, AutoTokenizer
 from transformers.utils import logging
 
-from tools.transformers.interface import GenerationConfig, generate_interactive
+from tools.interface import GenerationConfig, generate_interactive
 
 logger = logging.get_logger(__name__)
 

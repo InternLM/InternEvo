@@ -123,7 +123,7 @@ def do_warmup(args):
     # test no-packed datasets.
     for _, val_dl in val_dls.items():
         for _, batch in enumerate(val_dl):
-            if gpc.is_using_pp():
+            if gpc.is_using_parallel_mode(ParallelMode.PIPELINE):
                 total_val_bsz = len(batch[1])
                 batch[0]["input_ids"] = batch[0]["input_ids"].to(torch.bfloat16)
                 assert total_val_bsz % micro_bsz == 0
@@ -164,9 +164,9 @@ def test_warmup(use_flash_atten_case, group_case, micro_bsz_case):
         dict(
             parallel=dict(
                 zero1=dict(size=1, fsdp=False),
-                pipeline=dict(size=1, interleaved_overlap=False),
-                sequence_parallel=False,
-                tensor=1,
+                tensor=dict(size=1, mode="mtp"),
+                pipeline=dict(size=1, interleaved_overlap=True),
+                weight=dict(size=1, overlap=True, memory_pool=True),
             ),
             data=dict(
                 train_folder=None,

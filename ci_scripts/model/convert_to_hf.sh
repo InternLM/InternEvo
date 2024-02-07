@@ -12,7 +12,7 @@ readonly TOKENIZER="${GITHUB_WORKSPACE}/hf_ckpt/tokenizer.model"
 readonly CONFIG="${GITHUB_WORKSPACE}/hf_ckpt/config.json"
 readonly INERNLM="${GITHUB_WORKSPACE}/hf_ckpt/modeling_internlm.py"
 exit_code=0
-expected_num=9
+expected_num=8
 
 source ./ci_scripts/common/basic_func.sh
 
@@ -25,8 +25,8 @@ if [[ -d ${CKPTS_OUTPUT} ]]; then
     fi
 fi
 
-python ./tools/transformers/convert2hf.py --src_folder ${CKPTS_INPUT} --tgt_folder ${CKPTS_OUTPUT} --tokenizer ./tools/V7_sft.model
-[[ $? -ne 0 ]] && { echo "test convert2hf.py failed.";  exit_code=$(($exit_code + 1)); }
+python ./transformers/convert2hf_internlm.py --src ${CKPTS_INPUT} --tgt ${CKPTS_OUTPUT} --tokenizer ./tools/tokenizer_internlm.model
+[[ $? -ne 0 ]] && { echo "test convert2hf_internlm.py failed.";  exit_code=$(($exit_code + 1)); }
 
 #assert exists model
 file_list=($TOKENIZER $CONFIG $INERNLM)

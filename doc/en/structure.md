@@ -1,4 +1,4 @@
-## InternLM System Structure
+## InternEvo System Structure
 The system code file structure is shown below:
 ```bash
 ├── configs                                  # Configuration module, managing model and training-related parameters

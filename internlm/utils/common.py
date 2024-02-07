@@ -5,6 +5,7 @@ import bisect
 import inspect
 import os
 import random
+from abc import ABC, abstractmethod
 from contextlib import contextmanager
 from datetime import datetime
 from typing import Union
@@ -13,8 +14,10 @@ import numpy as np
 import torch
 
 import internlm
+from internlm.utils.logger import get_logger
 
 CURRENT_TIME = None
+logger = get_logger(__file__)
 
 
 def parse_args():
@@ -231,6 +234,16 @@ def get_megatron_flops(
     return tflops
 
 
+def enable_pytorch_expandable_segments():
+    if torch.__version__ >= "2.1.0":
+        _alloc_setting = "expandable_segments:True"
+        if os.getenv("PYTORCH_CUDA_ALLOC_CONF", None) is not None:
+            _alloc_setting = os.getenv("PYTORCH_CUDA_ALLOC_CONF") + "," + _alloc_setting
+        torch.cuda.memory._set_allocator_settings(_alloc_setting)
+    else:
+        logger.warning("To support the 'expandable_segments' configuration, please upgrade torch to version 2.1.0.")
+
+
 class DummyProfile:
     """
     Dummy Profile.
@@ -247,3 +260,37 @@ class DummyProfile:
 
     def step(self):
         pass
+
+
+class SchedulerHook(ABC):
+    """
+    Scheduler Hook.
+    """
+
+    @abstractmethod
+    def before_forward(self, scheduler, inputs) -> None:
+        """Actions before forward"""
+
+    @abstractmethod
+    def after_forward(self, scheduler, outputs) -> None:
+        """Actions after forward"""
+
+    @abstractmethod
+    def before_criterion(self, scheduler, outputs, label) -> None:
+        """Actions before criterion"""
+
+    @abstractmethod
+    def after_criterion(self, scheduler, loss) -> None:
+        """Actions after criterion"""
+
+    @abstractmethod
+    def before_backward(self, scheduler, outputs, outputs_grad) -> None:
+        """Actions before backward"""
+
+    @abstractmethod
+    def after_backward(self, scheduler, inputs_grad) -> None:
+        """Actions after backward"""
+
+    @abstractmethod
+    def post_helper_func(self, scheduler, outputs, label) -> None:
+        """A post helper function"""

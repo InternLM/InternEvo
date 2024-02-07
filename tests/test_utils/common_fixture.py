@@ -44,9 +44,9 @@ init_config = Config(
     dict(
         parallel=dict(
             zero1=dict(size=1, fsdp=False),
-            pipeline=dict(size=1, interleaved_overlap=False),
-            sequence_parallel=False,
-            tensor=1,
+            tensor=dict(size=1, mode="mtp"),
+            pipeline=dict(size=1, interleaved_overlap=True),
+            weight=dict(size=1, overlap=True, memory_pool=True),
         ),
         model_type="INTERNLM",
         adam=dict(

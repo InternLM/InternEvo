@@ -105,7 +105,7 @@ Test configuration:
 | dtype     | bfloat16|
 
 ```python
-# InternLM/configs/7B_sft.py
+# InternEvo/configs/7B_sft.py
 data = dict(
     # micro_num means the number of micro_batch contained in one gradient update
     micro_num=4,

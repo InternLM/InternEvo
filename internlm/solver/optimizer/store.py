@@ -46,6 +46,9 @@ class BucketStore(BaseStore):
     def num_elements_in_bucket(self, reduce_rank: int = None):
         return self._num_elements_in_bucket[reduce_rank]
 
+    def num_params_in_bucket(self, reduce_rank: int = None):
+        return len(self._params[reduce_rank])
+
     def get_param_group_id(self):
         return self._group_id
 
@@ -174,8 +177,10 @@ class ParameterStore(BaseStore):
         :param rank: The rank of which the process is responsible for updating the parameter
         :type rank: int
         """
+        if tensor not in self._fp16_param_to_rank:
+            self._fp16_param_to_rank[tensor] = []
 
-        self._fp16_param_to_rank[tensor] = rank
+        self._fp16_param_to_rank[tensor].append(rank)
 
     def get_param_rank(self, tensor: Tensor) -> int:
         """

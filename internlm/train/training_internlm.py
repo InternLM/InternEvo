@@ -6,7 +6,7 @@ import os
 import pickle
 import time
 from functools import partial
-from typing import Callable, Iterable, Optional, Union
+from typing import Callable, Iterable, List, Optional, Union
 
 import torch
 import torch.distributed as dist
@@ -21,10 +21,22 @@ from torch.distributed.fsdp.fully_sharded_data_parallel import (
 from torch.distributed.fsdp.wrap import transformer_auto_wrap_policy
 from torch.utils.data import ConcatDataset, DataLoader
 
-from internlm.core.context import ParallelMode
+from internlm.core.communication.isp import (
+    ISPCommModelConfig,
+    ISPCommunicator,
+    ISPCommunicatorSchedulerHook,
+)
+from internlm.core.context import (
+    IS_REPLICA_ZERO_PARALLEL,
+    IS_TENSOR_DATA_PARALLEL,
+    IS_TENSOR_EXPERT_DATA_PARALLEL,
+    IS_TENSOR_ZERO_PARALLEL,
+    IS_WEIGHT_ZERO_PARALLEL,
+    ParallelMode,
+)
 from internlm.core.context import global_context as gpc
 from internlm.core.context.random import set_mode
-from internlm.core.naive_amp import NaiveAMPModel
+from internlm.core.naive_amp import NaiveAMPModel, set_fp32_attr_to_module
 from internlm.core.trainer import TrainState
 from internlm.data.batch_sampler import StaticBatchSampler, get_dpsampler_dataloader
 from internlm.data.collaters import jsonl_ds_collate_fn, packed_collate_fn
@@ -38,12 +50,18 @@ from internlm.data.packed_dataset import (
 from internlm.data.utils import get_dataset_type_ids_map, unpack_data
 from internlm.model.embedding import Embedding1D
 from internlm.model.linear import (
+    BaseScaleColumnParallelLinear,
+    ColumnParallelLinear,
     FeedForward,
+    ISPLinear,
     RewardModelLinear,
+    RowParallelLinear,
     ScaleColumnParallelLinear,
 )
+from internlm.model.metrics import SchedulerMetricHook
+from internlm.model.moe import MoE
 from internlm.model.multi_head_attention import MHA
-from internlm.model.utils import try_import_RMSNorm
+from internlm.model.utils import is_moe_param, try_import_RMSNorm
 from internlm.monitor import send_heartbeat, set_env_var
 from internlm.monitor.monitor import monitor_manager as mm
 from internlm.solver.beta2_scheduler import Beta2Scheduler
@@ -51,14 +69,24 @@ from internlm.solver.lr_scheduler import FineTuneCosineAnnealingWarmupLR
 from internlm.solver.optimizer import FSDPadaptOptimizer, HybridZeroOptimizer
 from internlm.solver.optimizer.utils import ParamBcastSyncHandler
 from internlm.train.utils import create_param_groups
-from internlm.utils.common import DummyProfile, launch_time
+from internlm.utils.common import (
+    DummyProfile,
+    SchedulerHook,
+    get_current_device,
+    launch_time,
+)
 from internlm.utils.logger import get_logger
 from internlm.utils.megatron_timers import megatron_timer as timer
 from internlm.utils.parallel import (
-    check_sequence_parallel,
+    is_replica_zero_parallel_parameter,
+    is_tensor_data_parallel_parameter,
+    is_tensor_expert_data_parallel_parameter,
+    is_tensor_zero_parallel_parameter,
+    is_using_isp,
+    is_weight_zero_parallel_parameter,
     set_model_params_layer_name,
     sync_model_param,
-    sync_model_param_within_tp,
+    sync_model_replica_param_group,
 )
 from internlm.utils.registry import MODEL_INITIALIZER
 from internlm.utils.timeout import llm_timeout
@@ -67,8 +95,69 @@ RMSNorm = try_import_RMSNorm()
 logger = get_logger(__file__)
 
 
+def set_fp32_attr_for_model(model: Union[nn.Module, nn.ModuleList]):
+    if not isinstance(model, nn.ModuleList):
+        model = [model]
+
+    for _chunk in model:
+        for _, module in _chunk.named_modules():
+            if isinstance(module, (RMSNorm, nn.LayerNorm)) and gpc.config.get("use_fp32_norm", False):
+                set_fp32_attr_to_module(module)
+
+
+def set_parallel_attr_for_param_groups(model: Union[nn.Module, nn.ModuleList]):
+    def _check_module(module):
+        # layer_norm
+        if isinstance(module, (RMSNorm, nn.LayerNorm)):
+            for param in module.parameters():
+                setattr(param, IS_REPLICA_ZERO_PARALLEL, True)
+
+        if isinstance(module, MoE):
+            for param in module.moe_layer.gate.parameters():
+                setattr(param, IS_REPLICA_ZERO_PARALLEL, True)
+
+        # embedding and head
+        if isinstance(module, (Embedding1D, ParallelGPT2Embeddings, BaseScaleColumnParallelLinear)):
+            for param in module.parameters():
+                if gpc.is_initialized(ParallelMode.TENSOR) and is_using_isp():
+                    setattr(param, IS_TENSOR_DATA_PARALLEL, True)
+                elif gpc.is_initialized(ParallelMode.TENSOR) and not is_using_isp():
+                    setattr(param, IS_TENSOR_ZERO_PARALLEL, True)
+
+        # for linear module
+        if isinstance(module, (ColumnParallelLinear, RowParallelLinear)):
+            for param in module.parameters():
+                if gpc.is_initialized(ParallelMode.EXPERT_DATA) and is_moe_param(param):
+                    # module should be MoE experts's linear
+                    setattr(param, IS_TENSOR_EXPERT_DATA_PARALLEL, True)
+                elif not is_moe_param(param) and gpc.is_initialized(ParallelMode.TENSOR) and not is_using_isp():
+                    setattr(param, IS_TENSOR_ZERO_PARALLEL, True)
+                elif not is_moe_param(param) and gpc.is_initialized(ParallelMode.WEIGHT) and is_using_isp():
+                    setattr(param, IS_WEIGHT_ZERO_PARALLEL, True)
+
+    if not isinstance(model, nn.ModuleList):
+        model = [model]
+
+    for _chunk in model:
+        if isinstance(_chunk, NaiveAMPModel):
+            _chunk = _chunk.model
+
+        # set param parallel attribute
+        for name, module in _chunk.named_modules():
+            _check_module(module)
+
+        for name, param in _chunk.named_parameters():
+            assert (
+                is_replica_zero_parallel_parameter(param)
+                or is_tensor_data_parallel_parameter(param)
+                or is_tensor_zero_parallel_parameter(param)
+                or is_weight_zero_parallel_parameter(param)
+                or is_tensor_expert_data_parallel_parameter(param)
+            ), f"parameter with name:{name} has no parallel attribution."
+
+
 @llm_timeout(func_name="initialize_model")
-def initialize_model():
+def initialize_model(pre_process_func: Optional[Callable] = None, post_process_func: Optional[Callable] = None):
     """
     Initialize model with Automatic Mixed Precision.
 
@@ -76,8 +165,15 @@ def initialize_model():
         torch.nn.Module:
             The neural network model to be trained or evaluated.
     """
-
+    if pre_process_func:
+        pre_process_output = pre_process_func()
     model = MODEL_INITIALIZER.get_module(module_name=gpc.config.model_type)(**(gpc.config.model))
+    if post_process_func:
+        post_process_func(pre_process_output)
+
+    # should be set before NaiveAMPModel
+    set_fp32_attr_for_model(model)
+
     if isinstance(model, nn.ModuleList):
         model = nn.ModuleList(
             [
@@ -98,6 +194,8 @@ def initialize_model():
             sync_buffer=False,
         )
 
+    set_parallel_attr_for_param_groups(model)
+
     # This sync is very important, cause the model weights kept in optimizer are copied
     # from the origin parameters in the memory, so we should make sure the dp sync
     # does not influence the model weights in optimizer be different with the origin parameters.
@@ -105,18 +203,15 @@ def initialize_model():
 
     # This function is needed to make sure parameters that are not splitted by tensor parallelism are
     # the same across tensor parallelism.
-    sync_model_param_within_tp(model)
+    sync_model_replica_param_group(model)
 
     # Change random state mode to ParallelMode.DATA after model is built, guaranteeing the random
     # state in the same dp group are all the same.
-    set_mode(ParallelMode.DATA)
+    random_mode = ParallelMode.WEIGHT_DATA if is_using_isp() else ParallelMode.DATA
+    set_mode(random_mode)
 
     # if fsdp enabled, wrap the model
     model = wrap_FSDP_model(model)
-
-    # check whether the norm module has IS_SEQUENCE_PARALLEL attribute
-    if gpc.config.parallel.sequence_parallel is True:
-        check_sequence_parallel(model)
 
     return model
 
@@ -154,8 +249,37 @@ def wrap_FSDP_model(model: Union[nn.Module, nn.ModuleList]):
     return model
 
 
+def initialize_isp_communicator(model: Union[nn.Module, nn.ModuleList]):
+    """
+    Initialize communicator for isp tensor parallel mode.
+
+    Args:
+        model (:class:`torch.nn.Module`): Your model instance to be trained or evaluated.
+
+    Returns:
+        An isp communicator for managing comp/comm overlap and memory pool.
+    """
+    isp_communicator = None
+    if is_using_isp():
+        isp_communicator = ISPCommunicator(
+            model,
+            ISPCommModelConfig(
+                gpc.config.model.dtype,
+                get_current_device(),
+                gpc.config.model.checkpoint,
+            ),
+            gpc.config.parallel.weight.overlap,
+            gpc.config.parallel.weight.memory_pool,
+            gpc.get_group(ParallelMode.WEIGHT),
+        )
+        # register communicator for isp linear.
+        ISPLinear.register_communicator(isp_communicator)
+
+    return isp_communicator
+
+
 @llm_timeout(func_name="initialize_optimizer")
-def initialize_optimizer(model: Union[nn.Module, nn.ModuleList]):
+def initialize_optimizer(model: Union[nn.Module, nn.ModuleList], isp_communicator: ISPCommunicator = None):
     """
     Initialize optimizer.
 
@@ -194,6 +318,7 @@ def initialize_optimizer(model: Union[nn.Module, nn.ModuleList]):
             grad_scal_cfg=gpc.config.grad_scaler,
             zero_cfg=gpc.config.hybrid_zero_optimizer,
             param_bcast_sync_handler=param_bcast_sync_handler,
+            isp_communicator=isp_communicator,
         )
     else:
         optimizer = FSDPadaptOptimizer(
@@ -207,6 +332,28 @@ def initialize_optimizer(model: Union[nn.Module, nn.ModuleList]):
     lr_scheduler = FineTuneCosineAnnealingWarmupLR(optimizer, **gpc.config.lr_scheduler)
 
     return optimizer, beta2_scheduler, lr_scheduler
+
+
+def get_scheduler_hooks(metric, zero_optim, isp_communicator) -> List[SchedulerHook]:
+    scheduler_hooks: List[SchedulerHook] = []
+
+    if metric is not None:
+        scheduler_hooks.append(
+            SchedulerMetricHook(
+                metric=metric,
+                skip=(
+                    gpc.is_using_parallel_mode(ParallelMode.PIPELINE)
+                    and hasattr(gpc.config.model, "num_chunks")
+                    and gpc.config.model.num_chunks > 1
+                    and gpc.config.parallel["pipeline"].get("interleaved_overlap", False)
+                ),
+            ),
+        )
+
+    if isp_communicator is not None and gpc.config.parallel["weight"].get("overlap", False):
+        scheduler_hooks.append(ISPCommunicatorSchedulerHook(isp_communicator, zero_optim))
+
+    return scheduler_hooks
 
 
 @llm_timeout(func_name="get_train_data_loader")
@@ -388,11 +535,12 @@ def initialize_llm_profile(profiling: bool = False, start_time: str = None):
         on_trace_ready=torch.profiler.tensorboard_trace_handler(
             f"RUN/{gpc.config.JOB_NAME}/{start_time}/traces/rank{gpc.get_global_rank()}_"
             + f"dp{gpc.get_local_rank(ParallelMode.DATA)}_"
-            + f"tp{gpc.get_local_rank(ParallelMode.TENSOR)}_"
-            + f"pp{gpc.get_local_rank(ParallelMode.PIPELINE)}",
+            + f"wp{gpc.get_local_rank(ParallelMode.WEIGHT)}_"
+            + f"tp{gpc.get_local_rank(ParallelMode.TENSOR)}",
         ),
         with_stack=True,
         with_modules=True,
+        profile_memory=True,
     )
 
 

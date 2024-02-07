@@ -79,7 +79,38 @@ data = dict(
     diag_outlier_ratio=1.1,
 )
 
-loss = dict(label_smoothing=0.0)
+grad_scaler = dict(
+    fp16=dict(
+        # the initial loss scale, defaults to 2**16
+        initial_scale=2**16,
+        # the minimum loss scale, defaults to None
+        min_scale=1,
+        # the number of steps to increase loss scale when no overflow occurs
+        growth_interval=1000,
+    ),
+    # the multiplication factor for increasing loss scale, defaults to 2
+    growth_factor=2,
+    # the multiplication factor for decreasing loss scale, defaults to 0.5
+    backoff_factor=0.5,
+    # the maximum loss scale, defaults to None
+    max_scale=2**24,
+    # the number of overflows before decreasing loss scale, defaults to 2
+    hysteresis=2,
+)
+
+hybrid_zero_optimizer = dict(
+    # Enable low_level_optimzer overlap_communication
+    overlap_sync_grad=True,
+    overlap_sync_param=False,
+    # bucket size for nccl communication params
+    reduce_bucket_size=512 * 1024 * 1024,
+    # grad clipping
+    clip_grad_norm=1.0,
+)
+
+loss = dict(
+    label_smoothing=0,
+)
 
 adam = dict(
     lr=1e-4,
@@ -116,6 +147,8 @@ monitor = dict(
         queue_max_length=10,
     ),
 )
+
+use_fp32_norm = False
 
 # metric_dtype can be "fp32" or other string
 # only when set to "fp32" will use fp32 to calc in metrics

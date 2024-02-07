@@ -5,9 +5,12 @@ import torch
 from internlm.core.context.parallel_context import ParallelMode
 from internlm.core.context.parallel_context import global_context as gpc
 from internlm.model.utils import is_moe_param
+from internlm.utils.parallel import is_tensor_data_parallel_parameter, is_using_isp
 
 
-def split_params_into_different_groups_for_optimizer(param_groups: Tuple[Dict]) -> Tuple[Dict]:
+def split_params_into_different_groups_for_optimizer(
+    param_groups: Tuple[Dict],
+) -> Tuple[Dict]:
     """Split parameters into different groups for optimizer
 
     Args:
@@ -21,11 +24,9 @@ def split_params_into_different_groups_for_optimizer(param_groups: Tuple[Dict]) 
         Tuple[Dict]: list of params groups for optimizer
         Output Example:
         >>> (
-        >>>     {'name': 'default','params': [tensor],'weight_decay' :xxx},
-        >>>     {'name': 'fp32', 'params': [tensor],'weight_decay' :xxx},
-        >>>     {'name': 'norm', 'norm': True, 'params': [tensor],'weight_decay' :xxx},
-        >>>     {'name': 'gate', 'gate': True, 'params': [tensor],'weight_decay' :xxx},
-        >>>     {'name': 'moe_ep_size_4', 'moe': True, 'params':  [tensor],'weight_decay' :xxx},
+        >>>     {'name': 'default', 'params': [tensor], 'weight_decay' :xxx},
+        >>>     {'name': 'embed_head', 'params': [tensor], 'weight_decay' :xxx},
+        >>>     {'name': 'fp32', 'params': [tensor], 'weight_decay' :xxx},
         >>> )
     """
 
@@ -36,12 +37,16 @@ def split_params_into_different_groups_for_optimizer(param_groups: Tuple[Dict]) 
     elif not isinstance(param_groups, list):
         raise ValueError(f"Unknown param group type of {type(param_groups)}")
 
-    # create new groups for fp32, norm, moe gate and moe expert
+    # create new groups for IS_TENSOR_DATA_PARALLEL parameter group
     new_groups = {}
-    new_groups["fp32"] = {"name": "fp32", "params": [], "dp_mode": ParallelMode.DATA}
+    if is_using_isp():
+        new_groups["embed_head"] = {"name": "embed_head", "params": [], "optimizer_mode": ParallelMode.DATA}
+    # create new groups for fp32 parameter group
+    new_groups["fp32"] = {"name": "fp32", "params": [], "optimizer_mode": ParallelMode.ZERO1}
+
     if gpc.config.model.get("num_experts", 1) > 1:
         for key in gpc.expert_parallel_group_names:
-            new_groups[key] = {"name": key, "moe": True, "params": [], "dp_mode": ParallelMode.EXPERT_DATA}
+            new_groups[key] = {"name": key, "moe": True, "params": [], "optimizer_mode": ParallelMode.EXPERT_DATA}
 
     for pgroup in param_groups:
         # copy attribute from origin group, we assume the input param_groups only
@@ -52,10 +57,11 @@ def split_params_into_different_groups_for_optimizer(param_groups: Tuple[Dict]) 
                     group[ori_key] = pgroup[ori_key]
         # assign param
         origin_params = []
-        # first split the norm and gate groups, which are special case to force sync (when enable MoE),
-        # then fp32 group and the moe group.
         for param in pgroup["params"]:
-            if param.dtype == torch.float32:
+            if is_tensor_data_parallel_parameter(param):
+                # should not be here if not isp mode
+                new_groups["embed_head"]["params"].append(param)
+            elif param.dtype == torch.float32:
                 new_groups["fp32"]["params"].append(param)
             # moe param means MoE is enabled
             elif is_moe_param(param):
@@ -63,9 +69,9 @@ def split_params_into_different_groups_for_optimizer(param_groups: Tuple[Dict]) 
             else:
                 origin_params.append(param)
 
-        # bf16 param group, which is the first group in the param groups
+        # default param group, which is the first group in the param groups
         pgroup["params"] = origin_params
-        pgroup["dp_mode"] = ParallelMode.DATA
+        pgroup["optimizer_mode"] = ParallelMode.ZERO1
 
     # param groups may contain empty groups, such as fp32
     param_groups.extend(new_groups.values())

@@ -4,7 +4,7 @@ https://github.com/microsoft/DeepSpeed/blob/master/deepspeed/moe/experts.py
  Git commit hash: f3943cf9109226ed3ecf2d5dbb639a11cd925555
  We retain the following license from the original files:
 """
-from typing import TYPE_CHECKING, Any, Callable, Dict, Optional, Tuple
+from typing import Callable, Dict, Optional, Tuple
 
 import torch
 import torch.distributed as dist
@@ -12,16 +12,18 @@ import torch.nn.functional as F
 from torch import Tensor
 from torch.nn import Module
 
+from internlm.core.context import ParallelMode
+from internlm.core.context import global_context as gpc
+from internlm.model.linear import FeedForward
 from internlm.utils.logger import get_logger
 from internlm.utils.megatron_timers import megatron_timer as timer
+from internlm.utils.registry import MODEL_INITIALIZER
+
+from .base_moe import BaseMoELayer
+from .utils import all_to_all
 
 # global llm logger
 logger = get_logger(__file__)
-
-if TYPE_CHECKING:
-    Base = Module[Tensor]
-else:
-    Base = Module
 
 uniform_map: Dict[torch.device, Callable] = {}
 gumbel_map: Dict[torch.device, Callable] = {}
@@ -60,30 +62,6 @@ def gumbel_rsample(shape: Tuple, device: torch.device) -> Tensor:
         gumbel = torch.distributions.gumbel.Gumbel(zero, one).rsample  # type: ignore
         gumbel_map[device] = gumbel
     return gumbel(shape)
-
-
-# Based on https://github.com/pytorch/pytorch/pull/40762
-class _AllToAll(torch.autograd.Function):
-    """
-    All to all communication
-    """
-
-    @staticmethod
-    def forward(
-        ctx: Any,
-        # TODO: replace with DS process group
-        group: torch.distributed.ProcessGroup,
-        inputs: Tensor,
-    ) -> Tensor:  # type: ignore
-        ctx.group = group
-        inputs = inputs.contiguous()
-        output = torch.empty_like(inputs)
-        dist.all_to_all_single(output, inputs, group=group)
-        return output
-
-    @staticmethod
-    def backward(ctx: Any, *grad_output: Tensor) -> Tuple[None, Tensor]:
-        return (None, _AllToAll.apply(ctx.group, *grad_output))
 
 
 # einsum rewrites are on par or more performant
@@ -189,7 +167,7 @@ def top1gating(
     # if we don't want to drop any tokens
     if not drop_tokens:
         new_capacity = torch.max(exp_counts).to(logits.device)
-        dist.all_reduce(new_capacity, op=dist.ReduceOp.MAX, group=dist.get_world_group())
+        dist.all_reduce(new_capacity, op=dist.ReduceOp.MAX, group=gpc.get_group(ParallelMode.GLOBAL))
         capacity = new_capacity
 
     # Compute l_aux
@@ -327,7 +305,7 @@ class TopKGate(Module):
         self,
         model_dim: int,
         num_experts: int,
-        k: int = 1,
+        topk: int = 1,
         capacity_factor: float = 1.0,
         eval_capacity_factor: float = 1.0,
         min_capacity: int = 8,
@@ -338,11 +316,11 @@ class TopKGate(Module):
         super().__init__()
 
         # Only top-1 and top-2 are supported at the moment.
-        if k not in (1, 2):
+        if topk not in (1, 2):
             raise ValueError("Only top-1 and top-2 gatings are supported.")
         # Deepspeed's mechisms, alway use fp32
         self.wg = torch.nn.Linear(model_dim, num_experts, bias=False)
-        self.k = k
+        self.k = topk
         self.capacity_factor = capacity_factor
         self.eval_capacity_factor = eval_capacity_factor
         self.min_capacity = min_capacity
@@ -355,7 +333,6 @@ class TopKGate(Module):
     def forward(
         self, inputs: torch.Tensor, used_token: torch.Tensor = None
     ) -> Tuple[Tensor, Tensor, Tensor]:  # type: ignore
-
         if self.wall_clock_breakdown:
             timer("TopKGate").start()
 
@@ -387,7 +364,8 @@ class TopKGate(Module):
         return gate_output
 
 
-class MOELayer(Base):
+@MODEL_INITIALIZER.register_module(module_name="GShard")
+class GShardMOELayer(BaseMoELayer):
     """MOELayer module which implements MixtureOfExperts as described in Gshard_.
     ::
 
@@ -405,20 +383,65 @@ class MOELayer(Base):
             expert network
     """
 
-    def __init__(self, gate: Module, experts: Module, ep_group, ep_size, num_local_experts: int) -> None:
-        super().__init__()
-        self.gate = gate
-        self.experts = experts
-        self.ep_group = ep_group
-        self.ep_size = ep_size
-        self.num_local_experts = num_local_experts
+    def __init__(
+        self,
+        hidden_size,
+        num_experts: int,
+        ep_group,
+        ep_size: int,
+        top_k: int = 1,
+        capacity_factor: float = 1.0,
+        eval_capacity_factor: float = 1.0,
+        min_capacity: int = 4,
+        noisy_gate_policy: str = None,
+        drop_tokens: bool = True,
+        use_rts: bool = True,
+        device=None,
+        dtype=None,
+    ) -> None:
+        assert noisy_gate_policy is None or noisy_gate_policy in ["None", "Jitter", "RSample"], (
+            "Unsupported noisy_gate_policy: " + noisy_gate_policy
+        )
+        assert (
+            num_experts % ep_size == 0
+        ), f"Number of experts ({num_experts}) should be divisible by expert parallel size ({ep_size})"
+        super().__init__(
+            TopKGate(
+                hidden_size,
+                num_experts,
+                top_k,
+                capacity_factor,
+                eval_capacity_factor,
+                min_capacity,
+                noisy_gate_policy,
+                drop_tokens,
+                use_rts,
+            ),
+            torch.nn.ModuleList(
+                [
+                    FeedForward(
+                        hidden_size,
+                        int(hidden_size * gpc.config.model.mlp_ratio),
+                        out_features=hidden_size,
+                        process_group=gpc.get_group(ParallelMode.TENSOR),
+                        bias=False,
+                        device=device,
+                        dtype=dtype,
+                    )
+                    for _ in range(num_experts // ep_size)
+                ]
+            ),
+            ep_group,
+            ep_size,
+            num_experts // ep_size,
+        )
+
         self.time_falltoall = 0.0
         self.time_salltoall = 0.0
         self.time_moe = 0.0
         self.wall_clock_breakdown = False
 
     def forward(self, *inputs: Tensor) -> Tensor:
-
         if self.wall_clock_breakdown:
             timer("moe").start()
 
@@ -438,7 +461,8 @@ class MOELayer(Base):
         if self.wall_clock_breakdown:
             timer("falltoall").start()
 
-        dispatched_inputs = _AllToAll.apply(self.ep_group, dispatched_inputs)
+        if gpc.get_world_size(ParallelMode.EXPERT) > 1:
+            dispatched_inputs, _ = all_to_all(dispatched_inputs, group=self.ep_group)
 
         if self.wall_clock_breakdown:
             timer("falltoall").stop()
@@ -452,7 +476,8 @@ class MOELayer(Base):
         if self.wall_clock_breakdown:
             timer("salltoall").start()
 
-        expert_output = _AllToAll.apply(self.ep_group, expert_output)
+        if gpc.get_world_size(ParallelMode.EXPERT) > 1:
+            expert_output, _ = all_to_all(expert_output, group=self.ep_group)
 
         if self.wall_clock_breakdown:
             timer("salltoall").stop()
