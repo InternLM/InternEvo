@@ -28,11 +28,11 @@ from internlm.initialize.initialize_tensor import (
     uniform_,
 )
 from internlm.model.embedding import Embedding1D, RotaryEmbedding
-from internlm.model.linear import ColumnParallelLinearTorch
-from internlm.model.linear import FeedForwardV2 as FeedForward
 from internlm.model.linear import (
+    FeedForward,
     RewardModelLinear,
     RowParallelLinearTorch,
+    ColumnParallelLinearTorch,
     ScaleColumnParallelLinear,
 )
 from internlm.model.utils import gather_forward_split_backward, try_import_RMSNorm
