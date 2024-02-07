@@ -176,16 +176,7 @@ class FeedForward(nn.Module):
             device=device,
             dtype=dtype,
         )
-        self.w2 = ColumnParallelLinearTorch(
-            in_features,
-            hidden_features,
-            process_group,
-            bias,
-            sequence_parallel=gpc.config.parallel.sequence_parallel,
-            device=device,
-            dtype=dtype,
-        )
-        self.w3 = RowParallelLinearTorch(
+        self.w2 = RowParallelLinearTorch(
             hidden_features,
             out_features,
             process_group,
@@ -194,9 +185,18 @@ class FeedForward(nn.Module):
             device=device,
             dtype=dtype,
         )
+        self.w3 = ColumnParallelLinearTorch(
+            in_features,
+            hidden_features,
+            process_group,
+            bias,
+            sequence_parallel=gpc.config.parallel.sequence_parallel,
+            device=device,
+            dtype=dtype,
+        )
 
     def forward(self, x):
         w1_o = self.w1(x)
-        w2_o = self.w2(x)
-        out = self.w3(Silu(w1_o, w2_o))
+        w3_o = self.w3(x)
+        out = self.w2(Silu(w1_o, w3_o))
         return out

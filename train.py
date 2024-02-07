@@ -115,7 +115,7 @@ def main(args):
 
     ckpt_manager = CheckpointManager(
         ckpt_config=gpc.config.ckpt,
-        model=model,
+        model=model.model,
         optimizer=optimizer,
         lr_scheduler=lr_scheduler,
         train_dl=train_dl,
