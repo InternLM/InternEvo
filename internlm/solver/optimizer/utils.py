@@ -384,6 +384,8 @@ def compute_norm(
         3. For the IS_TENSOR_ZERO_PARALLEL parameter group, gradients along the tp+pp+zero dimensions
             from all ranks should be aggregated.
         4. For the IS_WEIGHT_ZERO_PARALLEL parameter group, gradients along the wp+pp+zero dimensions
+            from all ranks should be aggregated.        
+        5. For the IS_WEIGHT_EXPERT_DATA_PARALLEL parameter group, gradients along the ewp+pp+zero+ep dimensions
             from all ranks should be aggregated.
         """
         if is_tensor_data_parallel_parameter(parameters[0]):
