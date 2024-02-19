@@ -39,7 +39,11 @@ from internlm.model.linear import (
     get_mlp_cls,
 )
 from internlm.model.multi_head_attention import DistributedAttention
-from internlm.model.utils import gather_forward_split_backward, try_import_RMSNorm
+from internlm.model.utils import (
+    gather_forward_split_backward,
+    split_forward_gather_backward,
+    try_import_RMSNorm,
+)
 from internlm.solver.pipeline_utils import partition_uniform
 from internlm.utils.checkpoint import activation_checkpoint
 from internlm.utils.common import filter_kwargs
@@ -61,7 +65,7 @@ class MHA(nn.Module):
         num_heads (int): The number of attention heads.
         num_kv_heads (int): The number of attention heads for key and value.
         process_group (torch.distributed.ProcessGroup): The group of the current device for `parallel_mode`.
-        sequence_process_group (torch.distributed.ProcessGroup): The group for `sequence_parallel`.
+        sequence_process_group (torch.distributed.ProcessGroup): The process group for attention calculation.
         bias (bool): Whether the bias is needed for linears. Will be used when initializing QKV matrix and
                      output projection. False by default.
         dropout (float): The dropout rate for cross attention and self attention. 0.0 by default.
@@ -165,11 +169,9 @@ class MHA(nn.Module):
         self.inner_cross_attn_softmax_scale = softmax_scale
         self.inner_cross_attn_dropout = dropout
 
+        self.attn = flash_attn_varlen_kvpacked_func
         if self.tp_mode == "isp":
-            self.inner_attn = DistributedAttention(self.inner_attn, sequence_process_group=sequence_process_group)
-            self.inner_cross_attn = DistributedAttention(
-                self.inner_cross_attn, sequence_process_group=sequence_process_group
-            )
+            self.attn = DistributedAttention(self.attn, sequence_process_group=sequence_process_group)
 
         wo_cls = get_linear_cls(self.tp_mode, "row")
         self.wo = wo_cls(
@@ -435,7 +437,7 @@ class MHA(nn.Module):
                 if kv.dtype not in [torch.float16, torch.bfloat16]:
                     kv = kv.to(torch.bfloat16)
                 with torch.cuda.amp.autocast(dtype=torch.bfloat16):
-                    context = flash_attn_varlen_kvpacked_func(
+                    context = self.attn(
                         q=q,
                         kv=kv,
                         cu_seqlens_q=kwargs["cu_seqlens"],
@@ -447,7 +449,7 @@ class MHA(nn.Module):
                         causal=self.inner_cross_attn_causal,
                     ).to(self.dtype)
             else:
-                context = flash_attn_varlen_kvpacked_func(
+                context = self.attn(
                     q=q,
                     kv=kv,
                     cu_seqlens_q=kwargs["cu_seqlens"],
@@ -962,6 +964,10 @@ class PackedFlashLlama1D(nn.Module):
             assert len(indexes) == 1
             # The indexes are used to indicate the actual position IDs of each token in the packed input.
             indexes = indexes[0]
+            # if the sequence parallel mode is 'isp', the indexes should also be split in sequence dimension.
+            if gpc.config.parallel.sequence_parallel and self.tp_mode == "isp":
+                indexes = split_forward_gather_backward(indexes, ParallelMode.TENSOR, dim=0)
+
         max_seqlen = (cu_seqlens[1:] - cu_seqlens[:-1]).max().item() if cu_seqlens is not None else None
 
         for _, block in enumerate(self.layers):
@@ -977,7 +983,11 @@ class PackedFlashLlama1D(nn.Module):
         if hasattr(self, "norm"):
             hidden_states = self.norm(hidden_states.float())
         if hasattr(self, "output"):
-            hidden_states = self.output(hidden_states)
+            # Evaluation
+            if gpc.is_evaluating is True:
+                hidden_states = self.output(hidden_states, gather_dim=1)
+            else:  # Training
+                hidden_states = self.output(hidden_states, gather_dim=0)
 
         if not self.parallel_output:
             hidden_states = gather_forward_split_backward(hidden_states, ParallelMode.TENSOR, dim=-1)
