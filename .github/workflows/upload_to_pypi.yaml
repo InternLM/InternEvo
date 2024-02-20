@@ -34,7 +34,7 @@ jobs:
 
     - name: build and upload package
       run: |
+        source activate ${evo_env_torch21_flash2}
         export PYTHONPATH=$PWD:$PYTHONPATH
-        source /mnt/petrelfs/share_data/llm_env/env/llm-flash2.0
-        srun -p ${SLURM_PARTITION} --kill-on-bad-exit=1 --job-name=internlm-ut-${GITHUB_RUN_ID}-${GITHUB_JOB} -N 1 -n 1 --gres=gpu:1 python setup.py sdist bdist_wheel
+        srun -p ${SLURM_PARTITION} --kill-on-bad-exit=1 --job-name=internlm-${GITHUB_RUN_ID}-${GITHUB_JOB} -N 1 -n 1 --gres=gpu:1 python setup.py sdist bdist_wheel
         twine upload -u __token__ -p ${{ secrets.PYPI_API_TOKEN }} dist/*
