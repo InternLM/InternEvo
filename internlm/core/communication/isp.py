@@ -488,7 +488,9 @@ class ISPCommunicator:
                 self.process_group,
                 op=op,
                 async_op=True,
-                memory_pool_allocator=self.memory_pool.allocate_reduce_scatter_memory,
+                memory_pool_allocator=self.memory_pool.allocate_reduce_scatter_memory
+                if self.enable_memory_pool
+                else None,
             )
 
             result, handle = (
