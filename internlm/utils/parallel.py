@@ -20,6 +20,14 @@ from internlm.solver.pipeline_utils import partition_uniform
 RMSNorm = try_import_RMSNorm()
 
 
+def is_using_sequence_parallel():
+    return (
+        isinstance(gpc.config.parallel["tensor"], dict)
+        and gpc.config.parallel["tensor"].get("mode", "mtp") != "mtp"
+        and gpc.config.parallel["tensor"]["size"] > 1
+    )
+
+
 def is_using_isp():
     return isinstance(gpc.config.parallel["tensor"], dict) and gpc.config.parallel["tensor"].get("mode", "mtp") == "isp"
 
