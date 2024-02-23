@@ -23,12 +23,12 @@ jobs:
 
     - name: raw-chinese-data
       run: |
-        source $evo_env
+        source activate ${evo_env_torch21_flash2}
         sh ./ci_scripts/data/tokenizer_chinese.sh ${GITHUB_RUN_ID}-${GITHUB_JOB}
 
     - name: alpaca-data
       run: |
-        source $evo_env
+        source activate ${evo_env_torch21_flash2}
         sh ./ci_scripts/data/tokenizer_alpaca.sh
 
   train:
@@ -44,26 +44,26 @@ jobs:
     - name: slurm-train
       id: basic_train
       run: |
-        source $evo_env
+        source activate ${evo_env_torch21_flash2}
         sh ./ci_scripts/train/slurm_train.sh ${GITHUB_RUN_ID}-${GITHUB_JOB}
 
     - name: load_preset_ckpt
       if: ${{ failure() && steps.basic_train.conclusion == 'failure' }}
       run: |
-        source $evo_env
+        source activate ${evo_env_torch21_flash2}
         export PYTHONPATH=$PWD:$PYTHONPATH
         sh ./ci_scripts/train/load_ckpt.sh 7B_load_preset_ckpt ${GITHUB_RUN_ID}-${GITHUB_JOB}
 
     - name: load_new_ckpt
       run: |
-        source $evo_env
+        source activate ${evo_env_torch21_flash2}
         export PYTHONPATH=$PWD:$PYTHONPATH
         sh ./ci_scripts/train/load_ckpt.sh 7B_load_new_ckpt ${GITHUB_RUN_ID}-${GITHUB_JOB}
         rsync -av --remove-source-files $GITHUB_WORKSPACE/llm_ckpts ${{env.WORKSPACE_PREFIX}}/ci_clean_bak
 
     - name: torchrun-train
       run: |
-        source $evo_env
+        source activate ${evo_env_torch21_flash2}
         sh ./ci_scripts/train/torchrun.sh ${GITHUB_RUN_ID}-${GITHUB_JOB}
         rsync -av --remove-source-files $GITHUB_WORKSPACE/llm_ckpts ${{env.WORKSPACE_PREFIX}}/ci_clean_bak
 
@@ -79,7 +79,7 @@ jobs:
 
     - name: convert-model-then-load
       run: |
-        source $evo_env
+        source activate ${evo_env_torch21_flash2}
         export PYTHONPATH=$PWD:$PYTHONPATH
         sh ./ci_scripts/model/convert_to_hf.sh
         cd ./hf_ckpt

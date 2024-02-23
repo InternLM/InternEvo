@@ -7,12 +7,13 @@ on:
       - "doc/**"
       - "**.md"
 env:
+  WORKSPACE_PREFIX: $(echo $GITHUB_WORKSPACE |cut -d '/' -f 1-4)
   SLURM_PARTITION: llm_s
 
 jobs:
   training_4GPU:
     runs-on: [t_cluster]
-    timeout-minutes: 10
+    timeout-minutes: 15
     steps:
     - name: mask env
       run: |
@@ -22,8 +23,8 @@ jobs:
 
     - name: training_4GPU
       run: |
-        source $evo_env
-        srun -p ${SLURM_PARTITION} --kill-on-bad-exit=1 --job-name=${GITHUB_RUN_ID}-${GITHUB_JOB} -n4 --ntasks-per-node=4 --cpus-per-task=4 --gpus-per-task=1 pytest -s -v --color=yes -m "training_4GPU" ./tests/test_training/test_loss.py
+        source activate ${evo_env_torch21_flash2}
+        srun -p ${SLURM_PARTITION} --exclusive --kill-on-bad-exit=1 --job-name=${GITHUB_RUN_ID}-${GITHUB_JOB} -n4 --ntasks-per-node=4 --cpus-per-task=4 --gpus-per-task=1 pytest -s -v --color=yes -m "training_4GPU" ./tests/test_training/test_loss.py
 
   training_8GPU_ISP:
     runs-on: [t_cluster]
