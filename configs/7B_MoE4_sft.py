@@ -184,9 +184,9 @@ expert parallel (dict):
 """
 parallel = dict(
     zero1=dict(size=-1, fsdp=False),
-    tensor=dict(size=1, mode="isp"),
+    tensor=dict(size=1, mode="mtp"),
     pipeline=dict(size=1, interleaved_overlap=True),
-    weight=dict(size=8, overlap=False, memory_pool=True),
+    weight=dict(size=1, overlap=True, memory_pool=True),
     expert=dict(size=4),
     expert_weight=dict(size=1),
 )
