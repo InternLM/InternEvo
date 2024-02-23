@@ -146,7 +146,7 @@ class PackedFlashBaseLayer1D(nn.Module):
                     process_group=gpc.get_group(parallel_mode),
                     bias1=False,
                     bias2=False,
-                    sequence_parallel=gpc.config.model.sequence_parallel,
+                    sequence_parallel=gpc.config.parallel.sequence_parallel,
                     checkpoint_lvl=0,
                     heuristic="auto",
                     device=device,

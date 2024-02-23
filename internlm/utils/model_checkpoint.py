@@ -322,6 +322,8 @@ def save_model_checkpoint(folder, model):
         pp_rank = gpc.get_local_rank(ParallelMode.PIPELINE)
         wdp_rank = gpc.get_local_rank(ParallelMode.WEIGHT_DATA)
 
+        should_save_rank_pair = set()  # (tp_rank, dp_rank)
+
         # TODO In theory, we should also consider pp level, but since pp is generally a state across machines,
         # even if pp is not considered, it will definitely not be written on the same machine.
 
@@ -336,7 +338,6 @@ def save_model_checkpoint(folder, model):
                 llm_save(topo_fp, saved_obj=topo)
         else:
             # for tensor parallel mode with mtp/msp/fsp
-            should_save_rank_pair = set()  # (tp_rank, dp_rank)
             for i in range(tp_size):
                 if gpc.config.parallel.zero1.fsdp:
                     for j in range(dp_size):

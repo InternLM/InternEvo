@@ -1,4 +1,12 @@
+# Copyright (c) InternLM. All rights reserved.
+from internlm.utils.utils import read_base
+
+with read_base():
+    from configs._base_.default_runtime import *  # pylint: disable=W0401,W0614  # noqa: F401
+    from configs._base_.models.internlm2_7B import *  # pylint: disable=W0401,W0614  # noqa: F401
+
 JOB_NAME = "7b_train"
+
 DO_ALERT = False
 
 SEQ_LEN = 2048
@@ -8,11 +16,11 @@ MLP_RATIO = 8 / 3
 NUM_LAYER = 32
 VOCAB_SIZE = 103168
 
-MODEL_ONLY_FOLDER = "local:llm_ckpts/xxxx"
 # Ckpt folder format:
 # fs: 'local:/mnt/nfs/XXX'
 SAVE_CKPT_FOLDER = "local:llm_ckpts"
 LOAD_CKPT_FOLDER = "local:llm_ckpts/49"
+LOAD_CKPT_FOLDER = None
 
 # boto3 Ckpt folder format:
 # import os
@@ -23,13 +31,11 @@ CHECKPOINT_EVERY = 50
 ckpt = dict(
     enable_save_ckpt=False,  # enable ckpt save.
     save_ckpt_folder=SAVE_CKPT_FOLDER,  # Path to save training ckpt.
-    # load_ckpt_folder= dict(path=MODEL_ONLY_FOLDER, content=["model"], ckpt_type="normal"),
-    load_ckpt_folder="local:llm_ckpts/",
     # 'load_ckpt_info' setting guide:
     # 1. the 'path' indicate ckpt path,
     # 2. the 'content‘ means what states will be loaded, support: "model", "sampler", "optimizer", "scheduler", "all"
     # 3. the ’ckpt_type‘ means the type of checkpoint to be loaded, support: "internlm", "llama", "hf_llama".
-    load_ckpt_info=dict(path=MODEL_ONLY_FOLDER, content=("model",), ckpt_type="internlm"),
+    load_ckpt_info=dict(path=LOAD_CKPT_FOLDER, content=("model",), ckpt_type="internlm"),
     # 'auto_resume' is designed to automatically load the latest checkpoint from 'save_ckpt_folder' when encountering
     # training interruptions/hangs caused by hardware failures, using a scheduling system (such as k8s/slurm)
     # with an automatic restart mechanism upon training reboot.
@@ -37,7 +43,7 @@ ckpt = dict(
     # path specified in `load_ckpt_info` by default.
     # If you want to initialize your model weights from another model, you must set `auto_resume` to False.
     # If you want to train from scratch, please set `auto_resume` to False and 'load_ckpt_info' to None.
-    auto_resume=True,
+    auto_resume=False,
     checkpoint_every=CHECKPOINT_EVERY,
     async_upload=True,  # async ckpt upload. (only work for boto3 ckpt)
     async_upload_tmp_folder="/dev/shm/internlm_tmp_ckpt/",  # path for temporarily files during asynchronous upload.
@@ -129,59 +135,6 @@ beta2_scheduler = dict(
     cur_iter=-1,
 )
 
-use_fp32_norm = False
-model = dict(
-    checkpoint=False,  # The proportion of layers for activation aheckpointing, the optional value are True/False/[0-1]
-    num_attention_heads=NUM_ATTENTION_HEAD,
-    embed_split_hidden=True,
-    vocab_size=VOCAB_SIZE,
-    embed_grad_scale=1,
-    parallel_output=True,
-    hidden_size=HIDDEN_SIZE,
-    num_layers=NUM_LAYER,
-    mlp_ratio=MLP_RATIO,
-    apply_post_layer_norm=False,
-    dtype="torch.bfloat16",  # Support: "torch.float16", "torch.half", "torch.bfloat16", "torch.float32", "torch.tf32"
-    norm_type="rmsnorm",
-    layer_norm_epsilon=1e-5,
-    use_flash_attn=True,
-    num_chunks=1,  # if num_chunks > 1, interleaved pipeline scheduler is used.
-)
-"""
-zero1 parallel (dict):
-    1. size: int
-        * if size <= 0, the size of the zero process group is equal to the size of the dp process group,
-            so parameters will be divided within the range of dp.
-        * if size == 1, zero is not used, and all dp groups retain the full amount of model parameters.
-        * if size > 1 and size <= dp world size, the world size of zero is a subset of dp world size.
-        For smaller models, it is usually a better choice to split the parameters within nodes with a setting <= 8.
-    2. fsdp: bool, enable/disable torch's fully sharded data parallel, defaults to False.
-tensor parallel (dict):
-    1. size: int, the size of tensor parallel.
-    2. mode: str, the tensor parallel mode, should be in ['mtp', 'msp', 'fsp', 'isp'],
-        defaults to 'mtp', means the pure megatron tensor parallel without sequence parallel.
-        msp: megatron tensor parallel with sequence parallel, sequence parallel size = tensor parallel size.
-        fsp: tensor parallel by flash-attn with sequence parallel, sequence parallel size = tensor parallel size.
-        isp: customed intern sequence parallel without tensor parallel, can be used with weight parallel.
-pipeline parallel (dict):
-    1. size: int, the size of pipeline parallel.
-    2. interleaved_overlap: bool, enable/disable communication overlap when using interleaved pipeline scheduler,
-        defaults to False.
-weight parallel (dict):
-    1. size: int, the size of weight parallel.
-    2. overlap: bool, enable/disable all_gather/reduce_scatter communication overlap, defaults to False.
-    3. memory_pool: bool, enable/disable memory pool, defaults to False.
-"""
-parallel = dict(
-    zero1=dict(size=-1),
-    tensor=dict(size=1, mode="mtp"),
-    pipeline=dict(size=1, interleaved_overlap=True),
-    weight=dict(size=1, overlap=True, memory_pool=True),
-)
-
-cudnn_deterministic = False
-cudnn_benchmark = False
-
 monitor = dict(
     # feishu alert configs
     alert=dict(
@@ -194,6 +147,8 @@ monitor = dict(
         queue_max_length=10,
     ),
 )
+
+use_fp32_norm = False
 
 # metric_dtype can be "fp32" or other string
 # only when set to "fp32" will use fp32 to calc in metrics

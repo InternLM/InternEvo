@@ -12,7 +12,7 @@ readonly TOKENIZER="${GITHUB_WORKSPACE}/hf_ckpt/tokenizer.model"
 readonly CONFIG="${GITHUB_WORKSPACE}/hf_ckpt/config.json"
 readonly INERNLM="${GITHUB_WORKSPACE}/hf_ckpt/modeling_internlm.py"
 exit_code=0
-expected_num=8
+expected_num=9
 
 source ./ci_scripts/common/basic_func.sh
 

@@ -4,10 +4,28 @@ on:
   schedule:
     - cron:  '56 18 * * 5'
 env:
+  WORKSPACE_PREFIX: $(echo $GITHUB_WORKSPACE |cut -d '/' -f 1-4)
   SLURM_PARTITION: llm_s
 
 jobs:
-  training_8GPU:
+  training_4GPU:
+    runs-on: [t_cluster]
+    timeout-minutes: 15
+    steps:
+    - name: mask env
+      run: |
+        echo "::add-mask::${{env.WORKSPACE_PREFIX}}"
+        echo "::add-mask::$path_prefix"
+    - uses: actions/checkout@v3
+      with:
+         ref: ${{ github.event_name == 'schedule' && 'develop' || github.event_name == 'workflow_dispatch' && '' }}
+
+    - name: training_4GPU
+      run: |
+        source activate ${evo_env_torch21_flash2}
+        srun -p ${SLURM_PARTITION} --exclusive --kill-on-bad-exit=1 --job-name=${GITHUB_RUN_ID}-${GITHUB_JOB} -n4 --ntasks-per-node=4 --cpus-per-task=4 --gpus-per-task=1 pytest -s -v --color=yes -m "training_4GPU" ./tests/test_training/test_loss.py
+
+  training_8GPU_4DP2TP:
     runs-on: [t_cluster]
     timeout-minutes: 10
     steps:
@@ -19,30 +37,13 @@ jobs:
       with:
          ref: ${{ github.event_name == 'schedule' && 'develop' || github.event_name == 'workflow_dispatch' && '' }}
 
-    - name: training_8GPU
+    - name: training_8GPU_4DP2TP
       run: |
-        source $evo_env
-        srun -p ${SLURM_PARTITION} --kill-on-bad-exit=1 --job-name=${GITHUB_RUN_ID}-${GITHUB_JOB} -n8 --ntasks-per-node=8 --cpus-per-task=4 --gpus-per-task=1 pytest -s -v --color=yes -m "training_8GPU" ./tests/test_training
-
-  training_16GPU_8DP2TP:
-    runs-on: [t_cluster]
-    timeout-minutes: 10
-    steps:
-    - name: mask env
-      run: |
-        echo "::add-mask::${{env.WORKSPACE_PREFIX}}"
-        echo "::add-mask::$path_prefix"
-    - uses: actions/checkout@v3
-      with:
-         ref: ${{ github.event_name == 'schedule' && 'develop' || github.event_name == 'workflow_dispatch' && '' }}
-
-    - name: training_16GPU_8DP2TP
-      run: |
-        source $evo_env
+        source activate ${evo_env_torch21_flash2}
         sed -i 's/^.*tensor=.*/    tensor=2,/' ./configs/7B_sft.py
-        srun -p ${SLURM_PARTITION} --kill-on-bad-exit=1 --job-name=${GITHUB_RUN_ID}-${GITHUB_JOB} -n16 --ntasks-per-node=8 --cpus-per-task=4 --gpus-per-task=1 pytest -s -v --color=yes -m "training_16GPU_8DP2TP" ./tests/test_training
+        srun -p ${SLURM_PARTITION} --kill-on-bad-exit=1 --job-name=${GITHUB_RUN_ID}-${GITHUB_JOB} -n8 --ntasks-per-node=8 --cpus-per-task=4 --gpus-per-task=1 pytest -s -v --color=yes -m "training_8GPU_4DP2TP" ./tests/test_training/test_loss.py
 
-  training_16GPU_8DP2TPSP:
+  training_8GPU_4DP2TPSP:
     runs-on: [t_cluster]
     timeout-minutes: 10
     steps:
@@ -54,14 +55,13 @@ jobs:
       with:
          ref: ${{ github.event_name == 'schedule' && 'develop' || github.event_name == 'workflow_dispatch' && '' }}
 
-    - name: training_16GPU_8DP2TPSP
+    - name: training_8GPU_4DP2TPSP
       run: |
-        source $evo_env
-        sed -i 's/^.*tensor=.*/    tensor=2,/' ./configs/7B_sft.py
-        sed -i 's/^.*sequence_parallel=.*/    sequence_parallel=True,/' ./configs/7B_sft.py
-        srun -p ${SLURM_PARTITION} --kill-on-bad-exit=1 --job-name=${GITHUB_RUN_ID}-${GITHUB_JOB} -n16 --ntasks-per-node=8 --cpus-per-task=4 --gpus-per-task=1 pytest -s -v --color=yes -m "training_16GPU_8DP2TPSP" ./tests/test_training
+        source activate ${evo_env_torch21_flash2}
+        sed -i 's/^.*tensor=.*/    tensor=dict(size=2, mode="fsp"),/' ./configs/7B_sft.py
+        srun -p ${SLURM_PARTITION} --kill-on-bad-exit=1 --job-name=${GITHUB_RUN_ID}-${GITHUB_JOB} -n8 --ntasks-per-node=8 --cpus-per-task=4 --gpus-per-task=1 pytest -s -v --color=yes -m "training_8GPU_4DP2TPSP" ./tests/test_training/test_loss.py
             
-  training_16GPU_8DP2PP:
+  training_8GPU_4DP2PP:
     runs-on: [t_cluster]
     timeout-minutes: 10
     steps:
@@ -73,13 +73,13 @@ jobs:
       with:
          ref: ${{ github.event_name == 'schedule' && 'develop' || github.event_name == 'workflow_dispatch' && '' }}
 
-    - name: training_16GPU_8DP2PP
+    - name: training_8GPU_4DP2PP
       run: |
-        source $evo_env
+        source activate ${evo_env_torch21_flash2}
         sed -i 's/^.*pipeline=.*/    pipeline=dict(size=2),/' ./configs/7B_sft.py
-        srun -p ${SLURM_PARTITION} --kill-on-bad-exit=1 --job-name=${GITHUB_RUN_ID}-${GITHUB_JOB} -n16 --ntasks-per-node=8 --cpus-per-task=4 --gpus-per-task=1 pytest -s -v --color=yes -m "training_16GPU_8DP2PP" ./tests/test_training
+        srun -p ${SLURM_PARTITION} --kill-on-bad-exit=1 --job-name=${GITHUB_RUN_ID}-${GITHUB_JOB} -n8 --ntasks-per-node=8 --cpus-per-task=4 --gpus-per-task=1 pytest -s -v --color=yes -m "training_8GPU_4DP2PP" ./tests/test_training/test_loss.py
 
-  training_16GPU_8DP2PP_InterleavedOverlap:
+  training_8GPU_4DP2PP_InterleavedOverlap:
     runs-on: [t_cluster]
     timeout-minutes: 10
     steps:
@@ -91,12 +91,100 @@ jobs:
       with:
          ref: ${{ github.event_name == 'schedule' && 'develop' || github.event_name == 'workflow_dispatch' && '' }}
 
-    - name: training_16GPU_8DP2PP_InterleavedOverlap
+    - name: training_8GPU_4DP2PP_InterleavedOverlap
       run: |
-        source $evo_env
+        source activate ${evo_env_torch21_flash2}
         sed -i 's/^.*pipeline=.*/    pipeline=dict(size=2, interleaved_overlap=True),/' ./configs/7B_sft.py
         sed -i 's/^.*num_chunks=.*/    num_chunks=2,/' ./configs/7B_sft.py
-        srun -p ${SLURM_PARTITION} --kill-on-bad-exit=1 --job-name=${GITHUB_RUN_ID}-${GITHUB_JOB} -n16 --ntasks-per-node=8 --cpus-per-task=4 --gpus-per-task=1 pytest -s -v --color=yes -m "training_16GPU_8DP2PP_InterleavedOverlap" ./tests/test_training
+        srun -p ${SLURM_PARTITION} --kill-on-bad-exit=1 --job-name=${GITHUB_RUN_ID}-${GITHUB_JOB} -n8 --ntasks-per-node=8 --cpus-per-task=4 --gpus-per-task=1 pytest -s -v --color=yes -m "training_8GPU_4DP2PP_InterleavedOverlap" ./tests/test_training/test_loss.py
+
+  training_16GPU_4DP2TP2PP_MTP:
+    runs-on: [t_cluster]
+    timeout-minutes: 10
+    steps:
+    - name: mask env
+      run: |
+        echo "::add-mask::${{env.WORKSPACE_PREFIX}}"
+        echo "::add-mask::$path_prefix"
+    - uses: actions/checkout@v3
+      with:
+         ref: ${{ github.event_name == 'schedule' && 'develop' || github.event_name == 'workflow_dispatch' && '' }}
+
+    - name: training_16GPU_4DP2TP2PP_MTP
+      run: |
+        source activate ${evo_env_torch21_flash2}
+        sed -i 's/^.*tensor=.*/    tensor=dict(size=2, mode="mtp"),/' ./configs/7B_sft.py
+        sed -i 's/^.*pipeline=.*/    pipeline=dict(size=2),/' ./configs/7B_sft.py
+        srun -p ${SLURM_PARTITION} --kill-on-bad-exit=1 --job-name=${GITHUB_RUN_ID}-${GITHUB_JOB} -n16 --ntasks-per-node=8 --cpus-per-task=4 --gpus-per-task=1 pytest -s -v --color=yes -m "training_16GPU_4DP2TP2PP_MTP" ./tests/test_training/test_loss.py
+
+  training_16GPU_4DP2TP2PP_MSP:
+    runs-on: [t_cluster]
+    timeout-minutes: 10
+    steps:
+    - name: mask env
+      run: |
+        echo "::add-mask::${{env.WORKSPACE_PREFIX}}"
+        echo "::add-mask::$path_prefix"
+    - uses: actions/checkout@v3
+      with:
+         ref: ${{ github.event_name == 'schedule' && 'develop' || github.event_name == 'workflow_dispatch' && '' }}
+
+    - name: training_16GPU_4DP2TP2PP_MSP
+      run: |
+        source activate ${evo_env_torch21_flash2}
+        sed -i 's/^.*tensor=.*/    tensor=dict(size=2, mode="msp"),/' ./configs/7B_sft.py
+        sed -i 's/^.*pipeline=.*/    pipeline=dict(size=2),/' ./configs/7B_sft.py
+        srun -p ${SLURM_PARTITION} --kill-on-bad-exit=1 --job-name=${GITHUB_RUN_ID}-${GITHUB_JOB} -n16 --ntasks-per-node=8 --cpus-per-task=4 --gpus-per-task=1 pytest -s -v --color=yes -m "training_16GPU_4DP2TP2PP_MSP" ./tests/test_training/test_loss.py
+
+  training_16GPU_4DP2TP2PP_FSP:
+    runs-on: [t_cluster]
+    timeout-minutes: 10
+    steps:
+    - name: mask env
+      run: |
+        echo "::add-mask::${{env.WORKSPACE_PREFIX}}"
+        echo "::add-mask::$path_prefix"
+    - uses: actions/checkout@v3
+      with:
+         ref: ${{ github.event_name == 'schedule' && 'develop' || github.event_name == 'workflow_dispatch' && '' }}
+
+    - name: training_16GPU_4DP2TP2PP_FSP
+      run: |
+        source activate ${evo_env_torch21_flash2}
+        sed -i 's/^.*tensor=.*/    tensor=dict(size=2, mode="fsp"),/' ./configs/7B_sft.py
+        sed -i 's/^.*pipeline=.*/    pipeline=dict(size=2),/' ./configs/7B_sft.py
+        srun -p ${SLURM_PARTITION} --kill-on-bad-exit=1 --job-name=${GITHUB_RUN_ID}-${GITHUB_JOB} -n16 --ntasks-per-node=8 --cpus-per-task=4 --gpus-per-task=1 pytest -s -v --color=yes -m "training_16GPU_4DP2TP2PP_FSP" ./tests/test_training/test_loss.py
+
+  training_8GPU_ISP:
+    runs-on: [t_cluster]
+    timeout-minutes: 10
+    steps:
+    - name: mask env
+      run: |
+        echo "::add-mask::${{env.WORKSPACE_PREFIX}}"
+        echo "::add-mask::$path_prefix"
+    - uses: actions/checkout@v3
+
+    - name: training_8GPU_ISP
+      run: |
+        source activate ${evo_env_torch21_flash2}
+        srun -p ${SLURM_PARTITION} --kill-on-bad-exit=1 --job-name=${GITHUB_RUN_ID}-${GITHUB_JOB} -n8 --ntasks-per-node=8 --cpus-per-task=4 --gpus-per-task=1 pytest -s -v --color=yes -m "training_8GPU_ISP" ./tests/test_training/test_loss.py
+
+  training_8GPU_ISP_CKPT:
+    runs-on: [t_cluster]
+    timeout-minutes: 20
+    steps:
+    - name: mask env
+      run: |
+        echo "::add-mask::${{env.WORKSPACE_PREFIX}}"
+        echo "::add-mask::$path_prefix"
+    - uses: actions/checkout@v3
+
+    - name: training_8GPU_ISP_CKPT
+      run: |
+        source activate ${evo_env_torch21_flash2}
+        srun -p ${SLURM_PARTITION} --kill-on-bad-exit=1 --job-name=${GITHUB_RUN_ID}-${GITHUB_JOB} -n8 --ntasks-per-node=8 --cpus-per-task=4 --gpus-per-task=1 pytest -s -v --color=yes -m "training_8GPU_ISP_SAVE_CKPT" ./tests/test_training/test_loss.py
+        srun -p ${SLURM_PARTITION} --kill-on-bad-exit=1 --job-name=${GITHUB_RUN_ID}-${GITHUB_JOB} -n8 --ntasks-per-node=8 --cpus-per-task=4 --gpus-per-task=1 pytest -s -v --color=yes -m "training_8GPU_ISP_LOAD_CKPT" ./tests/test_training/test_loss.py
 
   unit_test_optimizer:
     runs-on: [t_cluster]
@@ -112,7 +200,7 @@ jobs:
 
     - name: test_optimizer
       run: |
-        source $evo_env
+        source activate ${evo_env_torch21_flash2}
         srun -p ${SLURM_PARTITION} --kill-on-bad-exit=1 --job-name=${GITHUB_RUN_ID}-${GITHUB_JOB} -N 1 -n 1 --gres=gpu:8 python -m pytest -s ./tests/test_solver/test_optimizer.py
 
   unit_test_model:
@@ -129,17 +217,17 @@ jobs:
 
     - name: test_embedding_accuracy
       run: |
-        source $evo_env
+        source activate ${evo_env_torch21_flash2}
         srun -p ${SLURM_PARTITION} --kill-on-bad-exit=1 --job-name=${GITHUB_RUN_ID}-${GITHUB_JOB} -N 1 -n 1 --gres=gpu:8 python -m pytest -s ./tests/test_model/test_embedding.py
         
     - name: test_model_internlm_accuracy
       run: |
-        source $evo_env
+        source activate ${evo_env_torch21_flash2}
         srun -p ${SLURM_PARTITION} --kill-on-bad-exit=1 --job-name=${GITHUB_RUN_ID}-${GITHUB_JOB} -N 1 -n 1 --gres=gpu:8 python -m pytest -s ./tests/test_model/test_model_internlm.py
         
     - name: test_norm_accuracy
       run: |
-        source $evo_env
+        source activate ${evo_env_torch21_flash2}
         srun -p ${SLURM_PARTITION} --kill-on-bad-exit=1 --job-name=${GITHUB_RUN_ID}-${GITHUB_JOB} -N 1 -n 1 --gres=gpu:8 python -m pytest -s ./tests/test_model/test_norm.py
 
   load_ckpt_then_assert_loss:
@@ -156,17 +244,22 @@ jobs:
 
     - name: test_ckpt_loss
       run: |
-        source $evo_env
+        source activate ${evo_env_torch21_flash2}
         srun -p ${SLURM_PARTITION} --kill-on-bad-exit=1 --job-name=${GITHUB_RUN_ID}-${GITHUB_JOB} -N 1 -n 1 --gres=gpu:8 python -m pytest -s ./tests/test_training/test_load_ckpt_loss.py
 
   notify_to_feishu:
     if: ${{ always() && !cancelled() && contains(needs.*.result, 'failure') && (github.ref_name == 'develop' || github.ref_name == 'main') }}
     needs: [
-      training_8GPU,
-      training_16GPU_8DP2TP,
-      training_16GPU_8DP2TPSP,
-      training_16GPU_8DP2PP,
-      training_16GPU_8DP2PP_InterleavedOverlap,
+      training_4GPU,
+      training_8GPU_4DP2TP,
+      training_8GPU_4DP2TPSP,
+      training_8GPU_4DP2PP,
+      training_8GPU_4DP2PP_InterleavedOverlap,
+      training_16GPU_4DP2TP2PP_MTP,
+      training_16GPU_4DP2TP2PP_MSP,
+      training_16GPU_4DP2TP2PP_FSP,
+      training_8GPU_ISP,
+      training_8GPU_ISP_CKPT,
       unit_test_optimizer,
       unit_test_model,
       load_ckpt_then_assert_loss

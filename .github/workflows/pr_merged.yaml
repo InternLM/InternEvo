@@ -24,7 +24,7 @@ jobs:
 
     - name: acc_tests
       run: |
-        source $evo_env
+        source activate ${evo_env_torch21_flash2}
         export PYTHONPATH=$PWD:$PYTHONPATH
         srun -p ${SLURM_PARTITION} --kill-on-bad-exit=1 --job-name=internlm-acc-test-${GITHUB_RUN_ID}-${GITHUB_JOB} -N 1 -n 8 --ntasks-per-node=8 --gpus-per-task=1  python ./tests/test_training/train_CI.py --config ./tests/test_training/7B_check_acc.py
 
@@ -40,7 +40,7 @@ jobs:
 
     - name: loss_tests
       run: |
-        source $evo_env
+        source activate ${evo_env_torch21_flash2}
         export PYTHONPATH=$PWD:$PYTHONPATH
         srun -p ${SLURM_PARTITION} --kill-on-bad-exit=1 --job-name=internlm-loss-test-${GITHUB_RUN_ID}-${GITHUB_JOB} -N 1 -n 1 --gres=gpu:8 python -m pytest -s ./tests/test_training/test_swap_nb_loss_and_gradnorm.py
 
