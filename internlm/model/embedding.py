@@ -204,10 +204,10 @@ class ApplyRotaryEmbQKV_(torch.autograd.Function):
         sin,
         cos_k=None,
         sin_k=None,
-        interleaved=False,
-        seqlen_offsets: Union[int, torch.Tensor] = 0,
         cu_seqlens: Optional[torch.Tensor] = None,
         max_seqlen: Optional[int] = None,
+        interleaved=False,
+        seqlen_offsets: Union[int, torch.Tensor] = 0,
     ):
         """
             qkv: (total, 3, nheads, headdim) / (batch_size, seqlen, 3, nheads, headdim)
@@ -298,7 +298,7 @@ class ApplyRotaryEmbQKV_(torch.autograd.Function):
             # We need dqkv to be contiguous so that when we reshape to combine (3, nheads)
             # dimensions, we get the same tensor
             if len(dqkv.shape) == 4:
-                dqk = rearrange(dqkv[:, :2], "t t h d -> t (t h) d")
+                dqk = rearrange(dqkv[:, :2], "a t h d -> a (t h) d")
             elif len(dqkv.shape) == 5:
                 dqk = rearrange(dqkv[:, :, :2], "b s t h d -> b s (t h) d")
             if gpc.config.model.use_flash_attn:
@@ -429,16 +429,22 @@ class RotaryEmbedding(torch.nn.Module):
 
     def forward(self, qkv: torch.Tensor, **kwargs):
         if kwargs.get("indexes", None) is not None:
-            return self._forward(qkv, kwargs.pop("indexes"))
+            cu_seqlens = kwargs.get("cu_seqlens", None)
+            max_seqlen = kwargs.get("max_seqlen", None)
+            return self._forward(qkv, kwargs.pop("indexes"), cu_seqlens, max_seqlen)
         if kwargs.get("inference_params", None) is not None:
             return self._eval_forward(qkv, seqlen_offset=kwargs.get("inference_params", None).sequence_len_offset)
         else:
             return self._eval_forward(qkv)
 
-    def _forward(self, qkv: torch.Tensor, indexes=0) -> Tuple[torch.Tensor, torch.Tensor]:
+    def _forward(
+        self, qkv: torch.Tensor, indexes=0, cu_seqlens: Optional[torch.Tensor] = None, max_seqlen: Optional[int] = None
+    ) -> Tuple[torch.Tensor, torch.Tensor]:
         self._update_cos_sin_cache(qkv, indexes)
         if self.scale is None:
-            return apply_rotary_emb_qkv_(qkv, self._cos_cached[indexes], self._sin_cached[indexes])
+            return apply_rotary_emb_qkv_(
+                qkv, self._cos_cached[indexes], self._sin_cached[indexes], None, None, cu_seqlens, max_seqlen
+            )
         else:
             return apply_rotary_emb_qkv_(
                 qkv,
@@ -446,6 +452,8 @@ class RotaryEmbedding(torch.nn.Module):
                 self._sin_cached[indexes],
                 self._cos_k_cached[indexes],
                 self._sin_k_cached[indexes],
+                cu_seqlens,
+                max_seqlen,
             )
 
     def _eval_forward(self, qkv, seqlen_offset=0):
@@ -465,11 +473,15 @@ class RotaryEmbedding(torch.nn.Module):
                 self._sin_k_cached[seqlen_offset:],
             )
 
-    def _single_forward(self, x, indexes=0):
+    def _single_forward(
+        self, x, indexes=0, cu_seqlens: Optional[torch.Tensor] = None, max_seqlen: Optional[int] = None
+    ):
         assert self.scale is None
         self._update_cos_sin_cache(x, indexes)
         x = x[None, ...]
-        ret = apply_rotary_emb(x, self._cos_cached[indexes], self._sin_cached[indexes]).squeeze(0)
+        ret = apply_rotary_emb(
+            x, self._cos_cached[indexes], self._sin_cached[indexes], False, False, 0, cu_seqlens, max_seqlen
+        ).squeeze(0)
         return ret
 
     def _single_eval_forward(self, x, seqlen_offset=0):

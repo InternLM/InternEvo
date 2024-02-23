@@ -247,15 +247,21 @@ class MHA(nn.Module):
                 else:
                     q = q.squeeze(1)
                     k = k.squeeze(1)
+                    cu_seqlens = kwargs.get("cu_seqlens", None)
+                    max_seqlen = kwargs.get("max_seqlen", None)
                     q = self.rotary_emb._single_forward(
                         q,
                         inference_params.sequence_len_offset * torch.ones(q.size(0), dtype=torch.int, device=q.device)
                         - empties,
+                        cu_seqlens=cu_seqlens,
+                        max_seqlen=max_seqlen,
                     ).unsqueeze(1)
                     k = self.rotary_emb._single_forward(
                         k,
                         inference_params.sequence_len_offset * torch.ones(k.size(0), dtype=torch.int, device=k.device)
                         - empties,
+                        cu_seqlens=cu_seqlens,
+                        max_seqlen=max_seqlen,
                     ).unsqueeze(1)
             else:
                 raise NotImplementedError(
@@ -421,8 +427,10 @@ class MHA(nn.Module):
             k = torch.cat([k[..., ::2], k[..., 1::2]], dim=-1)
 
         indexes = kwargs.pop("indexes")
-        q = self.rotary_emb._single_forward(q, indexes=indexes)
-        k = self.rotary_emb._single_forward(k, indexes=indexes)
+        cu_seqlens = kwargs.pop("cu_seqlens")
+        max_seqlen = kwargs.pop("max_seqlen")
+        q = self.rotary_emb._single_forward(q, indexes=indexes, cu_seqlens=cu_seqlens, max_seqlen=max_seqlen)
+        k = self.rotary_emb._single_forward(k, indexes=indexes, cu_seqlens=cu_seqlens, max_seqlen=max_seqlen)
 
         if inference_params is None:
             kv = torch.concat([k.unsqueeze(1), v.unsqueeze(1)], dim=1)
