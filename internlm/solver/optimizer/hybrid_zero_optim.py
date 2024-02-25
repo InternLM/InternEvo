@@ -38,7 +38,7 @@ from internlm.solver.optimizer.utils import (
 from internlm.utils.common import get_current_device
 from internlm.utils.logger import get_logger
 from internlm.utils.megatron_timers import megatron_timer as timer
-from internlm.utils.parallel import is_using_isp
+from internlm.utils.parallel import is_using_isp, is_using_sequence_parallel
 from internlm.utils.timeout import llm_timeout
 
 from .base_optimizer import BaseOptimizer
@@ -351,7 +351,7 @@ class HybridZeroOptimizer(BaseOptimizer):
                     # here is the first stage all-reduce in tp/wp process group
                     # the second stage all-reduce will be processed in reduce_grad_hook
                     if (
-                        gpc.config.parallel.weight.size > 1
+                        is_using_sequence_parallel()
                         and hasattr(param, IS_REPLICA_ZERO_PARALLEL)
                         and getattr(param, IS_REPLICA_ZERO_PARALLEL) is True
                     ):

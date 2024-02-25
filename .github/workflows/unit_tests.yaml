@@ -31,7 +31,7 @@ jobs:
 
     - name: core_pipeline
       run: |
-        source $evo_env
+        source activate ${evo_env_torch21_flash2}
         export PYTHONPATH=$PWD:$PYTHONPATH
         srun -p ${SLURM_PARTITION} --kill-on-bad-exit=1 --job-name=internlm-ut-${GITHUB_RUN_ID}-${GITHUB_JOB} -N 1 -n 1 --gres=gpu:8 python -m pytest -s -v ./tests/test_core/test_pipeline.py
 
@@ -47,7 +47,7 @@ jobs:
 
     - name: utils_storage_manager
       run: |
-        source $evo_env
+        source activate ${evo_env_torch21_flash2}
         export PYTHONPATH=$PWD:$PYTHONPATH
         srun -p ${SLURM_PARTITION} --kill-on-bad-exit=1 --job-name=internlm-ut-${GITHUB_RUN_ID}-${GITHUB_JOB} -N 1 -n 1 --gres=gpu:8 python -m pytest -s -v ./tests/test_utils/test_storage_manager.py
 
@@ -63,7 +63,7 @@ jobs:
 
     - name: model_fused_precision
       run: |
-        source $evo_env
+        source activate ${evo_env_torch21_flash2}
         export PYTHONPATH=$PWD:$PYTHONPATH
         srun -p ${SLURM_PARTITION} --kill-on-bad-exit=1 --job-name=internlm-ut-${GITHUB_RUN_ID}-${GITHUB_JOB} -N 1 -n 1 --gres=gpu:8 python -m pytest -s -v ./tests/test_model/test_fused_precision/test_fused_precision.py
 
@@ -79,7 +79,7 @@ jobs:
 
     - name: data_batch_sample
       run: |
-        source $evo_env
+        source activate ${evo_env_torch21_flash2}
         export PYTHONPATH=$PWD:$PYTHONPATH
         srun -p ${SLURM_PARTITION} --kill-on-bad-exit=1 --job-name=internlm-ut-${GITHUB_RUN_ID}-${GITHUB_JOB} -N 1 -n 1 --gres=gpu:8 python -m pytest -s -v ./tests/test_data/test_batch_sampler.py
 
@@ -95,7 +95,7 @@ jobs:
 
     - name: utils_timeout
       run: |
-        source $evo_env
+        source activate ${evo_env_torch21_flash2}
         export PYTHONPATH=$PWD:$PYTHONPATH
         srun -p ${SLURM_PARTITION} --kill-on-bad-exit=1 --job-name=internlm-ut-${GITHUB_RUN_ID}-${GITHUB_JOB} -N 1 -n 1 --gres=gpu:1 python -m pytest -s -v ./tests/test_utils/test_timeout.py
 
@@ -111,7 +111,7 @@ jobs:
 
     - name: utils_model_checkpoint
       run: |
-        source $evo_env
+        source activate ${evo_env_torch21_flash2}
         export PYTHONPATH=$PWD:$PYTHONPATH
         srun -p ${SLURM_PARTITION} --kill-on-bad-exit=1 --job-name=internlm-ut-${GITHUB_RUN_ID}-${GITHUB_JOB} -N 1 -n 1 --gres=gpu:2 python -m pytest -s -v  ./tests/test_utils/test_model_checkpoint.py
 
