@@ -164,7 +164,6 @@ def return_prefix_path(save_ckpt_folder):
 
 
 def return_latest_save_path(save_ckpt_folder, total_step, snapshot_freq, ckpt_freq):
-
     snapshot_latest_step, normal_latest_step = 0, 0
     snapshot_latest_count, normal_latest_count = 0, 0
 

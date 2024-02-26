@@ -6,13 +6,12 @@ from tqdm import tqdm
 
 from internlm.core.context import ParallelMode
 from internlm.core.context import global_context as gpc
-from internlm.core.scheduler import SchedulerMetricHook
-from internlm.model.metrics import AccPerplex
+from internlm.model.metrics import AccPerplex, SchedulerMetricHook
 
 
 @contextmanager
 def switch_evaluation_no_pipeline_scheduler(trainer, grad_accum_size, metric_hook_list):
-    if not gpc.is_using_pp():
+    if not gpc.is_using_parallel_mode(ParallelMode.PIPELINE):
         prev_data_process_func = trainer.schedule.data_process_func
         prev_grad_accum_size = trainer.schedule._grad_accum_size
         prev_metric_hooks = trainer.schedule._hooks
@@ -29,7 +28,7 @@ def switch_evaluation_no_pipeline_scheduler(trainer, grad_accum_size, metric_hoo
 
 @contextmanager
 def switch_evaluation_pipeline_scheduler(trainer, num_microbatches, tensor_shape, metric_hook_list):
-    if gpc.is_using_pp():
+    if gpc.is_using_parallel_mode(ParallelMode.PIPELINE):
         pre_data_process_func = trainer.schedule.data_process_func
         prev_num_microbatches = trainer.schedule.num_microbatches
         prev_tensor_shape = trainer.schedule.tensor_shape
@@ -48,13 +47,23 @@ def switch_evaluation_pipeline_scheduler(trainer, num_microbatches, tensor_shape
 
 
 @contextmanager
-def switch_sequence_parallel_mode():
-    prev_mode = gpc.config.parallel.sequence_parallel
+def switch_evaluation_mode():
+    prev_seq = gpc.config.parallel.sequence_parallel
+    prev_eval = gpc.is_evaluating
     try:
-        gpc.config.parallel.sequence_parallel = False
+        gpc.is_evaluating = True
+
+        # when training x.shape is torch.Size([1024, 4096]), linear all gather in dim=0(sequence dim)
+        # but evaluation x.shape is torch.Size([1, 1024, 4096]), gather in dim=0 is error.
+        if gpc.config.parallel["tensor"]["mode"] == "isp":
+            gpc.config.parallel.sequence_parallel = True
+        else:
+            gpc.config.parallel.sequence_parallel = False
+
         yield
     finally:
-        gpc.config.parallel.sequence_parallel = prev_mode
+        gpc.config.parallel.sequence_parallel = prev_seq
+        gpc.is_evaluating = prev_eval
 
 
 def evaluate_on_val_dls(
@@ -66,7 +75,7 @@ def evaluate_on_val_dls(
     update_panel: bool = False,
     streaming: bool = False,
 ):
-    with switch_sequence_parallel_mode():
+    with switch_evaluation_mode():
         torch.cuda.empty_cache()
         trainer.eval()
         verbose = gpc.is_rank_for_log()
@@ -96,13 +105,23 @@ def evaluate_on_val_dls(
             ):
                 moe_loss = None
                 with torch.inference_mode():
-                    if gpc.is_using_pp():
+                    if gpc.is_using_parallel_mode(ParallelMode.PIPELINE):
                         total_val_bsz = len(batch[1])
                         assert total_val_bsz % data_cfg.micro_bsz == 0
                         num_microbatches = total_val_bsz // data_cfg.micro_bsz
-                        tensor_shape = torch.Size(
-                            [data_cfg.micro_bsz, batch[0]["input_ids"].shape[1], gpc.config.model["hidden_size"]]
-                        )
+                        if gpc.config.parallel.sequence_parallel:
+                            sequence_world_size = gpc.get_world_size(ParallelMode.TENSOR)
+                            tensor_shape = torch.Size(
+                                [
+                                    data_cfg.micro_bsz,
+                                    batch[0]["input_ids"].shape[1] // sequence_world_size,
+                                    gpc.config.HIDDEN_SIZE,
+                                ]
+                            )
+                        else:
+                            tensor_shape = torch.Size(
+                                [data_cfg.micro_bsz, batch[0]["input_ids"].shape[1], gpc.config.HIDDEN_SIZE]
+                            )
 
                         with switch_evaluation_pipeline_scheduler(
                             trainer=trainer,

@@ -5,13 +5,13 @@
 
 .. autoclass:: internlm.core.naive_amp.NaiveAMPModel
 
-InternLM默认将模型转换为16位浮点数类型进行训练（在配置文件中可以设置默认类型为其他数据类型）。在使用混合精度时，需要在构建模型时使用
+InternEvo默认将模型转换为16位浮点数类型进行训练（在配置文件中可以设置默认类型为其他数据类型）。在使用混合精度时，需要在构建模型时使用
 
 .. code-block:: python
 
     set_fp32_attr_to_module(/*fp32 module*/)
 
-将模型的某个子模块设置为32位浮点数类型进行训练，InternLM会在模型训练时自动将数据类型转换成需要的精度。
+将模型的某个子模块设置为32位浮点数类型进行训练，InternEvo会在模型训练时自动将数据类型转换成需要的精度。
 
 例如：
 
@@ -50,7 +50,7 @@ TensorFloat-32（TF32）是Nvidia在Ampere架构GPU上推出的专门运用于Te
 
 2. Ampere架构的GPU。
 
-InternLM支持使用TF32训练模型，允许用户在config文件中将 ``dtype`` 设置为 ``torch.tf32``。
+InternEvo支持使用TF32训练模型，允许用户在config文件中将 ``dtype`` 设置为 ``torch.tf32``。
 
 .. code-block:: python
 
@@ -72,7 +72,7 @@ InternLM支持使用TF32训练模型，允许用户在config文件中将 ``dtype
         num_chunks=1,  # if num_chunks > 1, interleaved pipeline scheduler is used.
     )
 
-值得注意的是，TF32仅仅是在使用TensorCore时的一种中间计算格式，并不是一个完全的数据类型。因此，在InternLM中，尽管用户将 ``dtype`` 设置成了 ``torch.tf32``，模型的数据类型依旧是 ``torch.float32``。InternLM会针对 ``dtype`` 为 ``torch.tf32`` 的情况，设置以下变量来开启TF32训练。
+值得注意的是，TF32仅仅是在使用TensorCore时的一种中间计算格式，并不是一个完全的数据类型。因此，在InternEvo中，尽管用户将 ``dtype`` 设置成了 ``torch.tf32``，模型的数据类型依旧是 ``torch.float32``。InternEvo会针对 ``dtype`` 为 ``torch.tf32`` 的情况，设置以下变量来开启TF32训练。
 
 .. code-block:: python
 

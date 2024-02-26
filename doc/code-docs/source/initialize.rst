@@ -1,7 +1,7 @@
 训练构建
 ==============
 
-InternLM 的训练流程可以归纳为两个步骤：
+InternEvo 的训练流程可以归纳为两个步骤：
 
 1. 初始化
 
@@ -17,20 +17,20 @@ InternLM 的训练流程可以归纳为两个步骤：
   :scale: 45%
   :class: with-border
 
-  InternLM训练流程图
+  InternEvo训练流程图
 
 .. _InternLM-args:
 
 命令行参数解析
 ----------------
 
-InternLM 使用 `argparse <https://docs.python.org/3/library/argparse.html>`_ 库来向InternLM运行时提供命令行参数配置。
+InternEvo 使用 `argparse <https://docs.python.org/3/library/argparse.html>`_ 库来向InternEvo运行时提供命令行参数配置。
 
-用户可使用 ``internlm.initialize.get_default_parser()`` 来获取 InternLM 的默认解析器，其中包含一些内置参数，用户可以向此解析器添加自定义参数。
+用户可使用 ``internlm.initialize.get_default_parser()`` 来获取 InternEvo 的默认解析器，其中包含一些内置参数，用户可以向此解析器添加自定义参数。
 
 .. code-block:: python
 
-    # Get InternLM default parser
+    # Get InternEvo default parser
     parser = internlm.initialize.get_default_parser()
     # Add new argument
     parser.add_argument("--user_arg", type=int, default=-1, help="arguments add by user.")
@@ -46,7 +46,7 @@ InternLM 使用 `argparse <https://docs.python.org/3/library/argparse.html>`_ �
 
 .. autofunction:: internlm.train.initialize_model
 
-InternLM 在配置文件中使用字段 ``model_type`` 和 ``model`` 来控制模型初始化过程。示例模型初始化配置定义如下：
+InternEvo 在配置文件中使用字段 ``model_type`` 和 ``model`` 来控制模型初始化过程。示例模型初始化配置定义如下：
 
 .. code-block:: python
 

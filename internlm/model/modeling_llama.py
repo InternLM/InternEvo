@@ -7,8 +7,9 @@ import torch.nn.functional as F
 from einops import rearrange
 from torch import nn
 
-from internlm.core.context import IS_SEQUENCE_PARALLEL, IS_TENSOR_PARALLEL, ParallelMode
+from internlm.core.context import ParallelMode
 from internlm.core.context.parallel_context import global_context as gpc
+from internlm.core.naive_amp import set_output_attr_to_module
 from internlm.initialize.initialize_tensor import (
     normal_,
     scaled_init_method_normal,
@@ -17,13 +18,18 @@ from internlm.initialize.initialize_tensor import (
 )
 from internlm.model.embedding import Embedding1D, RotaryEmbedding
 from internlm.model.linear import (
-    ColumnParallelLinearTorch,
-    FeedForward,
+    MegatronScaleColumnParallelLinear,
     RewardModelLinear,
-    RowParallelLinearTorch,
     ScaleColumnParallelLinear,
+    get_linear_cls,
+    get_mlp_cls,
 )
-from internlm.model.utils import gather_forward_split_backward, try_import_RMSNorm
+from internlm.model.multi_head_attention import DistributedAttention
+from internlm.model.utils import (
+    gather_forward_split_backward,
+    split_forward_gather_backward,
+    try_import_RMSNorm,
+)
 from internlm.solver.pipeline_utils import partition_uniform
 from internlm.utils.checkpoint import activation_checkpoint
 from internlm.utils.common import filter_kwargs
@@ -59,24 +65,25 @@ class MHA(nn.Module):
     Args:
         embed_dim (int): The dimention of hidden state.
         num_heads (int): The number of attention heads.
-        num_kv_heads (int): The number of kv attention heads.
         process_group (torch.distributed.ProcessGroup): The group of the current device for `parallel_mode`.
+        sequence_process_group (torch.distributed.ProcessGroup): The process group for attention calculation.
         bias (boolean): Whether the bias is needed for linears. Will be used when initializing QKV matrix and
                         output projection. True by default.
         dropout (float): The dropout rate for cross attention and self attention. 0.0 by default.
         softmax_scale (float): The temperature to use for the softmax attention.
         causal (boolean): Whether to apply causal attention mask. False by default.
         layer_idx (int): The index of current layer. None by default.
-        rope_base (int): The value of `base` for rotary position embeddings. 10000 by default.
         rotary_emb_dim (int): The dimention of Rotary Embedding. 0 by default.
         rotary_emb_scale_base (int): The scaling factor of Rotary Embedding. If scale_base > 0, this implements
                                     XPos(Sun et al., https://arxiv.org/abs/2212.10554). 0 by default.
         use_flash_attn (boolean): Whether to use flash attention or not.If False, vanilla attention module will be used.
-                                    True by default.
+                                    False by default.
         device (Optional[Union[str, torch.device]]): The device will be used.
         dtype (Optional[torch.dtype]): The type of data.
-        rot_embed_HF_impl: rotary embedding hf implementation. False by default.
-
+        use_flash_attn (bool): Whether to use flash-attn. True by default.
+        rope_base (int): The value of `base` for rotary position embeddings. 10000 by default.
+        tp_mode (str): The string value of tensor parallel mode, should be in ["mtp", "msp", "fsp", "isp"],
+                       "mtp" by default.
 
     """
 
@@ -86,6 +93,7 @@ class MHA(nn.Module):
         num_heads: int,
         num_kv_heads: int,
         process_group: Optional[torch.distributed.ProcessGroup],
+        sequence_process_group: Optional[torch.distributed.ProcessGroup],
         bias: bool = True,
         dropout: float = 0.0,
         softmax_scale: float = None,
@@ -98,6 +106,7 @@ class MHA(nn.Module):
         device: Optional[torch.device] = None,
         dtype: Optional[torch.dtype] = None,
         rot_embed_HF_impl: Optional[bool] = False,
+        tp_mode: str = "mtp",
     ) -> None:
         factory_kwargs = {"device": device, "dtype": dtype}
         super().__init__()
@@ -113,6 +122,7 @@ class MHA(nn.Module):
         self.rotary_emb_dim = rotary_emb_dim
         self.use_flash_attn = use_flash_attn
         self.dtype = dtype
+        self.tp_mode = tp_mode
 
         self.rot_embed_HF_impl = rot_embed_HF_impl
         sequence_parallel = gpc.config.parallel.get("sequence_parallel", False)
@@ -122,8 +132,9 @@ class MHA(nn.Module):
                 self.rotary_emb_dim, base=rope_base, scale_base=rotary_emb_scale_base, device=device
             )
 
+        Wqkv_cls = get_linear_cls(self.tp_mode, "column")
         # notice here should change bias=True
-        self.wq = ColumnParallelLinearTorch(
+        self.wq = Wqkv_cls(
             embed_dim,
             embed_dim,
             process_group,
@@ -131,7 +142,7 @@ class MHA(nn.Module):
             sequence_parallel=sequence_parallel,
             **factory_kwargs,
         )
-        self.wk = ColumnParallelLinearTorch(
+        self.wk = Wqkv_cls(
             embed_dim,
             self.kv_dim,
             process_group,
@@ -139,7 +150,7 @@ class MHA(nn.Module):
             sequence_parallel=sequence_parallel,
             **factory_kwargs,
         )
-        self.wv = ColumnParallelLinearTorch(
+        self.wv = Wqkv_cls(
             embed_dim,
             self.kv_dim,
             process_group,
@@ -159,8 +170,13 @@ class MHA(nn.Module):
         self.inner_cross_attn_softmax_scale = softmax_scale
         self.inner_cross_attn_dropout = dropout
 
+        self.attn = flash_attn_varlen_kvpacked_func
+        if self.tp_mode == "isp":
+            self.attn = DistributedAttention(self.attn, sequence_process_group=sequence_process_group)
+
         # output projection always have the bias (for now)
-        self.wo = RowParallelLinearTorch(
+        out_proj_cls = get_linear_cls(self.tp_mode, "row")
+        self.wo = out_proj_cls(
             embed_dim,
             embed_dim,
             process_group,
@@ -168,11 +184,6 @@ class MHA(nn.Module):
             sequence_parallel=sequence_parallel,
             **factory_kwargs,
         )
-        # need to assign tp attribute so that internlm know it is tensor parallel module
-        if gpc.get_world_size(ParallelMode.TENSOR) > 1:
-            for name in ["wo", "wq", "wk", "wv"]:
-                for param in getattr(self, name).parameters():
-                    setattr(param, IS_TENSOR_PARALLEL, True)
 
     def forward(self, x, seqlen=None, inference_params=None, **kwargs):
         if kwargs.get("indexes", None) is not None:
@@ -426,7 +437,7 @@ class MHA(nn.Module):
                 if kv.dtype not in [torch.float16, torch.bfloat16]:
                     kv = kv.to(torch.bfloat16)
                 with torch.cuda.amp.autocast(dtype=torch.bfloat16):
-                    context = flash_attn_varlen_kvpacked_func(
+                    context = self.attn(
                         q=q,
                         kv=kv,
                         cu_seqlens_q=kwargs["cu_seqlens"],
@@ -438,7 +449,7 @@ class MHA(nn.Module):
                         causal=self.inner_cross_attn_causal,
                     ).to(self.dtype)
             else:
-                context = flash_attn_varlen_kvpacked_func(
+                context = self.attn(
                     q=q,
                     kv=kv,
                     cu_seqlens_q=kwargs["cu_seqlens"],
@@ -451,7 +462,6 @@ class MHA(nn.Module):
                 )
         else:
             raise RuntimeError("Not support this right now")
-
         context = rearrange(context, "b h d -> b (h d)")  # recover shape
         out = self.wo(context)
         return out
@@ -464,7 +474,6 @@ class PackedFlashLlamaLayer1D(nn.Module):
     Args:
         hidden_size (int): The hidden size of model. 768 by default.
         num_attention_heads (int): The number of attention heads. 12 by default.
-        num_kv_attention_heads (int): The number of kv attention heads. 12 by default.
         mlp_ratio (int): The ratio of MLP layers. 4 by default.
         attn_drop_rate (float): The dropout rate of attention module. 0 by default.
         drop_rate (float): The dropout rate of the input hidden state. 0.0 by default.
@@ -474,14 +483,7 @@ class PackedFlashLlamaLayer1D(nn.Module):
         layer_idx (int): The index of current layer. 0 by default.
         residual_in_fp32 (bool): Whether to use residual in fp32. False by default.
         device (Optional[Union[str, torch.device]]): The device will be used.
-        apply_post_layer_norm (bool): Whether use post layer norm. False by default.
-        fused_dropout_add_ln (bool): Whether use fused dropout add ln. True by default.
-        no_bias (bool): Whether remove bias. False by default.
         norm_type (str): Use RMS norm or layernorm."rmsnorm" by default.
-        adapt_hf (bool): Whether adapt hf. False by default.
-        dropout_selective_checkpoint (bool): Whether use dropout selective checkpoint. True by default.
-        use_scaled_init (bool): Whether use scaled init. True by default.
-        use_swiglu (bool): Whether use swiglu. True by default.
         use_flash_attn (bool): Whether use flash-attn. True by default.
         attn_wqkv_init_std (float): std used to init attn_wqkv weight. 0.02 by default,
         attn_other_init_std (float): std used to init attn_other weight. 0.02 by default,
@@ -490,6 +492,8 @@ class PackedFlashLlamaLayer1D(nn.Module):
         ffn_other_init_std (float): std used to init ffn_other weight. 0.02 by default,
         init_type (str): Initialization type. Use uniform or normal. "normal" by default,
         rope_base (int): The value of `base` for rotary position embeddings. 10000 by default.
+        tp_mode (str): The string value of tensor parallel mode, should be in ["mtp", "msp", "fsp", "isp"],
+                       "mtp" by default.
     """
 
     def __init__(
@@ -521,6 +525,7 @@ class PackedFlashLlamaLayer1D(nn.Module):
         ffn_other_init_std: float = 0.02,
         init_type: str = "normal",
         rope_base: int = 10000,
+        tp_mode: str = "mtp",
     ):
         super().__init__()
         self.checkpoint = checkpoint
@@ -537,11 +542,15 @@ class PackedFlashLlamaLayer1D(nn.Module):
         self.ffn_other_init_std = ffn_other_init_std
 
         head_dim = hidden_size // num_attention_heads
+        self.tp_mode = tp_mode
+        parallel_mode = ParallelMode.WEIGHT if self.tp_mode == "isp" else ParallelMode.TENSOR
+
         self.attention = MHA(
             embed_dim=hidden_size,
             num_heads=num_attention_heads,
             num_kv_heads=num_kv_attention_heads,
-            process_group=gpc.get_group(ParallelMode.TENSOR),
+            process_group=gpc.get_group(parallel_mode),
+            sequence_process_group=gpc.get_group(ParallelMode.TENSOR),
             dropout=attn_drop_rate,
             softmax_scale=1 / math.sqrt(head_dim),
             causal=True,
@@ -554,6 +563,7 @@ class PackedFlashLlamaLayer1D(nn.Module):
             rot_embed_HF_impl=adapt_hf,
             bias=not no_bias,
             rope_base=rope_base,
+            tp_mode=self.tp_mode,
         )
 
         self.dropout1 = nn.Dropout(drop_rate)
@@ -569,11 +579,12 @@ class PackedFlashLlamaLayer1D(nn.Module):
 
         sequence_parallel = gpc.config.parallel.get("sequence_parallel", False)
         if use_swiglu:
-            self.feed_forward = FeedForward(
+            mlp_cls = get_mlp_cls(self.tp_mode)
+            self.feed_forward = mlp_cls(
                 hidden_size,
                 int(hidden_size * mlp_ratio),
                 out_features=hidden_size,
-                process_group=gpc.get_group(ParallelMode.TENSOR),
+                process_group=gpc.get_group(parallel_mode),
                 bias=False,
                 device=device,
                 dtype=dtype,
@@ -584,7 +595,7 @@ class PackedFlashLlamaLayer1D(nn.Module):
                 int(hidden_size * mlp_ratio),
                 out_features=hidden_size,
                 activation="gelu_approx",
-                process_group=gpc.get_group(ParallelMode.TENSOR),
+                process_group=gpc.get_group(parallel_mode),
                 bias1=False,
                 bias2=False,
                 sequence_parallel=sequence_parallel,
@@ -593,16 +604,6 @@ class PackedFlashLlamaLayer1D(nn.Module):
                 device=device,
                 dtype=dtype,
             )
-
-        for _, param in self.feed_forward.named_parameters():
-            if gpc.get_world_size(ParallelMode.TENSOR) > 1:
-                setattr(param, IS_TENSOR_PARALLEL, True)
-        for param in self.attention_norm.parameters():
-            if gpc.config.parallel.sequence_parallel is True:
-                setattr(param, IS_SEQUENCE_PARALLEL, True)
-        for param in self.ffn_norm.parameters():
-            if gpc.config.parallel.sequence_parallel is True:
-                setattr(param, IS_SEQUENCE_PARALLEL, True)
 
         self.dropout2 = nn.Dropout(drop_rate)
         self.use_swiglu = use_swiglu
@@ -746,7 +747,6 @@ class PackedFlashLlama1D(nn.Module):
         num_layers (int): The number of layer. 12 by default.
         hidden_size (int): The size of hidden state. 768 by default.
         num_attention_heads (int): The number of attention head. 12 by default.
-        num_kv_attention_heads (int): The number of kv attention head. 12 by default.
         vocab_size (int): The size of vocabulary. 50304 by default.
         mlp_ratio (int): The ratio of MLP layers. 4 by default.
         attn_drop_rate (float): The dropout rate of attention module. 0.0 by default.
@@ -764,15 +764,8 @@ class PackedFlashLlama1D(nn.Module):
         parallel_output (bool): If it is necessary to collect the output of parallel computing. True by default.
         start_layer_idx (int): The index of start layer in the pipeline. 0 by default.
         device (Optional[Union[str, torch.device]]): The device will be used. None by default.
-        apply_post_layer_norm (bool): Whether use post layer norm. False by default.
-        no_bias (bool): Whether remove bias. False by default.
         residual_in_fp32 (bool): Whether to use residual in fp32. False by default.
         norm_type (str): Normalization type. Use RMSNorm or LayerNorm. "rmsnorm" by default.
-        adapt_hf (bool): Whether adapt hf. False by default.
-        is_reward (bool): Whether use is_reward. False by default.
-        dropout_selective_checkpoint (bool): Whether dropout selective checkpoint. True by default.
-        use_scaled_init (bool): Whether use scaled init. True by default.
-        use_swiglu (bool): Whether use swiglu. True by default.
         use_flash_attn (bool): Whether to use flash-attn. True by default.
         embedding_init_std (float): std used to init embedding weight. 0.02 by default,
         attn_wqkv_init_std (float): std used to init attn_wqkv weight. 0.02 by default,
@@ -782,6 +775,7 @@ class PackedFlashLlama1D(nn.Module):
         ffn_other_init_std (float): std used to init ffn_other weight. 0.02 by default,
         out_head_init_std (float): std used to init output lmhead weight. 0.02 by default,
         init_type (str): Initialization type. Use uniform or normal. "normal" by default,
+        extra_pred_tokens (int): The number of extra output head for multi-token-prediction. 0 by default.
         rope_base (int): The value of `base` for rotary position embeddings. 10000 by default.
     """
 
@@ -823,6 +817,7 @@ class PackedFlashLlama1D(nn.Module):
         ffn_other_init_std: float = 0.02,
         out_head_init_std: float = 0.02,
         init_type: str = "normal",
+        extra_pred_tokens: int = 0,
         rope_base: int = 10000,
     ):
         super().__init__()
@@ -834,15 +829,22 @@ class PackedFlashLlama1D(nn.Module):
             checkpoint_fraction = 0
         checkpoint_layer_num = num_layers * checkpoint_fraction
         sequence_parallel = gpc.config.parallel.get("sequence_parallel", False)
+        self.tp_mode = "mtp"
+        if isinstance(gpc.config.parallel["tensor"], dict):
+            self.tp_mode = gpc.config.parallel["tensor"].get("mode", "mtp")
+
         if is_reward:
             head_cls = RewardModelLinear
         else:
-            head_cls = ScaleColumnParallelLinear
+            head_cls = (
+                ScaleColumnParallelLinear
+                if self.tp_mode in ["mtp", "fsp", "isp"]
+                else MegatronScaleColumnParallelLinear
+            )
         if first:
             if embed_split_hidden:
                 self.tok_embeddings = Embedding1D(num_embeddings=vocab_size, embedding_dim=hidden_size)
             else:
-
                 self.tok_embeddings = ParallelGPT2Embeddings(
                     embed_dim=hidden_size,
                     vocab_size=vocab_size,
@@ -858,9 +860,8 @@ class PackedFlashLlama1D(nn.Module):
                     normal_(std=embedding_init_std)(param)
                 else:
                     uniform_(std=embedding_init_std)(param)
-                if gpc.get_world_size(ParallelMode.TENSOR) > 1:
-                    setattr(param, IS_TENSOR_PARALLEL, True)
         self.embed_grad_scale = embed_grad_scale
+
         self.layers = nn.ModuleList(
             [
                 PackedFlashLlamaLayer1D(
@@ -891,6 +892,7 @@ class PackedFlashLlama1D(nn.Module):
                     ffn_other_init_std=ffn_other_init_std,
                     init_type=init_type,
                     rope_base=rope_base,
+                    tp_mode=self.tp_mode,
                 )
                 for lid in range(num_layers)
             ]
@@ -902,9 +904,6 @@ class PackedFlashLlama1D(nn.Module):
                     self.norm = RMSNorm(hidden_size, eps=layer_norm_epsilon)
                 else:
                     self.norm = nn.LayerNorm(hidden_size, eps=layer_norm_epsilon)
-                for param in self.norm.parameters():
-                    if gpc.config.parallel.sequence_parallel is True:
-                        setattr(param, IS_SEQUENCE_PARALLEL, True)
 
             self.output = head_cls(
                 in_features=hidden_size,
@@ -915,14 +914,35 @@ class PackedFlashLlama1D(nn.Module):
                 dtype=dtype,
                 weight_scale=embed_grad_scale,
             )
-
+            set_output_attr_to_module(self.output)
             for _, param in self.output.named_parameters():
                 if init_type == "normal":
                     normal_(std=out_head_init_std)(param)
                 else:
                     uniform_(std=out_head_init_std)(param)
-                if gpc.get_world_size(ParallelMode.TENSOR) > 1:
-                    setattr(param, IS_TENSOR_PARALLEL, True)
+
+            if extra_pred_tokens > 0:
+                self.extra_pred_tokens = extra_pred_tokens
+                assert not is_reward, "extra_pred_tokens > 0 means using multi token prediction, not implement for RLHF"
+                self.extra_outputs = nn.ModuleList(
+                    [
+                        head_cls(
+                            in_features=hidden_size,
+                            out_features=vocab_size,
+                            process_group=gpc.get_group(ParallelMode.TENSOR),
+                            bias=False,
+                            device=device,
+                            dtype=dtype,
+                            weight_scale=embed_grad_scale,
+                        )
+                        for _ in range(self.extra_pred_tokens)
+                    ]
+                )
+                for _, param in self.extra_outputs.named_parameters():
+                    if init_type == "normal":
+                        normal_(std=out_head_init_std)(param)
+                    else:
+                        uniform_(std=out_head_init_std)(param)
 
         self.parallel_output = parallel_output
 
@@ -947,6 +967,10 @@ class PackedFlashLlama1D(nn.Module):
             assert len(indexes) == 1
             # The indexes are used to indicate the actual position IDs of each token in the packed input.
             indexes = indexes[0]
+            # if the sequence parallel mode is 'isp', the indexes should also be split in sequence dimension.
+            if gpc.config.parallel.sequence_parallel and self.tp_mode == "isp":
+                indexes = split_forward_gather_backward(indexes, ParallelMode.TENSOR, dim=0)
+
         max_seqlen = (cu_seqlens[1:] - cu_seqlens[:-1]).max().item() if cu_seqlens is not None else None
 
         for _, block in enumerate(self.layers):
@@ -961,10 +985,16 @@ class PackedFlashLlama1D(nn.Module):
 
         if hasattr(self, "norm"):
             hidden_states = self.norm(hidden_states.float())
-
-        extra_hidden_states_list = None
+        if hasattr(self, "extra_pred_tokens") and self.extra_pred_tokens > 0:
+            extra_hidden_states_list = [self.extra_outputs[i](hidden_states) for i in range(self.extra_pred_tokens)]
+        else:
+            extra_hidden_states_list = None
         if hasattr(self, "output"):
-            hidden_states = self.output(hidden_states)
+            # Evaluation
+            if gpc.is_evaluating is True:
+                hidden_states = self.output(hidden_states, gather_dim=1)
+            else:  # Training
+                hidden_states = self.output(hidden_states, gather_dim=0)
 
         if not self.parallel_output:
             hidden_states = gather_forward_split_backward(hidden_states, ParallelMode.TENSOR, dim=-1)
@@ -999,7 +1029,7 @@ def _build_generic_model_1d(num_layers, num_chunks, device=torch.device("cuda"),
         logger.info(f"The layer sharding is {all_parts}.")
 
     models = []
-    kwargs["checkpoint_fraction"] = 1.0
+    kwargs["checkpoint_fraction"] = float(kwargs.get("checkpoint", False))
     start_idx, end_idx = 0, 0
     for start, end in parts:
         start_idx, end_idx = start, end
@@ -1057,6 +1087,7 @@ def build_model_with_cfg(
     ffn_other_init_std: float = 0.02,
     out_head_init_std: float = 0.02,
     init_type: str = "normal",
+    extra_pred_tokens: int = 0,
     rope_base: int = 10000,
 ):
     """
@@ -1074,18 +1105,14 @@ def build_model_with_cfg(
         embed_grad_scale (float): Refer to GLM-130B, for training stability. 0.1 by default.
         parallel_output (bool): If it is necessary to collect the output of parallel computing. True by default.
         num_attention_heads (int): The number of attention head. 32 by default.
-        num_kv_attention_heads (int): The number of kv attention head. None by default.
         mlp_ratio (int): The ratio of MLP layers. 4.0 by default.
         residual_in_fp32 (bool): Whether to use residual in fp32. False by default. It cannot be used temporarily
                                  because this parameter requires inconsistent data types to be passed between pipelines,
                                  which requires significant modifications to internlm.
         norm_type (str): Normalization type. Use RMSNorm or LayerNorm. "rmsnorm" by default.
-        adapt_hf (bool): Whether adapt hf. False by default.
         drop_rate (float): The dropout rate of input hidden state. 0 by default.
         attn_drop_rate (float): The dropout rate of attention module. 0 by default.
         apply_post_layer_norm (bool): Whether to apply post layer norm. False by default.
-        no_bias (bool): Whether remove bias. False by default.
-        deepnorm (bool): Whether us deepnorm. False by default.
         layer_norm_epsilon (float): A value added to the denominator for numerical stability. 1e-5 by default.
         is_reward (bool): Whether to use reward model. False by default.
         dropout_selective_checkpoint (bool): It can only be enabled when checkpoint is disabled. True by default.
@@ -1100,6 +1127,7 @@ def build_model_with_cfg(
         ffn_other_init_std (float): std used to init ffn_other weight. 0.02 by default,
         out_head_init_std (float): std used to init output lmhead weight. 0.02 by default,
         init_type (str): Initialization type. Use uniform or normal. "normal" by default,
+        extra_pred_tokens (int): The number of extra output head for multi-token-prediction. 0 by default.
         rope_base (int): The value of `base` for rotary position embeddings. 10000 by default.
     """
     if deepnorm:
@@ -1136,6 +1164,7 @@ def build_model_with_cfg(
         ffn_other_init_std=ffn_other_init_std,
         out_head_init_std=out_head_init_std,
         init_type=init_type,
+        extra_pred_tokens=extra_pred_tokens,
         rope_base=rope_base,
     )
 

@@ -4,7 +4,14 @@
 import torch.distributed as dist
 from torch import nn
 
-from internlm.core.context import IS_SEQUENCE_PARALLEL, IS_TENSOR_PARALLEL, ParallelMode
+from internlm.core.context import (
+    IS_REPLICA_ZERO_PARALLEL,
+    IS_TENSOR_DATA_PARALLEL,
+    IS_TENSOR_EXPERT_DATA_PARALLEL,
+    IS_TENSOR_ZERO_PARALLEL,
+    IS_WEIGHT_ZERO_PARALLEL,
+    ParallelMode,
+)
 from internlm.core.context import global_context as gpc
 from internlm.core.naive_amp import NaiveAMPModel
 from internlm.model.utils import try_import_RMSNorm
@@ -13,8 +20,55 @@ from internlm.solver.pipeline_utils import partition_uniform
 RMSNorm = try_import_RMSNorm()
 
 
-def is_model_parallel_parameter(p):
-    return hasattr(p, IS_TENSOR_PARALLEL) and getattr(p, IS_TENSOR_PARALLEL)
+def is_using_sequence_parallel():
+    return (
+        isinstance(gpc.config.parallel["tensor"], dict)
+        and gpc.config.parallel["tensor"].get("mode", "mtp") != "mtp"
+        and gpc.config.parallel["tensor"]["size"] > 1
+    )
+
+
+def is_using_isp():
+    return isinstance(gpc.config.parallel["tensor"], dict) and gpc.config.parallel["tensor"].get("mode", "mtp") == "isp"
+
+
+def is_replica_zero_parallel_parameter(p):
+    return hasattr(p, IS_REPLICA_ZERO_PARALLEL) and getattr(p, IS_REPLICA_ZERO_PARALLEL)
+
+
+def is_tensor_data_parallel_parameter(p):
+    return (
+        gpc.is_initialized(ParallelMode.TENSOR)
+        and is_using_isp()
+        and hasattr(p, IS_TENSOR_DATA_PARALLEL)
+        and getattr(p, IS_TENSOR_DATA_PARALLEL)
+    )
+
+
+def is_tensor_zero_parallel_parameter(p):
+    return (
+        gpc.is_initialized(ParallelMode.TENSOR)
+        and not is_using_isp()
+        and hasattr(p, IS_TENSOR_ZERO_PARALLEL)
+        and getattr(p, IS_TENSOR_ZERO_PARALLEL)
+    )
+
+
+def is_weight_zero_parallel_parameter(p):
+    return (
+        gpc.is_initialized(ParallelMode.WEIGHT)
+        and is_using_isp()
+        and hasattr(p, IS_WEIGHT_ZERO_PARALLEL)
+        and getattr(p, IS_WEIGHT_ZERO_PARALLEL)
+    )
+
+
+def is_tensor_expert_data_parallel_parameter(p):
+    return (
+        gpc.is_initialized(ParallelMode.TENSOR)
+        and hasattr(p, IS_TENSOR_EXPERT_DATA_PARALLEL)
+        and getattr(p, IS_TENSOR_EXPERT_DATA_PARALLEL)
+    )
 
 
 def sync_model_param(model):
@@ -23,35 +77,33 @@ def sync_model_param(model):
     Args:
         model (:class:`torch.nn.Module`): A pyTorch model on whose parameters you check the consistency.
     """
-    if gpc.is_initialized(ParallelMode.DATA) and gpc.get_world_size(ParallelMode.DATA) > 1:
-        sync_moe_param = (
-            gpc.is_initialized(ParallelMode.EXPERT_DATA) and gpc.get_world_size(ParallelMode.EXPERT_DATA) > 1
-        )
-        for param in model.parameters():
-            if sync_moe_param and getattr(param, "is_expert", False):
-                ranks = gpc.get_ranks_in_group(ParallelMode.EXPERT_DATA)
-                dist.broadcast(param, src=ranks[0], group=gpc.get_group(ParallelMode.EXPERT_DATA))
-            else:
-                ranks = gpc.get_ranks_in_group(ParallelMode.DATA)
-                dist.broadcast(param, src=ranks[0], group=gpc.get_group(ParallelMode.DATA))
+
+    sync_moe_param = gpc.is_using_parallel_mode(ParallelMode.EXPERT_DATA)
+    sync_parallel_mode = ParallelMode.WEIGHT_DATA if is_using_isp() else ParallelMode.DATA
+    for param in model.parameters():
+        if sync_moe_param and getattr(param, "is_expert", False):
+            ranks = gpc.get_ranks_in_group(ParallelMode.EXPERT_DATA)
+            dist.broadcast(param, src=ranks[0], group=gpc.get_group(ParallelMode.EXPERT_DATA))
+        else:
+            ranks = gpc.get_ranks_in_group(sync_parallel_mode)
+            dist.broadcast(param, src=ranks[0], group=gpc.get_group(sync_parallel_mode))
 
 
-def sync_model_param_within_tp(model):
+def sync_model_replica_param_group(model):
     r"""This function is changed from colossalai, which is ``sync_model_param``.
 
-    We modified this function to make sure it only sync parameters within tensor parallelism
-    but they are not splitted by tensor parallelism.
-    This function is used to make sure parameters that are not splitted by tensor parallelism
-    are the same across each tensor parallelism.
+    We modified this function to make sure it only sync IS_REPLICA_ZERO_PARALLEL parameters in tp or wp process group.
+    This function is used to make sure parameters that are not splitted are the same across each rank.
     For example, parameters like RMSNorm, LayerNorm...
 
     Args:
         model (:class:`torch.nn.Module`): A pyTorch model on whose parameters you check the consistency.
     """
-    parallel_mode = ParallelMode.TENSOR
-    if gpc.is_initialized(parallel_mode) and gpc.get_world_size(parallel_mode) > 1:
+
+    parallel_mode = ParallelMode.WEIGHT if is_using_isp() else ParallelMode.TENSOR
+    if gpc.is_using_parallel_mode(parallel_mode):
         for param in model.parameters():
-            if not is_model_parallel_parameter(param):
+            if is_replica_zero_parallel_parameter(param):
                 ranks = gpc.get_ranks_in_group(parallel_mode)
                 dist.broadcast(param, src=ranks[0], group=gpc.get_group(parallel_mode))
 
@@ -101,26 +153,3 @@ def set_model_params_layer_name(model):
                     layer_param_name = f"{layer_name}-{param_name}"
                     param.__setattr__("layer_name", layer_name)
                     param.__setattr__("param_name", f"{layer_name}-{param_name}")
-
-
-def check_sequence_parallel(model):
-    """
-    check whether the norm module has IS_SEQUENCE_PARALLEL attribute.
-    when the sequence_parallel is True, the norm module should have the IS_SEQUENCE_PARALLEL attribute
-    to illustrate the norm should conduct the all-reduce for its grad.
-    """
-
-    if not isinstance(model, nn.ModuleList):
-        model = [model]
-
-    for _chunk in model:
-        if isinstance(_chunk, NaiveAMPModel):
-            _chunk = _chunk.model
-
-        for _, module in _chunk.named_modules():
-            if isinstance(module, (RMSNorm, nn.LayerNorm)):
-                for param in module.parameters():
-                    assert hasattr(param, IS_SEQUENCE_PARALLEL), (
-                        "when the gpc.config.parallel.sequence parallel is True,"
-                        "the params of norm module should have IS_SEQUENCE_PARALLEL attribute"
-                    )

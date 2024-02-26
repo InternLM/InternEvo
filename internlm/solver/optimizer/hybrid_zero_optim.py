@@ -3,13 +3,20 @@
 
 import math
 from functools import partial
+from typing import List, Optional
 
 import torch
 import torch.distributed as dist
 from torch.optim import Optimizer
 
-from internlm.core.context import IS_SEQUENCE_PARALLEL, Config, ParallelMode
+from internlm.core.context import IS_REPLICA_ZERO_PARALLEL, Config, ParallelMode
 from internlm.core.context import global_context as gpc
+from internlm.core.context.parallel_context import (
+    IS_TENSOR_DATA_PARALLEL,
+    IS_TENSOR_EXPERT_DATA_PARALLEL,
+    IS_TENSOR_ZERO_PARALLEL,
+    IS_WEIGHT_ZERO_PARALLEL,
+)
 from internlm.monitor import send_alert_message
 from internlm.solver.optimizer.store import (
     BucketStore,
@@ -31,6 +38,7 @@ from internlm.solver.optimizer.utils import (
 from internlm.utils.common import get_current_device
 from internlm.utils.logger import get_logger
 from internlm.utils.megatron_timers import megatron_timer as timer
+from internlm.utils.parallel import is_using_isp, is_using_sequence_parallel
 from internlm.utils.timeout import llm_timeout
 
 from .base_optimizer import BaseOptimizer
@@ -59,6 +67,7 @@ class HybridZeroOptimizer(BaseOptimizer):
         grad_scal_cfg: Config = None,
         zero_cfg: Config = None,
         param_bcast_sync_handler: ParamBcastSyncHandler = None,
+        isp_communicator=None,
     ):
         # DynamicGradScaler related args
         if gpc.config.model.dtype is torch.float32:
@@ -77,6 +86,7 @@ class HybridZeroOptimizer(BaseOptimizer):
         clip_grad_norm = zero_cfg.clip_grad_norm
         self._overlap_sync_grad = zero_cfg.overlap_sync_grad
         self._overlap_sync_param = zero_cfg.overlap_sync_param
+        self.use_isp = is_using_isp()
 
         super().__init__(optim=optimizer)
 
@@ -88,8 +98,10 @@ class HybridZeroOptimizer(BaseOptimizer):
         # ParameterStore will manage the tensor buffers used for zero
         # it will not manage the tensors used by mixed precision training
         self._param_store = ParameterStore(ParallelMode.ZERO1)
-        self._grad_store = GradientStore(ParallelMode.DATA)
-        self._bucket_store = []
+        parallel_mode = ParallelMode.WEIGHT_DATA if self.use_isp else ParallelMode.DATA
+        self._grad_store = GradientStore(parallel_mode)
+        self._bucket_store: List[BucketStore] = []
+        self._accum_grad_buckets: List[BucketStore] = []
         self._bucket_in_progress = []
 
         # fp16 and fp32 params for mixed precision training
@@ -125,14 +137,18 @@ class HybridZeroOptimizer(BaseOptimizer):
 
         self.rank_unique_id = (
             f"gpus-{gpc.get_world_size(ParallelMode.GLOBAL)}_"
-            + f"pp-{gpc.get_local_rank(ParallelMode.PIPELINE)}_"
+            + f"wp-{gpc.get_local_rank(ParallelMode.WEIGHT)}_"
             + f"tp-{gpc.get_local_rank(ParallelMode.TENSOR)}_"
+            + f"dp-{gpc.get_local_rank(ParallelMode.DATA)}_"
+            + f"pp-{gpc.get_local_rank(ParallelMode.PIPELINE)}_"
             + f"zo-{gpc.get_local_rank(ParallelMode.ZERO1)}.pt"
         )
         self.params_per_rank_id_dict = []
         self._param_bcast_sync_handler = param_bcast_sync_handler
         if self._overlap_sync_param:
             assert self._param_bcast_sync_handler is not None
+
+        self._isp_communicator = isp_communicator
 
         # iterate over the param group in the optimizer
         # partition these param groups for data parallel training
@@ -146,18 +162,21 @@ class HybridZeroOptimizer(BaseOptimizer):
             # add the fp16 params to fp16_param_groups for bookkeeping
             self._fp16_param_groups[group_id] = group_params
 
-            # to find real zero mode. if zero is not used, set all param group as ParallelMode.ZERO1
-            # if zero is used, expert dp group will use ParallelMode.EXPERT_DATA as the real zero mode
-            zero_mode = (
-                ParallelMode.ZERO1
-                if gpc.get_world_size(ParallelMode.ZERO1) == 1 or param_group["dp_mode"] == ParallelMode.DATA
-                else ParallelMode.EXPERT_DATA
-            )
+            zero_mode = param_group["optimizer_mode"]
             self._zero_local_rank.append(gpc.get_local_rank(zero_mode))
             self._zero_world_size.append(gpc.get_world_size(zero_mode))
             # TODO _broadcast_parallel_mode is not only used in broadcast, maybe can change its name
             self._broadcast_parallel_mode.append(zero_mode)
-            self._bucket_store.append(BucketStore(group_id, param_group["dp_mode"]))
+
+            if self._is_moe_group(param_group):
+                grad_reduce_mode = ParallelMode.EXPERT_DATA
+            elif param_group["name"] != "embed_head" and self.use_isp:
+                grad_reduce_mode = ParallelMode.WEIGHT_DATA
+            else:
+                grad_reduce_mode = ParallelMode.DATA
+
+            self._bucket_store.append(BucketStore(group_id, grad_reduce_mode))
+            self._accum_grad_buckets.append(BucketStore(group_id, grad_reduce_mode))
 
             # assign parameters to ranks the params in the list are sorted
             params_per_rank, no_params_ranks = self._partition_param_list(group_id, param_group)
@@ -280,55 +299,84 @@ class HybridZeroOptimizer(BaseOptimizer):
             param_group = self._fp16_param_groups[group_id]
             for param in param_group:
                 # we should not reduce the param in moe
-                if param.requires_grad:
-                    reduce_rank = None
+                if not param.requires_grad:
+                    continue
 
-                    def _define_and_attach(param, reduce_rank=None):
-                        # get the AccumulateGrad object of the param itself
-                        # If these objects are not kept, reduction hooks may not be attached successfully.
-                        accum_grad_obj = get_grad_accumulate_object(param)
-                        self._grad_store.add_accumulate_grad_object(accum_grad_obj)
+                reduce_rank = None
 
-                        reduction_func = partial(
-                            self._store_and_try_reduce_grads_by_bucket,
-                            param=param,
-                            reduce_rank=reduce_rank,
+                def _define_and_attach(param, reduce_rank=None):
+                    reduction_func = partial(
+                        self._store_and_try_reduce_grads_by_bucket,
+                        param=param,
+                        reduce_rank=reduce_rank,
+                    )
+
+                    reduce_scatter_checker = partial(
+                        self._wait_reduce_scatter_and_accumulate_grads,
+                        param=param,
+                        reduce_rank=reduce_rank,
+                    )
+
+                    def reduction_layernorm_func():
+                        handle = reduce_tensor(
+                            param.grad,
+                            dtype=None,
+                            dst_rank=reduce_rank,
+                            parallel_mode=ParallelMode.WEIGHT if self.use_isp else ParallelMode.TENSOR,
                         )
+                        handle.wait()
 
-                        def reduction_sp_func():
-                            handle = reduce_tensor(
-                                param.grad,
-                                dtype=None,
-                                dst_rank=reduce_rank,
-                                parallel_mode=ParallelMode.TENSOR,
-                            )
-                            handle.wait()
+                    # define hook
+                    # NOT IMPORTANT BUT GOOD TO KNOW:
+                    # args here is not grad, but allow_unreacable and accumulate_grad
+                    def reduce_grad_hook(*args):  # pylint: disable=W0613
+                        if self.skip_grad_reduce is False:
+                            reduction_func()
 
-                        # define hook
-                        # NOT IMPORTANT BUT GOOD TO KNOW:
-                        # args here is not grad, but allow_unreacable and accumulate_grad
-                        def reduce_grad_hook(*args):  # pylint: disable=W0613
-                            if self.skip_grad_reduce is False:
-                                reduction_func()
+                    # define hook for real gradient accumulation.
+                    def accum_grad_hook(*args):  # pylint: disable=W0613
+                        reduce_scatter_checker()
 
-                        # define hook for sequence_parallel
-                        def reduce_grad_hook_sp(*args):  # pylint: disable=W0613
-                            if self.skip_grad_reduce is False:
-                                reduction_sp_func()
+                    # define hook for sequence_parallel
+                    def extra_layernorm_reduce_grad_hook(*args):  # pylint: disable=W0613
+                        if self.skip_grad_reduce is False:
+                            reduction_layernorm_func()
 
-                        # if sequence_parallel is True,
-                        # the grad of norm should be all-reduce across the tp process group
-                        if (
-                            gpc.config.parallel.sequence_parallel is True
-                            and hasattr(param, IS_SEQUENCE_PARALLEL)
-                            and getattr(param, IS_SEQUENCE_PARALLEL) is True
-                        ):
-                            accum_grad_obj.register_hook(reduce_grad_hook_sp)
+                    # get the AccumulateGrad object of the param itself
+                    # If these objects are not kept, reduction hooks may not be attached successfully.
+                    accum_grad_obj = get_grad_accumulate_object(param)
+                    self._grad_store.add_accumulate_grad_object(accum_grad_obj)
 
-                        if self._overlap_sync_grad:
-                            accum_grad_obj.register_hook(reduce_grad_hook)
+                    # the grad of layernorm should be all-reduce across the global process group
+                    # here is the first stage all-reduce in tp/wp process group
+                    # the second stage all-reduce will be processed in reduce_grad_hook
+                    if (
+                        is_using_sequence_parallel()
+                        and hasattr(param, IS_REPLICA_ZERO_PARALLEL)
+                        and getattr(param, IS_REPLICA_ZERO_PARALLEL) is True
+                    ):
+                        accum_grad_obj.register_hook(extra_layernorm_reduce_grad_hook)
 
-                    _define_and_attach(param, reduce_rank)
+                    # we should not only register for parameters which have isp_reduce_scatter_name attr.
+                    # we must keep up with reduce_grad_hook.
+                    if (
+                        self._isp_communicator
+                        and self._isp_communicator.overlap
+                        and gpc.config.parallel.weight.size > 1
+                    ):
+                        accum_grad_obj.register_hook(accum_grad_hook)
+
+                    if self._overlap_sync_grad:
+                        accum_grad_obj.register_hook(reduce_grad_hook)
+
+                _define_and_attach(param, reduce_rank)
+
+    def accumulate_left_grads_after_backward(self):
+        if self._isp_communicator is None or self._isp_communicator.overlap is False:
+            return
+
+        for group_id in range(self.num_param_groups):
+            self._accum_grads_store_in_bucket(self._accum_grad_buckets[group_id])
 
     def belongs_to_current_rank(self, param) -> bool:
         """
@@ -340,9 +388,46 @@ class HybridZeroOptimizer(BaseOptimizer):
         :return: True if the parameter should be updated by the current rank. Otherwise false.
         :rtype: bool
         """
-        tensor_rank = self._param_store.get_param_rank(param)
+        tensor_ranks = self._param_store.get_param_rank(param)
         group_id = getattr(param, "group_id")
-        return tensor_rank == gpc.get_local_rank(self._broadcast_parallel_mode[group_id])
+        return gpc.get_local_rank(self._broadcast_parallel_mode[group_id]) in tensor_ranks
+
+    def _accum_grads_store_in_bucket(self, bucket: BucketStore, reduce_rank: Optional[int] = None) -> None:
+        for _param in bucket.get_param(reduce_rank):
+            if not hasattr(_param, "isp_reduce_scatter_name"):
+                continue
+
+            # wait and accumulate gardient.
+            _key = getattr(_param, "isp_reduce_scatter_name")
+            _grad, _comm_handle = self._isp_communicator.reduce_scatter_handlers[_key]
+            _comm_handle.wait()
+            _param.grad.add_(_grad)
+
+            # release cuda memory.
+            if self._isp_communicator.enable_memory_pool:
+                self._isp_communicator.memory_pool.free_reduce_scatter_memory(
+                    key=tuple(_grad.size()), index=_grad.index
+                )
+            _grad = None
+            self._isp_communicator.reduce_scatter_handlers[_key] = None
+
+        bucket.reset_by_rank(reduce_rank)
+
+    def _wait_reduce_scatter_and_accumulate_grads(self, param, reduce_rank: Optional[int] = None):
+        param_size = param.numel()
+
+        group_id = getattr(param, "group_id")
+        current_bucket = self._accum_grad_buckets[group_id]
+
+        # check if the bucket is full
+        # if full, will reduce the grads already in the bucket
+        # after reduction, the bucket will be empty
+        if current_bucket.num_elements_in_bucket(reduce_rank) + param_size > self._reduce_bucket_size:
+            self._accum_grads_store_in_bucket(current_bucket, reduce_rank)
+
+        # otherwise, add the parameter into bucket.
+        current_bucket.add_num_elements_in_bucket(param_size, reduce_rank)
+        current_bucket.add_param(param, reduce_rank)
 
     def _store_and_try_reduce_grads_by_bucket(self, param, reduce_rank=None):
         param_size = param.numel()
@@ -524,10 +609,28 @@ class HybridZeroOptimizer(BaseOptimizer):
     ):
         # compute norm for gradients that have been reduced
         params, grads = self._param_store.get_reduced_param_for_compute_norm(group_id=group_id, last_bucket=last_bucket)
+        params_is_padding = False
         if len(params) == 0:
+            params_is_padding = True
             dtype = self.param_groups[group_id]["dtype"]
             grads = [self.padding_grad.to(dtype)]
             params = [self.padding_tensor.to(dtype)]
+
+            if self.optim.param_groups[group_id]["name"] in ("default", "fp32"):
+                for param in params:
+                    if self.use_isp:
+                        setattr(param, IS_WEIGHT_ZERO_PARALLEL, True)
+                    else:
+                        setattr(param, IS_TENSOR_ZERO_PARALLEL, True)
+            elif self.optim.param_groups[group_id]["name"] == "embed_head":
+                # should be isp mode
+                for param in params:
+                    setattr(param, IS_TENSOR_DATA_PARALLEL, True)
+            elif self._is_moe_group(self.optim.param_groups[group_id]):
+                for param in params:
+                    setattr(param, IS_TENSOR_EXPERT_DATA_PARALLEL, True)
+            else:
+                raise NotImplementedError("unrecognized parameter group.")
 
         norm = 0
         if self._clip_grad_norm > 0:
@@ -540,6 +643,19 @@ class HybridZeroOptimizer(BaseOptimizer):
                 zero_mode=self._broadcast_parallel_mode[group_id],
             )
 
+        if params_is_padding:
+            for param in params:
+                if hasattr(param, IS_REPLICA_ZERO_PARALLEL):
+                    delattr(param, IS_REPLICA_ZERO_PARALLEL)
+                if hasattr(param, IS_TENSOR_DATA_PARALLEL):
+                    delattr(param, IS_TENSOR_DATA_PARALLEL)
+                if hasattr(param, IS_TENSOR_ZERO_PARALLEL):
+                    delattr(param, IS_TENSOR_ZERO_PARALLEL)
+                if hasattr(param, IS_WEIGHT_ZERO_PARALLEL):
+                    delattr(param, IS_WEIGHT_ZERO_PARALLEL)
+                if hasattr(param, IS_TENSOR_EXPERT_DATA_PARALLEL):
+                    delattr(param, IS_TENSOR_EXPERT_DATA_PARALLEL)
+
         return norm
 
     def _compute_param_norm_stage(
@@ -547,12 +663,29 @@ class HybridZeroOptimizer(BaseOptimizer):
     ):
         # compute norm for gradients that have been reduced
         params, grads = self._param_store.get_reduced_param_for_compute_norm(group_id=group_id, last_bucket=last_bucket)
-
+        params_is_padding = False
         total_param_norms = {}
         if len(params) == 0:
+            params_is_padding = True
             dtype = self.param_groups[group_id]["dtype"]
             grads = [self.padding_grad.to(dtype)]
             params = [self.padding_tensor.to(dtype)]
+
+            if self.optim.param_groups[group_id]["name"] in ("default", "fp32"):
+                for param in params:
+                    if self.use_isp:
+                        setattr(param, IS_WEIGHT_ZERO_PARALLEL, True)
+                    else:
+                        setattr(param, IS_TENSOR_ZERO_PARALLEL, True)
+            elif self.optim.param_groups[group_id]["name"] == "embed_head":
+                # should be isp mode
+                for param in params:
+                    setattr(param, IS_TENSOR_DATA_PARALLEL, True)
+            elif self._is_moe_group(self.optim.param_groups[group_id]):
+                for param in params:
+                    setattr(param, IS_TENSOR_EXPERT_DATA_PARALLEL, True)
+            else:
+                raise NotImplementedError("unrecognized parameter group.")
 
         if self._clip_grad_norm > 0:
             total_param_norms = compute_param_norm(
@@ -562,16 +695,48 @@ class HybridZeroOptimizer(BaseOptimizer):
                 previous_param_norms=previous_param_norms,
                 zero_mode=self._broadcast_parallel_mode[group_id],
             )
+
+        if params_is_padding:
+            for param in params:
+                if hasattr(param, IS_REPLICA_ZERO_PARALLEL):
+                    delattr(param, IS_REPLICA_ZERO_PARALLEL)
+                if hasattr(param, IS_TENSOR_DATA_PARALLEL):
+                    delattr(param, IS_TENSOR_DATA_PARALLEL)
+                if hasattr(param, IS_TENSOR_ZERO_PARALLEL):
+                    delattr(param, IS_TENSOR_ZERO_PARALLEL)
+                if hasattr(param, IS_WEIGHT_ZERO_PARALLEL):
+                    delattr(param, IS_WEIGHT_ZERO_PARALLEL)
+                if hasattr(param, IS_TENSOR_EXPERT_DATA_PARALLEL):
+                    delattr(param, IS_TENSOR_EXPERT_DATA_PARALLEL)
+
         return total_param_norms
 
     def _compute_vocab_grad_norm_stage(
         self, group_id: int = 0, last_bucket: bool = False, last_stage: bool = False, previous_vocab_grad_norm=None
     ):
         params, grads = self._param_store.get_reduced_param_for_compute_norm(group_id=group_id, last_bucket=last_bucket)
+        params_is_padding = False
         if len(params) == 0:
+            params_is_padding = True
             dtype = self.param_groups[group_id]["dtype"]
             grads = [self.padding_grad.to(dtype)]
             params = [self.padding_tensor.to(dtype)]
+
+            if self.optim.param_groups[group_id]["name"] in ("default", "fp32"):
+                for param in params:
+                    if self.use_isp:
+                        setattr(param, IS_WEIGHT_ZERO_PARALLEL, True)
+                    else:
+                        setattr(param, IS_TENSOR_ZERO_PARALLEL, True)
+            elif self.optim.param_groups[group_id]["name"] == "embed_head":
+                # should be isp mode
+                for param in params:
+                    setattr(param, IS_TENSOR_DATA_PARALLEL, True)
+            elif self._is_moe_group(self.optim.param_groups[group_id]):
+                for param in params:
+                    setattr(param, IS_TENSOR_EXPERT_DATA_PARALLEL, True)
+            else:
+                raise NotImplementedError("unrecognized parameter group.")
 
         vocab_grad_norm = None
 
@@ -584,19 +749,49 @@ class HybridZeroOptimizer(BaseOptimizer):
                 zero_mode=self._broadcast_parallel_mode[group_id],
             )
 
+        if params_is_padding:
+            for param in params:
+                if hasattr(param, IS_REPLICA_ZERO_PARALLEL):
+                    delattr(param, IS_REPLICA_ZERO_PARALLEL)
+                if hasattr(param, IS_TENSOR_DATA_PARALLEL):
+                    delattr(param, IS_TENSOR_DATA_PARALLEL)
+                if hasattr(param, IS_TENSOR_ZERO_PARALLEL):
+                    delattr(param, IS_TENSOR_ZERO_PARALLEL)
+                if hasattr(param, IS_WEIGHT_ZERO_PARALLEL):
+                    delattr(param, IS_WEIGHT_ZERO_PARALLEL)
+                if hasattr(param, IS_TENSOR_EXPERT_DATA_PARALLEL):
+                    delattr(param, IS_TENSOR_EXPERT_DATA_PARALLEL)
+
         return vocab_grad_norm
 
     def _count_zero_grads_stage(
         self, group_id: int = 0, last_bucket: bool = False, last_stage: bool = False, previous_zero_grad_count=None
     ):
         params, grads = self._param_store.get_reduced_param_for_compute_norm(group_id=group_id, last_bucket=last_bucket)
-
+        params_is_padding = False
         total_zero_grad_count = {}
 
         if len(params) == 0:
+            params_is_padding = True
             dtype = self.param_groups[group_id]["dtype"]
             grads = [self.padding_grad.to(dtype)]
             params = [self.padding_tensor.to(dtype)]
+
+            if self.optim.param_groups[group_id]["name"] in ("default", "fp32"):
+                for param in params:
+                    if self.use_isp:
+                        setattr(param, IS_WEIGHT_ZERO_PARALLEL, True)
+                    else:
+                        setattr(param, IS_TENSOR_ZERO_PARALLEL, True)
+            elif self.optim.param_groups[group_id]["name"] == "embed_head":
+                # should be isp mode
+                for param in params:
+                    setattr(param, IS_TENSOR_DATA_PARALLEL, True)
+            elif self._is_moe_group(self.optim.param_groups[group_id]):
+                for param in params:
+                    setattr(param, IS_TENSOR_EXPERT_DATA_PARALLEL, True)
+            else:
+                raise NotImplementedError("unrecognized parameter group.")
 
         if self._clip_grad_norm > 0:
             total_zero_grad_count = compute_zero_grad_count(
@@ -606,6 +801,20 @@ class HybridZeroOptimizer(BaseOptimizer):
                 previous_zero_grad_count=previous_zero_grad_count,
                 zero_mode=self._broadcast_parallel_mode[group_id],
             )
+
+        if params_is_padding:
+            for param in params:
+                if hasattr(param, IS_REPLICA_ZERO_PARALLEL):
+                    delattr(param, IS_REPLICA_ZERO_PARALLEL)
+                if hasattr(param, IS_TENSOR_DATA_PARALLEL):
+                    delattr(param, IS_TENSOR_DATA_PARALLEL)
+                if hasattr(param, IS_TENSOR_ZERO_PARALLEL):
+                    delattr(param, IS_TENSOR_ZERO_PARALLEL)
+                if hasattr(param, IS_WEIGHT_ZERO_PARALLEL):
+                    delattr(param, IS_WEIGHT_ZERO_PARALLEL)
+                if hasattr(param, IS_TENSOR_EXPERT_DATA_PARALLEL):
+                    delattr(param, IS_TENSOR_EXPERT_DATA_PARALLEL)
+
         return total_zero_grad_count
 
     @llm_timeout(func_name="optim_step")
@@ -660,7 +869,6 @@ class HybridZeroOptimizer(BaseOptimizer):
             bucket.empty()
         self._bucket_in_progress = []
         self._param_store.clear_grads_of_previous_reduced_params()
-
         # compute norm for gradients in the last bucket
         total_norms = {}
         total_param_grad_norms = {}
@@ -773,7 +981,6 @@ class HybridZeroOptimizer(BaseOptimizer):
             self._grad_store._averaged_gradients = dict()
             self.zero_grad()
             return False, norms
-
         # copy the grad of fp16 param to fp32 param
         single_grad_partition_groups = []
         for group_id in range(self.num_param_groups):
@@ -801,7 +1008,6 @@ class HybridZeroOptimizer(BaseOptimizer):
             single_grad_partition_groups.append(flat_fp32_avg_grads)
             device = self._fp32_flat_param_groups_of_current_rank[group_id].device
             self._fp32_flat_param_groups_of_current_rank[group_id].grad = flat_fp32_avg_grads.to(device)
-
         # unscale and clip grads
         # get the global norm
         global_norm_groups = {}
@@ -835,7 +1041,6 @@ class HybridZeroOptimizer(BaseOptimizer):
                     )
                     fp32_param = self._fp32_flat_param_groups_of_current_rank[group_id]
                     fp16_param.data.copy_(fp32_param)
-
         torch.cuda.synchronize()
         with torch.cuda.stream(self._comm_bcast_stream):
             self.broadcast_params()

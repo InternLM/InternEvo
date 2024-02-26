@@ -1,0 +1,40 @@
+name: upload-to-pypi
+
+on:
+  create:
+    tags:
+      - "*"
+
+env:
+  WORKSPACE_PREFIX: $(echo $GITHUB_WORKSPACE |cut -d '/' -f 1-4)
+  SLURM_PARTITION: llm_s
+  TWINE_USERNAME: __token__
+  TWINE_PASSWORD: ${{ secrets.PYPI_API_TOKEN }}
+
+jobs:
+  build-and-upload:
+    runs-on: [t_cluster]
+    steps:
+    - name: mask env
+      run: |
+        echo "::add-mask::${{env.WORKSPACE_PREFIX}}"
+        echo "::add-mask::$path_prefix"
+    - uses: actions/checkout@v3
+      with:
+        fetch-depth: 0
+
+    - name: install dependencies
+      run: |
+        pip install setuptools wheel twine
+
+    - name: get latest tag
+      run: |
+        latest_tag=$(git describe --tags --abbrev=0)
+        echo "$latest_tag" > version.txt
+
+    - name: build and upload package
+      run: |
+        source activate ${evo_env_torch21_flash2}
+        export PYTHONPATH=$PWD:$PYTHONPATH
+        srun -p ${SLURM_PARTITION} --kill-on-bad-exit=1 --job-name=internlm-${GITHUB_RUN_ID}-${GITHUB_JOB} -N 1 -n 1 --gres=gpu:1 python setup.py sdist bdist_wheel
+        twine upload -u __token__ -p ${{ secrets.PYPI_API_TOKEN }} dist/*

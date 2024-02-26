@@ -1,10 +1,10 @@
-.. InternLM documentation master file, created by
+.. InternEvo documentation master file, created by
    sphinx-quickstart on Mon Aug 28 17:33:28 2023.
    You can adapt this file completely to your liking, but it should at least
    contain the root `toctree` directive.
 
 
-InternLM
+InternEvo
 ========
 
 环境构建

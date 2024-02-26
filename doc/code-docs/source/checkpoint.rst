@@ -1,14 +1,14 @@
 模型加载与保存
 ===================
 
-InternLM 使用 ``internlm.utils.model_checkpoint.CheckpointManager`` 来管理模型保存。其中，可以使用 ``CheckpointManager.try_save_checkpoint(train_state)`` 来保存指定 step 的模型状态。
+InternEvo 使用 ``internlm.utils.model_checkpoint.CheckpointManager`` 来管理模型保存。其中，可以使用 ``CheckpointManager.try_save_checkpoint(train_state)`` 来保存指定 step 的模型状态。
 
-InternLM支持启动时自动加载最新的模型备份，并在接收信号退出训练时自动进行模型备份。
+InternEvo支持启动时自动加载最新的模型备份，并在接收信号退出训练时自动进行模型备份。
 
 CheckpointManager
 --------------------------
 
-``CheckpointManager`` 是InternLM负责进行模型加载和保存的工具类，其会使用config文件中的ckpt字段的初始化参数字典初始化自身的参数，目前相关的参数有：
+``CheckpointManager`` 是InternEvo负责进行模型加载和保存的工具类，其会使用config文件中的ckpt字段的初始化参数字典初始化自身的参数，目前相关的参数有：
 
 - ``enable_save_ckpt``: 是否开启检查点存储功能（不影响检查点加载）。参数类型 ``bool``，必选参数。
 
@@ -57,7 +57,7 @@ CheckpointManager
 (1) 路径格式约定
 ~~~~~~~~~~~~~~~~~~~~~~~~~~
 
-InternLM对config中出现的所有存储路径都遵循以下的路径格式约定:
+InternEvo对config中出现的所有存储路径都遵循以下的路径格式约定:
 
 .. figure:: ../../imgs/ckpt_path_format_CN.png
   :scale: 30%
@@ -92,7 +92,7 @@ load_ckpt_folder 由三个字段组成， ``path`` 、 ``content`` 和 ``ckpt_ty
 
 - ``ckpt_type``：表示加载的模型权重类型，目前支持的字段包括：
 
-  - ``internlm``：internlm约定的checkpoint存储格式。
+  - ``internlm``：internevo约定的checkpoint存储格式。
 
 下面给出两个例子：
 

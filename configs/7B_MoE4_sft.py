@@ -28,7 +28,7 @@ ckpt = dict(
     # 'load_ckpt_info' setting guide:
     # 1. the 'path' indicate ckpt path,
     # 2. the 'content‘ means what states will be loaded, support: "model", "sampler", "optimizer", "scheduler", "all"
-    # 3. the ’ckpt_type‘ means the type of checkpoint to be loaded, now only 'normal' type is supported.
+    # 3. the ’ckpt_type‘ means the type of checkpoint to be loaded, support: "internlm", "llama", "hf_llama".
     load_ckpt_info=dict(path=MODEL_ONLY_FOLDER, content=("model",), ckpt_type="internlm"),
     # 'auto_resume' is designed to automatically load the latest checkpoint from 'save_ckpt_folder' when encountering
     # training interruptions/hangs caused by hardware failures, using a scheduling system (such as k8s/slurm)
@@ -44,8 +44,8 @@ ckpt = dict(
     oss_snapshot_freq=int(CHECKPOINT_EVERY / 2),  # snapshot ckpt save frequency.
 )
 
-TRAIN_FOLDER = "/path/to/dataset"
-VALID_FOLDER = "/path/to/dataset"
+TRAIN_FOLDER = None  # "/path/to/dataset"
+VALID_FOLDER = None  # "/path/to/dataset"
 data = dict(
     seq_len=SEQ_LEN,
     # micro_num means the number of micro_batch contained in one gradient update
@@ -59,12 +59,17 @@ data = dict(
     pack_sample_into_one=False,
     total_steps=50000,
     skip_batches="",
+    # rampup_batch_size (str): A string with three space-separated integers representing the
+    #       starting batch size, the increment, and the number of steps between
+    #       each increment. For example, "192 24 8" means that the batch size (micro_num)
+    #       starts at 192 and increases by 24 every 8 steps. Defaults to None.
+    #       (IMPORTANT): The interval step size is 'micro_bsz'.
     rampup_batch_size="",
     # Datasets with less than 50 rows will be discarded
     min_length=50,
-    # train_folder=TRAIN_FOLDER,
-    # valid_folder=VALID_FOLDER,
-    empty_cache_and_diag_interval=10,
+    train_folder=TRAIN_FOLDER,
+    valid_folder=VALID_FOLDER,
+    empty_cache_and_diag_interval=200,
     diag_outlier_ratio=1.1,
 )
 
@@ -125,6 +130,7 @@ beta2_scheduler = dict(
     cur_iter=-1,
 )
 
+use_fp32_norm = False
 model = dict(
     checkpoint=False,  # The proportion of layers for activation aheckpointing, the optional value are True/False/[0-1]
     num_attention_heads=NUM_ATTENTION_HEAD,
@@ -143,25 +149,38 @@ model = dict(
     num_chunks=1,  # if num_chunks > 1, interleaved pipeline scheduler is used.
     num_experts=4,
     moe_use_residual=False,
-    moe_gate_k=2,
+    moe_type="GShard",
 )
-
-# zero1 parallel:
-#     1. if zero1 <= 0, The size of the zero process group is equal to the size of the dp process group,
-#         so parameters will be divided within the range of dp.
-#     2. if zero1 == 1, zero is not used, and all dp groups retain the full amount of model parameters.
-#     3. zero1 > 1 and zero1 <= dp world size, the world size of zero is a subset of dp world size.
-#         For smaller models, it is usually a better choice to split the parameters within nodes with a setting <= 8.
-# pipeline parallel (dict):
-#     1. size: int, the size of pipeline parallel.
-#     2. interleaved_overlap: bool, enable/disable communication overlap when using interleaved pipeline scheduler.
-# tensor parallel: tensor parallel size, usually the number of GPUs per node.
-
+"""
+zero1 parallel (dict):
+    1. size: int
+        * if size <= 0, the size of the zero process group is equal to the size of the dp process group,
+            so parameters will be divided within the range of dp.
+        * if size == 1, zero is not used, and all dp groups retain the full amount of model parameters.
+        * if size > 1 and size <= dp world size, the world size of zero is a subset of dp world size.
+        For smaller models, it is usually a better choice to split the parameters within nodes with a setting <= 8.
+    2. fsdp: bool, enable/disable torch's fully sharded data parallel, defaults to False.
+tensor parallel (dict):
+    1. size: int, the size of tensor parallel.
+    2. mode: str, the tensor parallel mode, should be in ['mtp', 'msp', 'fsp', 'isp'],
+        defaults to 'mtp', means the pure megatron tensor parallel without sequence parallel.
+        msp: megatron tensor parallel with sequence parallel, sequence parallel size = tensor parallel size.
+        fsp: tensor parallel by flash-attn with sequence parallel, sequence parallel size = tensor parallel size.
+        isp: customed intern sequence parallel without tensor parallel, can be used with weight parallel.
+pipeline parallel (dict):
+    1. size: int, the size of pipeline parallel.
+    2. interleaved_overlap: bool, enable/disable communication overlap when using interleaved pipeline scheduler,
+        defaults to False.
+weight parallel (dict):
+    1. size: int, the size of weight parallel.
+    2. overlap: bool, enable/disable all_gather/reduce_scatter communication overlap, defaults to False.
+    3. memory_pool: bool, enable/disable memory pool, defaults to False.
+"""
 parallel = dict(
     zero1=dict(size=-1, fsdp=False),
-    tensor=1,
+    tensor=dict(size=1, mode="mtp"),
     pipeline=dict(size=1, interleaved_overlap=True),
-    sequence_parallel=False,
+    weight=dict(size=1, overlap=True, memory_pool=True),
 )
 
 cudnn_deterministic = False
@@ -173,7 +192,22 @@ monitor = dict(
         enable_feishu_alert=DO_ALERT,
         feishu_alert_address=None,  # feishu webhook to send alert message
         light_monitor_address=None,  # light_monitor address to send heartbeat
+        alert_file_path=f"llm_alter/{JOB_NAME}_alert.log",
     ),
+    tensorboard=dict(
+        queue_max_length=10,
+    ),
+)
+
+# custom moe impl configs
+moe = dict(
+    top_k=2,
+    capacity_factor=1.0,
+    eval_capacity_factor=1.0,
+    min_capacity=4,
+    noisy_gate_policy=None,
+    drop_tokens=True,
+    use_rts=True,
 )
 
 model_type = "INTERNLM_MoE"

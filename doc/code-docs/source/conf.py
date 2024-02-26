@@ -78,8 +78,8 @@ html_static_path = []
 html_context = {
     "display_github": True,
     "github_user": "InternLM",
-    "github_repo": "InternLM",
-    "github_version": "main",
+    "github_repo": "InternEvo",
+    "github_version": "develop",
     "conf_py_path": "/doc/code-docs/source/",
 }
 

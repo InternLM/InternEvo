@@ -7,16 +7,52 @@ on:
       - "doc/**"
       - "**.md"
 env:
+  WORKSPACE_PREFIX: $(echo $GITHUB_WORKSPACE |cut -d '/' -f 1-4)
   SLURM_PARTITION: llm_s
 
 jobs:
-  training_8GPU:
+  training_4GPU:
     runs-on: [t_cluster]
-    timeout-minutes: 5
+    timeout-minutes: 15
     steps:
+    - name: mask env
+      run: |
+        echo "::add-mask::${{env.WORKSPACE_PREFIX}}"
+        echo "::add-mask::$path_prefix"
     - uses: actions/checkout@v3
 
-    - name: training_8GPU
+    - name: training_4GPU
       run: |
-        source /mnt/petrelfs/share_data/llm_env/env/llm-flash2.0
-        srun -p ${SLURM_PARTITION} --kill-on-bad-exit=1 --job-name=${GITHUB_RUN_ID}-${GITHUB_JOB} -n8 --ntasks-per-node=8 --cpus-per-task=4 --gpus-per-task=1 pytest -s -v --color=yes -m "training_8GPU" ./tests/test_training
+        source activate ${evo_env_torch21_flash2}
+        srun -p ${SLURM_PARTITION} --exclusive --kill-on-bad-exit=1 --job-name=${GITHUB_RUN_ID}-${GITHUB_JOB} -n4 --ntasks-per-node=4 --cpus-per-task=4 --gpus-per-task=1 pytest -s -v --color=yes -m "training_4GPU" ./tests/test_training/test_loss.py
+
+  training_8GPU_ISP:
+    runs-on: [t_cluster]
+    timeout-minutes: 10
+    steps:
+    - name: mask env
+      run: |
+        echo "::add-mask::${{env.WORKSPACE_PREFIX}}"
+        echo "::add-mask::$path_prefix"
+    - uses: actions/checkout@v3
+
+    - name: training_8GPU_ISP
+      run: |
+        source activate ${evo_env_torch21_flash2}
+        srun -p ${SLURM_PARTITION} --kill-on-bad-exit=1 --job-name=${GITHUB_RUN_ID}-${GITHUB_JOB} -n8 --ntasks-per-node=8 --cpus-per-task=4 --gpus-per-task=1 pytest -s -v --color=yes -m "training_8GPU_ISP" ./tests/test_training/test_loss.py
+
+  training_8GPU_ISP_CKPT:
+    runs-on: [t_cluster]
+    timeout-minutes: 20
+    steps:
+    - name: mask env
+      run: |
+        echo "::add-mask::${{env.WORKSPACE_PREFIX}}"
+        echo "::add-mask::$path_prefix"
+    - uses: actions/checkout@v3
+
+    - name: training_8GPU_ISP_CKPT
+      run: |
+        source activate ${evo_env_torch21_flash2}
+        srun -p ${SLURM_PARTITION} --kill-on-bad-exit=1 --job-name=${GITHUB_RUN_ID}-${GITHUB_JOB} -n8 --ntasks-per-node=8 --cpus-per-task=4 --gpus-per-task=1 pytest -s -v --color=yes -m "training_8GPU_ISP_SAVE_CKPT" ./tests/test_training/test_loss.py
+        srun -p ${SLURM_PARTITION} --kill-on-bad-exit=1 --job-name=${GITHUB_RUN_ID}-${GITHUB_JOB} -n8 --ntasks-per-node=8 --cpus-per-task=4 --gpus-per-task=1 pytest -s -v --color=yes -m "training_8GPU_ISP_LOAD_CKPT" ./tests/test_training/test_loss.py
