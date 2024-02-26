@@ -50,6 +50,9 @@ class _SeqAllToAll(torch.autograd.Function):
         ctx.scatter_idx = scatter_idx
         ctx.gather_idx = gather_idx
 
+        if dist.get_world_size(group) <= 1:
+            return input_
+
         seq_world_size = dist.get_world_size(group)
 
         input_list = [t.contiguous() for t in torch.tensor_split(input_, seq_world_size, scatter_idx)]
@@ -60,6 +63,9 @@ class _SeqAllToAll(torch.autograd.Function):
 
     @staticmethod
     def backward(ctx: Any, *grad_output: Tensor) -> Tuple[None, Tensor, None, None]:
+        if dist.get_world_size(ctx.group) <= 1:
+            return (None, *grad_output, None, None)
+
         return (None, _SeqAllToAll.apply(ctx.group, *grad_output, ctx.gather_idx, ctx.scatter_idx), None, None)
 
 
