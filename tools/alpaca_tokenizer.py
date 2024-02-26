@@ -40,10 +40,10 @@ def get_chat_format_data(ori_data):
     output_str = ori_data["output"]
     data = dict()
     if input_str != "":
-        data["user"] = f"<|im_start|>user\n{instruction_str}\n{input_str}"
+        data["user"] = f"[UNUSED_TOKEN_146]user\n{instruction_str}\n{input_str}"
     else:
-        data["user"] = f"<|im_start|>user\n{instruction_str}"
-    data["bot"] = f"<|im_start|>assistant\n{output_str}"
+        data["user"] = f"[UNUSED_TOKEN_146]user\n{instruction_str}"
+    data["bot"] = f"[UNUSED_TOKEN_146]assistant\n{output_str}"
     return data
 
 
@@ -65,11 +65,13 @@ def tokenize(sample, sp_model):
     human_ids = sp_model.encode(human_s) + [special_tokens_map["end"], special_tokens_map["nl_id"]]
     human_ids_ignore = [-token_id for token_id in human_ids]
 
-    # TODO
-    ass_template_ids = sp_model.encode("<|Bot|>:")
+    ass_template = "[UNUSED_TOKEN_146]assistant\n"
+    ass_template_ids = sp_model.encode(ass_template)
     ass_template_ids_ignore = [-token_ids for token_ids in ass_template_ids]
     ass_ids = (
-        ass_template_ids_ignore + sp_model.encode(ass_s[8:]) + [special_tokens_map["end"], special_tokens_map["nl_id"]]
+        ass_template_ids_ignore
+        + sp_model.encode(ass_s[len(ass_template) :])
+        + [special_tokens_map["end"], special_tokens_map["nl_id"]]
     )
 
     token_ids += human_ids_ignore + ass_ids

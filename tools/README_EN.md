@@ -65,6 +65,16 @@ For example, the `starting index` is 0 for the first `sequence` with 16 `tokens`
 
 The `bin` and `meta` file formats for `json` and `jsonl` type files are the same as for `txt`, so we won't go over them here.
 
+# alpac_tokenizer.py
+
+This script is a sample that demonstrates how to use the tokenizer of `InternLM2` to process [Alpaca](https://github.com/tatsu-lab/stanford_alpaca) data and generate `bin` and `meta` files for training.
+
+```bash
+wget https://github.com/tatsu-lab/stanford_alpaca/raw/main/alpaca_data.json
+# The generated files will be saved in `alpaca_output/`
+python tools/alpaca_tokenizer.py alpaca_data.json alpaca_output tools/tokenizer_internlm2.model --split_ratio 0.1
+```
+
 # pal_inference.py
 
 Perform reasoning using [PAL](https://github.com/reasoning-machines/pal) on the [GSM8K](https://huggingface.co/datasets/gsm8k) dataset, allowing the model to generate code and solve mathematical problems through Python interpretation. Here's how you can use it:

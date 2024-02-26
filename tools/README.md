@@ -76,6 +76,14 @@ $ python tools/tokenizer.py --text_input_path raw_data.txt --bin_output_path cn/
 
 # alpaca_tokenizer.py
 
+`alpac_tokenizer.py` 是用 `InternLM2` 的 tokenizer 处理 [Alpaca](https://github.com/tatsu-lab/stanford_alpaca) 数据的样例，最终会生成适合训练的 `bin` 和 `meta` 文件。
+
+```bash
+wget https://github.com/tatsu-lab/stanford_alpaca/raw/main/alpaca_data.json
+# 输出位于 `alpaca_output` 文件夹下
+python tools/alpaca_tokenizer.py alpaca_data.json alpaca_output tools/tokenizer_internlm2.model --split_ratio 0.1
+```
+
 # pal_inference.py
 
 在 [GSM8K](https://huggingface.co/datasets/gsm8k) 数据集上使用 [PAL](https://github.com/reasoning-machines/pal) 范式推理，使模型编写代码并通过 Python 解释器执行来解决数学问题。其用法如下：
