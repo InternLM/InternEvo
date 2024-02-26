@@ -250,7 +250,7 @@ def internlm_interactive_generation(
         max_length=generation_config.max_length,
         do_sample=generation_config.do_sample,
         temperature=generation_config.temperature,
-        top_k=40,
+        top_k=50,
         top_p=generation_config.top_p,
         repetition_penalty=generation_config.repetition_penalty,
         length_penalty=1.0,
@@ -297,7 +297,7 @@ if __name__ == "__main__":
     query = "hello"
     # [UNUSED_TOKEN_146] -> <|im_start|>：92543
     # [UNUSED_TOKEN_145] -> <|im_end|>：92542
-    prompt = f"""[UNUSED_TOEKN_146]user\n{query}[UNUSED_TOEKN_145]\n[UNUSED_TOEKN_146]assistant\n"""
+    prompt = f"""[UNUSED_TOKEN_146]user\n{query}[UNUSED_TOKEN_145]\n[UNUSED_TOKEN_146]assistant\n"""
     tokenizer = SentencePieceProcessor("tools/tokenizer_internlm2.model")  # pylint: disable=E1121
 
     generation_config = GenerationConfig()

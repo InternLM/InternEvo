@@ -85,9 +85,8 @@ def on_btn_click():
 @st.cache_resource
 def load_model():
     model = initialize_internlm_model(
-        model_type="INTERNLM",
-        ckpt_dir="/mnt/inspurfs/xingshuhao/repo/huggingface_repo/internlm2-chat-7b",
-        # ckpt_dir="[Please replace this with the directory where the internlm model weights are stored]",
+        model_type="INTERNLM2",
+        ckpt_dir="[Please replace this with the directory where the internlm model weights are stored]",
         # Please change the model here to other models supported by internlm according to your own usage needs.
         model_config=MODEL_CONFIG_MAP["internlm2-chat-7b"],
         del_model_prefix=True,
@@ -108,17 +107,19 @@ def prepare_generation_config():
     return generation_config
 
 
+# <|im_start|>: [UNUSED_TOKEN_146]
+# <|im_end|>: [UNUSED_TOKEN_145]
 system_meta_instruction = (
-    """<|im_start|>system:You are an AI assistant whose name is InternLM (书生·浦语).
+    """[UNUSED_TOKEN_146]system:You are an AI assistant whose name is InternLM (书生·浦语).
 - InternLM (书生·浦语) is a conversational language model that is developed by Shanghai AI Laboratory (上海人工智能实验室). """
     + """It is designed to be helpful, honest, and harmless.
 - InternLM (书生·浦语) can understand and communicate fluently in the language chosen by the user such as English and 中文.
-<|im_end|>\n
+[UNUSED_TOKEN_145]\n
 """
 )
-user_prompt = "<|im_start|>user:{user}<|im_end|>\n"
-robot_prompt = "<|im_start|>assistant:{robot}<|im_end|>\n"
-cur_query_prompt = "<|im_start|>user:{user}\n<|im_end|>\n<|im_start|>assistant:\n"
+user_prompt = "[UNUSED_TOKEN_146]user:{user}[UNUSED_TOKEN_145]\n"
+robot_prompt = "[UNUSED_TOKEN_146]assistant:{robot}[UNUSED_TOKEN_145]\n"
+cur_query_prompt = "[UNUSED_TOKEN_146]user:{user}\n[UNUSED_TOKEN_145]\n[UNUSED_TOKEN_146]assistant:\n"
 
 
 def combine_history(prompt):

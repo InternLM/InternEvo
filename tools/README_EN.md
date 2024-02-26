@@ -16,6 +16,14 @@ This directory provide some tools for model training with the following file str
 └── tokenizer.py # tools for generating `bin` and `meta` file for raw data
 ```
 
+# load_internlm_model.py
+
+This file is used to load the pretrained InternLM model and InternLM2 model for inference examples. The `ckpt_dir` parameter of the `initialize_internlm_model` function is the model path, `model_type` is the type of the model (currently supports `INTERNLM`, `INTERNLM2`, `INTERNLM_MoE`, and `LLAMA2`), and model_config is the model configuration.
+
+```bash
+torchrun --nproc_per_node=1 tools/load_internlm_model.py
+```
+
 # tokenizer.py
 
 We need to use a `tokenizer` to generate `bin` and `meta` files for raw data. We import the tokenizer model by specifying the model weight path in `tools/tokenizer.py`. Currently, we provide `V7.model` to generate tokens. If you want to use a different model, you can modify the model weight path in `tokenizer.py` directly.

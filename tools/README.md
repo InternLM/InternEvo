@@ -17,7 +17,7 @@
 
 # load_internlm_model.py
 
-改文件用于加载原生训练的 InternLM 模型和 InternLM2 模型并进行推理示例。 `initialize_internlm_model` 函数的 `ckpt_dir` 参数为模型路径，`model_type` 为模型的类型（目前支持 `INTERNLM` `INTERNLM2` `INTERNLM_MoE` 和 `LLAMA2`），`model_config` 为模型配置。
+该文件用于加载原生训练的 InternLM 模型和 InternLM2 模型并进行推理示例。 `initialize_internlm_model` 函数的 `ckpt_dir` 参数为模型路径，`model_type` 为模型的类型（目前支持 `INTERNLM` `INTERNLM2` `INTERNLM_MoE` 和 `LLAMA2`），`model_config` 为模型配置。
 
 ```bash
 torchrun --nproc_per_node=1 tools/load_internlm_model.py
