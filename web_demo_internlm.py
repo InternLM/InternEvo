@@ -35,23 +35,45 @@ MODEL_CONFIG_MAP = {
         num_chunks=1,
         use_dynamic_ntk_rope=True,
     ),
-    "internlm-chat-7b-v1.1": dict(
-        checkpoint=False,
-        num_attention_heads=32,
-        embed_split_hidden=True,
-        vocab_size=103168,
-        embed_grad_scale=1,
-        parallel_output=False,
-        hidden_size=4096,
-        num_layers=32,
-        mlp_ratio=8 / 3,
-        apply_post_layer_norm=False,
-        dtype="torch.bfloat16",
-        norm_type="rmsnorm",
-        layer_norm_epsilon=1e-5,
-        use_flash_attn=True,
+    "internlm2-chat-7b": dict(
         num_chunks=1,
-        use_dynamic_ntk_rope=True,
+        checkpoint=0.2,
+        dtype="torch.bfloat16",
+        embed_split_hidden=True,
+        num_layers=32,
+        hidden_size=4096,
+        vocab_size=92544,
+        embed_grad_scale=1,
+        parallel_output=True,
+        num_attention_heads=32,
+        num_kv_attention_heads=8,
+        mlp_ratio=3.5,
+        norm_type="rmsnorm",
+        adapt_hf=False,
+        apply_post_layer_norm=False,
+        no_bias=True,
+        layer_norm_epsilon=1e-5,
+        rope_base=1000000,
+    ),
+    "internlm2-chat-20b": dict(
+        num_chunks=1,
+        checkpoint=1.0,
+        dtype="torch.bfloat16",
+        embed_split_hidden=True,
+        num_layers=48,
+        hidden_size=6144,
+        vocab_size=92544,
+        embed_grad_scale=1,
+        parallel_output=True,
+        num_attention_heads=48,
+        num_kv_attention_heads=8,
+        mlp_ratio=8 / 3,
+        norm_type="rmsnorm",
+        adapt_hf=True,
+        apply_post_layer_norm=False,
+        no_bias=True,
+        layer_norm_epsilon=1e-5,
+        rope_base=1000000,
     ),
 }
 
@@ -64,12 +86,13 @@ def on_btn_click():
 def load_model():
     model = initialize_internlm_model(
         model_type="INTERNLM",
-        ckpt_dir="[Please replace this with the directory where the internlm model weights are stored]",
+        ckpt_dir="/mnt/inspurfs/xingshuhao/repo/huggingface_repo/internlm2-chat-7b",
+        # ckpt_dir="[Please replace this with the directory where the internlm model weights are stored]",
         # Please change the model here to other models supported by internlm according to your own usage needs.
-        model_config=MODEL_CONFIG_MAP["internlm-chat-7b-v1.1"],
+        model_config=MODEL_CONFIG_MAP["internlm2-chat-7b"],
         del_model_prefix=True,
     )
-    tokenizer = SentencePieceProcessor("tools/tokenizer_internlm.model")  # pylint: disable=E1121
+    tokenizer = SentencePieceProcessor("tools/tokenizer_internlm2.model")  # pylint: disable=E1121
     return model, tokenizer
 
 
@@ -86,15 +109,16 @@ def prepare_generation_config():
 
 
 system_meta_instruction = (
-    """<|System|>:You are an AI assistant whose name is InternLM (书生·浦语).
+    """<|im_start|>system:You are an AI assistant whose name is InternLM (书生·浦语).
 - InternLM (书生·浦语) is a conversational language model that is developed by Shanghai AI Laboratory (上海人工智能实验室). """
     + """It is designed to be helpful, honest, and harmless.
 - InternLM (书生·浦语) can understand and communicate fluently in the language chosen by the user such as English and 中文.
+<|im_end|>\n
 """
 )
-user_prompt = "<|User|>:{user}\n"
-robot_prompt = "<|Bot|>:{robot}<eoa>\n"
-cur_query_prompt = "<|User|>:{user}\n<|Bot|>:"
+user_prompt = "<|im_start|>user:{user}<|im_end|>\n"
+robot_prompt = "<|im_start|>assistant:{robot}<|im_end|>\n"
+cur_query_prompt = "<|im_start|>user:{user}\n<|im_end|>\n<|im_start|>assistant:\n"
 
 
 def combine_history(prompt):
@@ -123,7 +147,7 @@ def main():
     user_avator = "doc/imgs/user.png"
     robot_avator = "doc/imgs/robot.png"
 
-    st.title("InternLM-Chat-7B")
+    st.title("InternLM2-Chat-7B")
 
     generation_config = prepare_generation_config()
 
@@ -152,7 +176,9 @@ def main():
                 tokenizer=tokenizer,
                 prompt=real_prompt,
                 generation_config=generation_config,
-                additional_eos_token_list=[103028],
+                # internlm: 103028
+                # internlm2: 92542
+                additional_eos_token_list=[92542],
             ):
                 # Display robot response in chat message container
                 message_placeholder.markdown(cur_response + "▌")

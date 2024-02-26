@@ -19,7 +19,8 @@ def process(dataset_path, sp_model):
         tuple: dumped processed data sample and length of tokens.
     """
 
-    dataset = json.load(open(dataset_path))
+    with open(dataset_path) as fp:
+        dataset = json.load(fp)
 
     for data in dataset:
         yield tokenize(get_chat_format_data(data), sp_model)
@@ -39,10 +40,10 @@ def get_chat_format_data(ori_data):
     output_str = ori_data["output"]
     data = dict()
     if input_str != "":
-        data["user"] = f"<|User|>:{instruction_str}\n{input_str}"
+        data["user"] = f"<|im_start|>user\n{instruction_str}\n{input_str}"
     else:
-        data["user"] = f"<|User|>:{instruction_str}"
-    data["bot"] = f"<|Bot|>:{output_str}"
+        data["user"] = f"<|im_start|>user\n{instruction_str}"
+    data["bot"] = f"<|im_start|>assistant\n{output_str}"
     return data
 
 
@@ -56,20 +57,19 @@ def tokenize(sample, sp_model):
     Returns:
         tuple: dumped processed data sample and length of tokens.
     """
-    special_tokens_map = {"<eoh>": 103167, "<eoa>": 103166, "nl_id": 13}
+    special_tokens_map = {"end": 92542, "nl_id": 13}
     token_ids = [sp_model.bos_id()]
     human_s = sample["user"]
     ass_s = sample["bot"]
 
-    human_ids = sp_model.encode(human_s) + [special_tokens_map["<eoh>"], special_tokens_map["nl_id"]]
+    human_ids = sp_model.encode(human_s) + [special_tokens_map["end"], special_tokens_map["nl_id"]]
     human_ids_ignore = [-token_id for token_id in human_ids]
 
+    # TODO
     ass_template_ids = sp_model.encode("<|Bot|>:")
     ass_template_ids_ignore = [-token_ids for token_ids in ass_template_ids]
     ass_ids = (
-        ass_template_ids_ignore
-        + sp_model.encode(ass_s[8:])
-        + [special_tokens_map["<eoa>"], special_tokens_map["nl_id"]]
+        ass_template_ids_ignore + sp_model.encode(ass_s[8:]) + [special_tokens_map["end"], special_tokens_map["nl_id"]]
     )
 
     token_ids += human_ids_ignore + ass_ids
@@ -100,8 +100,8 @@ def dump_bin_meta_bin(samples, path, split_ratio=0.1):
     valid_dir = Path(valid_path)
     train_dir.mkdir(exist_ok=True, parents=True)
     valid_dir.mkdir(exist_ok=True, parents=True)
-    train_f = open(train_dir.joinpath("dataset.bin"), "wb")
-    valid_f = open(valid_dir.joinpath("dataset.bin"), "wb")
+    train_f = open(train_dir.joinpath("dataset.bin"), "wb")  # pylint: disable=R1732
+    valid_f = open(valid_dir.joinpath("dataset.bin"), "wb")  # pylint: disable=R1732
 
     train_tokens = 0
     valid_tokens = 0
@@ -134,8 +134,10 @@ def dump_bin_meta_bin(samples, path, split_ratio=0.1):
 
     train_f.close()
     valid_f.close()
-    np.save(open(train_dir.joinpath("dataset.bin.meta"), "wb"), train_meta)
-    np.save(open(valid_dir.joinpath("dataset.bin.meta"), "wb"), valid_meta)
+    with open(train_dir.joinpath("dataset.bin.meta"), "wb") as train_meta_f:
+        np.save(train_meta_f, train_meta)
+    with open(valid_dir.joinpath("dataset.bin.meta"), "wb") as valid_meta_f:
+        np.save(valid_meta_f, valid_meta)
 
     return train_tokens, valid_tokens, train_samples, valid_samples
 
@@ -149,7 +151,7 @@ if __name__ == "__main__":
     parser.add_argument("--split_ratio", type=float, default=0.1, help="ratio for validation dataset splitting")
 
     args = parser.parse_args()
-    sp_model = spm.SentencePieceProcessor(model_file=args.tokenizer_path)
+    sp_model = spm.SentencePieceProcessor(args.tokenizer_path)  # pylint: disable=E1121
     split_ratio = args.split_ratio
     samples = []
 
