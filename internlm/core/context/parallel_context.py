@@ -564,6 +564,8 @@ class ParallelContext(metaclass=SingletonMeta):
 
         # run initialization of different process groups
         initializers = []
+        if "gqa" in parallel_config and parallel_config["gqa"] is True:
+            initializers.append(pgroup_initializer.Initializer_GQA(*initializer_args))
         initializers.append(pgroup_initializer.Initializer_Weight(*initializer_args))
         initializers.append(pgroup_initializer.Initializer_Weight_Data(*initializer_args))
         initializers.append(pgroup_initializer.Initializer_Tensor(*initializer_args))

@@ -5,6 +5,7 @@ from typing import Callable, Optional
 
 import fused_dense_lib as fused_dense_cuda
 import torch
+import torch.distributed as dist
 import torch.nn.functional as F
 from flash_attn.utils.distributed import all_reduce_raw
 from torch import Tensor
@@ -49,7 +50,7 @@ def _gather(input_, parallel_mode, dim=-1):
     tensor_list = [torch.empty_like(input_) for _ in range(world_size)]
     tensor_list[rank] = input_
     group = gpc.get_cpu_group(parallel_mode) if input_.device.type == "cpu" else gpc.get_group(parallel_mode)
-    torch.distributed.all_gather(tensor_list, input_, group=group)
+    dist.all_gather(tensor_list, input_, group=group)
 
     # concat
     output = torch.cat(tensor_list, dim=dim).contiguous()
@@ -121,29 +122,33 @@ def all_gather_raw(
     gather_dim: int = 0,
     memory_pool_allocator: Callable = None,
 ):
+    world_size = dist.get_world_size(process_group)
+    if world_size <= 1:
+        return input_, None
+
     if memory_pool_allocator is not None:
         output = memory_pool_allocator()
     else:
-        world_size = torch.distributed.get_world_size(process_group)
         shape = list(input_.shape)
         shape[gather_dim] = shape[gather_dim] * world_size
         output = torch.empty(shape, dtype=input_.dtype, device=input_.device)
 
-    handle = torch.distributed.all_gather_into_tensor(
-        output, input_.contiguous(), group=process_group, async_op=async_op
-    )
+    handle = dist.all_gather_into_tensor(output, input_.contiguous(), group=process_group, async_op=async_op)
     return output, handle
 
 
 def reduce_scatter_raw(
     input_: Tensor,
     process_group: ProcessGroup,
-    op=torch.distributed.ReduceOp.SUM,
+    op=dist.ReduceOp.SUM,
     async_op: bool = False,
     memory_pool_allocator: Callable = None,
 ):
-    world_size = torch.distributed.get_world_size(process_group)
+    world_size = dist.get_world_size(process_group)
     assert input_.shape[0] % world_size == 0
+
+    if world_size <= 1:
+        return input_, None
 
     if memory_pool_allocator is not None:
         size = (input_.shape[0] // world_size, *input_.shape[1:])
@@ -156,9 +161,7 @@ def reduce_scatter_raw(
             device=input_.device,
         ).contiguous()
 
-    handle = torch.distributed.reduce_scatter_tensor(
-        output, input_.contiguous(), op=op, group=process_group, async_op=async_op
-    )
+    handle = dist.reduce_scatter_tensor(output, input_.contiguous(), op=op, group=process_group, async_op=async_op)
     return output, handle
 
 
@@ -210,7 +213,7 @@ class FusedDenseFunc(torch.autograd.Function):
             weight = weight.to(dtype=torch.get_autocast_gpu_dtype())
             bias = bias.to(dtype=torch.get_autocast_gpu_dtype()) if bias is not None else None
         weight = weight.contiguous()
-        if process_group is not None and sequence_parallel:
+        if process_group is not None and sequence_parallel and handle_x is not None:
             handle_x.wait()
         batch_shape, n = total_x.shape[:-1], total_x.shape[-1]
         batch_dim = batch_shape.numel()
@@ -266,7 +269,7 @@ class FusedDenseFunc(torch.autograd.Function):
             grad_input = None
         if ctx.needs_input_grad[1]:
             assert ctx.compute_weight_gradient
-            if process_group is not None and sequence_parallel:
+            if process_group is not None and sequence_parallel and handle_x is not None:
                 handle_x.wait()
             grad_weight, grad_bias = backward_func(
                 total_x.reshape(batch_dim, total_x.shape[-1]),
@@ -276,7 +279,7 @@ class FusedDenseFunc(torch.autograd.Function):
         else:
             grad_weight = None
             grad_bias = grad_output if ctx.needs_input_grad[2] else None
-        if process_group is not None and ctx.needs_input_grad[0]:
+        if process_group is not None and ctx.needs_input_grad[0] and handle_grad_input is not None:
             handle_grad_input.wait()
         return grad_input, grad_weight, grad_bias, None, None, None, None, None
 
@@ -324,7 +327,7 @@ class MegatronFusedDenseFunc(torch.autograd.Function):
             weight = weight.to(dtype=torch.get_autocast_gpu_dtype())
             bias = bias.to(dtype=torch.get_autocast_gpu_dtype()) if bias is not None else None
         weight = weight.contiguous()
-        if process_group is not None and sequence_parallel:
+        if process_group is not None and sequence_parallel and handle_x is not None:
             handle_x.wait()
         batch_shape, n = total_x.shape[:-1], total_x.shape[-1]
         batch_dim = batch_shape.numel()
@@ -383,7 +386,7 @@ class MegatronFusedDenseFunc(torch.autograd.Function):
         else:
             grad_weight = None
             grad_bias = grad_output if ctx.needs_input_grad[2] else None
-        if process_group is not None and ctx.needs_input_grad[0]:
+        if process_group is not None and ctx.needs_input_grad[0] and handle_grad_input is not None:
             handle_grad_input.wait()
         return grad_input, grad_weight, grad_bias, None, None, None, None, None
 
@@ -472,12 +475,10 @@ class ISPFusedDenseFunc(torch.autograd.Function):
                 ctx.needs_input_grad[2],
             )
 
-            grad_weight, grad_weight_sync = communicator.reduce_scatter(
-                grad_weight, module, op=torch.distributed.ReduceOp.AVG
-            )
+            grad_weight, grad_weight_sync = communicator.reduce_scatter(grad_weight, module, op=dist.ReduceOp.AVG)
             if grad_bias is not None:
                 grad_bias, grad_bias_sync = communicator.reduce_scatter(
-                    grad_bias, module, op=torch.distributed.ReduceOp.AVG, is_bias=True
+                    grad_bias, module, op=dist.ReduceOp.AVG, is_bias=True
                 )
         else:
             grad_weight = None

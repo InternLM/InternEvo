@@ -312,9 +312,14 @@ class ISPCommunicator:
 
     def _wait_handle(self, module):
         handle = self._weight_global_handle[module]
-        handle.wait()
-        if module.bias is not None:
-            bias_handle = self._bias_global_handle[module]
+        if handle is not None:
+            handle.wait()
+
+        if module.bias is None:
+            return
+
+        bias_handle = self._bias_global_handle[module]
+        if bias_handle is not None:
             bias_handle.wait()
 
     def _clear_handle(self, module):
@@ -488,7 +493,9 @@ class ISPCommunicator:
                 self.process_group,
                 op=op,
                 async_op=True,
-                memory_pool_allocator=self.memory_pool.allocate_reduce_scatter_memory,
+                memory_pool_allocator=self.memory_pool.allocate_reduce_scatter_memory
+                if self.enable_memory_pool
+                else None,
             )
 
             result, handle = (
