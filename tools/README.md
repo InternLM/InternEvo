@@ -90,7 +90,7 @@ python tools/alpaca_tokenizer.py alpaca_data.json alpaca_output tools/tokenizer_
 
 ```python
 # 用法:
-python pal_inference.py <model> <out_dir> [--dataset <dataset>] [--max_length <length>] [--top_p <threshold>] [--eoh <end token>] [--eoa <end token>] [--eos <end token>] [--temperature <temp>] [--time_out <time>] [--verbose, -v] [--append, -a]
+python tools/pal_inference.py <model> <out_dir> [--dataset <dataset>] [--max_length <length>] [--top_p <threshold>] [--system <system>] [--user <user>] [--assist <assistant>] [--eoh <end token>] [--eoa <end token>] [--eos <end token>] [--additional_eos <eos_id>] [--temperature <temp>] [--time_out <time>] [--verbose, -v] [--append, -a]
 
 # 参数:
 # <model>                   用于推理的模型的路径。
@@ -100,9 +100,13 @@ python pal_inference.py <model> <out_dir> [--dataset <dataset>] [--max_length <l
 # --dataset <dataset>       用于代码生成的数据集名称（默认：gsm8k）。
 # --max_length <length>     模型最大输入 token 长度（默认：2048）。
 # --top_p <threshold>       候选 token 相加的概率阈值（默认：0.8）。
+# --system <system>         系统输入开始标识符（默认：<|System|>:）。
+# --user <user>             系统输入开始标识符（默认：<|User|>:）。
+# --assist <assistant>      系统输入开始标识符（默认：<|Bot|>:）。
 # --eoh <end token>         用户输入结束标识符 (默认: "") 。
 # --eoa <end token>         模型输入结束标识符 (默认: "") 。
-# --eos <end token>         系统输入结束标识符. (默认: "") 。
+# --eos <end token>         系统输入结束标识符(默认: "") 。
+# --additional_eos <eos_id> 生成中的 eos token id（默认：103028）。
 # --temperature， -t <temp> 生成过程中的采样温度（默认：1.0）。
 # --time_out <time>         执行生成的代码的最大时间（秒）（默认：100）。
 # --verbose, -v             打印代码错误信息（可选）。
@@ -112,7 +116,10 @@ python pal_inference.py <model> <out_dir> [--dataset <dataset>] [--max_length <l
 以下是使用示例：
 
 ```bash
-python tools/pal_inference.py internlm/internlm-chat-7k ./output -v
+# InternLM
+python tools/pal_inference.py internlm/internlm-chat-7b ./output -v
+# InternLM2
+python tools/pal_inference.py internlm/internlm2-chat-7b ./output -v --system $'<|im_start|>system\n' --user $'<|im_start|>user\n' --assist $'<|im_start|>assistance\n' --eoa "<|im_end|>" --eoh "<|im_end|>" --eos "<|im_end|>" --additional_eos 92542
 ```
 
 其输出文件每一行包括输入的问题，正确答案，执行答案，得分，以及模型生成的 Python 代码块：
@@ -129,10 +136,10 @@ python tools/pal_inference.py internlm/internlm-chat-7k ./output -v
 
 InternLM 在 GSM8K 数据集中带工具和不带工具的性能表现：
 
-| Method   | **InternLM-Chat-7B** |
-| -------- | -------------------- |
-| w/o tool | 34.5                 |
-| w tool   | 39.2                 |
+| Method   | **InternLM-Chat-7B** | **InternLM2-Chat-7B** |
+| -------- | -------------------- | --------------------- |
+| w/o tool | 34.5                 | 70.7                  |
+| w tool   | 39.2                 | 72.4                  |
 
 # openai_api.py
 
