@@ -153,7 +153,9 @@ class MHA(nn.Module):
         )
 
         if use_flash_attn:
+            from flash_attn import flash_attn_varlen_kvpacked_func
             from flash_attn.modules.mha import FlashCrossAttention, FlashSelfAttention
+
         inner_attn_cls = FlashSelfAttention if use_flash_attn else SelfAttention
         inner_cross_attn_cls = FlashCrossAttention if use_flash_attn else CrossAttention
         self.inner_attn = inner_attn_cls(causal=causal, softmax_scale=softmax_scale, attention_dropout=dropout)
@@ -165,7 +167,7 @@ class MHA(nn.Module):
         self.inner_cross_attn_softmax_scale = softmax_scale
         self.inner_cross_attn_dropout = dropout
 
-        self.attn = flash_attn_varlen_kvpacked_func
+        self.attn = flash_attn_varlen_kvpacked_func if use_flash_attn else SelfAttention
         if self.tp_mode == "isp":
             self.attn = DistributedAttention(self.attn, sequence_process_group=sequence_process_group)
 
@@ -413,7 +415,6 @@ class MHA(nn.Module):
                 (in case batch is small).
         """
         assert self.use_flash_attn is True
-        from flash_attn import flash_attn_varlen_kvpacked_func
 
         qkv = self.wqkv(x)
 
