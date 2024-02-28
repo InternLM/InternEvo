@@ -3,12 +3,14 @@
 
 import math
 from functools import partial
+from itertools import product
 from typing import List, Optional
 
 import torch
 import torch.distributed as dist
 from torch.optim import Optimizer
 
+from internlm.core.communication.utils import ParamAsyncBcastHandler
 from internlm.core.context import IS_REPLICA_ZERO_PARALLEL, Config, ParallelMode
 from internlm.core.context import global_context as gpc
 from internlm.core.context.parallel_context import (
@@ -26,7 +28,6 @@ from internlm.solver.optimizer.store import (
 )
 from internlm.solver.optimizer.utils import (
     DynamicGradScaler,
-    ParamBcastSyncHandler,
     flatten,
     get_grad_accumulate_object,
     has_inf_or_nan,
@@ -66,7 +67,7 @@ class HybridZeroOptimizer(BaseOptimizer):
         cpu_offload=False,
         grad_scal_cfg: Config = None,
         zero_cfg: Config = None,
-        param_bcast_sync_handler: ParamBcastSyncHandler = None,
+        param_bcast_sync_handler: ParamAsyncBcastHandler = None,
         isp_communicator=None,
     ):
         # DynamicGradScaler related args
@@ -1056,26 +1057,29 @@ class HybridZeroOptimizer(BaseOptimizer):
     def broadcast_params(self):
         handles = []
 
-        for group_id in range(self.num_param_groups):
-            for rank in range(self._zero_world_size[group_id]):
-                # The following operations are performed only on the rank to which parameters are assigned.
-                if rank in self.param_group_no_params_ranks[group_id]:
-                    continue
-                fp16_param = self._param_store.get_flat_fp16_param_by_rank_group(rank=rank, group_id=group_id)
-                # grank = gpc.get_ranks_in_group(group_type)[rank]  # need to convert to the global rank
-                # assert grank == rank, f"{grank} == {rank}"
-                g_rank = gpc.get_ranks_in_group(self._broadcast_parallel_mode[group_id])[rank]
-                handle = dist.broadcast(
-                    fp16_param,
-                    src=g_rank,
-                    group=gpc.get_group(self._broadcast_parallel_mode[group_id]),
-                    async_op=True,
-                )
+        # traverse according to rank firstly, which is conducive to overlapping broadcast communication.
+        for rank, group_id in product(range(max(self._zero_world_size)), range(self.num_param_groups)):
+            # skip ranks not in this parameter group.
+            if rank >= self._zero_world_size[group_id]:
+                continue
+            # The following operations are performed only on the rank to which parameters are assigned.
+            if rank in self.param_group_no_params_ranks[group_id]:
+                continue
+            fp16_param = self._param_store.get_flat_fp16_param_by_rank_group(rank=rank, group_id=group_id)
+            # grank = gpc.get_ranks_in_group(group_type)[rank]  # need to convert to the global rank
+            # assert grank == rank, f"{grank} == {rank}"
+            g_rank = gpc.get_ranks_in_group(self._broadcast_parallel_mode[group_id])[rank]
+            handle = dist.broadcast(
+                fp16_param,
+                src=g_rank,
+                group=gpc.get_group(self._broadcast_parallel_mode[group_id]),
+                async_op=True,
+            )
 
-                if self._overlap_sync_param:
-                    self._param_bcast_sync_handler.add_bcast_handle(rank, handle)
-                else:
-                    handles.append(handle)
+            if self._overlap_sync_param:
+                self._param_bcast_sync_handler.add_bcast_handle(rank, handle)
+            else:
+                handles.append(handle)
 
         for handle in handles:
             handle.wait()

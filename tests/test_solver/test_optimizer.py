@@ -10,9 +10,9 @@ from torch.nn.parallel import DistributedDataParallel as DDP
 from torch.testing import assert_close
 
 import internlm
+from internlm.core.communication.utils import ParamAsyncBcastHandler
 from internlm.core.context.parallel_context import Config, ParallelMode
 from internlm.solver.optimizer import HybridZeroOptimizer
-from internlm.solver.optimizer.utils import ParamBcastSyncHandler
 
 
 class MlpModel(nn.Module):
@@ -169,7 +169,7 @@ def exam_hybrid_zero_optim_with_ddp(args):
 
     # create optimizer
     if config.hybrid_zero_optimizer.overlap_sync_param:
-        param_bcast_sync_handler = ParamBcastSyncHandler(zero_model)
+        param_bcast_sync_handler = ParamAsyncBcastHandler(ParallelMode.ZERO1, zero_model)
     else:
         param_bcast_sync_handler = None
 
@@ -276,7 +276,7 @@ def exam_hybrid_zero_optim_with_ckpt_load_save(args):
 
     # create optimizer
     if config.hybrid_zero_optimizer.overlap_sync_param:
-        param_bcast_sync_handler = ParamBcastSyncHandler(zero_model)
+        param_bcast_sync_handler = ParamAsyncBcastHandler(ParallelMode.ZERO1, zero_model)
     else:
         param_bcast_sync_handler = None
 

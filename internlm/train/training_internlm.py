@@ -26,6 +26,7 @@ from internlm.core.communication.isp import (
     ISPCommunicator,
     ISPCommunicatorSchedulerHook,
 )
+from internlm.core.communication.utils import ParamAsyncBcastHandler
 from internlm.core.context import (
     IS_REPLICA_ZERO_PARALLEL,
     IS_TENSOR_DATA_PARALLEL,
@@ -67,7 +68,6 @@ from internlm.monitor.monitor import monitor_manager as mm
 from internlm.solver.beta2_scheduler import Beta2Scheduler
 from internlm.solver.lr_scheduler import FineTuneCosineAnnealingWarmupLR
 from internlm.solver.optimizer import FSDPadaptOptimizer, HybridZeroOptimizer
-from internlm.solver.optimizer.utils import ParamBcastSyncHandler
 from internlm.train.utils import create_param_groups
 from internlm.utils.common import (
     DummyProfile,
@@ -299,7 +299,7 @@ def initialize_optimizer(model: Union[nn.Module, nn.ModuleList], isp_communicato
         set_model_params_layer_name(model)
 
     if gpc.config.hybrid_zero_optimizer.overlap_sync_param:
-        param_bcast_sync_handler = ParamBcastSyncHandler(model)
+        param_bcast_sync_handler = ParamAsyncBcastHandler(ParallelMode.ZERO1, model, isp_communicator)
     else:
         param_bcast_sync_handler = None
 
