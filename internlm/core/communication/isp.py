@@ -315,8 +315,9 @@ class ISPCommunicator:
         block = self._index_to_block[block_index]
 
         # wait for prerequisite conditions
-        for callback in self._forward_prefetch_prerequisites:
-            callback(block)
+        if self.is_forward:
+            for callback in self._forward_prefetch_prerequisites:
+                callback(block)
 
         # prefetch parameters for all isp modules of the block
         for module in self._index_to_isp_modules[block_index]:
@@ -450,10 +451,6 @@ class ISPCommunicator:
                 device=self.model_conf.device,
             ).contiguous()
 
-    @property
-    def model_activation_checkpiont(self) -> bool:
-        return self._ckpt_block_num > 0
-
     def switch_current_model_chunk(self, chunk_id: int) -> None:
         self._isp_outs = self._overlap_states[chunk_id].isp_outs
         self._isp_modules = self._overlap_states[chunk_id].isp_modules
@@ -565,8 +562,7 @@ class ISPCommunicatorSchedulerHook(SchedulerHook):
         self._zero_optim = zero_optim
 
     def before_forward(self, scheduler, inputs) -> None:
-        if self._isp_communicator.model_activation_checkpiont:
-            self._isp_communicator.is_forward = True
+        self._isp_communicator.is_forward = True
         # switch model chunk before forward
         chunk_id = 0 if gpc.virtual_pipeline_parallel_rank is None else gpc.virtual_pipeline_parallel_rank
         self._isp_communicator.switch_current_model_chunk(chunk_id)
@@ -581,8 +577,7 @@ class ISPCommunicatorSchedulerHook(SchedulerHook):
         pass
 
     def before_backward(self, scheduler, outputs, outputs_grad) -> None:
-        if self._isp_communicator.model_activation_checkpiont:
-            self._isp_communicator.is_forward = False
+        self._isp_communicator.is_forward = False
         # switch model chunk before backward
         chunk_id = 0 if gpc.virtual_pipeline_parallel_rank is None else gpc.virtual_pipeline_parallel_rank
         self._isp_communicator.switch_current_model_chunk(chunk_id)
