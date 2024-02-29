@@ -30,8 +30,7 @@ jobs:
     - name: get latest tag
       run: |
         COMMIT_ID=${GITHUB_SHA::8}
-        latest_tag=v0.3.2TestForDiT-$COMMIT_ID
-        echo $latest_tag
+        latest_tag=v0.3.2-TestForDiT-$COMMIT_ID
         echo "$latest_tag" > version.txt
 
     - name: build and upload package
