@@ -3,7 +3,7 @@
 
 from dataclasses import dataclass
 from functools import partial
-from typing import Any, Dict, List, Union
+from typing import Any, Callable, Dict, List, Union
 
 import torch
 from torch import distributed as dist
@@ -135,7 +135,8 @@ class ISPOverlapState:
         self.last_ckpt_block: nn.Module = None
         self.isp_outs: List[nn.Module] = []
         self.isp_modules: List[nn.Module] = []
-        self.index_to_isp_module: Dict[int, nn.Module] = {}
+        self.index_to_isp_modules: Dict[int, nn.Module] = {}
+        self.index_to_block: Dict[int, nn.Module] = {}
         self.module_to_index: Dict[nn.Module, int] = {}
         self.weight_global_handle: Dict[str, Any] = {}
         self.weight_global_output: Dict[str, torch.Tensor] = {}
@@ -163,6 +164,7 @@ class ISPCommunicator:
         self.is_forward = True
         self.reduce_scatter_handlers = {}
         self._module_shapes = {}
+        self._forward_prefetch_prerequisites = []
 
         # real overlap state for each chunk.
         self._overlap_states: Dict[int, ISPOverlapState] = {}
@@ -186,7 +188,9 @@ class ISPCommunicator:
         # key: isp module; value: transformer block index
         self._module_to_index = None
         # key: transformer block index; value: isp modules
-        self._index_to_isp_module = None
+        self._index_to_isp_modules = None
+        # key: transformer block index; value: transformer block
+        self._index_to_block = None
 
         # init overlap states if necessary.
         if self.overlap:
@@ -228,7 +232,8 @@ class ISPCommunicator:
                 ]
 
                 for idx, block in enumerate(children):
-                    self._overlap_states[cid].index_to_isp_module[idx] = []
+                    self._overlap_states[cid].index_to_isp_modules[idx] = []
+                    self._overlap_states[cid].index_to_block[idx] = block
                     for sub_name, sub in block.named_children():
                         for name, child in sub.named_children():
                             if name in ["out_proj", "wo"]:
@@ -243,7 +248,7 @@ class ISPCommunicator:
                                     self._module_shapes[name] = torch.Size(origin_shape)
                                 self._overlap_states[cid].module_to_index[child] = idx
                                 self._overlap_states[cid].isp_modules.append(child)
-                                self._overlap_states[cid].index_to_isp_module[idx].append(child)
+                                self._overlap_states[cid].index_to_isp_modules[idx].append(child)
 
                                 setattr(child, "isp_name", name)
 
@@ -260,7 +265,7 @@ class ISPCommunicator:
                                         f"{full_name}.bias",
                                     )
 
-        self._overlap_states[cid].num_blocks = len(self._overlap_states[cid].index_to_isp_module)
+        self._overlap_states[cid].num_blocks = len(self._overlap_states[cid].index_to_isp_modules)
 
     def _all_gather_module_weight(self, module):
         with_bias = module.bias is not None
@@ -307,7 +312,15 @@ class ISPCommunicator:
         self._weight_global_output[module] = weight_output
 
     def _all_gather_block_weight(self, block_index: int):
-        for module in self._index_to_isp_module[block_index]:
+        block = self._index_to_block[block_index]
+
+        # wait for prerequisite conditions
+        if self.is_forward:
+            for callback in self._forward_prefetch_prerequisites:
+                callback(block)
+
+        # prefetch parameters for all isp modules of the block
+        for module in self._index_to_isp_modules[block_index]:
             self._all_gather_module_weight(module)
 
     def _wait_handle(self, module):
@@ -358,7 +371,7 @@ class ISPCommunicator:
         self._wait_handle(module)
 
     def _pre_forward_hook_for_block(self, *args):  # pylint: disable=W0613
-        for module in self._index_to_isp_module[self._ckpt_block_num - 1]:
+        for module in self._index_to_isp_modules[self._ckpt_block_num - 1]:
             self._all_gather_module_weight(module)
 
     def _post_forward_hook_for_module(self, module: nn.Module, *args):  # pylint: disable=W0613
@@ -446,12 +459,40 @@ class ISPCommunicator:
         self._weight_global_output = self._overlap_states[chunk_id].weight_global_output
         self._bias_global_output = self._overlap_states[chunk_id].bias_global_output
         self._module_to_index = self._overlap_states[chunk_id].module_to_index
-        self._index_to_isp_module = self._overlap_states[chunk_id].index_to_isp_module
+        self._index_to_isp_modules = self._overlap_states[chunk_id].index_to_isp_modules
+        self._index_to_block = self._overlap_states[chunk_id].index_to_block
         self._ckpt_block_num = self._overlap_states[chunk_id].ckpt_block_num
         self._last_ckpt_block = self._overlap_states[chunk_id].last_ckpt_block
         self._head = self._overlap_states[chunk_id].head
         self._embedding = self._overlap_states[chunk_id].embedding
         self._num_blocks = self._overlap_states[chunk_id].num_blocks
+
+    def register_prerequisite_for_forward_prefetch_hooks(self, prerequisite_func: Callable) -> None:
+        """
+        Registers a callback function that specifies a prerequisite condition for
+        prefetching parameters before forward computation.
+
+        This method allows users to define custom logic that must be satisfied before
+        parameters are fetched for the next forward pass. This can be useful for
+        implementing complex parameter update strategies or for coordinating
+        parameter access with other system components.
+
+        Args:
+            prerequisite_func (Callable): A callable that represents the prerequisite
+                                    condition. This function will be invoked before
+                                    the parameters are prefetched, and its return value
+                                    will determine whether the prefetching should proceed.
+
+        Returns:
+            None: This method does not return any value.
+
+        Raises:
+            TypeError: If the provided 'prerequisite_func' is not callable.
+        """
+        if not callable(prerequisite_func):
+            raise TypeError("The provided prerequisite function must be callable.")
+
+        self._forward_prefetch_prerequisites.append(prerequisite_func)
 
     # communication operation interfaces
 
@@ -521,8 +562,7 @@ class ISPCommunicatorSchedulerHook(SchedulerHook):
         self._zero_optim = zero_optim
 
     def before_forward(self, scheduler, inputs) -> None:
-        if self._isp_communicator._ckpt_block_num > 0:
-            self._isp_communicator.is_forward = True
+        self._isp_communicator.is_forward = True
         # switch model chunk before forward
         chunk_id = 0 if gpc.virtual_pipeline_parallel_rank is None else gpc.virtual_pipeline_parallel_rank
         self._isp_communicator.switch_current_model_chunk(chunk_id)
@@ -537,8 +577,7 @@ class ISPCommunicatorSchedulerHook(SchedulerHook):
         pass
 
     def before_backward(self, scheduler, outputs, outputs_grad) -> None:
-        if self._isp_communicator._ckpt_block_num > 0:
-            self._isp_communicator.is_forward = False
+        self._isp_communicator.is_forward = False
         # switch model chunk before backward
         chunk_id = 0 if gpc.virtual_pipeline_parallel_rank is None else gpc.virtual_pipeline_parallel_rank
         self._isp_communicator.switch_current_model_chunk(chunk_id)

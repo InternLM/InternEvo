@@ -3,18 +3,15 @@
 
 import math
 from abc import ABC, abstractmethod
-from collections import OrderedDict
-from functools import partial
-from typing import Any, Dict, Optional, Union
+from typing import Dict, Optional
 
 import torch
 import torch.distributed as dist
-from torch import Tensor, nn
+from torch import Tensor
 from torch._utils import _flatten_dense_tensors, _unflatten_dense_tensors
 
 from internlm.core.context import ParallelMode
 from internlm.core.context import global_context as gpc
-from internlm.core.naive_amp import NaiveAMPModel
 from internlm.utils.common import get_current_device, get_tensor_norm, move_norm_to_cuda
 from internlm.utils.logger import get_logger
 from internlm.utils.parallel import (
@@ -861,90 +858,3 @@ class DynamicGradScaler(BaseGradScaler):
         self._scale = self._scale.fill_(state_dict["_scale"])
         self._growth_step = state_dict["_growth_step"]
         self._hysteresis_step = state_dict["_hysteresis_step"]
-
-
-class ParamBcastSyncHandler:
-    """
-    Model Partition Handler for overlap broadcast with forward
-    """
-
-    def __init__(self, model: Union[nn.Module, nn.ModuleList]) -> None:
-        self._block_to_param = OrderedDict()  # <key: nn.Module> <value: list(param)>
-        self._param_to_rank = dict()  # <key: param> <value: rank)>
-        self._block_to_rank = dict()  # <key: nn.Module> <value: rank)>
-        self._bcast_handles = dict()  # <key: rank> <value: list(bcast handles))>
-
-        zero1_size = gpc.get_world_size(ParallelMode.ZERO1)
-        total_param_num = sum(p.numel() for p in model.parameters())
-        avg_param_num = total_param_num * 1.0 // zero1_size
-
-        # just want to share same for loop for ModuleList and Module
-        if not isinstance(model, nn.ModuleList):
-            model = [model]
-
-        # record the parameters to transformer/embeding/head/norm block
-        for _chunk in model:
-            if isinstance(_chunk, NaiveAMPModel):
-                _chunk = _chunk.model
-
-            for _, children in _chunk.named_children():
-                # should be the transformer block definaton in modeling_xxx.py
-                if isinstance(children, nn.ModuleList):
-                    # record the block that a parameter belongs to
-                    for _, block in enumerate(children):
-                        # self._block_to_param[f"{name}.{idx}"] = list(block.parameters())
-                        self._block_to_param[block] = list(block.parameters())
-                else:
-                    # record the block that a parameter belongs to
-                    # self._block_to_param[name] = list(children.parameters())
-                    self._block_to_param[children] = list(children.parameters())
-
-        alloc_num = 0
-        rank_to_go = 0
-
-        # process the parameters in block_to_param sequencially,
-        # allocate each parameter to a local rank of ParallelMode.ZERO1,
-        # NOTE that we do NOT consider following scenarios:
-        # 1) whether a parameter is trainable;
-        # 2) paramters maybe in different optimizer group
-        for block, params in self._block_to_param.items():
-            # allocate a model block to a local rank of ParallelMode.ZERO1
-            self._block_to_rank[block] = [rank_to_go]
-            for p in params:
-                alloc_num = alloc_num + p.numel()
-                # in this case, allocate the param to next rank if possible
-                if alloc_num > avg_param_num * 1.01 and rank_to_go < zero1_size - 1:
-                    rank_to_go = rank_to_go + 1
-                    alloc_num = 0
-                    self._block_to_rank[block].append(rank_to_go)
-                # allocate a parameter to a local rank of ParallelMode.ZERO1
-                self._param_to_rank[p] = rank_to_go
-
-        # initialize an empty list for _bcast_handles of each rank
-        for rank in range(gpc.get_world_size(ParallelMode.ZERO1)):
-            self._bcast_handles[rank] = []
-
-        # register_forward_pre_hook for transformer/embeding/norm/xxx block
-        self._register_sync_parameters_hook()
-
-    def _register_sync_parameters_hook(self) -> None:
-        def _pre_forward_hook(model: nn.Module, inputs: Any):  # pylint: disable=W0613
-            bcast_handles = []
-            # gather all required broadcast hanles into a list
-            for rank in self._block_to_rank[model]:
-                bcast_handles.extend(self._bcast_handles[rank])
-                # need to clear _bcast_handles since they would be processed later
-                self._bcast_handles[rank] = []
-            # wait all required broadcast handles to be completed
-            for handle in bcast_handles:
-                handle.wait()
-
-        # register_forward_pre_hook for transformer/embeding/norm/xxx block
-        for block, _ in self._block_to_rank.items():
-            block.register_forward_pre_hook(partial(_pre_forward_hook))
-
-    def get_rank_by_param(self, param) -> int:
-        return self._param_to_rank[param]
-
-    def add_bcast_handle(self, rank, handle) -> None:
-        self._bcast_handles[rank].append(handle)
