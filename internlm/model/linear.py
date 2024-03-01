@@ -95,6 +95,9 @@ class InternLM2ScaleColumnParallelLinear(BaseScaleColumnParallelLinear):
         device (Optional[Union[str, torch.device]]): The device will be used.
         dtype (Optional[torch.dtype]): The type of data.
         weight_scale (int): For training stability. 1 by default.
+        norm_head (bool): Normalize the output embedding in order to let the calculation of logits not affected by
+            the norm of embedding. The implementation is referred to baichuan2,
+            see https://huggingface.co/baichuan-inc/Baichuan2-7B-Base for more information. False by default.
     """
 
     def __init__(
@@ -114,7 +117,7 @@ class InternLM2ScaleColumnParallelLinear(BaseScaleColumnParallelLinear):
 
         self.norm_head = norm_head
         if self.norm_head:
-            logger.info("Notice norm head is used.")
+            logger.info("Notice that norm head is enabled to normalize head weight.")
         self.first_eval_flag = True
         self.tmp_weight = None
 
