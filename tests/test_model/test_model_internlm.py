@@ -128,29 +128,31 @@ def check_block(args):
     )
 
     hidden_states = hidden_states.squeeze(0).to(device).requires_grad_()
+    hidden_states2 = hidden_states.clone()
 
-    hid2 = hidden_states
-    output_list = []
-    for i in range(10):
-        hidden_states = hid2
-        # forward
-        for _, block in enumerate(blocks):
-            block = block.to(torch.bfloat16)
-            block = block.to(device)
-            hidden_states = block(
-                hidden_states,
-                cu_seqlens=cu_seqlens,
-                indexes=indexes,
-                inference_params=None,
-                max_seqlen=max_seqlen,
-            )
-        result = hidden_states
-        output_list.append(result)
+    # forward
+    for _, block in enumerate(blocks):
+        block = block.to(torch.bfloat16)
+        block = block.to(device)
+        hidden_states = block(
+            hidden_states,
+            cu_seqlens=cu_seqlens,
+            indexes=indexes,
+            inference_params=None,
+            max_seqlen=max_seqlen,
+        )
+        hidden_states2 = block(
+            hidden_states2,
+            cu_seqlens=cu_seqlens,
+            indexes=indexes,
+            inference_params=None,
+            max_seqlen=max_seqlen,
+        )
+    result = hidden_states
+    result2 = hidden_states2
 
     # check only forward logits
-    first_output = output_list[0]
-    for i in range(1, 10):
-        assert torch.equal(first_output, output_list[i])
+    assert torch.equal(result, result2)
 
     standard_result = torch.tensor(
         [

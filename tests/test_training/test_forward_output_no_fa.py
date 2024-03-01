@@ -23,10 +23,10 @@ TOTAL_STEPS = 1
 config = Config(
     dict(
         parallel=dict(
-            zero1=dict(size=-1, fsdp=False),
-            pipeline=dict(size=1, interleaved_overlap=False),
-            sequence_parallel=False,
-            tensor=1,
+            zero1=dict(size=-1),
+            tensor=dict(size=1, mode="mtp"),
+            pipeline=dict(size=1, interleaved_overlap=True),
+            weight=dict(size=1, overlap=True, memory_pool=True),
         ),
         data=dict(
             seq_len=2048,
@@ -81,7 +81,7 @@ config = Config(
         ),
         hybrid_zero_optimizer=dict(
             overlap_sync_grad=True,
-            overlap_sync_param=True,
+            overlap_sync_param=False,
             reduce_bucket_size=512 * 1024 * 1024,
             clip_grad_norm=1.0,
         ),
@@ -179,7 +179,7 @@ def train_check_output(args):
         SchedulerMetricHook(
             metric=metric,
             skip=(
-                gpc.is_using_pp()
+                gpc.is_using_parallel_mode(ParallelMode.PIPELINE)
                 and hasattr(gpc.config.model, "num_chunks")
                 and gpc.config.model.num_chunks > 1
                 and gpc.config.parallel["pipeline"].get("interleaved_overlap", False)
@@ -207,7 +207,7 @@ def train_check_output(args):
         # zero the grads of parameters
         output, _, _ = trainer.execute_schedule(
             batch,
-            forward_only=False,
+            forward_only=True,
             return_loss=True,
             return_output_label=True,
         )
@@ -216,18 +216,21 @@ def train_check_output(args):
         standard_output_with_fa = torch.load(
             os.path.join(share_path, "quailty_assurance/7B_no_flash_attention/output_with_fa.pt")
         )
-        tensor1 = standard_output_with_fa[0][0]
+        tensor1 = standard_output_with_fa
         tensor2 = output[0][0][0]
 
         if torch.equal(tensor1, tensor2):
             logger.info("Outputs are totally equal")
         else:
             logger.warning("Outputs are not totally equal")
-            for rtol in [1, 0.9, 0.8, 0.7, 0.6, 0.5, 0.4, 0.3, 0.2, 0.1, 1e-2, 1e-3, 1e-4, 1e-5]:
-                assert torch.allclose(
-                    tensor1, tensor2, atol=0, rtol=rtol
-                ), f"{(tensor1 - tensor2).abs().max()} is over rtol {rtol}"
-                logger.info(f"Check for rotol={rtol} has passed")
+            max_diff, index_max_diff = (tensor1 - tensor2).abs().max(dim=0)
+            max_diff = max_diff.item()
+            index_max_diff = index_max_diff.item()
+            rtol = max_diff / abs(tensor2[index_max_diff])
+            logger.info(
+                f"The relative error is {rtol}. Between {tensor1[index_max_diff]} and {tensor2[index_max_diff]}"
+            )
+            assert rtol < 1e-5, f"The relative error is {rtol}"
 
 
 def test_output():

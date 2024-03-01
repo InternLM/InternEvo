@@ -934,6 +934,9 @@ class CheckpointManager:
         self.storage_manager = get_storage_manager()
         self.snapshot_counter = 0
 
+        if hasattr(model, "model"):
+            model = model.model
+
         self.model = model
         self.optimizer = optimizer
         self.lr_scheduler = lr_scheduler
