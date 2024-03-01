@@ -786,6 +786,7 @@ class PackedFlashLlama1D(nn.Module):
         out_head_init_std (float): std used to init output lmhead weight. 0.02 by default,
         init_type (str): Initialization type. Use uniform or normal. "normal" by default,
         rope_base (int): The value of `base` for rotary position embeddings. 10000 by default.
+        norm_head (bool): Whether to use norm head. False by default.
         tp_mode (str): The string value of tensor parallel mode, should be in ["mtp", "msp", "fsp", "isp"],
                        "mtp" by default.
     """
@@ -831,6 +832,7 @@ class PackedFlashLlama1D(nn.Module):
         out_head_init_std: float = 0.02,
         init_type: str = "normal",
         rope_base: int = 10000,
+        norm_head: bool = False,
         tp_mode: str = "mtp",
     ):
         super().__init__()
@@ -921,6 +923,11 @@ class PackedFlashLlama1D(nn.Module):
                 else:
                     self.norm = nn.LayerNorm(hidden_size, eps=layer_norm_epsilon)
 
+            if norm_head and not issubclass(head_cls, InternLM2ScaleColumnParallelLinear):
+                raise TypeError(
+                    "Parameter ``norm_head`` should only be True when head_cls is "
+                    f"``InternLM2ScaleColumnParallelLinear``, instead of {head_cls}."
+                )
             self.output = head_cls(
                 in_features=hidden_size,
                 out_features=gpc.get_world_size(ParallelMode.TENSOR) if is_reward else vocab_size,
@@ -929,6 +936,7 @@ class PackedFlashLlama1D(nn.Module):
                 device=device,
                 dtype=dtype,
                 weight_scale=embed_grad_scale,
+                norm_head=norm_head,
             )
             for _, param in self.output.named_parameters():
                 if init_type == "normal":
@@ -1068,6 +1076,7 @@ def build_model_with_cfg(
     out_head_init_std: float = 0.02,
     init_type: str = "normal",
     rope_base: int = 10000,
+    norm_head: bool = False,
     max_position_embeddings=2048,
     use_dynamic_ntk_rope=False,
 ):
@@ -1147,6 +1156,7 @@ def build_model_with_cfg(
         out_head_init_std=out_head_init_std,
         init_type=init_type,
         rope_base=rope_base,
+        norm_head=norm_head,
         max_position_embeddings=max_position_embeddings,
         use_dynamic_ntk_rope=use_dynamic_ntk_rope,
     )
