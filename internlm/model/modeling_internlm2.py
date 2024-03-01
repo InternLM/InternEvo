@@ -928,7 +928,7 @@ class PackedFlashLlama1D(nn.Module):
                     "Parameter ``norm_head`` should only be True when head_cls is "
                     f"``InternLM2ScaleColumnParallelLinear``, instead of {head_cls}."
                 )
-            self.output = head_cls(
+            self.output = head_cls(  # pylint: disable=E1123
                 in_features=hidden_size,
                 out_features=gpc.get_world_size(ParallelMode.TENSOR) if is_reward else vocab_size,
                 process_group=gpc.get_group(ParallelMode.TENSOR),
