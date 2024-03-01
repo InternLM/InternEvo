@@ -16,6 +16,9 @@ from internlm.model.utils import (
     isp_fused_dense_func,
     megatron_fused_dense_func,
 )
+from internlm.utils.logger import get_logger
+
+logger = get_logger(__file__)
 
 
 class BaseScaleColumnParallelLinear(nn.Linear):
@@ -59,7 +62,7 @@ class ScaleColumnParallelLinear(BaseScaleColumnParallelLinear):
     ScaleColumnParallelLinear in flash implementation.
     """
 
-    def forward(self, input, gather_dim=0):  # pylint: disable=W0622
+    def forward(self, input, gather_dim=0, tp_mode: str = "mtp"):  # pylint: disable=W0622
         # If self.sequence_parallel is True, we're doing Tensor Parallel with sequence parallelism:
         # we do an all_gather of x before doing the matmul.
         # If not, then the input is already gathered.
@@ -67,7 +70,9 @@ class ScaleColumnParallelLinear(BaseScaleColumnParallelLinear):
             weight = self.weight * self.weight_scale + (1 - self.weight_scale) * self.weight.detach()
         else:
             weight = self.weight
-        return fused_dense_func(
+
+        _fused_func = fused_dense_func if tp_mode in ["mtp", "fsp", "isp"] else megatron_fused_dense_func
+        return _fused_func(
             input,
             weight,
             self.bias,
@@ -77,20 +82,65 @@ class ScaleColumnParallelLinear(BaseScaleColumnParallelLinear):
         )
 
 
-class MegatronScaleColumnParallelLinear(BaseScaleColumnParallelLinear):
+class InternLM2ScaleColumnParallelLinear(BaseScaleColumnParallelLinear):
     """
-    ScaleColumnParallelLinear in megatron implementation.
+    ScaleColumnParallelLinear for InternLM2.
+
+    Args:
+        in_features (int): size of each input sample
+        out_features (int): size of each output sample
+        process_group (Optional[torch.distributed.ProcessGroup]): The group of the current device for `parallel_mode`.
+        bias (bool): Whether the bias is needed for linears. True by default. But it is typically set to False
+                    in the config.
+        device (Optional[Union[str, torch.device]]): The device will be used.
+        dtype (Optional[torch.dtype]): The type of data.
+        weight_scale (int): For training stability. 1 by default.
     """
 
-    def forward(self, input, gather_dim=0):  # pylint: disable=W0622
-        # If self.sequence_parallel is True, we're doing Tensor Parallel with sequence parallelism:
-        # we do an all_gather of x before doing the matmul.
-        # If not, then the input is already gathered.
+    def __init__(
+        self,
+        in_features: int,
+        out_features: int,
+        process_group: Optional[torch.distributed.ProcessGroup],
+        bias: bool = True,
+        device: Optional[torch.device] = None,
+        dtype: Optional[torch.dtype] = None,
+        weight_scale: int = 1,
+        norm_head: bool = False,
+    ) -> None:
+        super().__init__(
+            in_features, out_features, process_group, bias=bias, device=device, dtype=dtype, weight_scale=weight_scale
+        )
+
+        self.norm_head = norm_head
+        if self.norm_head:
+            logger.info("Notice norm head is used.")
+        self.first_eval_flag = True
+        self.tmp_weight = None
+
+    def forward(self, input, gather_dim=0, tp_mode: str = "mtp"):  # pylint: disable=W0622
         if self.weight_scale != 1:
             weight = self.weight * self.weight_scale + (1 - self.weight_scale) * self.weight.detach()
         else:
             weight = self.weight
-        return megatron_fused_dense_func(
+        if self.norm_head:
+            if self.training:
+                if not self.first_eval_flag:
+                    self.first_eval_flag = True
+                    self.tmp_weight = None
+                # We normalized the output Embedding so that the dot product
+                # is not affected by the norm of embedding. Ref: https://arxiv.org/pdf/2309.10305.pdf
+                weight = nn.functional.normalize(weight)
+            else:
+                if self.first_eval_flag:
+                    # cache l2 norm of head to accelerate infer.
+                    self.first_eval_flag = False
+                    self.tmp_weight = nn.functional.normalize(weight)
+
+                weight = self.tmp_weight
+
+        _fused_func = fused_dense_func if tp_mode in ["mtp", "fsp", "isp"] else megatron_fused_dense_func
+        return _fused_func(
             input,
             weight,
             self.bias,
@@ -100,7 +150,7 @@ class MegatronScaleColumnParallelLinear(BaseScaleColumnParallelLinear):
         )
 
 
-class RewardModelLinear(ScaleColumnParallelLinear):
+class RewardModelLinear(BaseScaleColumnParallelLinear):
     """
     RewardModelLinear.
     Args:

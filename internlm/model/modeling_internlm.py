@@ -15,7 +15,6 @@ from internlm.core.naive_amp import set_output_attr_to_module
 from internlm.initialize.initialize_tensor import normal_, scaled_init_method_normal
 from internlm.model.embedding import Embedding1D
 from internlm.model.linear import (
-    MegatronScaleColumnParallelLinear,
     RewardModelLinear,
     ScaleColumnParallelLinear,
     get_mlp_cls,
@@ -311,11 +310,7 @@ class PackedFlashInternLm1D(nn.Module):
         if is_reward:
             head_cls = RewardModelLinear
         else:
-            head_cls = (
-                ScaleColumnParallelLinear
-                if self.tp_mode in ["mtp", "fsp", "isp"]
-                else MegatronScaleColumnParallelLinear
-            )
+            head_cls = ScaleColumnParallelLinear
         if first:
             if embed_split_hidden:
                 self.embedding = Embedding1D(num_embeddings=vocab_size, embedding_dim=hidden_size)
@@ -422,9 +417,9 @@ class PackedFlashInternLm1D(nn.Module):
         if hasattr(self, "head"):
             # Evaluation
             if hidden_states.ndim == 3:
-                hidden_states = self.head(hidden_states, gather_dim=1)
+                hidden_states = self.head(hidden_states, gather_dim=1, tp_mode=self.tp_mode)
             else:  # Training
-                hidden_states = self.head(hidden_states, gather_dim=0)
+                hidden_states = self.head(hidden_states, gather_dim=0, tp_mode=self.tp_mode)
 
         if not self.parallel_output:
             hidden_states = gather_forward_split_backward(hidden_states, ParallelMode.TENSOR, dim=-1)
