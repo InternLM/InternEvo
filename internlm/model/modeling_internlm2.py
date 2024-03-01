@@ -49,7 +49,7 @@ from internlm.utils.common import filter_kwargs
 from internlm.utils.logger import get_logger
 from internlm.utils.registry import MODEL_INITIALIZER
 
-MODEL_TYPE = "INTERNLM2"
+MODEL_TYPE = "INTERNLM2_PUBLIC"
 
 logger = get_logger(__file__)
 RMSNorm = try_import_RMSNorm()
