@@ -12,7 +12,7 @@ from torch import nn
 from internlm.core.context import global_context as gpc
 from internlm.core.naive_amp import NaiveAMPModel
 from internlm.model.embedding import Embedding1D
-from internlm.model.linear import ISPLinear, ScaleColumnParallelLinear
+from internlm.model.linear import BaseScaleColumnParallelLinear, ISPLinear
 from internlm.model.utils import all_gather_raw, reduce_scatter_raw
 from internlm.utils.common import SchedulerHook
 
@@ -220,7 +220,7 @@ class ISPCommunicator:
 
         # Important: only works for llama-class models
         for _, children in model.named_children():
-            if isinstance(children, ScaleColumnParallelLinear):
+            if isinstance(children, BaseScaleColumnParallelLinear):
                 setattr(children, "isp_name", "head")
                 self._overlap_states[cid].head.append(children)
             elif isinstance(children, Embedding1D):
@@ -534,9 +534,9 @@ class ISPCommunicator:
                 self.process_group,
                 op=op,
                 async_op=True,
-                memory_pool_allocator=self.memory_pool.allocate_reduce_scatter_memory
-                if self.enable_memory_pool
-                else None,
+                memory_pool_allocator=(
+                    self.memory_pool.allocate_reduce_scatter_memory if self.enable_memory_pool else None
+                ),
             )
 
             result, handle = (

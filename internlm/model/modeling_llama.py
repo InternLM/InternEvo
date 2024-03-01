@@ -18,7 +18,6 @@ from internlm.initialize.initialize_tensor import (
 )
 from internlm.model.embedding import Embedding1D, RotaryEmbedding
 from internlm.model.linear import (
-    MegatronScaleColumnParallelLinear,
     RewardModelLinear,
     ScaleColumnParallelLinear,
     get_linear_cls,
@@ -836,11 +835,8 @@ class PackedFlashLlama1D(nn.Module):
         if is_reward:
             head_cls = RewardModelLinear
         else:
-            head_cls = (
-                ScaleColumnParallelLinear
-                if self.tp_mode in ["mtp", "fsp", "isp"]
-                else MegatronScaleColumnParallelLinear
-            )
+            head_cls = ScaleColumnParallelLinear
+
         if first:
             if embed_split_hidden:
                 self.tok_embeddings = Embedding1D(num_embeddings=vocab_size, embedding_dim=hidden_size)
@@ -992,9 +988,9 @@ class PackedFlashLlama1D(nn.Module):
         if hasattr(self, "output"):
             # Evaluation
             if gpc.is_evaluating is True:
-                hidden_states = self.output(hidden_states, gather_dim=1)
+                hidden_states = self.output(hidden_states, gather_dim=1, tp_mode=self.tp_mode)
             else:  # Training
-                hidden_states = self.output(hidden_states, gather_dim=0)
+                hidden_states = self.output(hidden_states, gather_dim=0, tp_mode=self.tp_mode)
 
         if not self.parallel_output:
             hidden_states = gather_forward_split_backward(hidden_states, ParallelMode.TENSOR, dim=-1)
