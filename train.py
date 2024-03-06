@@ -1,15 +1,17 @@
 #!/usr/bin/env python
 # -*- encoding: utf-8 -*-
 
+import os
+import pickle
 import socket
 import time
 import traceback
 from functools import partial
 
-import torch
 import torch.distributed as dist
 
 import internlm
+from internlm.accelerator import get_accelerator, internlm_accelerator
 from internlm.checkpoint import CheckpointManager
 from internlm.core.context import ParallelMode
 from internlm.core.context import global_context as gpc
@@ -36,6 +38,7 @@ from internlm.train import (
 from internlm.utils.common import (
     BatchSkipper,
     enable_pytorch_expandable_segments,
+    get_current_device,
     get_megatron_flops,
     launch_time,
     parse_args,
@@ -153,7 +156,7 @@ def main(args):
 
     # initialize metric for calculating accuracy and perplexity
     metric = AccPerplex(
-        device=torch.cuda.current_device(),
+        device=get_current_device(),
         tp_pg=gpc.get_group(ParallelMode.TENSOR),
         dp_pg=gpc.get_group(ParallelMode.DATA),
         dataset_types=dataset_types,
@@ -195,7 +198,7 @@ def main(args):
         # start iterating the train data and begin training
         for batch_count in range(train_state.batch_count, total_steps):
             empty_cache_and_diag(batch_count, interval=gpc.config.data.empty_cache_and_diag_interval)
-            # torch.cuda.memory._record_memory_history()
+            # internlm_accelerator.memory._record_memory_history()
             start_time = time.time()
             timer("one-batch").start()
             gpc.config.batch_count = batch_count
@@ -217,6 +220,8 @@ def main(args):
             # process data
             if batch[0].get("type_ids", None) is not None:
                 metric.set_current_type_ids(type_ids=batch[0].pop("type_ids", None))
+            if batch[0].get("cu_seqlens", None) is not None:
+                metric.set_cu_seqlens(cu_seqlens=batch[0].pop("cu_seqlens", None))
 
             # do forward and backward
             timer("fwd-bwd").start()
@@ -302,8 +307,7 @@ def main(args):
             if batch_count % 2 == 0:
                 prof.step()
 
-            # torch.cuda.memory._dump_snapshot(f"my_snapshot_{gpc.get_global_rank()}.pickle")
-            torch.cuda.reset_peak_memory_stats()
+            # internlm_accelerator.memory._dump_snapshot(f"my_snapshot_{gpc.get_global_rank()}.pickle")
 
     ckpt_manager.wait_async_upload_finish()
 
@@ -330,4 +334,4 @@ if __name__ == "__main__":
                 alert_address=gpc.config.monitor.alert.feishu_alert_address, excp_info=traceback.format_exc()
             )
 
-            # torch.cuda.memory._dump_snapshot(f"my_snapshot_{gpc.get_global_rank()}.pickle")
+            # internlm_accelerator.memory._dump_snapshot(f"my_snapshot_{gpc.get_global_rank()}.pickle")

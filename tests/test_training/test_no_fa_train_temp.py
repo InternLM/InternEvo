@@ -23,6 +23,7 @@ from tests.common_fixture import (
     load_new_batch,
     seed_all,
 )
+from internlm.accelerator import internlm_accelerator
 
 logger = get_logger(__file__)
 
@@ -62,7 +63,7 @@ def train_check(args):
     train_dl, dataset_types = build_train_loader_with_data_type()
 
     metric = AccPerplex(
-        device=torch.cuda.current_device(),
+        device=internlm_accelerator.current_device(),
         tp_pg=gpc.get_group(ParallelMode.TENSOR),
         dp_pg=gpc.get_group(ParallelMode.DATA),
         dataset_types=dataset_types,
@@ -109,7 +110,7 @@ def train_check(args):
             isp_communicator.memory_pool.reset_lazy_pools()
 
         trainer.step()
-        torch.cuda.reset_peak_memory_stats()
+        internlm_accelerator.reset_peak_memory_stats()
 
 
 mode_list = ["mtp"]

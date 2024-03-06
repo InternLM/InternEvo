@@ -39,7 +39,7 @@ from internlm.data.utils import unpack_data
 from internlm.model.metrics import SchedulerMetricHook
 from internlm.model.modules.embedding import Embedding1D
 from internlm.model.modules.mlp import FeedForward
-from internlm.model.modules.multi_head_attention import MHA
+from internlm.model.modules.multi_head_attention import MHA, AttnType
 from internlm.model.moe.megablock.mlp import (
     MegaBlockFeedForward,
     MegaBlockGroupedFeedForward,
@@ -385,10 +385,11 @@ def load_new_batch(train_dl: DataLoader, train_iter: Iterable, train_state: Trai
             next(train_state.batch_sampler_iter)
     timer("batch-gen").stop()
 
-    if batch[0].get("type_ids", None) is not None:
-        # if use_flash_attn is False, we need to unpack type_ids
-        if not gpc.config.model.use_flash_attn:
-            batch[0]["type_ids"] = unpack_data(batch[0]["type_ids"], batch[0]["cu_seqlens"], is_type_ids=True)
+    # if use_flash_attn is False, we need to unpack type_ids
+    # if gpc.config.model.attn_type == AttnType.FLASH:
+    #     if batch[0].get("type_ids", None) is not None:
+    #         if not gpc.config.model.use_flash_attn:
+    #             batch[0]["type_ids"] = unpack_data(batch[0]["type_ids"], batch[0]["cu_seqlens"], is_type_ids=True)
 
     return batch, train_iter
 
@@ -456,10 +457,21 @@ def record_current_batch_training_metrics(
             scaler = trainer.engine.optimizer.optim.grad_scaler._scale.item()
 
         num_tokens_in_batch = batch[1].nelement()
-        num_samples_in_batch = sum([len(b) - 1 for b in batch[0]["cu_seqlens"]])
-        max_length_in_batch = max([(b[1:] - b[:-1]).max().item() for b in batch[0]["cu_seqlens"]])
-        max_samples_in_batch = max([len(b) - 1 for b in batch[0]["cu_seqlens"]])
-        min_samples_in_batch = min([len(b) - 1 for b in batch[0]["cu_seqlens"]])
+        num_tokens_nopadding_in_batch = 0
+        if len(batch[1].shape) == 2:  # no micor_bsz dim
+            num_tokens_nopadding_in_batch = sum([sum(torch.tensor(micro_b) != -100) for micro_b in batch[1]]).item()
+        elif len(batch[1].shape) == 3:  # has micor_bsz dim
+            for micro_num_batch in batch[1]:
+                num_tokens_nopadding_in_batch += sum(
+                    [sum(torch.tensor(micro_b) != -100) for micro_b in micro_num_batch]
+                ).item()
+        else:
+            raise RuntimeError(f"unkonw labels' shape: {batch[1].shape}")
+
+        num_samples_in_batch = sum([len(b) - 1 for b in metric.cu_seqlens])
+        max_length_in_batch = max([(b[1:] - b[:-1]).max().item() for b in metric.cu_seqlens])
+        max_samples_in_batch = max([len(b) - 1 for b in metric.cu_seqlens])
+        min_samples_in_batch = min([len(b) - 1 for b in metric.cu_seqlens])
         time_cost = time.time() - start_time
         tk_per_gpu = round(
             num_tokens_in_batch * gpc.get_world_size(ParallelMode.DATA) / gpc.get_world_size(ParallelMode.GLOBAL),
@@ -513,11 +525,21 @@ def record_current_batch_training_metrics(
             2,
         )
 
+        tgs_no_padding_origin = round(
+            num_tokens_nopadding_in_batch
+            * gpc.get_world_size(ParallelMode.DATA)
+            / gpc.get_world_size(ParallelMode.GLOBAL)
+            / (time.time() - start_time),
+            2,
+        )
+
         infos = {
             "tflops": tflops,
             "step": batch_count,
             "loss": loss.item() - moe_loss.item() if moe_loss is not None else loss.item(),
             "tgs (tokens/gpu/second)": tgs_origin,
+            "tgs_nopadding (tokens/gpu/second)": tgs_no_padding_origin,
+            "num_tokens_nopadding_in_batch": num_tokens_nopadding_in_batch,
             "tgs/last_tgs_1": last_tgs_1,
             "tgs/tgs_all": tgs_all,
             "tgs/tgs_avg": tgs_avg,

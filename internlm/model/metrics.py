@@ -1,13 +1,51 @@
 from typing import Callable, List, Optional
 
 import torch
+import torch.distributed as dist
 from torch import nn
-from torch_scatter import scatter
 
 from internlm.core.context import ParallelMode
 from internlm.core.context import global_context as gpc
-from internlm.utils.common import SchedulerHook
+from internlm.model.modules.multi_head_attention import AttnType
+
+# from torch_scatter import scatter
+from internlm.utils.common import SchedulerHook, get_current_device
 from internlm.utils.megatron_timers import megatron_timer as timer
+
+
+def broadcast(src: torch.Tensor, other: torch.Tensor, dim: int):
+    if dim < 0:
+        dim = other.dim() + dim
+    if src.dim() == 1:
+        for _ in range(0, dim):
+            src = src.unsqueeze(0)
+    for _ in range(src.dim(), other.dim()):
+        src = src.unsqueeze(-1)
+    src = src.expand(other.size())
+    return src
+
+
+def scatter_sum(
+    src: torch.Tensor,
+    index: torch.Tensor,
+    dim: int = -1,
+    out: Optional[torch.Tensor] = None,
+    dim_size: Optional[int] = None,
+    reduce=None,
+) -> torch.Tensor:
+    index = broadcast(index, src, dim)
+    if out is None:
+        size = list(src.size())
+        if dim_size is not None:
+            size[dim] = dim_size
+        elif index.numel() == 0:
+            size[dim] = 0
+        else:
+            size[dim] = int(index.max()) + 1
+        out = torch.zeros(size, dtype=src.dtype, device=src.device)
+        return out.scatter_add_(dim, index, src)
+    else:
+        return out.scatter_add_(dim, index, src)
 
 
 class AccPerplex:
@@ -50,18 +88,22 @@ class AccPerplex:
 
     def set_current_type_ids(self, type_ids: torch.Tensor):
         self.batch_shift = 0
-        self.type_ids = type_ids.cuda()
+        self.type_ids = type_ids.to(get_current_device())
+
+    def set_cu_seqlens(self, cu_seqlens: List):
+        self.cu_seqlens = cu_seqlens
 
     def __call__(self, logits, labels):
         return self.update(logits, labels, type_ids=self.type_ids)
 
     def update(self, logits, labels, type_ids=None):
-        if gpc.config.model.use_flash_attn:
-            micro_bsz = labels.size(0)
-        else:
-            micro_bsz = 1
         if type_ids is not None:
-            type_ids = type_ids[self.batch_shift * micro_bsz : (self.batch_shift + 1) * micro_bsz].view(-1)
+            if gpc.config.data.use_flash_style_data_format:
+                micro_bsz = labels.size(0)
+                type_ids = type_ids[self.batch_shift * micro_bsz : (self.batch_shift + 1) * micro_bsz].view(-1)
+            else:
+                type_ids = type_ids[self.batch_shift].view(-1)
+
             self.batch_shift += 1
         self.loss_with_type_id.update(logits, labels, type_ids)
 
@@ -91,8 +133,8 @@ class AccPerplex:
             ).long()
             mask = shift_labels.ne(-100).long()
             if hasattr(self, "total_type_count"):
-                ds_acc = scatter(corrects, type_ids, dim=0, reduce="sum")
-                token_num_type = scatter(mask, type_ids, dim=0, reduce="sum")
+                ds_acc = scatter_sum(corrects, type_ids, dim=0, reduce="sum")
+                token_num_type = scatter_sum(mask, type_ids, dim=0, reduce="sum")
                 if len(ds_acc) < self.total_type_count:
                     ds_acc = torch.cat([ds_acc, ds_acc.new_zeros(self.total_type_count - len(ds_acc))])
                     token_num_type = torch.cat(
@@ -107,7 +149,6 @@ class AccPerplex:
             torch.distributed.all_reduce(acc, op=torch.distributed.ReduceOp.SUM, group=self.tp_pg)
             self.right += acc  # Masked_fill is not needed here because -100 is not available anyway
             self.total += mask.sum()
-
             # Subtract the maximum value.
             shift_logits = shift_logits.sub(logits_max.unsqueeze(dim=-1))
 
@@ -227,6 +268,7 @@ class LossWithTypeId:
                 logits = logits[0]
             logits = logits.contiguous().view(-1, logits.size(-1))
             labels = labels.contiguous().view(-1)
+
             loss_list = self.loss_fn(logits, labels)
 
             cond = labels != -100
@@ -238,8 +280,8 @@ class LossWithTypeId:
                 type_ids = type_ids.contiguous().view(-1).to(self.device)
                 real_type_ids = type_ids[cond]
 
-                loss_list_type = scatter(real_loss_list, real_type_ids, dim=0, reduce="sum")
-                token_num_type = scatter(torch.ones_like(real_loss_list), real_type_ids, dim=0, reduce="sum")
+                loss_list_type = scatter_sum(real_loss_list, real_type_ids, dim=0, reduce="sum")
+                token_num_type = scatter_sum(torch.ones_like(real_loss_list), real_type_ids, dim=0, reduce="sum")
 
                 if len(loss_list_type) < self.total_type_count:
                     loss_list_type = torch.cat(

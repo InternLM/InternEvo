@@ -9,9 +9,11 @@ from typing import Dict, Union
 
 import torch
 
+from internlm.accelerator import internlm_accelerator
 from internlm.core.context import Config
 from internlm.core.context import global_context as gpc
 from internlm.core.context.process_group_initializer import ParallelMode
+from internlm.model.modules.multi_head_attention import AttnType, convert_attn_type
 from internlm.model.moe.megablock.utils import (
     check_megablock_installed,
     check_stk_installed,
@@ -66,6 +68,10 @@ def get_default_parser():
     return parser
 
 
+def judge_pack_mode(attn_type):
+    return attn_type == AttnType.FLASH
+
+
 def args_sanity_check():
     assert gpc.config is not None, "config is not load!"
 
@@ -113,6 +119,27 @@ def args_sanity_check():
 
     # processing the data config in gpc
     data = gpc.config.data
+
+    if "attn_type" not in gpc.config.model:
+        if "use_flash_attn" in gpc.config.model:
+            if gpc.config.model.use_flash_attn:
+                gpc.config.model._add_item("attn_type", "flash")
+            else:
+                gpc.config.model._add_item("attn_type", "torch")
+        else:
+            gpc.config.model._add_item("attn_type", "flash")
+            gpc.config.model._add_item("use_flash_attn", True)
+
+    attn_type = gpc.config.model.get("attn_type")
+    gpc.config.model.attn_type = convert_attn_type[attn_type]
+    gpc.config.model.use_flash_attn = gpc.config.model.attn_type == AttnType.FLASH
+
+    data._add_item("use_flash_style_data_format", judge_pack_mode(gpc.config.model.attn_type))
+    data._add_item("break_mode", data.get("break_mode", "cut"))
+    data._add_item("eos_token", data.get("eos_token", 2))
+
+    if gpc.is_rank_for_log():
+        logger.info(f"data config: {data}")
 
     assert data.seq_len is not None, "'seq_len' must be given a value"
     assert data.micro_bsz is not None, "'micro_bsz' must be given a value"
@@ -311,9 +338,6 @@ def args_sanity_check():
         logger.info(f"beta2_scheduler: {gpc.config.beta2_scheduler}")
 
     # process the model config
-    if "use_flash_attn" not in gpc.config.model:
-        gpc.config.model._add_item("use_flash_attn", True)
-
     if "MoE" in gpc.config.get("model_type", "INTERNLM"):
         if "num_experts" not in model:
             model._add_item("num_experts", 1)
@@ -327,6 +351,12 @@ def args_sanity_check():
         if gpc.config.model.moe_type == "MegaBlock-D":
             check_megablock_installed()
             check_stk_installed()
+
+    # model._add_item("parallel_output", model.get("parallel_output", False))
+    # if model.attn_type != AttnType.FLASH:
+    #     if gpc.is_rank_for_log():
+    #         logger.warning('parallel_output must set as False when not use Flash attention')
+    #     gpc.config.model.parallel_output = False
 
     # process the parallel config
     if "sequence_parallel" not in gpc.config.parallel:
@@ -467,13 +497,13 @@ def launch(
     gpc.load_config(config)
 
     # init default process group
-    gpc.init_global_dist(rank, world_size, backend, host, port)
+    gpc.init_global_dist(rank, world_size, "hccl", host, port)
 
     # init process groups for different parallel modes from config
     gpc.init_parallel_groups()
 
     # set cuda device
-    if torch.cuda.is_available():
+    if internlm_accelerator.is_available():
         # if local rank is not given, calculate automatically
         gpc.set_device(local_rank)
 
@@ -591,7 +621,7 @@ def initialize_distributed_env(
     # close automatic garbage collection
     gc.disable()
 
-    torch.cuda.empty_cache()
+    internlm_accelerator.empty_cache()
 
     if launcher == "torch":
         launch_from_torch(config=config, seed=seed)
@@ -653,7 +683,7 @@ def try_bind_numa(global_rank, world_size, local_rank=None):
             return
 
         if local_rank is None:
-            devices_per_node = torch.cuda.device_count()
+            devices_per_node = internlm_accelerator.device_count()
             local_rank = global_rank % devices_per_node
 
         # compute numa id for each locak rank

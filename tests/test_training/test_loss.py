@@ -24,6 +24,7 @@ from internlm.train import (
 from internlm.utils.common import BatchSkipper, launch_time
 from internlm.utils.gputest import empty_cache_and_diag
 from internlm.utils.megatron_timers import megatron_timer as timer
+from internlm.accelerator import internlm_accelerator
 
 CONFIG_FILE_PATH = os.getenv("CONFIG_FILE_PATH", "./configs/7B_sft.py")
 TOTAL_STEPS = 10
@@ -147,7 +148,7 @@ def train(
 
     # initialize metric for calculating accuracy and perplexity
     metric = AccPerplex(
-        device=torch.cuda.current_device(),
+        device=internlm_accelerator.current_device(),
         tp_pg=gpc.get_group(ParallelMode.TENSOR),
         dp_pg=gpc.get_group(ParallelMode.DATA),
         dataset_types=dataset_types,

@@ -42,6 +42,7 @@ from internlm.solver.pipeline_utils import partition_uniform
 from internlm.utils.common import filter_kwargs
 from internlm.utils.logger import get_logger
 from internlm.utils.registry import MODEL_INITIALIZER
+from internlm.accelerator import internlm_accelerator
 
 MODEL_TYPE = "INTERNLM2_PUBLIC"
 
@@ -220,7 +221,7 @@ class MHA(nn.Module):
                     q = q.to(torch.bfloat16)
                 if kv.dtype not in [torch.float16, torch.bfloat16]:
                     kv = kv.to(torch.bfloat16)
-                with torch.cuda.amp.autocast(dtype=torch.bfloat16):
+                with internlm_accelerator.amp.autocast(dtype=torch.bfloat16):
                     context = self.inner_cross_attn(q, kv).to(self.dtype)
             else:
                 context = self.inner_cross_attn(q, kv)
@@ -325,7 +326,7 @@ class MHA(nn.Module):
                             total_q = total_q.to(torch.bfloat16)
                         if total_kv.dtype not in [torch.float16, torch.bfloat16]:
                             total_kv = total_kv.to(torch.bfloat16)
-                        with torch.cuda.amp.autocast(dtype=torch.bfloat16):
+                        with internlm_accelerator.amp.autocast(dtype=torch.bfloat16):
                             output = flash_attn_varlen_kvpacked_func(
                                 q=total_q,
                                 kv=total_kv,
@@ -386,7 +387,7 @@ class MHA(nn.Module):
                         q = q.to(torch.bfloat16)
                     if kv.dtype not in [torch.float16, torch.bfloat16]:
                         kv = kv.to(torch.bfloat16)
-                    with torch.cuda.amp.autocast(dtype=torch.bfloat16):
+                    with internlm_accelerator.amp.autocast(dtype=torch.bfloat16):
                         context = self.inner_cross_attn(q, kv, causal=True).to(self.dtype)
                 else:
                     context = self.inner_cross_attn(q, kv, causal=True)
@@ -435,7 +436,7 @@ class MHA(nn.Module):
                     q = q.to(torch.bfloat16)
                 if kv.dtype not in [torch.float16, torch.bfloat16]:
                     kv = kv.to(torch.bfloat16)
-                with torch.cuda.amp.autocast(dtype=torch.bfloat16):
+                with internlm_accelerator.amp.autocast(dtype=torch.bfloat16):
                     context = self.attn(
                         q=q,
                         kv=kv,

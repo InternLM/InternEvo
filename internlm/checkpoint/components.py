@@ -18,6 +18,7 @@ from internlm.utils.common import get_current_device
 from internlm.utils.logger import get_logger
 from internlm.utils.parallel import is_using_isp
 from internlm.utils.storage_manager import get_fns, llm_load, llm_save
+from internlm.accelerator import internlm_accelerator
 
 from .utils import (
     get_model_topology,
@@ -194,7 +195,7 @@ def load_model_checkpoint(folder, model):
 
     # avoid to cuda oom, Ref: https://discuss.pytorch.org/t/load-state-dict-causes-memory-leak/36189/11
     del states
-    torch.cuda.empty_cache()
+    internlm_accelerator.empty_cache()
 
 
 def save_model_checkpoint(folder, model):
@@ -372,7 +373,7 @@ def load_optimizer_checkpoint(folder, optim):
 
     optim.load_state_dict(states)
     del states
-    torch.cuda.empty_cache()
+    internlm_accelerator.empty_cache()
 
 
 def save_optimizer_checkpoint(optim, state_path):
@@ -418,7 +419,7 @@ def load_sampler(ckpt_path: str, sampler):
         pstate.pop("indices", None)
         pstate.pop("rng_state", None)
         logger.info(f"reload sampler_states:{pstate}")
-    torch.cuda.empty_cache()
+    internlm_accelerator.empty_cache()
 
 
 def load_context(ckpt_path: str, train_state: TrainState):
@@ -426,7 +427,7 @@ def load_context(ckpt_path: str, train_state: TrainState):
     train_state.load_state_dict(context_stuffs)
     if gpc.is_rank_for_log():
         logger.info(f"reload train_state:{train_state}")
-    torch.cuda.empty_cache()
+    internlm_accelerator.empty_cache()
 
 
 def load_scheduler(ckpt_path: str, lr_scheduler, optimizer, train_state: TrainState):
@@ -454,7 +455,7 @@ def load_scheduler(ckpt_path: str, lr_scheduler, optimizer, train_state: TrainSt
     ratios = [learning_rate / lr for lr in base_lrs]
     for idx, param_group in enumerate(optimizer.param_groups):
         param_group["lr"] = param_group["lr"] * ratios[idx]
-    torch.cuda.empty_cache()
+    internlm_accelerator.empty_cache()
 
     if gpc.is_rank_for_log():
         logger.info(f"reload load_scheduler:{lr_scheduler}")

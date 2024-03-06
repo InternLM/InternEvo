@@ -7,6 +7,7 @@ from internlm.core.context import ParallelMode
 from internlm.core.context import global_context as gpc
 from internlm.utils.logger import get_logger
 from internlm.utils.storage_manager import get_fns, llm_load
+from internlm.accelerator import internlm_accelerator
 
 logger = get_logger(__file__)
 
@@ -65,7 +66,7 @@ def load_llama_pretrained_weights(folder, model):
 
     del states
     del current_states
-    torch.cuda.empty_cache()
+    internlm_accelerator.empty_cache()
 
 
 def load_hf_llama_pretrained_weights(folder, model):
@@ -181,7 +182,7 @@ def load_hf_llama_pretrained_weights(folder, model):
             f"Missing keys:{missing_keys}, unexpected keys:{unexpected_keys} in "
             f"tp:{gpc.get_local_rank(ParallelMode.TENSOR)}, pp:{pp_rank}"
         )
-    torch.cuda.empty_cache()
+    internlm_accelerator.empty_cache()
 
 
 LOAD_FUNC_DICT = {

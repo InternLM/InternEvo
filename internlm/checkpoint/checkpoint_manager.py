@@ -30,7 +30,7 @@ from internlm.utils.storage_manager import (
     try_get_storage_backend,
 )
 from internlm.utils.timeout import llm_timeout
-
+from internlm.accelerator import internlm_accelerator
 from .components import (
     load_context,
     load_model_checkpoint,
@@ -208,7 +208,7 @@ def try_load_internlm_ckpt_func(ckpt_mm, load_info, *args, func=None, **kwargs):
     func(folder=load_ckpt_folder, model=ckpt_mm.model)
 
     load_content_str += f"{CheckpointLoadContent.MODEL}, "
-    torch.cuda.synchronize()
+    internlm_accelerator.synchronize()
 
     if isinstance(ckpt_mm.optimizer, HybridZeroOptimizer):
         reload_zero_fp32_buff(ckpt_mm.optimizer)
@@ -582,7 +582,7 @@ now step_count is {train_state.step_count}",
 
         start = time.time()
         self.set_save_folder(folder, train_state.step_count)
-        torch.cuda.synchronize()
+        internlm_accelerator.synchronize()
         torch.distributed.barrier()
         if gpc.is_rank_for_log():
             logger.info(f"Saving checkpoint to `{folder}` at batch count:{train_state.step_count}...")

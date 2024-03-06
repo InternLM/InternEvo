@@ -3,6 +3,7 @@
 
 # adopted from https://github.com/hpcaitech/ColossalAI/blob/main/colossalai/engine
 
+import os
 from abc import ABC, abstractmethod
 from typing import Any, Callable, Dict, Iterable
 
@@ -25,6 +26,7 @@ class BaseScheduler(ABC):
 
     def __init__(self, data_process_func: Callable = None):
         self.data_process_func = data_process_func
+        self._packed_mode = None
 
     @abstractmethod
     def pre_processing(self, engine: Engine):
@@ -45,10 +47,49 @@ class BaseScheduler(ABC):
         In all other cases 'bsz_stride' should be equal to 1.
         """
         assert isinstance(data, dict) and isinstance(label, torch.Tensor)
-        micro_batch_data = {k: v[offset : offset + bsz_stride] for k, v in data.items()}
-        micro_batch_label = label[offset : offset + bsz_stride]
+
+        if self.packed_mode:
+            micro_batch_data = {k: v[offset : offset + bsz_stride] for k, v in data.items()}
+            micro_batch_label = label[offset : offset + bsz_stride]
+
+            assert "cu_seqlens" in micro_batch_data
+            assert "indexes" in micro_batch_data
+            assert len(micro_batch_data["cu_seqlens"]) == 1
+            assert len(micro_batch_data["indexes"]) == 1
+
+            # squeeze
+            micro_batch_data["cu_seqlens"] = micro_batch_data["cu_seqlens"].squeeze(0)
+            # The indexes are used to indicate the actual position IDs of each token in the packed input.
+            indexes = indexes[0]
+
+            # squeeze the dim of micro num.
+            micro_batch_data["input_ids"] = micro_batch_data["input_ids"].squeeze(0)
+        else:
+            micro_batch_data = {k: v[offset] for k, v in data.items()}
+            micro_batch_label = label[offset]
+
+            micro_batch_data.pop("cu_seqlens", None)
+            micro_batch_data.pop("indexes", None)
+
+        if "DEBUG_DATA_SHAPE" in os.environ:
+            attention_mask_shape = (
+                micro_batch_data["attention_mask"].shape if "attention_mask" in micro_batch_data else ""
+            )
+            input_ids_shape = micro_batch_data["input_ids"].shape
+            print(
+                f"offset: {offset}, bsz_stride:{bsz_stride}, attn_mask: {attention_mask_shape}, input_ids:{input_ids_shape}, label: {micro_batch_label.shape}",
+                flush=True,
+            )
 
         return micro_batch_data, micro_batch_label
+
+    @property
+    def packed_mode(self):
+        return self._packed_mode
+
+    @packed_mode.setter
+    def packed_mode(self, packed_mode):
+        self._packed_mode = packed_mode
 
     @abstractmethod
     def forward_backward_step(

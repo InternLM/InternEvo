@@ -8,18 +8,18 @@ MLP_RATIO = 8 / 3
 NUM_LAYER = 32
 VOCAB_SIZE = 103168
 
-MODEL_ONLY_FOLDER = "local:llm_ckpts/xxxx"
+MODEL_ONLY_FOLDER = "local:llm_ckpts_ljx/xxxx"
 # Ckpt folder format:
 # fs: 'local:/mnt/nfs/XXX'
-SAVE_CKPT_FOLDER = "local:llm_ckpts"
-LOAD_CKPT_FOLDER = "local:llm_ckpts/49"
+SAVE_CKPT_FOLDER = "local:llm_ckpts_ljx"
+LOAD_CKPT_FOLDER = "local:llm_ckpts_ljx/49"
 
 # boto3 Ckpt folder format:
 # import os
 # BOTO3_IP = os.environ["BOTO3_IP"] # boto3 bucket endpoint
 # SAVE_CKPT_FOLDER = f"boto3:s3://model_weights.{BOTO3_IP}/internlm"
 # LOAD_CKPT_FOLDER = f"boto3:s3://model_weights.{BOTO3_IP}/internlm/snapshot/1/"
-CHECKPOINT_EVERY = 50
+CHECKPOINT_EVERY = 500
 ckpt = dict(
     enable_save_ckpt=False,  # enable ckpt save.
     save_ckpt_folder=SAVE_CKPT_FOLDER,  # Path to save training ckpt.
@@ -44,7 +44,7 @@ ckpt = dict(
     oss_snapshot_freq=int(CHECKPOINT_EVERY / 2),  # snapshot ckpt save frequency.
 )
 
-TRAIN_FOLDER = None  # "/path/to/dataset"
+TRAIN_FOLDER = "/data/wangguoteng/opensource_data/0711_scratch_tokenized_refineweb_small/train/"  # "/path/to/dataset"
 VALID_FOLDER = None  # "/path/to/dataset"
 data = dict(
     seq_len=SEQ_LEN,
@@ -57,7 +57,7 @@ data = dict(
     # defaults to 0, means disable evaluate
     valid_every=50,
     pack_sample_into_one=False,
-    total_steps=50000,
+    total_steps=10000,
     skip_batches="",
     # rampup_batch_size (str): A string with three space-separated integers representing the
     #       starting batch size, the increment, and the number of steps between
@@ -131,7 +131,7 @@ beta2_scheduler = dict(
 
 use_fp32_norm = False
 model = dict(
-    checkpoint=False,  # The proportion of layers for activation aheckpointing, the optional value are True/False/[0-1]
+    checkpoint=True,  # The proportion of layers for activation aheckpointing, the optional value are True/False/[0-1]
     num_attention_heads=NUM_ATTENTION_HEAD,
     embed_split_hidden=True,
     vocab_size=VOCAB_SIZE,

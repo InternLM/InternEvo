@@ -13,6 +13,7 @@ import torch.distributed as dist
 from internlm.core.context import ParallelMode
 from internlm.core.context import global_context as gpc
 from internlm.utils.common import get_current_device
+from internlm.accelerator import internlm_accelerator
 
 from .utils import gather_split_1d_tensor, split_tensor_into_1d_equal_chunks
 
@@ -171,7 +172,7 @@ def _communicate(
         for req in reqs:
             req.wait()
     # To protect against race condition when using batch_isend_irecv().
-    torch.cuda.synchronize()
+    internlm_accelerator.synchronize()
 
     if recv_prev and recv_prev_split:
         if isinstance(tensor_recv_prev, torch.Tensor):
@@ -471,7 +472,7 @@ def send_forward_and_recv_next_forward_async(
     for req in reqs:
         req.wait()
     # To protect against race condition when using batch_isend_irecv()
-    torch.cuda.synchronize()
+    internlm_accelerator.synchronize()
 
     # Process received data
     if recv_prev_shape is not None and recv_prev_split:
@@ -531,7 +532,7 @@ def send_backward_and_recv_next_backward_async(
     for req in reqs:
         req.wait()
     # To protect against race condition when using batch_isend_irecv()
-    torch.cuda.synchronize()
+    internlm_accelerator.synchronize()
 
     # Process received data
     if recv_next_shape is not None and recv_next_split:

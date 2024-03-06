@@ -11,7 +11,7 @@ import torch.distributed as dist
 from internlm.core.context import ParallelMode
 from internlm.core.context import global_context as gpc
 from internlm.core.engine import Engine
-from internlm.utils.common import SchedulerHook, conditional_context
+from internlm.utils.common import SchedulerHook, conditional_context, get_current_device
 from internlm.utils.logger import get_logger
 from internlm.utils.timeout import llm_timeout
 
@@ -77,11 +77,11 @@ class NonPipelineScheduler(BaseScheduler):
         _data, _label = self._load_micro_batch(data=data, label=label, offset=self._grad_accum_offset, bsz_stride=1)
         self._grad_accum_offset += 1
 
-        if self.data_process_func:
-            _data["input_ids"] = self.data_process_func(_data["input_ids"], _data["cu_seqlens"])
-            _label = self.data_process_func(_label, _data["cu_seqlens"])
-            _data.pop("cu_seqlens")
-            _data.pop("indexes")
+        # if self.data_process_func:
+        #     _data["input_ids"] = self.data_process_func(_data["input_ids"], _data["cu_seqlens"])
+        #     _label = self.data_process_func(_label, _data["cu_seqlens"])
+        #     _data.pop("cu_seqlens")
+        #     _data.pop("indexes")
 
         return _data, _label
 
@@ -127,7 +127,7 @@ class NonPipelineScheduler(BaseScheduler):
                 moe_loss = (
                     sum(moe_losses) * gpc.config.loss.moe_loss_coeff
                     if hasattr(gpc.config.model, "num_experts") and gpc.config.model.num_experts > 1
-                    else torch.tensor(0.0, device=torch.cuda.current_device(), dtype=gpc.config.model.get("dtype"))
+                    else torch.tensor(0.0, device=get_current_device(), dtype=gpc.config.model.get("dtype"))
                 )
                 # the moe_loss is computed among the "tensor" group if sequence parallel is enabled,
                 # so we need to do allreduce

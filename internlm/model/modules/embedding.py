@@ -14,6 +14,7 @@ from internlm.core.context import global_context as gpc
 from ..utils import gather_forward_split_backward, split_forward_gather_backward
 
 
+
 class Embedding1D(nn.Module):
     """
     1D Embedding.
@@ -430,6 +431,15 @@ class RotaryEmbedding(torch.nn.Module):
         self.dim = dim
         self.base = base
         self.inv_freq = 1.0 / (base ** (torch.arange(0, dim, 2, device=device, dtype=torch.float32) / dim))
+
+        # self.inv_freq1 = torch.tensor([1.0], device=device)
+        # self.inv_freq2 = torch.tensor([base], device=device)
+        # self.inv_freq3 = torch.arange(0, dim, 2, device=device, dtype=torch.float32)
+        # self.inv_freq4 = torch.tensor([dim], device=device)
+        # self.inv_freq5 = self.inv_freq2 ** self.inv_freq3
+        # self.inv_freq6 = self.inv_freq5 / self.inv_freq4
+        # self.inv_freq7 = self.inv_freq1 / self.inv_freq6
+        # self.inv_freq =  self.inv_freq7
         self.scale_base = scale_base
         self.scale = (
             (torch.arange(0, dim, 2, device=device, dtype=torch.float32) + 0.4 * dim) / (1.4 * dim)

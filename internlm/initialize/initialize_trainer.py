@@ -79,10 +79,10 @@ def initialize_trainer(
 
     # initialize scheduler for trainer
     scheduler = None
-    if gpc.config.model.use_flash_attn:
-        data_fn = None
-    else:
-        data_fn = unpack_data
+    # if gpc.config.model.use_flash_attn or gpc.config.model.use_flash_attn_npu:
+    #     data_fn = None
+    # else:
+    data_fn = None
     if gpc.is_using_parallel_mode(ParallelMode.PIPELINE):
         gpc.config.NUM_MICRO_BATCHES = gpc.config.data.micro_num
         tensor_shape = get_tensor_shape()
@@ -120,6 +120,9 @@ def initialize_trainer(
             gradient_accumulation_size=gpc.config.data.gradient_accumulation,
             scheduler_hooks=scheduler_hooks,
         )
+
+    # set packed mode
+    scheduler.packed_mode = gpc.config.data.use_flash_style_data_format
 
     # initialize engine for trainer
     engine = Engine(

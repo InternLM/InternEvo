@@ -1,18 +1,11 @@
 #!/usr/bin/env python
 # -*- encoding: utf-8 -*-
 
-import multiprocessing
-
-import dill
-
-dill.Pickler.dumps, dill.Pickler.loads = dill.dumps, dill.loads
-multiprocessing.reduction.ForkingPickler = dill.Pickler
-multiprocessing.reduction.dump = dill.dump
-
 import asyncio  # noqa: E402  #pylint: disable=wrong-import-position
 import concurrent.futures  # noqa: E402  #pylint: disable=wrong-import-position
 import hashlib  # noqa: E402  #pylint: disable=wrong-import-position
 import io  # noqa: E402  #pylint: disable=wrong-import-position
+import multiprocessing
 import os  # noqa: E402  #pylint: disable=wrong-import-position
 import pickle  # noqa: E402  #pylint: disable=wrong-import-position
 import re  # noqa: E402  #pylint: disable=wrong-import-position
@@ -34,8 +27,15 @@ from typing import (  # noqa: E402  #pylint: disable=wrong-import-position
     Union,
 )
 
+import dill
 import torch  # noqa: E402  #pylint: disable=wrong-import-position
 import torch.distributed as dist  # noqa: E402  #pylint: disable=wrong-import-position
+
+# dill.Pickler.dumps, dill.Pickler.loads = dill.dumps, dill.loads
+# multiprocessing.reduction.ForkingPickler = dill.Pickler
+# multiprocessing.reduction.dump = dill.dump
+
+
 
 try:
     import boto3
@@ -1285,3 +1285,4 @@ def get_storage_manager():
 def wait_async_upload_finish():
     dist.barrier()
     storage_manager.wait()
+                                          

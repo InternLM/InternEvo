@@ -14,6 +14,7 @@ from typing import Union
 
 import numpy as np
 import torch
+import os
 import torch.distributed as dist
 
 from internlm.utils.common import SingletonMeta
@@ -23,6 +24,7 @@ from internlm.utils.timeout import LLM_NCCL_TIMEOUT
 from . import process_group_initializer as pgroup_initializer
 from .process_group_initializer import ParallelMode
 from .random import add_seed, get_seeds, set_mode
+from internlm.accelerator import internlm_accelerator, AcceleratorType
 
 IS_REPLICA_ZERO_PARALLEL = "is_replica_zero_parallel"
 # for isp, with optimizer split in dp group
@@ -199,9 +201,19 @@ class ParallelContext(metaclass=SingletonMeta):
     def detect_num_processes_on_current_node(self):
         hostname = socket.gethostname()
         hostname_list = [None for _ in range(self.get_world_size(ParallelMode.GLOBAL))]
-        dist.all_gather_object(hostname_list, hostname, group=self.get_group(ParallelMode.GLOBAL))
-        counter = Counter(hostname_list)
-        self.num_processes_on_current_node = counter[hostname]
+
+        if internlm_accelerator.get_accelerator_name() == AcceleratorType.NPU:
+            if "A+K" in os.environ:
+                self.num_processes_on_current_node = 8
+            elif "A+X" in os.environ:
+                self.num_processes_on_current_node = 16
+            else:
+                self.num_processes_on_current_node = 8
+            logger.warning(f"'try set 'num_processes_on_current_node' as {self.num_processes_on_current_node}")
+        else:
+            dist.all_gather_object(hostname_list, hostname, group=self.get_group(ParallelMode.GLOBAL))
+            counter = Counter(hostname_list)
+            self.num_processes_on_current_node = counter[hostname]
 
     @staticmethod
     def _check_parallel_mode(parallel_mode: ParallelMode):
@@ -612,10 +624,10 @@ class ParallelContext(metaclass=SingletonMeta):
         """
         global_rank = self.get_global_rank()
         if device_ordinal is None:
-            devices_per_node = torch.cuda.device_count()
+            devices_per_node = internlm_accelerator.device_count()
             device_ordinal = global_rank % devices_per_node
 
-        torch.cuda.set_device(device_ordinal)
+        internlm_accelerator.set_device(device_ordinal)
         logger.info(f"process rank {global_rank} is bound to host:{socket.gethostname()} device: {device_ordinal}")
 
     def set_seed(self, seed: int, dpseed_with_tpoffset: bool = False):
@@ -630,7 +642,7 @@ class ParallelContext(metaclass=SingletonMeta):
         random.seed(seed)
         np.random.seed(seed)
         torch.manual_seed(seed)
-        assert torch.cuda.is_available()
+        assert internlm_accelerator.is_available()
 
         # data parallel seed are kept the same in the same pipeline stage
         dp_seed = seed

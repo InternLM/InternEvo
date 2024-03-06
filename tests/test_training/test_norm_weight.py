@@ -6,6 +6,7 @@ import pytest
 import torch
 
 import internlm
+from internlm.accelerator import internlm_accelerator
 from internlm.core.context import ParallelMode
 from internlm.core.context import global_context as gpc
 from internlm.data import build_train_loader_with_data_type
@@ -81,7 +82,7 @@ def train_check_norm_weight(args):
     train_dl, dataset_types = build_train_loader_with_data_type()
 
     metric = AccPerplex(
-        device=torch.cuda.current_device(),
+        device=internlm_accelerator.current_device(),
         tp_pg=gpc.get_group(ParallelMode.TENSOR),
         dp_pg=gpc.get_group(ParallelMode.DATA),
         dataset_types=dataset_types,
@@ -104,7 +105,7 @@ def train_check_norm_weight(args):
 
     for batch_count in range(total_steps):
         if batch_count % 100 == 0:
-            torch.cuda.empty_cache()
+            internlm_accelerator.empty_cache()
             gc.collect()
 
         # load batch data
@@ -130,7 +131,7 @@ def train_check_norm_weight(args):
 
         trainer.step()
 
-        torch.cuda.reset_peak_memory_stats()
+        internlm_accelerator.reset_peak_memory_stats()
 
     blocks_norm1_list = []
     blocks_norm2_list = []

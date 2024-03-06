@@ -6,6 +6,7 @@ from torch.nn import Module, ModuleList
 
 from internlm.core.context import global_context as gpc
 from internlm.model.moe.experts import Experts
+from internlm.accelerator import internlm_accelerator
 
 if TYPE_CHECKING:
     Base = Module[Tensor]
@@ -31,5 +32,5 @@ class BaseMoELayer(Base):
         self.ep_group = ep_group
         self.ep_size = ep_size
         self.num_local_experts = num_local_experts
-        self.l_aux = torch.tensor(0.0, device=torch.cuda.current_device(), dtype=gpc.config.model.get("dtype"))
+        self.l_aux = torch.tensor(0.0, device=internlm_accelerator.current_device(), dtype=gpc.config.model.get("dtype"))
         self.exp_counts = None

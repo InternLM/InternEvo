@@ -52,6 +52,7 @@ from internlm.utils.megatron_timers import megatron_timer as timer  # noqa: E402
 from internlm.utils.parallel import get_parallel_log_file_name  # noqa: E402
 from internlm.utils.simple_memory_profiler import SimpleMemoryProfiler  # noqa: E402
 from internlm.utils.writer import Writer  # noqa: E402
+from internlm.accelerator import internlm_accelerator
 
 # global llm logger
 logger = get_logger(__file__)
@@ -172,7 +173,7 @@ def main(args):
 
     # initialize metric for calculating accuracy and perplexity
     metric = AccPerplex(
-        device=torch.cuda.current_device(),
+        device=internlm_accelerator.current_device(),
         tp_pg=gpc.get_group(ParallelMode.TENSOR),
         dp_pg=gpc.get_group(ParallelMode.DATA),
         dataset_types=dataset_types,

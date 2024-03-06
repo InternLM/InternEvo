@@ -10,15 +10,20 @@ from internlm.data.tokenized.batch_sampler import (
     StaticBatchSampler,
     get_dpsampler_dataloader,
 )
-from internlm.data.tokenized.collaters import jsonl_ds_collate_fn, packed_collate_fn
+from internlm.data.tokenized.collaters import (
+    jsonl_ds_collate_fn,
+    packed_collate_fn,
+    packed_collate_fn_nopack,
+)
 from internlm.data.tokenized.dataset import get_dataset_dict
 from internlm.data.tokenized.dummy_dataset import RandomDataset
 from internlm.data.tokenized.packed_dataset import (
+    DatasetWithoutCuSeqlen,
     PackedDatasetWithCut,
-    PackedDatasetWithoutCuSeqlen,
     get_packed_dataset_without_short_length,
 )
 from internlm.data.utils import get_dataset_type_ids_map
+from internlm.model.modules.multi_head_attention import AttnType
 from internlm.utils.logger import get_logger
 
 # global llm logger
@@ -31,10 +36,13 @@ def get_tokenized_train_loader_items(data_cfg):
         train_ds = RandomDataset(num_samples=1000000, max_len=data_cfg.seq_len)
 
         if data_cfg.pack_sample_into_one:
-            train_ds = PackedDatasetWithoutCuSeqlen(
+            train_ds = DatasetWithoutCuSeqlen(
                 train_ds, max_length_per_sample=data_cfg.seq_len, packed_length=data_cfg.packed_length
             )
         else:
+            assert (
+                gpc.config.model.attn_type != AttnType.ASCEND_FLASH
+            ), "NPU flash attention can't support dummy data with 'pack_sample_into_one' is False!"
             train_ds = PackedDatasetWithCut(
                 train_ds, max_length_per_sample=data_cfg.seq_len, packed_length=data_cfg.packed_length
             )
@@ -47,6 +55,8 @@ def get_tokenized_train_loader_items(data_cfg):
             min_length=data_cfg.get("min_length", 0),
             min_length_dict=data_cfg.get("min_length_dict", None),
             pack_sample_into_one=data_cfg.get("pack_sample_into_one", False),
+            use_flash_style_data_format=data_cfg.use_flash_style_data_format,
+            break_mode=data_cfg.break_mode,
         )
 
     train_sampler = StaticBatchSampler(
@@ -59,7 +69,18 @@ def get_tokenized_train_loader_items(data_cfg):
         data_rank=gpc.get_local_rank(ParallelMode.DATA),
         data_world_size=gpc.get_world_size(ParallelMode.DATA),
     )
-    train_collate_fn = partial(packed_collate_fn, packed_length=data_cfg.packed_length)
+
+    gen_attn_mask = True if gpc.config.model.attn_type == AttnType.ASCEND_FLASH else False
+
+    if data_cfg.use_flash_style_data_format:
+        train_collate_fn = partial(packed_collate_fn, packed_length=data_cfg.packed_length)
+    else:
+        train_collate_fn = partial(
+            packed_collate_fn_nopack,
+            packed_length=data_cfg.packed_length,
+            eos_token=data_cfg.eos_token,
+            gen_attn_mask=gen_attn_mask,
+        )
 
     return train_ds, train_sampler, train_collate_fn
 

@@ -9,6 +9,7 @@ import torch.distributed as dist
 from torch._utils import _flatten_dense_tensors, _unflatten_dense_tensors
 
 from internlm.core.context import global_context as gpc
+from internlm.utils.common import get_current_device
 
 
 class BaseGradientHandler(ABC):
@@ -70,7 +71,7 @@ class PipelineSharedModuleGradientHandler(BaseGradientHandler):
                         param.colo_attr.grad_payload if hasattr(param, "colo_attr") else param.grad.data
                         for param in bucket
                     ]
-                    coalesced = _flatten_dense_tensors(grads).to(torch.cuda.current_device())
+                    coalesced = _flatten_dense_tensors(grads).to(get_current_device())
                     dist.all_reduce(coalesced, op=dist.ReduceOp.SUM, group=group)
                     for buf, synced in zip(grads, _unflatten_dense_tensors(coalesced, grads)):
                         buf.copy_(synced)
