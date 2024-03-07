@@ -177,7 +177,7 @@ weight parallel (dict):
     3. memory_pool: bool, enable/disable memory pool, defaults to False.
 expert parallel (dict):
     1. size: int, the size of expert parallel, each device would save {num_expert/ep_size} local experts.
-expert parallel (dict):
+expert weight parallel (dict):
     1. size: int, the size of weight parallel for each expert module. the overlap and memory_pool would
         inherit from weight parallel setting.
 
