@@ -221,8 +221,8 @@ class ParamAsyncBcastHandler:
                 block, (Embedding1D, ParallelGPT2Embeddings, BaseScaleColumnParallelLinear)
             ):
                 block.register_forward_pre_hook(_pre_forward_hook)
-            else:
-                isp_communicator.register_prerequisite_for_forward_prefetch_hooks(_pre_forward_hook)
+        if isp_communicator:
+            isp_communicator.register_prerequisite_for_forward_prefetch_hooks(_pre_forward_hook)
 
     def get_rank_by_param(self, param) -> int:
         return self._param_to_rank[param]
