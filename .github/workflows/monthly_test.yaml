@@ -1,54 +1,36 @@
-name: pr-merged
+name: monthly-tests
 on:
-  push:
-    branches:
-      - "develop"
-      - "main"
-    paths-ignore:
-      - "cmds/**"
-      - "**.md"
+  workflow_dispatch:
+  schedule:
+    - cron:  '32 17 9 * *'
 env:
   WORKSPACE_PREFIX: $(echo $GITHUB_WORKSPACE |cut -d '/' -f 1-4)
   SLURM_PARTITION: llm_s
 
 jobs:
-  acc_tests:
+  training_tp_norm_layer:
     runs-on: [t_cluster]
-    timeout-minutes: 30
     steps:
     - name: mask env
       run: |
         echo "::add-mask::${{env.WORKSPACE_PREFIX}}"
         echo "::add-mask::$path_prefix"
     - uses: actions/checkout@v3
+      with:
+         ref: ${{ github.event_name == 'schedule' && 'develop' || github.event_name == 'workflow_dispatch' && '' }}
 
-    - name: acc_tests
+    - name: training_tp_norm_layer
       run: |
         source activate ${evo_env_torch21_flash2}
-        export PYTHONPATH=$PWD:$PYTHONPATH
-        srun -p ${SLURM_PARTITION} --kill-on-bad-exit=1 --job-name=internlm-acc-test-${GITHUB_RUN_ID}-${GITHUB_JOB} -N 1 -n 8 --ntasks-per-node=8 --gpus-per-task=1  python ./tests/test_training/train_CI.py --config ./tests/test_training/7B_check_acc.py
+        srun -p ${SLURM_PARTITION} --kill-on-bad-exit=1 --job-name=monthly-test-${GITHUB_RUN_ID}-${GITHUB_JOB} -N 1 -n 8 --gres=gpu:8 pytest -s -v --color=yes -m "check_norm_msp" ./tests/test_training/test_norm_weight.py
+        srun -p ${SLURM_PARTITION} --kill-on-bad-exit=1 --job-name=monthly-test-${GITHUB_RUN_ID}-${GITHUB_JOB} -N 1 -n 8 --gres=gpu:8 pytest -s -v --color=yes -m "check_norm_fsp" ./tests/test_training/test_norm_weight.py
+        srun -p ${SLURM_PARTITION} --kill-on-bad-exit=1 --job-name=monthly-test-${GITHUB_RUN_ID}-${GITHUB_JOB} -N 1 -n 8 --gres=gpu:8 pytest -s -v --color=yes -m "check_norm_isp" ./tests/test_training/test_norm_weight.py
 
-  check_loss_when_swapping_micro_num_and_micro_bsz:
-    runs-on: [t_cluster]
-    timeout-minutes: 40
-    steps:
-    - name: mask env
-      run: |
-        echo "::add-mask::${{env.WORKSPACE_PREFIX}}"
-        echo "::add-mask::$path_prefix"
-    - uses: actions/checkout@v3
-
-    - name: loss_tests
-      run: |
-        source activate ${evo_env_torch21_flash2}
-        export PYTHONPATH=$PWD:$PYTHONPATH
-        srun -p ${SLURM_PARTITION} --kill-on-bad-exit=1 --job-name=internlm-loss-test-${GITHUB_RUN_ID}-${GITHUB_JOB} -N 1 -n 1 --gres=gpu:8 python -m pytest -s ./tests/test_training/test_swap_nb_loss_and_gradnorm.py
 
   notify_to_feishu:
     if: ${{ always() && !cancelled() && contains(needs.*.result, 'failure') && (github.ref_name == 'develop' || github.ref_name == 'main') }}
     needs: [
-      acc_tests,
-      check_loss_when_swapping_micro_num_and_micro_bsz
+      training_tp_norm_layer
       ]
     runs-on: [t_cluster]
     steps:
