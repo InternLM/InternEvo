@@ -11,8 +11,7 @@ from torch import nn
 
 from internlm.core.context import global_context as gpc
 from internlm.core.naive_amp import NaiveAMPModel
-from internlm.model.embedding import Embedding1D
-from internlm.model.linear import BaseScaleColumnParallelLinear, ISPLinear
+from internlm.model.linear import ISPLinear
 from internlm.model.utils import all_gather_raw, reduce_scatter_raw
 from internlm.utils.common import SchedulerHook
 
@@ -129,10 +128,7 @@ class ISPOverlapState:
 
     def __init__(self) -> None:
         self.num_blocks: int = 0
-        self.embedding: List[nn.Module] = []
-        self.head: List[nn.Module] = []
         self.ckpt_block_num: int = 0
-        self.last_ckpt_block: nn.Module = None
         self.isp_outs: List[nn.Module] = []
         self.isp_modules: List[nn.Module] = []
         self.index_to_isp_modules: Dict[int, nn.Module] = {}
@@ -171,10 +167,7 @@ class ISPCommunicator:
 
         # inner interface variables of overlap state.
         self._num_blocks = None
-        self._head = None
-        self._embedding = None
         self._ckpt_block_num = None
-        self._last_ckpt_block = None
         self._isp_outs = None
         self._isp_modules = None
         # key: isp module; value: module global all-gather op handle
@@ -220,16 +213,8 @@ class ISPCommunicator:
 
         # Important: only works for llama-class models
         for _, children in model.named_children():
-            if isinstance(children, BaseScaleColumnParallelLinear):
-                setattr(children, "isp_name", "head")
-                self._overlap_states[cid].head.append(children)
-            elif isinstance(children, Embedding1D):
-                self._overlap_states[cid].embedding.append(children)
-            elif isinstance(children, nn.ModuleList):
+            if isinstance(children, nn.ModuleList):
                 self._overlap_states[cid].ckpt_block_num = int(self.model_conf.activation_checkpointing * len(children))
-                self._overlap_states[cid].last_ckpt_block = children[
-                    max(0, self._overlap_states[cid].ckpt_block_num - 1)
-                ]
 
                 for idx, block in enumerate(children):
                     self._overlap_states[cid].index_to_isp_modules[idx] = []
@@ -347,11 +332,16 @@ class ISPCommunicator:
         if module in self._bias_global_output:
             del self._bias_global_output[module]
 
-    def _post_forward_hook_for_embedding(self, *args):  # pylint: disable=W0613
+    def _pre_forward_hook_for_first_block(self, *args):  # pylint: disable=W0613
         """
-        prefetch weight for block 0 after embedding forward.
+        prefetch weight for block 0 before forward.
         """
-        self._all_gather_block_weight(0)
+        if self.is_forward is True:
+            self._all_gather_block_weight(0)
+
+    def _pre_forward_hook_for_last_ckpt_block(self, *args):  # pylint: disable=W0613
+        if self.is_forward is False:
+            self._all_gather_block_weight(self._ckpt_block_num - 1)
 
     def _pre_forward_hook_for_out_proj(self, module: nn.Module, *args):  # pylint: disable=W0613
         block_index = self._module_to_index[module]
@@ -370,21 +360,10 @@ class ISPCommunicator:
 
         self._wait_handle(module)
 
-    def _pre_forward_hook_for_block(self, *args):  # pylint: disable=W0613
-        for module in self._index_to_isp_modules[self._ckpt_block_num - 1]:
-            self._all_gather_module_weight(module)
-
     def _post_forward_hook_for_module(self, module: nn.Module, *args):  # pylint: disable=W0613
         self._clear_handle(module)
         if not ((self._module_to_index[module] < self._ckpt_block_num) and self.is_forward is False):
             self._clear_weight(module)
-
-    def _post_backward_hook_for_head(self, *args):  # pylint: disable=W0613
-        self._all_gather_module_weight(self._isp_modules[-1])
-
-    def _pre_backward_hook_for_head(self, *args):  # pylint: disable=W0613
-        if self.is_forward is False:
-            self._all_gather_block_weight(self._num_blocks - 1)
 
     def _pre_backward_hook_for_module(self, module: nn.Module, *args):  # pylint: disable=W0613
         # wait handle for current module
@@ -409,16 +388,18 @@ class ISPCommunicator:
         register forward hooks and backward hooks for isp modules.
         """
         # register forward hooks
-        # 1. register post_forward_hook @embedding module to prefetch for block 0
-        # 2. register pre_forward_hook @out_proj module to prefetch for next block,
+        # 1. register pre_forward_hook @block_0 to prefetch for block 0
+        # 2. register pre_forward_hook @block_(ckpt_block_num-1) to prefetch for the last ckpt block
+        # 3. register pre_forward_hook @out_proj module to prefetch for next block,
         #    notice that next block's all_gather op should be after current block's all_to_all op
-        # 3. register pre_forward_hook @isp_module to wait handle for current module
-        # 4. register post_forward_hook @isp_module to release resource
-        for embedding in self._embedding:
-            embedding.register_forward_hook(self._post_forward_hook_for_embedding)
+        # 4. register pre_forward_hook @isp_module to wait handle for current module
+        # 5. register post_forward_hook @isp_module to release resource
+        self._index_to_block[0].register_forward_pre_hook(self._pre_forward_hook_for_first_block)
 
         if self._ckpt_block_num >= 1:
-            self._last_ckpt_block.register_forward_pre_hook(self._pre_forward_hook_for_block)
+            self._index_to_block[self._ckpt_block_num - 1].register_forward_pre_hook(
+                self._pre_forward_hook_for_last_ckpt_block
+            )
 
         for out_proj in self._isp_outs:
             out_proj.register_forward_pre_hook(self._pre_forward_hook_for_out_proj)
@@ -428,13 +409,9 @@ class ISPCommunicator:
             module.register_forward_hook(self._post_forward_hook_for_module)
 
         # register backward hooks
-        # 1. register post_backward_hook @head module to prefetch for the last block's last module
-        # 2. register pre_backward_hook @isp_module to wait handle for current module and to prefetch for next module
-        # 3. register post_backward_hook @isp_module to release resource
+        # 1. register pre_backward_hook @isp_module to wait handle for current module and to prefetch for next module
+        # 2. register post_backward_hook @isp_module to release resource
         if self._ckpt_block_num < self._num_blocks:
-            for head in self._head:
-                head.register_full_backward_hook(self._post_backward_hook_for_head)
-
             for module in self._isp_modules:
                 module.register_full_backward_pre_hook(self._pre_backward_hook_for_module)
 
@@ -462,9 +439,6 @@ class ISPCommunicator:
         self._index_to_isp_modules = self._overlap_states[chunk_id].index_to_isp_modules
         self._index_to_block = self._overlap_states[chunk_id].index_to_block
         self._ckpt_block_num = self._overlap_states[chunk_id].ckpt_block_num
-        self._last_ckpt_block = self._overlap_states[chunk_id].last_ckpt_block
-        self._head = self._overlap_states[chunk_id].head
-        self._embedding = self._overlap_states[chunk_id].embedding
         self._num_blocks = self._overlap_states[chunk_id].num_blocks
 
     def register_prerequisite_for_forward_prefetch_hooks(self, prerequisite_func: Callable) -> None:

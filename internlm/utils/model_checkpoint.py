@@ -538,9 +538,13 @@ def load_model_checkpoint(folder, model):
     - folder
         - model_tp{tp_rank}_pp{pp_rank}.pt
 
+    If tensor parallel mode is isp, the saved weight is named:
+    - folder
+        - model_tp{tp_rank}_wp{wp_rank}_pp{pp_rank}.pt
+
     If fsdp is activated, the saved weight is named:
     - folder
-        - model_tp{tp_rank}_pp{pp_rank}_zo{zo_rank}
+        - model_tp{tp_rank}_pp{pp_rank}_zo{zo_rank}.pt
 
     If the tp is inconsistent with the saved one in the future use, the weight needs to be converted before loading.
     """
@@ -549,6 +553,7 @@ def load_model_checkpoint(folder, model):
     wp_size = gpc.get_world_size(ParallelMode.WEIGHT)
     pp_size = gpc.get_world_size(ParallelMode.PIPELINE)
     dp_size = gpc.get_world_size(ParallelMode.DATA)
+
     tp_rank = gpc.get_local_rank(ParallelMode.TENSOR)
     wp_rank = gpc.get_local_rank(ParallelMode.WEIGHT)
     pp_rank = gpc.get_local_rank(ParallelMode.PIPELINE)
