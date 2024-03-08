@@ -15,7 +15,7 @@ from transformers import AutoConfig
 def load_safetensors(filename):
     from safetensors import safe_open
 
-    model = safe_open(filename)
+    model = safe_open(filename, framework="pt")
     state_dict = {}
     for k in model.keys():
         state_dict[k] = model.get_tensor(k)
