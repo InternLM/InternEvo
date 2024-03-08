@@ -20,13 +20,14 @@ from internlm.train import (
 from internlm.utils.logger import get_logger
 from tests.common_fixture import (
     build_environment,
-    config,
+    config_7B,
     find_free_port,
     load_new_batch,
     seed_all,
 )
 
 logger = get_logger(__file__)
+config = config_7B
 
 
 def compute_rotol(tensor1, tensor2):
