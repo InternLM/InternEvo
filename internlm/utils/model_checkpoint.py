@@ -158,13 +158,14 @@ def get_model_topology(model):
         concatenated along the dimension 'dim'.
     """
 
-    from flash_attn.modules.embedding import VocabParallelEmbedding
+    if gpc.config.model.use_flash_attn:
+        from flash_attn.modules.embedding import VocabParallelEmbedding
 
     topos = {}
     for name, module in model.named_modules():
         # If it does not meet these conditions, it is shared between various tp/dp, and it is necessary to assert
         # that they are consistent.
-        if isinstance(module, VocabParallelEmbedding):
+        if gpc.config.model.use_flash_attn and isinstance(module, VocabParallelEmbedding):
             topos[name] = {"dim": 0}
     return topos
 

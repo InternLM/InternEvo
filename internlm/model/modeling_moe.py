@@ -5,8 +5,6 @@ import math
 from typing import Optional
 
 import torch
-from flash_attn.modules.embedding import ParallelGPT2Embeddings
-from flash_attn.modules.mlp import ParallelFusedMLP
 from torch import nn
 
 from internlm.core.context import ParallelMode
@@ -125,7 +123,7 @@ class PackedFlashBaseLayer1D(nn.Module):
         self.num_experts = num_experts
         ep_size = gpc.get_world_size(ParallelMode.EXPERT)
         if num_experts <= 1:  # dense, not MoE
-            if use_swiglu:
+            if use_swiglu or not use_flash_attn:
                 mlp_cls = get_mlp_cls(self.tp_mode)
                 self.mlp = mlp_cls(
                     hidden_size,
@@ -137,6 +135,8 @@ class PackedFlashBaseLayer1D(nn.Module):
                     dtype=dtype,
                 )
             else:
+                from flash_attn.modules.mlp import ParallelFusedMLP
+
                 self.mlp = ParallelFusedMLP(
                     hidden_size,
                     int(hidden_size * mlp_ratio),
@@ -336,9 +336,11 @@ class PackedFlashInternLm1D(nn.Module):
             head_cls = ScaleColumnParallelLinear
 
         if first:
-            if embed_split_hidden:
+            if embed_split_hidden or not use_flash_attn:
                 self.embedding = Embedding1D(num_embeddings=vocab_size, embedding_dim=hidden_size)
             else:
+                from flash_attn.modules.embedding import ParallelGPT2Embeddings
+
                 self.embedding = ParallelGPT2Embeddings(
                     embed_dim=hidden_size,
                     vocab_size=vocab_size,

@@ -1,7 +1,7 @@
 from typing import Callable, List, Optional
 
 import torch
-from flash_attn.losses.cross_entropy import CrossEntropyLoss as FlashCrossEntropyLoss
+from torch import nn
 from torch_scatter import scatter
 
 from internlm.core.context import ParallelMode
@@ -210,9 +210,16 @@ class LossWithTypeId:
             self.ds_loss = torch.zeros(self.total_type_count, dtype=torch.float, device=device)
             self.ds_token_num = torch.zeros(self.total_type_count, dtype=torch.float, device=device)
 
-        self.loss_fn = FlashCrossEntropyLoss(
-            reduction="none", inplace_backward=True, process_group=gpc.get_group(ParallelMode.TENSOR)
-        )
+        if gpc.config.model.use_flash_attn:
+            from flash_attn.losses.cross_entropy import (
+                CrossEntropyLoss as FlashCrossEntropyLoss,
+            )
+
+            self.loss_fn = FlashCrossEntropyLoss(
+                reduction="none", inplace_backward=True, process_group=gpc.get_group(ParallelMode.TENSOR)
+            )
+        else:
+            self.loss_fn = nn.CrossEntropyLoss(reduction="none")
 
     def update(self, logits, labels, type_ids=None):
         with torch.no_grad():
