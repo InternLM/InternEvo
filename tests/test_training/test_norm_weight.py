@@ -110,6 +110,9 @@ def train_check_norm_weight(args):
         # load batch data
         batch, train_iter = load_new_batch(train_dl=train_dl, train_iter=train_iter)
 
+        # zero the grads of parameters
+        trainer.zero_grad()
+
         # process data
         if batch[0].get("type_ids", None) is not None:
             metric.set_current_type_ids(type_ids=batch[0].pop("type_ids", None))
