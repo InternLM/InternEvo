@@ -46,7 +46,6 @@ class MegaBlockdMoE(MegaBlockMoE):
 
         tp_size = gpc.get_world_size(ParallelMode.TENSOR)
         self.ffn_dim = multiple_of * ((int(hidden_size * gpc.config.model.mlp_ratio) + multiple_of - 1) // multiple_of)
-        self.moe_capacity_factor = 1
         assert self.ffn_dim % tp_size == 0
         if parallel_mode == "tensor":
             self.ffn_dim_per_row = self.ffn_dim // tp_size // ep_size

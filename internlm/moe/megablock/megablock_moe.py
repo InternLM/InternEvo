@@ -26,7 +26,17 @@ class MegaBlockMoE(BaseMoELayer):
     """
 
     def __init__(
-        self, hidden_size, ep_group, ep_size, num_experts, top_k, device=None, dtype=None, multiple_of=256
+        self,
+        hidden_size,
+        ep_group,
+        ep_size,
+        num_experts,
+        top_k,
+        capacity_factor,
+        drop_tokens,
+        device=None,
+        dtype=None,
+        multiple_of=256,
     ) -> None:
         assert not gpc.config.parallel.sequence_parallel, "do not support sequence parallel"
         self.top_k = top_k
@@ -34,7 +44,8 @@ class MegaBlockMoE(BaseMoELayer):
 
         tp_size = gpc.get_world_size(ParallelMode.TENSOR)
         self.ffn_dim = multiple_of * ((int(hidden_size * gpc.config.model.mlp_ratio) + multiple_of - 1) // multiple_of)
-        self.moe_capacity_factor = 1
+        self.capacity_factor = capacity_factor
+        self.drop_tokens = drop_tokens
         assert self.ffn_dim % tp_size == 0
         super().__init__(
             torch.nn.Linear(hidden_size, num_experts, bias=False),
@@ -60,7 +71,7 @@ class MegaBlockMoE(BaseMoELayer):
     def expert_capacity(self, tokens, top_k):
         world_size = gpc.get_world_size(ParallelMode.EXPERT)  # mpu.get_expert_parallel_world_size(self.args)
         tokens_per_expert = top_k * tokens * world_size / self.num_experts
-        return int(self.moe_capacity_factor * tokens_per_expert)
+        return int(self.capacity_factor * tokens_per_expert)
 
     def indices_and_bins(self, top_expert):
         # Sort the expert ids to produce the scatter/gather
@@ -96,7 +107,7 @@ class MegaBlockMoE(BaseMoELayer):
             # per expert to the maximum we need to avoid dropping tokens.
             tokens, _ = x.size()
             expert_capacity = self.expert_capacity(tokens, top_k=self.top_k)
-            if expert_capacity == 0:
+            if not self.drop_tokens:
                 expert_capacity = torch.max(tokens_per_expert).item()
 
         out = self.permute_and_compute(x, indices, expert_weights, bins, expert_capacity, top_k=self.top_k)
@@ -215,7 +226,7 @@ class MegaBlockMoE(BaseMoELayer):
             # per expert to the maximum we need to avoid dropping tokens.
             tokens, _ = x.size()
             expert_capacity = self.expert_capacity(tokens, top_k=1)
-            if expert_capacity == 0:
+            if not self.drop_tokens:
                 expert_capacity = torch.max(parallel_tokens_per_expert).item()
 
         # Locally permute the tokens and perform the expert computation.
