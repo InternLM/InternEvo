@@ -215,8 +215,8 @@ moe = dict(
 # moe = dict(
 #    top_k=2,
 #    capacity_factor=1.0,
-#    drop_tokens=True,
-#    #parallel_mode="tensor", # only used in dmoe, parallel_mode can be tensor or weight
+#    drop_tokens=True, # only used in MegaBlock
+#    #parallel_mode="tensor", # only used in MegaBlock-D(dmoe), parallel_mode can be tensor or weight
 # )
 
 model_type = "INTERNLM_MoE"
