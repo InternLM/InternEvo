@@ -1,3 +1,5 @@
+from typing import Optional
+
 import numpy as np
 import torch
 import torch.nn.functional as F
@@ -27,16 +29,16 @@ class MegaBlockMoE(BaseMoELayer):
 
     def __init__(
         self,
-        hidden_size,
-        ep_group,
-        ep_size,
-        num_experts,
-        top_k,
-        capacity_factor,
-        drop_tokens,
-        device=None,
-        dtype=None,
-        multiple_of=256,
+        hidden_size: int,
+        ep_group: Optional[torch.distributed.ProcessGroup],
+        ep_size: int,
+        num_experts: int,
+        top_k: int = 1,
+        capacity_factor: float = 1.0,
+        drop_tokens: bool = True,
+        device: Optional[torch.device] = None,
+        dtype: Optional[torch.device] = None,
+        multiple_of: int = 256,
     ) -> None:
         assert not gpc.config.parallel.sequence_parallel, "do not support sequence parallel"
         self.top_k = top_k

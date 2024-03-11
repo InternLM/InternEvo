@@ -1,4 +1,4 @@
-from typing import Tuple
+from typing import Optional, Tuple
 
 import numpy as np
 import stk
@@ -30,15 +30,15 @@ class MegaBlockdMoE(MegaBlockMoE):
 
     def __init__(  # pylint: disable=W0231
         self,
-        hidden_size,
-        ep_group,
-        ep_size,
-        num_experts,
-        top_k,
-        parallel_mode="tensor",
-        device=None,
-        dtype=None,
-        multiple_of=256,
+        hidden_size: int,
+        ep_group: Optional[torch.distributed.ProcessGroup],
+        ep_size: int,
+        num_experts: int,
+        top_k: int = 1,
+        parallel_mode: str = "tensor",
+        device: Optional[torch.device] = None,
+        dtype: Optional[torch.device] = None,
+        multiple_of: int = 256,
     ) -> None:
         assert gpc.expert_parallel_size == 1, "do not support expert parallel"
         self.top_k = top_k

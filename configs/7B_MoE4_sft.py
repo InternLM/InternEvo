@@ -214,8 +214,8 @@ moe = dict(
 # MegaBlock MoE config
 # moe = dict(
 #    top_k=2,
-#    capacity_factor=1.0,
-#    drop_tokens=True, # only used in MegaBlock
+#    capacity_factor=1.0, # only used in MegaBlock(non-dmoe)
+#    drop_tokens=True, # only used in MegaBlock(non-dmoe)
 #    #parallel_mode="tensor", # only used in MegaBlock-D(dmoe), parallel_mode can be tensor or weight
 # )
 
