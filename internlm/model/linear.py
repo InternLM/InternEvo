@@ -4,17 +4,18 @@
 from typing import Callable, Optional
 
 import torch
-from flash_attn.ops.fused_dense import ColumnParallelLinear, RowParallelLinear
-from flash_attn.utils.distributed import all_reduce, reduce_scatter
 from torch import nn
+from torch.distributed import ProcessGroup
 
 from internlm.core.context import ParallelMode
 from internlm.core.context import global_context as gpc
 from internlm.model.utils import (
     Silu,
+    all_reduce,
     fused_dense_func,
     isp_fused_dense_func,
     megatron_fused_dense_func,
+    reduce_scatter,
 )
 from internlm.utils.logger import get_logger
 
@@ -202,7 +203,47 @@ class RewardModelLinear(BaseScaleColumnParallelLinear):
         )
 
 
-class ColumnParallelLinearTorch(ColumnParallelLinear):
+class ColumnParallelLinearTorch(nn.Linear):
+    """
+    ColumnParallelLinearTorch.
+    Args:
+        in_features (int): size of each input sample
+        out_features (int): size of each output sample
+        process_group (Optional[torch.distributed.ProcessGroup]): The group of the current device for `parallel_mode`.
+        bias (bool): Whether the bias is needed for linears. True by default. But it is typically set to False
+                    in the config.
+        sequence_parallel (bool): If sequence_parallel is True, we're doing Tensor Parallel with sequence parallelism:
+                                    we do an all_gather of x before doing the matmul.
+                                    If not, then the input is already gathered.
+        device (Optional[Union[str, torch.device]]): The device will be used.
+        dtype (Optional[torch.dtype]): The type of data.
+        weight_scale (int): For training stability. 1 by default.
+    """
+
+    def __init__(
+        self,
+        in_features: int,
+        out_features: int,
+        process_group: ProcessGroup,
+        bias: bool = True,
+        sequence_parallel=True,
+        multiple_of=1,
+        device=None,
+        dtype=None,
+    ) -> None:
+        world_size = torch.distributed.get_world_size(process_group)
+        if out_features % multiple_of:
+            raise ValueError(f"out_features ({out_features}) must be a multiple of {multiple_of}")
+        multiple = out_features // multiple_of
+        # We want to split @multiple across world_size, but it could be an uneven split
+        div = multiple // world_size
+        mod = multiple % world_size
+        # The first @mod ranks get @div + 1 copies, the rest get @div copies
+        local_multiple = div + int(torch.distributed.get_rank(process_group) < mod)
+        super().__init__(in_features, local_multiple * multiple_of, bias=bias, device=device, dtype=dtype)
+        self.process_group = process_group
+        self.sequence_parallel = sequence_parallel
+
     def forward(self, x, gather_dim=0):
         # If self.sequence_parallel is True, we're doing Tensor Parallel with sequence parallelism:
         # we do an all_gather of x before doing the matmul.
@@ -217,7 +258,11 @@ class ColumnParallelLinearTorch(ColumnParallelLinear):
         )
 
 
-class MegatronColumnParallelLinearTorch(ColumnParallelLinear):
+class MegatronColumnParallelLinearTorch(ColumnParallelLinearTorch):
+    """
+    MegatronColumnParallelLinearTorch
+    """
+
     def forward(self, x, gather_dim=0):
         # If self.sequence_parallel is True, we're doing Tensor Parallel with sequence parallelism:
         # we do an all_gather of x before doing the matmul.
@@ -232,7 +277,55 @@ class MegatronColumnParallelLinearTorch(ColumnParallelLinear):
         )
 
 
-class RowParallelLinearTorch(RowParallelLinear):
+class RowParallelLinearTorch(nn.Linear):
+    """
+    RowParallelLinearTorch.
+    Args:
+        in_features (int): size of each input sample
+        out_features (int): size of each output sample
+        process_group (Optional[torch.distributed.ProcessGroup]): The group of the current device for `parallel_mode`.
+        bias (bool): Whether the bias is needed for linears. True by default. But it is typically set to False
+                    in the config.
+        sequence_parallel (bool): If sequence_parallel is True, we're doing Tensor Parallel with sequence parallelism:
+                                    we do an all_gather of x before doing the matmul.
+                                    If not, then the input is already gathered.
+        device (Optional[Union[str, torch.device]]): The device will be used.
+        dtype (Optional[torch.dtype]): The type of data.
+        weight_scale (int): For training stability. 1 by default.
+    """
+
+    def __init__(
+        self,
+        in_features: int,
+        out_features: int,
+        process_group: ProcessGroup,
+        bias: bool = True,
+        sequence_parallel=True,
+        multiple_of=1,
+        device=None,
+        dtype=None,
+    ) -> None:
+        world_size = torch.distributed.get_world_size(process_group)
+        rank = torch.distributed.get_rank(process_group)
+        if in_features % multiple_of:
+            raise ValueError(f"in_features ({in_features}) must be a multiple of {multiple_of}")
+        multiple = in_features // multiple_of
+        # We want to split @multiple across world_size, but it could be an uneven split
+        div = multiple // world_size
+        mod = multiple % world_size
+        # The first @mod ranks get @div + 1 copies, the rest get @div copies
+        local_multiple = div + int(torch.distributed.get_rank(process_group) < mod)
+        # Only rank 0 will have bias
+        super().__init__(
+            local_multiple * multiple_of,
+            out_features,
+            bias=bias and rank == 0,
+            device=device,
+            dtype=dtype,
+        )
+        self.process_group = process_group
+        self.sequence_parallel = sequence_parallel
+
     def forward(self, x):
         """
         We're doing Tensor Parallel with sequence parallelism: we do the matmul and then
@@ -243,7 +336,11 @@ class RowParallelLinearTorch(RowParallelLinear):
         return reduce_fn(out, self.process_group)
 
 
-class MegatronRowParallelLinearTorch(RowParallelLinear):
+class MegatronRowParallelLinearTorch(RowParallelLinearTorch):
+    """
+    MegatronRowParallelLinearTorch.
+    """
+
     def forward(self, x):
         """
         We're doing Tensor Parallel with sequence parallelism: we do the matmul and then
@@ -405,7 +502,7 @@ class MegatronFeedForward(BaseFeedForward):
         )
 
 
-class ISPLinear(ColumnParallelLinear):
+class ISPLinear(ColumnParallelLinearTorch):
     """
     Linear class for isp tensor parallel mode.
     """

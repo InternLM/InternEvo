@@ -10,8 +10,6 @@ from typing import Callable, Iterable, List, Optional, Union
 
 import torch
 import torch.distributed as dist
-from flash_attn.modules.embedding import ParallelGPT2Embeddings
-from flash_attn.modules.mlp import ParallelFusedMLP
 from torch import nn
 from torch.distributed.fsdp import FullyShardedDataParallel as FSDP
 from torch.distributed.fsdp.fully_sharded_data_parallel import (
@@ -52,11 +50,11 @@ from internlm.data.utils import get_dataset_type_ids_map, unpack_data
 from internlm.model.embedding import Embedding1D
 from internlm.model.linear import (
     BaseScaleColumnParallelLinear,
-    ColumnParallelLinear,
+    ColumnParallelLinearTorch,
     FeedForward,
     ISPLinear,
     RewardModelLinear,
-    RowParallelLinear,
+    RowParallelLinearTorch,
     ScaleColumnParallelLinear,
 )
 from internlm.model.metrics import SchedulerMetricHook
@@ -118,7 +116,12 @@ def set_parallel_attr_for_param_groups(model: Union[nn.Module, nn.ModuleList]):
                 setattr(param, IS_REPLICA_ZERO_PARALLEL, True)
 
         # embedding and head
-        if isinstance(module, (Embedding1D, ParallelGPT2Embeddings, BaseScaleColumnParallelLinear)):
+        if gpc.config.model.use_flash_attn:
+            from flash_attn.modules.embedding import ParallelGPT2Embeddings
+
+        if isinstance(module, (Embedding1D, BaseScaleColumnParallelLinear)) or (
+            gpc.config.model.use_flash_attn and isinstance(module, ParallelGPT2Embeddings)
+        ):
             for param in module.parameters():
                 if gpc.is_initialized(ParallelMode.TENSOR) and is_using_isp():
                     setattr(param, IS_TENSOR_DATA_PARALLEL, True)
@@ -127,7 +130,8 @@ def set_parallel_attr_for_param_groups(model: Union[nn.Module, nn.ModuleList]):
 
         # for linear module
         if isinstance(
-            module, (ColumnParallelLinear, RowParallelLinear, MegaBlockFeedForward, MegaBlockGroupedFeedForward)
+            module,
+            (ColumnParallelLinearTorch, RowParallelLinearTorch, MegaBlockFeedForward, MegaBlockGroupedFeedForward),
         ):
             for param in module.parameters():
                 if gpc.is_initialized(ParallelMode.EXPERT_DATA) and is_moe_param(param):
@@ -220,7 +224,10 @@ def initialize_model(pre_process_func: Optional[Callable] = None, post_process_f
 
 
 def wrap_FSDP_model(model: Union[nn.Module, nn.ModuleList]):
-    if gpc.config.parallel.zero1.fsdp:
+    if gpc.config.parallel.zero1.fsdp and gpc.config.model.use_flash_attn:
+        from flash_attn.modules.embedding import ParallelGPT2Embeddings
+        from flash_attn.modules.mlp import ParallelFusedMLP
+
         # set wrap_policy for fsdp wrap
         transformer_wrap_policy = functools.partial(
             transformer_auto_wrap_policy,

@@ -3,11 +3,9 @@
 
 from typing import Callable, Optional
 
-import fused_dense_lib as fused_dense_cuda
 import torch
 import torch.distributed as dist
 import torch.nn.functional as F
-from flash_attn.utils.distributed import all_reduce_raw
 from torch import Tensor
 from torch.cuda.amp import custom_bwd, custom_fwd
 from torch.distributed import ProcessGroup
@@ -16,6 +14,51 @@ from internlm.core.context import global_context as gpc
 from internlm.utils.logger import get_logger
 
 logger = get_logger(__file__)
+
+
+# Raw operation, does not support autograd, but does support async
+def all_reduce_raw(input_: Tensor, process_group: ProcessGroup, async_op: bool = False):
+    input_ = input_.contiguous()
+    handle = torch.distributed.all_reduce(input_, group=process_group, async_op=async_op)
+    return input_, handle
+
+
+class ReduceScatterFunc(torch.autograd.Function):
+    """Reduce scatter the input from the sequence parallel region and concatenate."""
+
+    @staticmethod
+    def forward(ctx, input_: Tensor, process_group: ProcessGroup) -> Tensor:
+        ctx.process_group = process_group
+        output, _ = reduce_scatter_raw(input_, process_group)
+        return output
+
+    @staticmethod
+    def backward(ctx, grad_output: Tensor):
+        grad_input, _ = all_gather_raw(grad_output, ctx.process_group)
+        return grad_input, None
+
+
+# Supports autograd, but does not support async
+reduce_scatter = ReduceScatterFunc.apply
+
+
+class AllReduceFunc(torch.autograd.Function):
+    """Gather the input from sequence parallel region and concatenate."""
+
+    @staticmethod
+    def forward(ctx, input_: Tensor, process_group: ProcessGroup) -> Tensor:
+        ctx.process_group = process_group
+        output, _ = all_reduce_raw(input_, process_group)
+        return output
+
+    @staticmethod
+    def backward(ctx, grad_output: Tensor):
+        _ = ctx  # avoid lint warning W0613
+        return grad_output, None
+
+
+# Supports autograd, but does not support async
+all_reduce = AllReduceFunc.apply
 
 
 def _split(input_, parallel_mode, dim=-1):
@@ -238,7 +281,13 @@ class FusedDenseFunc(torch.autograd.Function):
         sequence_parallel = ctx.sequence_parallel
         gather_dim = ctx.gather_dim
 
-        backward_func = fused_dense_cuda.linear_bias_wgrad if ctx.is_using_cuda else linear_bias_wgrad_torch
+        if gpc.config.model.use_flash_attn:
+            import fused_dense_lib as fused_dense_cuda
+
+        if gpc.config.model.use_flash_attn and ctx.is_using_cuda:
+            backward_func = fused_dense_cuda.linear_bias_wgrad
+        else:
+            backward_func = linear_bias_wgrad_torch
 
         if ctx.compute_weight_gradient:
             x, weight = ctx.saved_tensors
@@ -351,7 +400,13 @@ class MegatronFusedDenseFunc(torch.autograd.Function):
         process_group = ctx.process_group
         sequence_parallel = ctx.sequence_parallel
 
-        backward_func = fused_dense_cuda.linear_bias_wgrad if ctx.is_using_cuda else linear_bias_wgrad_torch
+        if gpc.config.model.use_flash_attn:
+            import fused_dense_lib as fused_dense_cuda
+
+        if gpc.config.model.use_flash_attn and ctx.is_using_cuda:
+            backward_func = fused_dense_cuda.linear_bias_wgrad
+        else:
+            backward_func = linear_bias_wgrad_torch
 
         if ctx.compute_weight_gradient:
             total_x, weight = ctx.saved_tensors
@@ -448,7 +503,13 @@ class ISPFusedDenseFunc(torch.autograd.Function):
         module = ctx.module
         communicator = ctx.communicator
 
-        backward_func = fused_dense_cuda.linear_bias_wgrad if ctx.is_using_cuda else linear_bias_wgrad_torch
+        if gpc.config.model.use_flash_attn:
+            import fused_dense_lib as fused_dense_cuda
+
+        if gpc.config.model.use_flash_attn and ctx.is_using_cuda:
+            backward_func = fused_dense_cuda.linear_bias_wgrad
+        else:
+            backward_func = linear_bias_wgrad_torch
 
         grad_output = grad_output.contiguous()
         if ctx.return_residual:

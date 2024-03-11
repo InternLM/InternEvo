@@ -11,7 +11,7 @@ from internlm.core.context.parallel_context import Config
 from internlm.data.utils import unpack_data
 from internlm.initialize.launch import args_sanity_check
 
-config = Config(
+config_7B = Config(
     dict(
         parallel=dict(
             zero1=dict(size=-1),
