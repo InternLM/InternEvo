@@ -30,8 +30,8 @@ class MegaBlockFeedForward(nn.Module):
     def forward(self, x):
         # TODO w2 and w3 should swap
         w1_o = tensor_parallel_bmm(x, self.w1, group=gpc.get_group(ParallelMode.TENSOR))
-        w2_o = tensor_parallel_bmm(x, self.w2, group=gpc.get_group(ParallelMode.TENSOR))
-        out = tensor_parallel_bmm(Silu(w1_o, w2_o), self.w3)
+        w3_o = tensor_parallel_bmm(x, self.w3, group=gpc.get_group(ParallelMode.TENSOR))
+        out = tensor_parallel_bmm(Silu(w1_o, w3_o), self.w2)
         torch.distributed.all_reduce(out, group=gpc.get_group(ParallelMode.TENSOR))
 
         return out
@@ -62,7 +62,7 @@ class MegaBlockGroupedFeedForward(nn.Module):
     def forward(self, x, topo):
         # TODO w2 and w3 should swap
         w1_o = sdd_nt(x, self.w1, topo, gpc.get_group(ParallelMode.TENSOR), self.parallel_mode)
-        w2_o = sdd_nt(x, self.w2, topo, gpc.get_group(ParallelMode.TENSOR), self.parallel_mode)
-        out = dsd_nn(act_fn(w1_o, w2_o, topo), self.w3, gpc.get_group(ParallelMode.TENSOR), self.parallel_mode)
+        w3_o = sdd_nt(x, self.w3, topo, gpc.get_group(ParallelMode.TENSOR), self.parallel_mode)
+        out = dsd_nn(act_fn(w1_o, w3_o, topo), self.w2, gpc.get_group(ParallelMode.TENSOR), self.parallel_mode)
 
         return out
