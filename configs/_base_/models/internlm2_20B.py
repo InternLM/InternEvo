@@ -1,6 +1,6 @@
 # Copyright (c) InternLM. All rights reserved.
 
-model_type = "INTERNLM2"
+model_type = "INTERNLM2_PUBLIC"
 
 VOCAB_SIZE = 92544
 HIDDEN_SIZE = 6144
@@ -67,7 +67,7 @@ weight parallel (dict):
 """
 parallel = dict(
     zero1=dict(size=16),
-    tensor=dict(size=2, mode="msp"),
+    tensor=dict(size=2, mode="fsp"),
     pipeline=dict(size=1, interleaved_overlap=True),
     weight=dict(size=1, overlap=True, memory_pool=True),
 )

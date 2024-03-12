@@ -177,7 +177,7 @@ class PackedDataset(torch.utils.data.Dataset):
 
         if cu_seqlens[-1] != self.packed_length:
             pack = pack + [0] * (self.packed_length - cu_seqlens[-1])
-            labels = labels + [0] * (self.packed_length - cu_seqlens[-1])
+            labels = labels + [-100] * (self.packed_length - cu_seqlens[-1])
             type_ids = type_ids + [0] * (self.packed_length - cu_seqlens[-1])
             indexes.extend(list(range(self.packed_length - cu_seqlens[-1])))
             cu_seqlens.append(self.packed_length)

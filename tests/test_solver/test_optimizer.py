@@ -10,9 +10,9 @@ from torch.nn.parallel import DistributedDataParallel as DDP
 from torch.testing import assert_close
 
 import internlm
+from internlm.core.communication.utils import ParamAsyncBcastHandler
 from internlm.core.context.parallel_context import Config, ParallelMode
 from internlm.solver.optimizer import HybridZeroOptimizer
-from internlm.solver.optimizer.utils import ParamBcastSyncHandler
 
 
 class MlpModel(nn.Module):
@@ -30,10 +30,10 @@ class MlpModel(nn.Module):
 config = Config(
     dict(
         parallel=dict(
-            zero1=dict(size=1, fsdp=False),
-            pipeline=dict(size=1, interleaved_overlap=False),
-            sequence_parallel=False,
-            tensor=1,
+            zero1=dict(size=1),
+            tensor=dict(size=1, mode="mtp"),
+            pipeline=dict(size=1, interleaved_overlap=True),
+            weight=dict(size=1, overlap=True, memory_pool=True),
         ),
         model_type="INTERNLM",
         data=dict(seq_len=2048, micro_num=1, micro_bsz=1, pack_sample_into_one=False, min_length=0, total_steps=9999),
@@ -106,22 +106,25 @@ def init_optimizer_grouped_parameters(check_group, model):
     if check_group:
         optimizer_grouped_parameters = [
             {
+                "name": "default",
                 "params": list(model.parameters())[:2],
                 "weight_decay": config.adam.weight_decay,
-                "dp_mode": ParallelMode.DATA,
+                "optimizer_mode": ParallelMode.ZERO1,
             },
             {
+                "name": "default",
                 "params": list(model.parameters())[2:],
                 "weight_decay": config.adam.weight_decay,
-                "dp_mode": ParallelMode.DATA,
+                "optimizer_mode": ParallelMode.ZERO1,
             },
         ]
     else:
         optimizer_grouped_parameters = [
             {
-                "params": model.parameters(),
+                "name": "default",
+                "params": list(model.parameters())[:],
                 "weight_decay": config.adam.weight_decay,
-                "dp_mode": ParallelMode.DATA,
+                "optimizer_mode": ParallelMode.ZERO1,
             }
         ]
 
@@ -166,10 +169,13 @@ def exam_hybrid_zero_optim_with_ddp(args):
     torch_model = MlpModel().cuda()
     zero_model = copy.deepcopy(torch_model).to(dtype)
     torch_model = DDP(torch_model.cuda(), static_graph=True).cuda()
+    IS_TENSOR_ZERO_PARALLEL = "is_tensor_zero_parallel"
+    for param in zero_model.parameters():
+        setattr(param, IS_TENSOR_ZERO_PARALLEL, True)
 
     # create optimizer
     if config.hybrid_zero_optimizer.overlap_sync_param:
-        param_bcast_sync_handler = ParamBcastSyncHandler(zero_model)
+        param_bcast_sync_handler = ParamAsyncBcastHandler(ParallelMode.ZERO1, zero_model)
     else:
         param_bcast_sync_handler = None
 
@@ -276,7 +282,7 @@ def exam_hybrid_zero_optim_with_ckpt_load_save(args):
 
     # create optimizer
     if config.hybrid_zero_optimizer.overlap_sync_param:
-        param_bcast_sync_handler = ParamBcastSyncHandler(zero_model)
+        param_bcast_sync_handler = ParamAsyncBcastHandler(ParallelMode.ZERO1, zero_model)
     else:
         param_bcast_sync_handler = None
 

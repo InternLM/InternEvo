@@ -3,11 +3,12 @@
 model_type = "INTERNLM2_PUBLIC"
 
 VOCAB_SIZE = 92544
-HIDDEN_SIZE = 4096
-NUM_ATTENTION_HEAD = 32
+HIDDEN_SIZE = 2048
+NUM_ATTENTION_HEAD = 16
 NUM_KV_ATTENTION_HEAD = 8
-MLP_RATIO = 3.5
-NUM_LAYER = 32
+MULTIPLE_OF = 128
+MLP_RATIO = 4
+NUM_LAYER = 24
 
 model = dict(
     num_chunks=1,  # if num_chunks > 1, interleaved pipeline scheduler is used.
@@ -22,12 +23,14 @@ model = dict(
     num_attention_heads=NUM_ATTENTION_HEAD,
     num_kv_attention_heads=NUM_KV_ATTENTION_HEAD,
     mlp_ratio=MLP_RATIO,
+    multiple_of=MULTIPLE_OF,
     norm_type="rmsnorm",
-    adapt_hf=False,
+    adapt_hf=True,
     apply_post_layer_norm=False,
     no_bias=True,
     layer_norm_epsilon=1e-5,
     rope_base=1000000,
+    norm_head=True,
 )
 
 hybrid_zero_optimizer = dict(

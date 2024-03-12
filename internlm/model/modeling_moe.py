@@ -5,8 +5,6 @@ import math
 from typing import Optional
 
 import torch
-from flash_attn.modules.embedding import ParallelGPT2Embeddings
-from flash_attn.modules.mlp import ParallelFusedMLP
 from torch import nn
 
 from internlm.core.context import ParallelMode
@@ -15,7 +13,6 @@ from internlm.core.naive_amp import set_fp32_attr_to_module
 from internlm.initialize.initialize_tensor import normal_, scaled_init_method_normal
 from internlm.model.embedding import Embedding1D
 from internlm.model.linear import (
-    MegatronScaleColumnParallelLinear,
     RewardModelLinear,
     ScaleColumnParallelLinear,
     get_mlp_cls,
@@ -126,7 +123,7 @@ class PackedFlashBaseLayer1D(nn.Module):
         self.num_experts = num_experts
         ep_size = gpc.get_world_size(ParallelMode.EXPERT)
         if num_experts <= 1:  # dense, not MoE
-            if use_swiglu:
+            if use_swiglu or not use_flash_attn:
                 mlp_cls = get_mlp_cls(self.tp_mode)
                 self.mlp = mlp_cls(
                     hidden_size,
@@ -138,6 +135,8 @@ class PackedFlashBaseLayer1D(nn.Module):
                     dtype=dtype,
                 )
             else:
+                from flash_attn.modules.mlp import ParallelFusedMLP
+
                 self.mlp = ParallelFusedMLP(
                     hidden_size,
                     int(hidden_size * mlp_ratio),
@@ -334,15 +333,14 @@ class PackedFlashInternLm1D(nn.Module):
         if is_reward:
             head_cls = RewardModelLinear
         else:
-            head_cls = (
-                ScaleColumnParallelLinear
-                if self.tp_mode in ["mtp", "fsp", "isp"]
-                else MegatronScaleColumnParallelLinear
-            )
+            head_cls = ScaleColumnParallelLinear
+
         if first:
-            if embed_split_hidden:
+            if embed_split_hidden or not use_flash_attn:
                 self.embedding = Embedding1D(num_embeddings=vocab_size, embedding_dim=hidden_size)
             else:
+                from flash_attn.modules.embedding import ParallelGPT2Embeddings
+
                 self.embedding = ParallelGPT2Embeddings(
                     embed_dim=hidden_size,
                     vocab_size=vocab_size,
@@ -446,9 +444,9 @@ class PackedFlashInternLm1D(nn.Module):
         if hasattr(self, "head"):
             # Evaluation
             if hidden_states.ndim == 3:
-                hidden_states = self.head(hidden_states, gather_dim=1)
+                hidden_states = self.head(hidden_states, gather_dim=1, tp_mode=self.tp_mode)
             else:  # Training
-                hidden_states = self.head(hidden_states, gather_dim=0)
+                hidden_states = self.head(hidden_states, gather_dim=0, tp_mode=self.tp_mode)
 
         if not self.parallel_output:
             hidden_states = gather_forward_split_backward(hidden_states, ParallelMode.TENSOR, dim=-1)

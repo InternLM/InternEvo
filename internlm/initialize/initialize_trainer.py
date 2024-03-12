@@ -96,6 +96,7 @@ def initialize_trainer(
 
             communication_overlap = gpc.config.parallel["pipeline"].get("interleaved_overlap", False)
             scheduler = InterleavedPipelineScheduler(
+                data_process_func=data_fn,
                 num_microbatches=gpc.config.NUM_MICRO_BATCHES,
                 num_chunks=gpc.config.model.num_chunks,
                 dtype=gpc.config.model["dtype"],

@@ -158,13 +158,14 @@ def get_model_topology(model):
         concatenated along the dimension 'dim'.
     """
 
-    from flash_attn.modules.embedding import VocabParallelEmbedding
+    if gpc.config.model.use_flash_attn:
+        from flash_attn.modules.embedding import VocabParallelEmbedding
 
     topos = {}
     for name, module in model.named_modules():
         # If it does not meet these conditions, it is shared between various tp/dp, and it is necessary to assert
         # that they are consistent.
-        if isinstance(module, VocabParallelEmbedding):
+        if gpc.config.model.use_flash_attn and isinstance(module, VocabParallelEmbedding):
             topos[name] = {"dim": 0}
     return topos
 
@@ -542,9 +543,13 @@ def load_model_checkpoint(folder, model):
     - folder
         - model_tp{tp_rank}_pp{pp_rank}.pt
 
+    If tensor parallel mode is isp, the saved weight is named:
+    - folder
+        - model_tp{tp_rank}_wp{wp_rank}_pp{pp_rank}.pt
+
     If fsdp is activated, the saved weight is named:
     - folder
-        - model_tp{tp_rank}_pp{pp_rank}_zo{zo_rank}
+        - model_tp{tp_rank}_pp{pp_rank}_zo{zo_rank}.pt
 
     If the tp is inconsistent with the saved one in the future use, the weight needs to be converted before loading.
     """
@@ -553,6 +558,7 @@ def load_model_checkpoint(folder, model):
     wp_size = gpc.get_world_size(ParallelMode.WEIGHT)
     pp_size = gpc.get_world_size(ParallelMode.PIPELINE)
     dp_size = gpc.get_world_size(ParallelMode.DATA)
+
     tp_rank = gpc.get_local_rank(ParallelMode.TENSOR)
     wp_rank = gpc.get_local_rank(ParallelMode.WEIGHT)
     pp_rank = gpc.get_local_rank(ParallelMode.PIPELINE)
@@ -943,12 +949,18 @@ class CheckpointManager:
 
         self.async_upload = get_config_value(ckpt_config, "async_upload", False)
 
+        use_processpool = self.save_ckpt_folder is not None and (
+            self.save_ckpt_folder.startswith("volc:") or self.save_ckpt_folder.startswith("oss2:")
+        )
         # initialization storage manager
-        init_storage_manager(self.enable_save_ckpt, self.async_upload_tmp_folder, self.async_upload)
+        init_storage_manager(self.enable_save_ckpt, self.async_upload_tmp_folder, self.async_upload, use_processpool)
 
         self.feishu_address = feishu_address
         self.storage_manager = get_storage_manager()
         self.snapshot_counter = 0
+
+        if hasattr(model, "model"):
+            model = model.model
 
         self.model = model
         self.optimizer = optimizer

@@ -10,8 +10,6 @@ from typing import Callable, Iterable, List, Optional, Union
 
 import torch
 import torch.distributed as dist
-from flash_attn.modules.embedding import ParallelGPT2Embeddings
-from flash_attn.modules.mlp import ParallelFusedMLP
 from torch import nn
 from torch.distributed.fsdp import FullyShardedDataParallel as FSDP
 from torch.distributed.fsdp.fully_sharded_data_parallel import (
@@ -26,6 +24,7 @@ from internlm.core.communication.isp import (
     ISPCommunicator,
     ISPCommunicatorSchedulerHook,
 )
+from internlm.core.communication.utils import ParamAsyncBcastHandler
 from internlm.core.context import (
     IS_REPLICA_ZERO_PARALLEL,
     IS_TENSOR_DATA_PARALLEL,
@@ -52,11 +51,11 @@ from internlm.data.utils import get_dataset_type_ids_map, unpack_data
 from internlm.model.embedding import Embedding1D
 from internlm.model.linear import (
     BaseScaleColumnParallelLinear,
-    ColumnParallelLinear,
+    ColumnParallelLinearTorch,
     FeedForward,
     ISPLinear,
     RewardModelLinear,
-    RowParallelLinear,
+    RowParallelLinearTorch,
     ScaleColumnParallelLinear,
 )
 from internlm.model.metrics import SchedulerMetricHook
@@ -69,7 +68,6 @@ from internlm.monitor.monitor import monitor_manager as mm
 from internlm.solver.beta2_scheduler import Beta2Scheduler
 from internlm.solver.lr_scheduler import FineTuneCosineAnnealingWarmupLR
 from internlm.solver.optimizer import FSDPadaptOptimizer, HybridZeroOptimizer
-from internlm.solver.optimizer.utils import ParamBcastSyncHandler
 from internlm.train.utils import create_param_groups
 from internlm.utils.common import (
     DummyProfile,
@@ -120,7 +118,12 @@ def set_parallel_attr_for_param_groups(model: Union[nn.Module, nn.ModuleList]):
                 setattr(param, IS_REPLICA_ZERO_PARALLEL, True)
 
         # embedding and head
-        if isinstance(module, (Embedding1D, ParallelGPT2Embeddings, BaseScaleColumnParallelLinear)):
+        if gpc.config.model.use_flash_attn:
+            from flash_attn.modules.embedding import ParallelGPT2Embeddings
+
+        if isinstance(module, (Embedding1D, BaseScaleColumnParallelLinear)) or (
+            gpc.config.model.use_flash_attn and isinstance(module, ParallelGPT2Embeddings)
+        ):
             for param in module.parameters():
                 if gpc.is_initialized(ParallelMode.TENSOR) and is_using_isp():
                     setattr(param, IS_TENSOR_DATA_PARALLEL, True)
@@ -132,7 +135,7 @@ def set_parallel_attr_for_param_groups(model: Union[nn.Module, nn.ModuleList]):
         #             set non-moe param as IS_TENSOR_ZERO_PARALLEL
         # 2. if isp is used, set moe param as IS_WEIGHT_EXPERT_DATA_PARALLEL and
         #             set non-moe param as IS_WEIGHT_ZERO_PARALLEL
-        if isinstance(module, (ColumnParallelLinear, RowParallelLinear)):
+        if isinstance(module, (ColumnParallelLinearTorch, RowParallelLinearTorch)):
             for param in module.parameters():
                 if gpc.is_initialized(ParallelMode.TENSOR) and not is_using_isp():
                     if is_moe_param(param):
@@ -228,7 +231,10 @@ def initialize_model(pre_process_func: Optional[Callable] = None, post_process_f
 
 
 def wrap_FSDP_model(model: Union[nn.Module, nn.ModuleList]):
-    if gpc.config.parallel.zero1.fsdp:
+    if gpc.config.parallel.zero1.fsdp and gpc.config.model.use_flash_attn:
+        from flash_attn.modules.embedding import ParallelGPT2Embeddings
+        from flash_attn.modules.mlp import ParallelFusedMLP
+
         # set wrap_policy for fsdp wrap
         transformer_wrap_policy = functools.partial(
             transformer_auto_wrap_policy,
@@ -309,7 +315,7 @@ def initialize_optimizer(model: Union[nn.Module, nn.ModuleList], isp_communicato
         set_model_params_layer_name(model)
 
     if gpc.config.hybrid_zero_optimizer.overlap_sync_param:
-        param_bcast_sync_handler = ParamBcastSyncHandler(model)
+        param_bcast_sync_handler = ParamAsyncBcastHandler(ParallelMode.ZERO1, model, isp_communicator)
     else:
         param_bcast_sync_handler = None
 
