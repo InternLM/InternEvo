@@ -8,11 +8,11 @@ import torch
 import internlm
 from internlm.core.context import ParallelMode
 from internlm.core.context import global_context as gpc
+from internlm.data import build_train_loader_with_data_type
 from internlm.model.loss import FlashGPTLMLoss
 from internlm.model.metrics import AccPerplex
 from internlm.train import (
     get_scheduler_hooks,
-    get_train_data_loader,
     initialize_isp_communicator,
     initialize_model,
     initialize_optimizer,
@@ -78,7 +78,7 @@ def train_check_norm_weight(args):
 
     optimizer, beta2_scheduler, lr_scheduler = initialize_optimizer(model, isp_communicator)
 
-    train_dl, dataset_types = get_train_data_loader(num_worker=0)
+    train_dl, dataset_types = build_train_loader_with_data_type(num_worker=0)
 
     metric = AccPerplex(
         device=torch.cuda.current_device(),

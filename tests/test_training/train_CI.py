@@ -21,6 +21,7 @@ from internlm.checkpoint import CheckpointManager
 from internlm.core.context import ParallelMode  # noqa: E402
 from internlm.core.context import global_context as gpc  # noqa: E402
 from internlm.core.trainer import TrainState  # noqa: E402
+from internlm.data import build_train_loader_with_data_type, build_valid_loader_with_data_type
 from internlm.initialize import initialize_distributed_env  # noqa: E402
 from internlm.model.loss import FlashGPTLMLoss  # noqa: E402
 from internlm.model.metrics import AccPerplex, SchedulerMetricHook  # noqa: E402
@@ -30,8 +31,6 @@ from internlm.monitor import (  # noqa: E402
 )
 from internlm.monitor.monitor import monitor_manager as mm  # noqa: E402
 from internlm.train import (  # noqa: E402
-    get_train_data_loader,
-    get_validation_data_loader,
     initialize_llm_profile,
     initialize_model,
     initialize_optimizer,
@@ -133,8 +132,8 @@ def main(args):
     criterion = FlashGPTLMLoss(parallel_output=True, label_smoothing=label_smoothing)
 
     # initialize the train and validation data loader
-    train_dl, dataset_types = get_train_data_loader(num_worker=4)
-    val_dls = get_validation_data_loader()
+    train_dl, dataset_types = build_train_loader_with_data_type(num_worker=4)
+    val_dls = build_valid_loader_with_data_type()
 
     # initialize and resume train state
     train_state = TrainState(gpc.config, train_dl.batch_sampler)

@@ -10,11 +10,8 @@ from internlm.core.context import global_context as gpc
 # from internlm.core.context import ParallelMode
 from internlm.core.context.parallel_context import Config
 from internlm.core.trainer import TrainState
-from internlm.train import (
-    get_train_data_loader,
-    get_validation_data_loader,
-    load_new_batch,
-)
+from internlm.data import build_train_loader_with_data_type, build_valid_loader_with_data_type
+from internlm.train import load_new_batch
 from internlm.utils.evaluation import (
     switch_evaluation_no_pipeline_scheduler,
     switch_evaluation_pipeline_scheduler,
@@ -60,8 +57,8 @@ def do_warmup(args):
     trainer = DummyTrainer(scheduler)
 
     try:
-        train_dl, _ = get_train_data_loader(num_worker=0)
-        val_dls = get_validation_data_loader(num_worker=0)
+        train_dl, _ = build_train_loader_with_data_type(num_worker=0)
+        val_dls = build_valid_loader_with_data_type(num_worker=0)
     except Exception as e:
         assert should_sccuess is False, f"{e}"
     else:

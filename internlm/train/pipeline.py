@@ -52,9 +52,9 @@ from internlm.model.multi_head_attention import MHA
 from internlm.model.utils import is_moe_param, try_import_RMSNorm
 from internlm.monitor import send_heartbeat, set_env_var
 from internlm.monitor.monitor import monitor_manager as mm
-from internlm.solver.beta2_scheduler import Beta2Scheduler
-from internlm.solver.lr_scheduler import FineTuneCosineAnnealingWarmupLR
 from internlm.solver.optimizer import FSDPadaptOptimizer, HybridZeroOptimizer
+from internlm.solver.schedulers.beta2_scheduler import Beta2Scheduler
+from internlm.solver.schedulers.lr_scheduler import FineTuneCosineAnnealingWarmupLR
 from internlm.train.utils import create_param_groups
 from internlm.utils.common import (
     DummyProfile,

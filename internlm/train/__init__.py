@@ -1,4 +1,4 @@
-from .training_internlm import (
+from .pipeline import (
     get_scheduler_hooks,
     initialize_isp_communicator,
     initialize_llm_profile,

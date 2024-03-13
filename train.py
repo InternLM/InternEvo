@@ -13,7 +13,7 @@ import internlm
 from internlm.checkpoint import CheckpointManager
 from internlm.core.context import ParallelMode
 from internlm.core.context import global_context as gpc
-from internlm.data.build_dataloader import (
+from internlm.data import (
     build_train_loader_with_data_type,
     build_valid_loader_with_data_type,
 )

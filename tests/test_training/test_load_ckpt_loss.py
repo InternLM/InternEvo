@@ -15,11 +15,11 @@ from internlm.core.context import ParallelMode
 from internlm.core.context import global_context as gpc
 from internlm.core.context.parallel_context import Config
 from internlm.core.trainer import TrainState
+from internlm.data import build_train_loader_with_data_type
 from internlm.initialize.launch import args_sanity_check
 from internlm.model.loss import FlashGPTLMLoss
 from internlm.model.metrics import AccPerplex, SchedulerMetricHook
 from internlm.train import (
-    get_train_data_loader,
     initialize_model,
     initialize_optimizer,
     load_new_batch,
@@ -192,7 +192,7 @@ def train_model(args):
     criterion = FlashGPTLMLoss(parallel_output=True, label_smoothing=gpc.config.loss.label_smoothing)
 
     # initialize the train and validation data loader
-    train_dl, dataset_types = get_train_data_loader(num_worker=0)
+    train_dl, dataset_types = build_train_loader_with_data_type(num_worker=0)
 
     train_state = TrainState(gpc.config, train_dl.batch_sampler)
 

@@ -14,7 +14,7 @@ from internlm.core.context.random import (
     sync_states,
 )
 
-from .common import get_current_device
+from ..utils.common import get_current_device
 
 
 def copy_to_device(obj, device):
