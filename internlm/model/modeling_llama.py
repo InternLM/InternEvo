@@ -16,7 +16,7 @@ from internlm.initialize.initialize_tensor import (
     uniform_,
 )
 from internlm.model.embedding import Embedding1D, RotaryEmbedding
-from internlm.model.linear import (
+from internlm.model.modules.ffn import (
     RewardModelLinear,
     ScaleColumnParallelLinear,
     get_linear_cls,
@@ -28,7 +28,7 @@ from internlm.model.multi_head_attention import (
     SelfAttention,
     _update_kv_cache,
 )
-from internlm.model.utils import (
+from internlm.model.modules.utils import (
     gather_forward_split_backward,
     split_forward_gather_backward,
     try_import_RMSNorm,

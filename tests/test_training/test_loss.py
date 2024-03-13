@@ -16,7 +16,7 @@ from internlm.train import (
     get_train_data_loader,
     initialize_model,
     initialize_optimizer,
-    initialize_isp_communicator,
+    initialize_parallel_communicator,
     load_new_batch,
     get_scheduler_hooks,
 )
@@ -114,7 +114,7 @@ def train(
     model = initialize_model()
 
     # initialize isp communicator
-    isp_communicator = initialize_isp_communicator(model)
+    isp_communicator = initialize_parallel_communicator(model)
 
     # initialize loss function
     criterion = FlashGPTLMLoss(parallel_output=True, label_smoothing=label_smoothing)

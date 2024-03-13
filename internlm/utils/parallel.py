@@ -14,7 +14,7 @@ from internlm.core.context import (
 )
 from internlm.core.context import global_context as gpc
 from internlm.core.naive_amp import NaiveAMPModel
-from internlm.model.utils import try_import_RMSNorm
+from internlm.model.modules.utils import try_import_RMSNorm
 from internlm.solver.pipeline_utils import partition_uniform
 
 RMSNorm = try_import_RMSNorm()

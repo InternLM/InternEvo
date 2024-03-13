@@ -4,7 +4,7 @@ import torch
 
 from internlm.core.context.parallel_context import ParallelMode
 from internlm.core.context.parallel_context import global_context as gpc
-from internlm.model.utils import is_moe_param
+from internlm.model.modules.utils import is_moe_param
 from internlm.utils.parallel import is_tensor_data_parallel_parameter, is_using_isp
 
 

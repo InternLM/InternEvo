@@ -19,12 +19,13 @@ from torch.distributed.fsdp.fully_sharded_data_parallel import (
 from torch.distributed.fsdp.wrap import transformer_auto_wrap_policy
 from torch.utils.data import ConcatDataset, DataLoader
 
-from internlm.core.communication.isp import (
+from internlm.core.parallel.comm.isp import (
     ISPCommModelConfig,
     ISPCommunicator,
     ISPCommunicatorSchedulerHook,
 )
-from internlm.core.communication.utils import ParamAsyncBcastHandler
+from internlm.core.parallel.comm.tensor import CommRole, TensorParallelCommunicator, SequenceParallelCommunicator
+from internlm.core.parallel.comm.zero import ParamAsyncBcastHandler
 from internlm.core.context import (
     IS_REPLICA_ZERO_PARALLEL,
     IS_TENSOR_DATA_PARALLEL,
@@ -48,19 +49,17 @@ from internlm.data.packed_dataset import (
 )
 from internlm.data.utils import get_dataset_type_ids_map, unpack_data
 from internlm.model.embedding import Embedding1D
-from internlm.model.linear import (
-    BaseScaleColumnParallelLinear,
-    ColumnParallelLinearTorch,
-    FeedForward,
-    ISPLinear,
-    RewardModelLinear,
-    RowParallelLinearTorch,
+from internlm.model.modules.linear import (
     ScaleColumnParallelLinear,
+    ColumnParallelLinear,
+    RowParallelLinear,
+    RewardModelLinear,
 )
+from internlm.model.modules.ffn import FeedForward
 from internlm.model.metrics import SchedulerMetricHook
 from internlm.model.moe import MoE
 from internlm.model.multi_head_attention import MHA
-from internlm.model.utils import is_moe_param, try_import_RMSNorm
+from internlm.model.modules.utils import is_moe_param, try_import_RMSNorm
 from internlm.monitor import send_heartbeat, set_env_var
 from internlm.monitor.monitor import monitor_manager as mm
 from internlm.solver.beta2_scheduler import Beta2Scheduler
@@ -118,7 +117,7 @@ def set_parallel_attr_for_param_groups(model: Union[nn.Module, nn.ModuleList]):
         if gpc.config.model.use_flash_attn:
             from flash_attn.modules.embedding import ParallelGPT2Embeddings
 
-        if isinstance(module, (Embedding1D, BaseScaleColumnParallelLinear)) or (
+        if isinstance(module, (Embedding1D, ScaleColumnParallelLinear)) or (
             gpc.config.model.use_flash_attn and isinstance(module, ParallelGPT2Embeddings)
         ):
             for param in module.parameters():
@@ -255,7 +254,7 @@ def wrap_FSDP_model(model: Union[nn.Module, nn.ModuleList]):
     return model
 
 
-def initialize_isp_communicator(model: Union[nn.Module, nn.ModuleList]):
+def initialize_parallel_communicator(model: Union[nn.Module, nn.ModuleList]):
     """
     Initialize communicator for isp tensor parallel mode.
 
@@ -278,8 +277,36 @@ def initialize_isp_communicator(model: Union[nn.Module, nn.ModuleList]):
             gpc.config.parallel.weight.memory_pool,
             gpc.get_group(ParallelMode.WEIGHT),
         )
-        # register communicator for isp linear.
-        ISPLinear.register_communicator(isp_communicator)
+        # register communicator for isp column parallel linear.
+        ColumnParallelLinear.register_communicator(isp_communicator)
+        # row parallel linear will not be used.
+        RowParallelLinear.register_communicator(None)
+
+    # register communictor for mtp/msp/fsp linear.
+    if gpc.config.parallel.tensor.mode == "mtp":
+        ColumnParallelLinear.register_communicator(
+            TensorParallelCommunicator(process_group=gpc.get_group(ParallelMode.TENSOR), role=CommRole.COLUMN)
+        )
+        RowParallelLinear.register_communicator(
+            TensorParallelCommunicator(process_group=gpc.get_group(ParallelMode.TENSOR), role=CommRole.ROW)
+        )
+    if gpc.config.parallel.tensor.mode in ("msp", "fsp"):
+        save_total_input_as_activation = gpc.config.parallel.tensor.mode == "msp"
+
+        ColumnParallelLinear.register_communicator(
+            SequenceParallelCommunicator(
+                process_group=gpc.get_group(ParallelMode.TENSOR),
+                role=CommRole.COLUMN,
+                save_total_input_as_activation=save_total_input_as_activation,
+            )
+        )
+        RowParallelLinear.register_communicator(
+            SequenceParallelCommunicator(
+                gpc.get_group(ParallelMode.TENSOR),
+                role=CommRole.ROW,
+                save_total_input_as_activation=save_total_input_as_activation,
+            )
+        )
 
     return isp_communicator
 

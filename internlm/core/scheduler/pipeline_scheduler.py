@@ -9,7 +9,7 @@ from typing import Callable, List, Optional, Tuple, Union
 import torch.cuda
 import torch.distributed as dist
 
-import internlm.core.communication as comm
+from internlm.core.scheduler import comm
 from internlm.core.context import ParallelMode
 from internlm.core.context import global_context as gpc
 from internlm.core.engine import Engine

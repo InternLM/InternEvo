@@ -12,13 +12,13 @@ from internlm.core.context.parallel_context import global_context as gpc
 from internlm.core.naive_amp import set_output_attr_to_module
 from internlm.initialize.initialize_tensor import normal_, scaled_init_method_normal
 from internlm.model.embedding import Embedding1D
-from internlm.model.linear import (
+from internlm.model.modules.ffn import (
     RewardModelLinear,
     ScaleColumnParallelLinear,
     get_mlp_cls,
 )
 from internlm.model.multi_head_attention import MHA
-from internlm.model.utils import (
+from internlm.model.modules.utils import (
     gather_forward_split_backward,
     split_forward_gather_backward,
     try_import_RMSNorm,

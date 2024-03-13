@@ -84,7 +84,7 @@ def args_sanity_check():
         gpc.config.parallel._add_item("pipeline", dict(size=1, interleaved_overlap=False))
 
     if "tensor" not in gpc.config.parallel:
-        gpc.config.parallel._add_item("tensor", 1)
+        gpc.config.parallel._add_item("tensor", dict(size=1, mode="mtp"))
 
     if "weight" not in gpc.config.parallel:
         gpc.config.parallel._add_item("weight", dict(size=1, overlap=False, memory_pool=False))

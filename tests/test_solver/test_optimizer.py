@@ -10,7 +10,7 @@ from torch.nn.parallel import DistributedDataParallel as DDP
 from torch.testing import assert_close
 
 import internlm
-from internlm.core.communication.utils import ParamAsyncBcastHandler
+from internlm.core.parallel.comm.zero import ParamAsyncBcastHandler
 from internlm.core.context.parallel_context import Config, ParallelMode
 from internlm.solver.optimizer import HybridZeroOptimizer
 

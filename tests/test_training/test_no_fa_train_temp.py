@@ -11,7 +11,7 @@ from internlm.model.metrics import AccPerplex
 from internlm.train import (
     get_scheduler_hooks,
     get_train_data_loader,
-    initialize_isp_communicator,
+    initialize_parallel_communicator,
     initialize_model,
     initialize_optimizer,
 )
@@ -52,7 +52,7 @@ def train_check(args):
     model = initialize_model()
 
     # initialize isp communicator
-    isp_communicator = initialize_isp_communicator(model)
+    isp_communicator = initialize_parallel_communicator(model)
 
     # initialize loss function
     criterion = FlashGPTLMLoss(parallel_output=True, label_smoothing=gpc.config.loss.label_smoothing)

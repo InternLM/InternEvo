@@ -10,7 +10,7 @@ import torch
 import torch.distributed as dist
 from torch.optim import Optimizer
 
-from internlm.core.communication.utils import ParamAsyncBcastHandler
+from internlm.core.parallel.comm.zero import ParamAsyncBcastHandler
 from internlm.core.context import IS_REPLICA_ZERO_PARALLEL, Config, ParallelMode
 from internlm.core.context import global_context as gpc
 from internlm.core.context.parallel_context import (

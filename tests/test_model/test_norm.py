@@ -3,7 +3,7 @@ import multiprocessing as mp
 import pytest
 import torch
 
-from internlm.model.utils import try_import_RMSNorm
+from internlm.model.modules.utils import try_import_RMSNorm
 from tests.test_model.test_model_internlm import build_environment, seed_all
 
 RMSNorm = try_import_RMSNorm()

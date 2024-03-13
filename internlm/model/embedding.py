@@ -11,7 +11,7 @@ from torch import Tensor, nn
 from internlm.core.context import ParallelMode
 from internlm.core.context import global_context as gpc
 
-from .utils import gather_forward_split_backward, split_forward_gather_backward
+from .modules.utils import gather_forward_split_backward, split_forward_gather_backward
 
 
 class Embedding1D(nn.Module):
