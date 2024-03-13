@@ -370,7 +370,6 @@ def save_model_checkpoint(folder, model):
 
 
 def load_llama_pretrained_weights(folder, model):
-    model = model.model
     assert folder is not None, "Please specify the folder of the pretrained model"
     if gpc.is_rank_for_log():
         logger.info(f"Loading pretrained model from {folder}")
@@ -429,7 +428,6 @@ def load_llama_pretrained_weights(folder, model):
 
 def load_hf_llama_pretrained_weights(folder, model):
     """NOTE: when loading huggingface's llama pretrained weights, you should set `adapt_hf=True` in your config."""
-    model = model.model
     assert folder is not None, "Please specify the folder of the pretrained model"
     if gpc.is_rank_for_log():
         logger.info(f"Loading pretrained model from {folder}")
