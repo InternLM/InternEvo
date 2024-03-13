@@ -10,9 +10,14 @@ import torch
 import torch.distributed as dist
 
 import internlm
+from internlm.checkpoint import CheckpointManager
 from internlm.core.context import ParallelMode
 from internlm.core.context import global_context as gpc
-from internlm.core.trainer import TrainState
+from internlm.data.build_dataloader import (
+    build_train_loader_with_data_type,
+    build_valid_loader_with_data_type,
+)
+from internlm.data.train_state import get_train_state
 from internlm.initialize import initialize_distributed_env
 from internlm.model.loss import FlashGPTLMLoss
 from internlm.model.metrics import AccPerplex
@@ -20,8 +25,6 @@ from internlm.monitor import initialize_monitor_manager, send_alert_message
 from internlm.monitor.monitor import monitor_manager as mm
 from internlm.train import (
     get_scheduler_hooks,
-    get_train_data_loader,
-    get_validation_data_loader,
     initialize_isp_communicator,
     initialize_llm_profile,
     initialize_model,
@@ -40,7 +43,6 @@ from internlm.utils.evaluation import evaluate_on_val_dls
 from internlm.utils.gputest import empty_cache_and_diag
 from internlm.utils.logger import get_logger, initialize_uniscale_logger
 from internlm.utils.megatron_timers import megatron_timer as timer
-from internlm.utils.model_checkpoint import CheckpointManager
 from internlm.utils.parallel import get_parallel_log_file_name
 from internlm.utils.simple_memory_profiler import SimpleMemoryProfiler
 from internlm.utils.writer import Writer
@@ -112,11 +114,11 @@ def main(args):
     criterion = FlashGPTLMLoss(parallel_output=True, label_smoothing=label_smoothing)
 
     # initialize the train and validation data loader
-    train_dl, dataset_types = get_train_data_loader(num_worker=4)
-    val_dls = get_validation_data_loader()
+    train_dl, dataset_types = build_train_loader_with_data_type()
+    val_dls = build_valid_loader_with_data_type()
 
     # initialize and resume train state
-    train_state = TrainState(gpc.config, train_dl.batch_sampler)
+    train_state = get_train_state(train_dl)
 
     optimizer, beta2_scheduler, lr_scheduler = initialize_optimizer(model, isp_communicator)
 

@@ -17,6 +17,7 @@ project_root = os.path.abspath(os.path.join(script_dir, "../../"))
 sys.path.append(project_root)
 
 import internlm  # noqa: E402
+from internlm.checkpoint import CheckpointManager
 from internlm.core.context import ParallelMode  # noqa: E402
 from internlm.core.context import global_context as gpc  # noqa: E402
 from internlm.core.trainer import TrainState  # noqa: E402
@@ -46,7 +47,6 @@ from internlm.utils.evaluation import evaluate_on_val_dls  # noqa: E402
 from internlm.utils.gputest import empty_cache_and_diag  # noqa: E402
 from internlm.utils.logger import get_logger, initialize_uniscale_logger  # noqa: E402
 from internlm.utils.megatron_timers import megatron_timer as timer  # noqa: E402
-from internlm.utils.model_checkpoint import CheckpointManager  # noqa: E402
 from internlm.utils.parallel import get_parallel_log_file_name  # noqa: E402
 from internlm.utils.simple_memory_profiler import SimpleMemoryProfiler  # noqa: E402
 from internlm.utils.writer import Writer  # noqa: E402

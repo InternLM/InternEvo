@@ -118,6 +118,9 @@ def args_sanity_check():
 
     data._add_item("packed_length", data.seq_len * data.micro_bsz)
 
+    if "type" not in data:
+        data._add_item("type", "tokenized")
+
     if "micro_num" not in data:
         data._add_item("micro_num", 1)
 

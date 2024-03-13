@@ -10,6 +10,7 @@ import torch
 import torch.distributed as dist
 
 import internlm
+from internlm.checkpoint import CheckpointManager
 from internlm.core.context import ParallelMode
 from internlm.core.context import global_context as gpc
 from internlm.core.context.parallel_context import Config
@@ -25,7 +26,6 @@ from internlm.train import (
 )
 from internlm.utils.common import launch_time
 from internlm.utils.logger import get_logger
-from internlm.utils.model_checkpoint import CheckpointManager
 
 logger = get_logger(__file__)
 
