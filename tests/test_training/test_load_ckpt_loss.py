@@ -17,13 +17,9 @@ from internlm.core.context.parallel_context import Config
 from internlm.core.trainer import TrainState
 from internlm.data import build_train_loader_with_data_type
 from internlm.initialize.launch import args_sanity_check
-from internlm.model.loss import FlashGPTLMLoss
+from internlm.model.losses import FlashGPTLMLoss
 from internlm.model.metrics import AccPerplex, SchedulerMetricHook
-from internlm.train import (
-    initialize_model,
-    initialize_optimizer,
-    load_new_batch,
-)
+from internlm.train import initialize_model, initialize_optimizer, load_new_batch
 from internlm.utils.common import launch_time
 from internlm.utils.logger import get_logger
 

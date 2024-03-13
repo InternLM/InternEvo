@@ -12,14 +12,14 @@ from internlm.core.context import global_context as gpc
 from internlm.core.trainer import TrainState
 from internlm.data import build_train_loader_with_data_type
 from internlm.initialize import initialize_distributed_env
-from internlm.model.loss import FlashGPTLMLoss
+from internlm.model.losses import FlashGPTLMLoss
 from internlm.model.metrics import AccPerplex
 from internlm.train import (
+    get_scheduler_hooks,
+    initialize_isp_communicator,
     initialize_model,
     initialize_optimizer,
-    initialize_isp_communicator,
     load_new_batch,
-    get_scheduler_hooks,
 )
 from internlm.utils.common import BatchSkipper, launch_time
 from internlm.utils.gputest import empty_cache_and_diag

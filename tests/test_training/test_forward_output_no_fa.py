@@ -13,7 +13,7 @@ from internlm.core.context import global_context as gpc
 from internlm.core.context.parallel_context import Config
 from internlm.data import build_train_loader_with_data_type
 from internlm.initialize.launch import args_sanity_check
-from internlm.model.loss import FlashGPTLMLoss
+from internlm.model.losses import FlashGPTLMLoss
 from internlm.model.metrics import AccPerplex, SchedulerMetricHook
 from internlm.train import initialize_model, initialize_optimizer
 from internlm.utils.logger import get_logger

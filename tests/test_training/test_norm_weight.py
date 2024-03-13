@@ -9,7 +9,7 @@ import internlm
 from internlm.core.context import ParallelMode
 from internlm.core.context import global_context as gpc
 from internlm.data import build_train_loader_with_data_type
-from internlm.model.loss import FlashGPTLMLoss
+from internlm.model.losses import FlashGPTLMLoss
 from internlm.model.metrics import AccPerplex
 from internlm.train import (
     get_scheduler_hooks,

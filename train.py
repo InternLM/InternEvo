@@ -18,8 +18,9 @@ from internlm.data import (
     build_valid_loader_with_data_type,
 )
 from internlm.data.train_state import get_train_state
+from internlm.eval.evaluation import evaluate_on_val_dls
 from internlm.initialize import initialize_distributed_env
-from internlm.model.loss import FlashGPTLMLoss
+from internlm.model.losses import FlashGPTLMLoss
 from internlm.model.metrics import AccPerplex
 from internlm.monitor import initialize_monitor_manager, send_alert_message
 from internlm.monitor.monitor import monitor_manager as mm
@@ -39,7 +40,6 @@ from internlm.utils.common import (
     launch_time,
     parse_args,
 )
-from internlm.utils.evaluation import evaluate_on_val_dls
 from internlm.utils.gputest import empty_cache_and_diag
 from internlm.utils.logger import get_logger, initialize_uniscale_logger
 from internlm.utils.megatron_timers import megatron_timer as timer

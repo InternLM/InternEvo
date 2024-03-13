@@ -36,19 +36,19 @@ from internlm.core.context.random import set_mode
 from internlm.core.naive_amp import NaiveAMPModel, set_fp32_attr_to_module
 from internlm.core.trainer import TrainState
 from internlm.data.utils import unpack_data
-from internlm.model.embedding import Embedding1D
-from internlm.model.linear import (
+from internlm.model.metrics import SchedulerMetricHook
+from internlm.model.modules.embedding import Embedding1D
+from internlm.model.modules.mlp import FeedForward
+from internlm.model.modules.multi_head_attention import MHA
+from internlm.model.moe.moe import MoE
+from internlm.model.ops.linear import (
     BaseScaleColumnParallelLinear,
     ColumnParallelLinearTorch,
-    FeedForward,
     ISPLinear,
     RewardModelLinear,
     RowParallelLinearTorch,
     ScaleColumnParallelLinear,
 )
-from internlm.model.metrics import SchedulerMetricHook
-from internlm.model.moe import MoE
-from internlm.model.multi_head_attention import MHA
 from internlm.model.utils import is_moe_param, try_import_RMSNorm
 from internlm.monitor import send_heartbeat, set_env_var
 from internlm.monitor.monitor import monitor_manager as mm

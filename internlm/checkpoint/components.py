@@ -12,7 +12,7 @@ from torch.distributed._shard.api import load_with_process_group
 from internlm.core.context import ParallelMode
 from internlm.core.context import global_context as gpc
 from internlm.core.trainer import TrainState
-from internlm.model.moe import MoE
+from internlm.model.moe.moe import MoE
 from internlm.solver.optimizer import HybridZeroOptimizer
 from internlm.utils.common import get_current_device
 from internlm.utils.logger import get_logger

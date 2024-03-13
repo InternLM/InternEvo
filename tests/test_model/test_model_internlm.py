@@ -10,7 +10,7 @@ import internlm
 from internlm.core.context import ParallelMode
 from internlm.core.context.parallel_context import Config
 from internlm.core.context.parallel_context import global_context as gpc
-from internlm.model.linear import RewardModelLinear, ScaleColumnParallelLinear
+from internlm.model.ops.linear import RewardModelLinear, ScaleColumnParallelLinear
 from internlm.model.modeling_internlm import PackedFlashBaseLayer1D
 from internlm.model.utils import gather_forward_split_backward
 

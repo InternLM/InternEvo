@@ -653,7 +653,7 @@ def try_import_RMSNorm():
         return RMSNorm
     except ModuleNotFoundError:
         logger.warning("The torch implementation for MixFusedRMSNorm is slower than apex. Please note this!")
-        from internlm.model.norm import RMSNormTorch as RMSNorm
+        from internlm.model.ops.norm import RMSNormTorch as RMSNorm
 
         return RMSNorm
 

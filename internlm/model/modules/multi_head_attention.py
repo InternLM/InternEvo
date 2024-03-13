@@ -13,8 +13,11 @@ from torch import Tensor, nn
 from torch.nn import Module
 
 from internlm.core.context import global_context as gpc
-from internlm.model.embedding import DynamicNTKScalingRotaryEmbedding, RotaryEmbedding
-from internlm.model.linear import get_linear_cls
+from internlm.model.modules.embedding import (
+    DynamicNTKScalingRotaryEmbedding,
+    RotaryEmbedding,
+)
+from internlm.model.ops.linear import get_linear_cls
 
 
 # adpated from https://github.com/microsoft/DeepSpeed/blob/master/deepspeed/sequence/layer.py

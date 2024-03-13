@@ -21,9 +21,13 @@ from internlm.checkpoint import CheckpointManager
 from internlm.core.context import ParallelMode  # noqa: E402
 from internlm.core.context import global_context as gpc  # noqa: E402
 from internlm.core.trainer import TrainState  # noqa: E402
-from internlm.data import build_train_loader_with_data_type, build_valid_loader_with_data_type
+from internlm.data import (
+    build_train_loader_with_data_type,
+    build_valid_loader_with_data_type,
+)
+from internlm.eval.evaluation import evaluate_on_val_dls  # noqa: E402
 from internlm.initialize import initialize_distributed_env  # noqa: E402
-from internlm.model.loss import FlashGPTLMLoss  # noqa: E402
+from internlm.model.losses import FlashGPTLMLoss  # noqa: E402
 from internlm.model.metrics import AccPerplex, SchedulerMetricHook  # noqa: E402
 from internlm.monitor import (  # noqa: E402
     initialize_monitor_manager,
@@ -42,7 +46,6 @@ from internlm.utils.common import (  # noqa: E402
     launch_time,
     parse_args,
 )
-from internlm.utils.evaluation import evaluate_on_val_dls  # noqa: E402
 from internlm.utils.gputest import empty_cache_and_diag  # noqa: E402
 from internlm.utils.logger import get_logger, initialize_uniscale_logger  # noqa: E402
 from internlm.utils.megatron_timers import megatron_timer as timer  # noqa: E402

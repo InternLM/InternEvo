@@ -15,18 +15,18 @@ from internlm.initialize.initialize_tensor import (
     scaled_init_method_uniform,
     uniform_,
 )
-from internlm.model.embedding import Embedding1D, RotaryEmbedding
-from internlm.model.linear import (
-    RewardModelLinear,
-    ScaleColumnParallelLinear,
-    get_linear_cls,
-    get_mlp_cls,
-)
-from internlm.model.multi_head_attention import (
+from internlm.model.modules.embedding import Embedding1D, RotaryEmbedding
+from internlm.model.modules.mlp import get_mlp_cls
+from internlm.model.modules.multi_head_attention import (
     CrossAttention,
     DistributedAttention,
     SelfAttention,
     _update_kv_cache,
+)
+from internlm.model.ops.linear import (
+    RewardModelLinear,
+    ScaleColumnParallelLinear,
+    get_linear_cls,
 )
 from internlm.model.utils import (
     gather_forward_split_backward,

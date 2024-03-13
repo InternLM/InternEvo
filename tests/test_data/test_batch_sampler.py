@@ -12,7 +12,7 @@ from internlm.core.context.parallel_context import Config
 from internlm.core.trainer import TrainState
 from internlm.data import build_train_loader_with_data_type, build_valid_loader_with_data_type
 from internlm.train import load_new_batch
-from internlm.utils.evaluation import (
+from internlm.eval.evaluation import (
     switch_evaluation_no_pipeline_scheduler,
     switch_evaluation_pipeline_scheduler,
 )

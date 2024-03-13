@@ -24,7 +24,7 @@ from internlm.initialize.legacy.launch import (
     auto_resume_sanity_check,
     ckpt_info_sanity_check,
 )
-from internlm.model.moe import MoE
+from internlm.model.moe.moe import MoE
 from internlm.monitor import send_alert_message
 from internlm.solver.optimizer import HybridZeroOptimizer, reload_zero_fp32_buff
 from internlm.utils.common import get_current_device
