@@ -464,8 +464,6 @@ class MHA(nn.Module):
                 q, k, v = (x.squeeze(2) for x in qkv.chunk(chunks=3, dim=2))
                 kv = torch.stack([k, v], dim=2)
                 assert self.rotary_emb_dim > 0, "You should use rotary_emb."
-                cu_seqlens = kwargs.get("cu_seqlens", None)
-                max_seqlen = kwargs.get("max_seqlen", None)
 
                 if hasattr(inference_params, "attention_mask") and inference_params.attention_mask is not None:
                     empties = inference_params.attention_mask[..., -1].sum(dim=-1)
@@ -498,16 +496,12 @@ class MHA(nn.Module):
                             inference_params.sequence_len_offset
                             * torch.ones(q.size(0), dtype=torch.int, device=q.device)
                             - empties,
-                            cu_seqlens=cu_seqlens,
-                            max_seqlen=max_seqlen,
                         ).unsqueeze(1)
                         k = self.rotary_emb._single_forward(
                             k,
                             inference_params.sequence_len_offset
                             * torch.ones(k.size(0), dtype=torch.int, device=k.device)
                             - empties,
-                            cu_seqlens=cu_seqlens,
-                            max_seqlen=max_seqlen,
                         ).unsqueeze(1)
                     else:
                         q = q.squeeze(1)
@@ -516,8 +510,6 @@ class MHA(nn.Module):
                             inference_params.sequence_len_offset
                             * torch.ones(q.size(0), dtype=torch.int, device=q.device)
                             - empties,
-                            cu_seqlens=cu_seqlens,
-                            max_seqlen=max_seqlen,
                         ).unsqueeze(1)
                         moved_k = k.clone()
                         for i in range(len(empties)):
@@ -530,12 +522,8 @@ class MHA(nn.Module):
                             else:
                                 k[i] = moved_k[i]
                 else:
-                    q = self.rotary_emb._single_forward(
-                        q, inference_params.sequence_len_offset, cu_seqlens=cu_seqlens, max_seqlen=max_seqlen
-                    )
-                    k = self.rotary_emb._single_forward(
-                        k, inference_params.sequence_len_offset, cu_seqlens=cu_seqlens, max_seqlen=max_seqlen
-                    )
+                    q = self.rotary_emb._single_forward(q, inference_params.sequence_len_offset)
+                    k = self.rotary_emb._single_forward(k, inference_params.sequence_len_offset)
 
                 kv = torch.stack([k, v], dim=2)
                 kv = _update_kv_cache(kv, inference_params, self.layer_idx)
