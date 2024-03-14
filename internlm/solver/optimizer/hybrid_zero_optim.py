@@ -196,6 +196,8 @@ class HybridZeroOptimizer(BaseOptimizer):
 
             # move to cpu to make room to create the flat tensor
             for param in group_params:
+                if param.requires_grad is False:
+                    continue
                 param.data = param.data.cpu()
 
             # flatten the reordered tensors
@@ -264,6 +266,9 @@ class HybridZeroOptimizer(BaseOptimizer):
 
         sorted_params = sorted(param_list, key=lambda x: x.numel(), reverse=True)
         for i, param in enumerate(sorted_params):
+            if param.requires_grad is False:
+                continue
+
             global_id = str(i)
             for j in range(len(param.size())):
                 global_id = "_".join([global_id, str(param.size()[j])])

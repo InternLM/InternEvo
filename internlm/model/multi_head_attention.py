@@ -63,10 +63,12 @@ class DistributedAttention(torch.nn.Module):
         self,
         local_attention: Module,
         sequence_process_group: dist.ProcessGroup,
+        varlen=True,
     ) -> None:
         super().__init__()
         self.local_attn = local_attention
         self.spg = sequence_process_group
+        self.varlen = varlen
         self._scatter_gather_idx = {}
 
         # scatter_gather_idx contains the scatter and gather index for different data packed mode
@@ -85,7 +87,11 @@ class DistributedAttention(torch.nn.Module):
             eval_scatter_gather_idx = {key: [x + 1 for x in value] for key, value in self._scatter_gather_idx.items()}
             return self._forward(qkv=qkv, kv=kv, q=q, k=k, v=v, scatter_gather=eval_scatter_gather_idx, **kwargs)
         else:
-            return self._forward(qkv=qkv, kv=kv, q=q, k=k, v=v, scatter_gather=self._scatter_gather_idx, **kwargs)
+            if not self.varlen:
+                scatter_gather_idx = {key: [x + 1 for x in value] for key, value in self._scatter_gather_idx.items()}
+            else:
+                scatter_gather_idx = self._scatter_gather_idx
+            return self._forward(qkv=qkv, kv=kv, q=q, k=k, v=v, scatter_gather=scatter_gather_idx, **kwargs)
 
     def _forward(
         self,

@@ -11,6 +11,7 @@ from .modeling_moe import build_model_with_moe_cfg
 from .moe import MoE
 from .multi_head_attention import MHA, DistributedAttention
 from .utils import gather_forward_split_backward
+from .modeling_dit import DiTMHA
 
 __all__ = [
     "Embedding1D",
@@ -21,6 +22,7 @@ __all__ = [
     "ScaleColumnParallelLinear",
     "AccPerplex",
     "MHA",
+    "DiTMHA",
     "DistributedAttention",
     "gather_forward_split_backward",
     "build_model_with_cfg",
