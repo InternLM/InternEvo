@@ -110,7 +110,7 @@ def apply_rotary_torch(
         cos_pt = cos
         sin_pt = sin
 
-    output = apply_rotary_emb_torch(x_pt.float(), cos_pt.float(), sin_pt.float(), interleaved)
+    output = apply_rotary_emb_torch(x_pt, cos_pt, sin_pt, interleaved)
     return output
 
 
