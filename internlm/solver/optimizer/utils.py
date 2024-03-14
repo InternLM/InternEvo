@@ -166,13 +166,15 @@ def sync_param(flat_tensor, tensor_list):
     for p, q in zip(tensor_list, updated_params):
         p.data = q.data
 
+
 def calc_lp(grads, norm_type):
-    if int(norm_type) % 2 == 0: # nen-negative cases
+    if int(norm_type) % 2 == 0:  # nen-negative cases
         norm_power = torch.stack([torch.sum(grad ** norm_type) for grad in grads])
     else:
         norm_power = torch.stack([torch.sum(grad.abs() ** norm_type) for grad in grads])
     norm = torch.sum(norm_power)
     return norm
+
 
 def calc_zero_grad(grads):
     zero_count = 0
@@ -394,7 +396,6 @@ def compute_vocab_grad_norm(
     zero_mode=ParallelMode.ZERO1,
 ):
     weight_parallel_mode = ParallelMode.WEIGHT if gpc.config.parallel.tensor.mode == "isp" else ParallelMode.TENSOR
-    enable_cuda_kernels = gradients[0].device.type == "cuda"
     # Norm parameters.
     norm_type = float(norm_type)
     vocab_size = gpc.config.model["vocab_size"]
@@ -476,7 +477,6 @@ def compute_param_metric(
         return output_param_metrics
 
     weight_parallel_mode = ParallelMode.WEIGHT if gpc.config.parallel.tensor.mode == "isp" else ParallelMode.TENSOR
-    enable_cuda_kernels = gradients[0].device.type == "cuda"
 
     param_metrics = {}
     param_grads = reduce_grads(gradients, parameters, weight_parallel_mode, fine_grained=True)
