@@ -55,6 +55,7 @@ def train(
     tp_mode: str = "mtp",
     enable_sp: bool = False,
     enable_ckpt: bool = False,
+    model_type: str = "INTERNLM",
 ):
     # initialize distributed environment
     initialize_distributed_env(config=CONFIG_FILE_PATH)
@@ -91,6 +92,7 @@ def train(
     # init setting
     gpc.config.data.total_steps = TOTAL_STEPS
     gpc.config.lr_scheduler.total_steps = TOTAL_STEPS
+    gpc.config.model_type = model_type
     total_steps = gpc.config.data.total_steps
     skip_batches = gpc.config.data.skip_batches
     label_smoothing = gpc.config.loss.label_smoothing
@@ -380,3 +382,22 @@ def test_training_with_isp_load_ckpt():
 
     # model training load ckpt
     train(dp_size=4, tp_size=2, wp_size=4, tp_mode="isp", enable_sp=True, enable_ckpt=True)
+
+
+@pytest.mark.training_llama2
+def test_training_llama2():
+    # update config file
+    global CONFIG_FILE_PATH
+    CONFIG_FILE_PATH = "./configs/7B_llama2.py"
+
+    train(dp_size=8, model_type="LLAMA2")
+
+
+@pytest.mark.training_internlm2
+def test_training_internlm2():
+    # update config file
+    global CONFIG_FILE_PATH
+    CONFIG_FILE_PATH = "./configs/7B_internlm2.py"
+
+    train(dp_size=8, model_type="INTERNLM2_PUBLIC")
+
