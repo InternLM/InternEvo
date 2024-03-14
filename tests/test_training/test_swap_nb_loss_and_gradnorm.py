@@ -36,6 +36,7 @@ config = Config(
             weight=dict(size=1, overlap=True, memory_pool=True),
         ),
         data=dict(
+            type="tokenized",
             seq_len=2048,
             micro_num=4,
             micro_bsz=2,

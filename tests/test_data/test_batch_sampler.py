@@ -166,6 +166,7 @@ def test_warmup(use_flash_atten_case, group_case, micro_bsz_case):
                 weight=dict(size=1, overlap=True, memory_pool=True),
             ),
             data=dict(
+                type="tokenized",
                 train_folder=None,
                 valid_folder=None,
                 valid_micro_num=4,
