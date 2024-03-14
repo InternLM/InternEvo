@@ -313,7 +313,7 @@ class CheckpointManager:
                 "path" in self.load_ckpt_info
                 and "content" in self.load_ckpt_info
                 and "ckpt_type" in self.load_ckpt_info
-            ), "please set content in ckpt setting, eg: ckpt = dict(path='', content=['model'], ckpt_type='internlm')"
+            ), "please set content in ckpt setting, eg: ckpt = dict(path='', content=['model'], ckpt_type='internevo')"
 
             if len(self.load_ckpt_info["content"]) > 1 and "model" in self.load_ckpt_info["content"]:
                 assert (
@@ -519,7 +519,7 @@ now step_count is {train_state.step_count}",
         if gpc.is_rank_for_log():
             logger.info(f"Found latest ckpt {latest_ckpt if latest_ckpt else 'None'}, step: {step}...")
 
-        return dict(path=latest_ckpt, content=("all",), ckpt_type="internlm")
+        return dict(path=latest_ckpt, content=("all",), ckpt_type="internevo")
 
     def try_resume_training(self, train_state: TrainState, current_time=""):
         if self.load_ckpt_info is None or self.load_ckpt_info["path"] is None:
