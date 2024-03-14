@@ -20,6 +20,7 @@ from internlm.model.embedding import (
     Embedding1D,
     RotaryEmbedding,
 )
+from internlm.model.modules.ffn import new_fead_forward
 from internlm.model.modules.linear import new_linear
 from internlm.model.multi_head_attention import (
     CrossAttention,
@@ -572,35 +573,18 @@ class PackedFlashLlamaLayer1D(nn.Module):
             assert dropout_add_layer_norm is not None, "dropout_add_ln is not installed"
             assert isinstance(self.attention_norm, nn.LayerNorm) and isinstance(self.dropout1, nn.Dropout)
 
-        sequence_parallel = gpc.config.parallel.get("sequence_parallel", False)
-        if use_swiglu or not gpc.config.model.use_flash_attn:
-            ffn = get_mlp_cls(self.tp_mode)
-            self.feed_forward = ffn(
+        if use_swiglu:
+            self.feed_forward = new_fead_forward(
                 hidden_size,
                 int(hidden_size * mlp_ratio),
                 out_features=hidden_size,
-                process_group=gpc.get_group(parallel_mode),
                 bias=False,
                 device=device,
                 dtype=dtype,
             )
         else:
-            from flash_attn.modules.mlp import ParallelFusedMLP
-
-            self.feed_forward = ParallelFusedMLP(
-                hidden_size,
-                int(hidden_size * mlp_ratio),
-                out_features=hidden_size,
-                activation="gelu_approx",
-                process_group=gpc.get_group(parallel_mode),
-                bias1=False,
-                bias2=False,
-                sequence_parallel=sequence_parallel,
-                checkpoint_lvl=0,
-                heuristic="auto",
-                device=device,
-                dtype=dtype,
-            )
+            # TODO: support gelu and so on.
+            raise ValueError("NYI")
 
         self.dropout2 = nn.Dropout(drop_rate)
         self.use_swiglu = use_swiglu

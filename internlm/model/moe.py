@@ -1,9 +1,8 @@
 import torch
 
 import internlm.moe  # noqa # pylint: disable=W0611
-from internlm.core.context import ParallelMode
 from internlm.core.context import global_context as gpc
-from internlm.model.modules.ffn import FeedForward
+from internlm.model.modules.ffn import new_fead_forward
 from internlm.utils.logger import get_logger
 from internlm.utils.registry import MODEL_INITIALIZER
 
@@ -61,11 +60,10 @@ class MoE(torch.nn.Module):
         # residual network, see https://arxiv.org/pdf/2201.05596.pdf, seems useful for convergence
         self.use_residual = gpc.config.model.moe_use_residual
         if self.use_residual:
-            self.residual_mlp = FeedForward(
+            self.residual_mlp = new_fead_forward(
                 hidden_size,
                 int(hidden_size * gpc.config.model.mlp_ratio),
                 out_features=hidden_size,
-                process_group=gpc.get_group(ParallelMode.TENSOR),
                 bias=False,
                 device=device,
                 dtype=dtype,

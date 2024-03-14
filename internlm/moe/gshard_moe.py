@@ -14,7 +14,7 @@ from torch.nn import Module
 
 from internlm.core.context import ParallelMode
 from internlm.core.context import global_context as gpc
-from internlm.model.modules.ffn import FeedForward
+from internlm.model.modules.ffn import new_fead_forward
 from internlm.utils.logger import get_logger
 from internlm.utils.megatron_timers import megatron_timer as timer
 from internlm.utils.registry import MODEL_INITIALIZER
@@ -419,11 +419,10 @@ class GShardMOELayer(BaseMoELayer):
             ),
             torch.nn.ModuleList(
                 [
-                    FeedForward(
+                    new_fead_forward(
                         hidden_size,
                         int(hidden_size * gpc.config.model.mlp_ratio),
                         out_features=hidden_size,
-                        process_group=gpc.get_group(ParallelMode.TENSOR),
                         bias=False,
                         device=device,
                         dtype=dtype,

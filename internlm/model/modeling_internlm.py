@@ -12,6 +12,7 @@ from internlm.core.context.parallel_context import global_context as gpc
 from internlm.core.naive_amp import set_output_attr_to_module
 from internlm.initialize.initialize_tensor import normal_, scaled_init_method_normal
 from internlm.model.embedding import Embedding1D
+from internlm.model.modules.ffn import new_fead_forward
 from internlm.model.modules.linear import new_linear
 from internlm.model.multi_head_attention import MHA
 from internlm.model.modules.utils import (
@@ -113,34 +114,18 @@ class PackedFlashBaseLayer1D(nn.Module):
             self.norm1 = nn.LayerNorm(hidden_size, eps=layer_norm_epsilon)
             self.norm2 = nn.LayerNorm(hidden_size, eps=layer_norm_epsilon)
 
-        if use_swiglu or not use_flash_attn:
-            mlp_cls = get_mlp_cls(self.tp_mode)
-            self.mlp = mlp_cls(
+        if use_swiglu:
+            self.mlp = new_fead_forward(
                 hidden_size,
                 int(hidden_size * mlp_ratio),
                 out_features=hidden_size,
-                process_group=gpc.get_group(parallel_mode),
                 bias=False,
                 device=device,
                 dtype=dtype,
             )
         else:
-            from flash_attn.modules.mlp import ParallelFusedMLP
-
-            self.mlp = ParallelFusedMLP(
-                hidden_size,
-                int(hidden_size * mlp_ratio),
-                out_features=hidden_size,
-                activation="gelu_approx",
-                process_group=gpc.get_group(parallel_mode),
-                bias1=False,
-                bias2=False,
-                sequence_parallel=gpc.config.parallel.sequence_parallel,
-                checkpoint_lvl=0,
-                heuristic="auto",
-                device=device,
-                dtype=dtype,
-            )
+            # TODO: support gelu and so on.
+            raise ValueError("NYI")
 
         self.dropout2 = nn.Dropout(drop_rate)
         self.use_swiglu = use_swiglu
