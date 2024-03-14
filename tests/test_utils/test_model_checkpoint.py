@@ -201,7 +201,7 @@ def return_latest_save_path(save_ckpt_folder, total_step, snapshot_freq, ckpt_fr
 @pytest.mark.parametrize("ckpt_config", ckpt_config_list)
 def test_ckpt_mm(step_info, ckpt_config, init_dist_and_model):  # noqa # pylint: disable=unused-import
     from internlm.core.context import global_context as gpc
-    from internlm.utils.model_checkpoint import CheckpointLoadMask, CheckpointLoadType
+    from internlm.checkpoint.checkpoint_manager import CheckpointLoadMask
 
     ckpt_config = Config(ckpt_config)
     total_step, checkpoint_every, oss_snapshot_freq = step_info
@@ -268,13 +268,13 @@ def test_ckpt_mm(step_info, ckpt_config, init_dist_and_model):  # noqa # pylint:
             ckpt_mm.load_ckpt_info = dict(
                 path=os.path.join(LOCAL_SAVE_PATH, f"{ckpt_config.checkpoint_every}"),
                 content=CheckpointLoadMask(("all",)),
-                ckpt_type=CheckpointLoadType.INTERNLM,
+                ckpt_type="internevo",
             )
         else:
             ckpt_mm.load_ckpt_info = dict(
                 path=os.path.join(BOTO_SAVE_PATH, f"{ckpt_config.checkpoint_every}"),
                 content=CheckpointLoadMask(("all",)),
-                ckpt_type=CheckpointLoadType.INTERNLM,
+                ckpt_type="internevo",
             )
 
         ckpt_mm.try_resume_training(train_state)

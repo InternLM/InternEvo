@@ -63,8 +63,8 @@ class PackedDataset(Dataset):
 
         if gpc.config is None or gpc.config.model is None or gpc.config.model.use_flash_attn:
             return self.build_pack(item)
-        else:
-            raise RuntimeError("You should use flash attention.")
+
+        return self.build_unpack(item)
 
 
 class PackedDatasetWithoutCuSeqlen(torch.utils.data.Dataset):
