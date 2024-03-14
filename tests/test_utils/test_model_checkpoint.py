@@ -187,9 +187,9 @@ def return_latest_save_path(save_ckpt_folder, total_step, snapshot_freq, ckpt_fr
         return normal_latest_step, os.path.join(return_prefix_path(save_ckpt_folder), f"{normal_latest_step}")
     elif normal_latest_step < snapshot_latest_step:
         if snapshot_latest_count % 2 == 0:
-            re_path = f"{return_prefix_path(save_ckpt_folder)}/snapshot/0"
-        else:
             re_path = f"{return_prefix_path(save_ckpt_folder)}/snapshot/1"
+        else:
+            re_path = f"{return_prefix_path(save_ckpt_folder)}/snapshot/0"
         return snapshot_latest_step, re_path
     else:
         assert False
