@@ -20,12 +20,7 @@ from internlm.model.embedding import (
     Embedding1D,
     RotaryEmbedding,
 )
-from internlm.model.modules.ffn import (
-    InternLM2ScaleColumnParallelLinear,
-    RewardModelLinear,
-    get_linear_cls,
-    get_mlp_cls,
-)
+from internlm.model.modules.linear import new_linear
 from internlm.model.multi_head_attention import (
     CrossAttention,
     DistributedAttention,
@@ -33,7 +28,6 @@ from internlm.model.multi_head_attention import (
     _update_kv_cache,
 )
 from internlm.model.modules.utils import (
-    gather_forward_split_backward,
     split_forward_gather_backward,
     try_import_RMSNorm,
 )
@@ -120,7 +114,6 @@ class MHA(nn.Module):
         self.q_per_kv = num_heads // num_kv_heads
 
         self.rot_embed_HF_impl = rot_embed_HF_impl
-        sequence_parallel = gpc.config.parallel.get("sequence_parallel", False)
 
         self.max_position_embeddings = max_position_embeddings
         self.use_dynamic_ntk_rope = use_dynamic_ntk_rope
@@ -141,15 +134,7 @@ class MHA(nn.Module):
                     self.rotary_emb_dim, base=rope_base, scale_base=rotary_emb_scale_base, device=device
                 )
 
-        Wqkv_cls = get_linear_cls(self.tp_mode, "column")
-        self.wqkv = Wqkv_cls(
-            embed_dim,
-            embed_dim + 2 * self.kv_dim,
-            process_group,
-            bias=bias,
-            sequence_parallel=sequence_parallel,
-            **factory_kwargs,
-        )
+        self.wqkv = new_linear("wqkv", embed_dim, embed_dim + 2 * self.kv_dim, bias, **factory_kwargs)
 
         if use_flash_attn:
             from flash_attn import flash_attn_varlen_kvpacked_func
@@ -170,15 +155,7 @@ class MHA(nn.Module):
         if self.tp_mode == "isp":
             self.attn = DistributedAttention(self.attn, sequence_process_group=sequence_process_group)
 
-        wo_cls = get_linear_cls(self.tp_mode, "row")
-        self.wo = wo_cls(
-            embed_dim,
-            embed_dim,
-            process_group,
-            bias=bias,
-            sequence_parallel=sequence_parallel,
-            **factory_kwargs,
-        )
+        self.wo = new_linear("wo", embed_dim, embed_dim, bias, **factory_kwargs)
 
     def forward(self, x, seqlen=None, inference_params=None, **kwargs):
         if kwargs.get("indexes", None) is not None:
@@ -861,11 +838,6 @@ class PackedFlashLlama1D(nn.Module):
         if isinstance(gpc.config.parallel["tensor"], dict):
             self.tp_mode = gpc.config.parallel["tensor"].get("mode", "mtp")
 
-        if is_reward:
-            head_cls = RewardModelLinear
-        else:
-            head_cls = InternLM2ScaleColumnParallelLinear
-
         sequence_parallel = gpc.config.parallel.get("sequence_parallel", False)
 
         if first:
@@ -937,18 +909,14 @@ class PackedFlashLlama1D(nn.Module):
                 else:
                     self.norm = nn.LayerNorm(hidden_size, eps=layer_norm_epsilon)
 
-            if norm_head and not issubclass(head_cls, InternLM2ScaleColumnParallelLinear):
-                raise TypeError(
-                    "Parameter ``norm_head`` should only be True when head_cls is "
-                    f"``InternLM2ScaleColumnParallelLinear``, instead of {head_cls}."
-                )
-            self.output = head_cls(  # pylint: disable=E1123
+            self.output = new_linear(
+                name="output",
                 in_features=hidden_size,
                 out_features=gpc.get_world_size(ParallelMode.TENSOR) if is_reward else vocab_size,
-                process_group=gpc.get_group(ParallelMode.TENSOR),
                 bias=False,
                 device=device,
                 dtype=dtype,
+                is_reward=is_reward,
                 weight_scale=embed_grad_scale,
                 norm_head=norm_head,
             )
@@ -1005,9 +973,6 @@ class PackedFlashLlama1D(nn.Module):
                 hidden_states = self.output(hidden_states, gather_dim=1, tp_mode=self.tp_mode)
             else:  # Training
                 hidden_states = self.output(hidden_states, gather_dim=0, tp_mode=self.tp_mode)
-
-        if not self.parallel_output:
-            hidden_states = gather_forward_split_backward(hidden_states, ParallelMode.TENSOR, dim=-1)
 
         return hidden_states
 

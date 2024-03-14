@@ -12,15 +12,10 @@ from internlm.core.context.parallel_context import global_context as gpc
 from internlm.core.naive_amp import set_fp32_attr_to_module
 from internlm.initialize.initialize_tensor import normal_, scaled_init_method_normal
 from internlm.model.embedding import Embedding1D
-from internlm.model.modules.ffn import (
-    RewardModelLinear,
-    ScaleColumnParallelLinear,
-    get_mlp_cls,
-)
+from internlm.model.modules.linear import new_linear
 from internlm.model.moe import MoE
 from internlm.model.multi_head_attention import MHA
 from internlm.model.modules.utils import (
-    gather_forward_split_backward,
     split_forward_gather_backward,
     try_import_RMSNorm,
 )
@@ -330,11 +325,6 @@ class PackedFlashInternLm1D(nn.Module):
         if isinstance(gpc.config.parallel["tensor"], dict):
             self.tp_mode = gpc.config.parallel["tensor"].get("mode", "mtp")
 
-        if is_reward:
-            head_cls = RewardModelLinear
-        else:
-            head_cls = ScaleColumnParallelLinear
-
         if first:
             if embed_split_hidden or not use_flash_attn:
                 self.embedding = Embedding1D(num_embeddings=vocab_size, embedding_dim=hidden_size)
@@ -386,13 +376,14 @@ class PackedFlashInternLm1D(nn.Module):
                 self.norm = RMSNorm(hidden_size, eps=layer_norm_epsilon)
             else:
                 self.norm = nn.LayerNorm(hidden_size, eps=layer_norm_epsilon)
-            self.head = head_cls(
+            self.head = new_linear(
+                name="head",
                 in_features=hidden_size,
                 out_features=gpc.get_world_size(ParallelMode.TENSOR) if is_reward else vocab_size,
-                process_group=gpc.get_group(ParallelMode.TENSOR),
                 bias=False,
                 device=device,
                 dtype=dtype,
+                is_reward=is_reward,
                 weight_scale=embed_grad_scale,
             )
             for _, param in self.head.named_parameters():
@@ -448,8 +439,6 @@ class PackedFlashInternLm1D(nn.Module):
             else:  # Training
                 hidden_states = self.head(hidden_states, gather_dim=0, tp_mode=self.tp_mode)
 
-        if not self.parallel_output:
-            hidden_states = gather_forward_split_backward(hidden_states, ParallelMode.TENSOR, dim=-1)
         return hidden_states, moe_losses
 
 

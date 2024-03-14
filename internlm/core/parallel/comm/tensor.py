@@ -9,7 +9,11 @@ from abc import ABC, abstractmethod
 import torch
 from torch import distributed as dist
 
+from internlm.core.context import ParallelMode
+from internlm.core.context.parallel_context import global_context as gpc
 from internlm.core.parallel.comm.utils import (
+    _gather,
+    _split,
     all_gather_raw,
     all_reduce_raw,
     reduce_scatter_raw,
@@ -21,7 +25,7 @@ from internlm.core.parallel.comm.utils import (
 __INPUT_GATHER_DIM = -2  # shape: [batch, seqlen, dim] or [packlen, dim]
 
 
-class CommRole(Enum):
+class LinearRole(Enum):
     COLUMN = "column"
     ROW = "row"
 
@@ -38,42 +42,42 @@ class TPCommunicator(ABC):
         pass
 
     @abstractmethod
-    def gather_input(self, _input: torch.Tensor, async_op: bool = False) -> Tuple[torch.Tensor, AsyncCommHandle]:
+    def input_hook(self, _input: torch.Tensor, async_op: bool = False) -> Tuple[torch.Tensor, AsyncCommHandle]:
         """
-        gather input only for column parallel linear when forward/backward.
+        communiction for input when forward/backward.
         """
         pass
 
     @abstractmethod
-    def gather_grad_output(
+    def grad_output_hook(
         self, grad_output: torch.Tensor, async_op: bool = False
     ) -> Tuple[torch.Tensor, AsyncCommHandle]:
         """
-        gather grad_output only for row parallel linear when backward.
+        communiction for grad_output when backward.
         """
         pass
 
     @abstractmethod
-    def reduce_grad_input(
+    def grad_input_hook(
         self, grad_input: torch.Tensor, async_op: bool = False
     ) -> Tuple[torch.Tensor, AsyncCommHandle]:
         """
-        reduce grad_input only for column parallel linear when backward.
+        communiction for grad_input when backward.
         """
         pass
 
     @abstractmethod
-    def reduce_output(self, output: torch.Tensor, async_op: bool = False) -> Tuple[torch.Tensor, AsyncCommHandle]:
+    def output_hook(self, output: torch.Tensor, async_op: bool = False) -> Tuple[torch.Tensor, AsyncCommHandle]:
         """
-        reduce output only for row parallel linear when forward.
+        communiction for output when forward.
         """
         pass
 
 
 
 class TensorParallelCommunicator(TPCommunicator):
-    def __init__(self, process_group: dist.ProcessGroup, role: CommRole) -> None:
-        assert role in (CommRole.COLUMN, CommRole.ROW), f"Unknown sequence parallel role: {role}"
+    def __init__(self, process_group: dist.ProcessGroup, role: LinearRole) -> None:
+        assert role in (LinearRole.COLUMN, LinearRole.ROW), f"Unknown sequence parallel role: {role}"
 
         self._process_group = process_group
         self._role = role
@@ -83,13 +87,13 @@ class TensorParallelCommunicator(TPCommunicator):
     def save_total_input(self) -> bool:
         return self._save_total_input
 
-    def gather_input(self, _input: torch.Tensor, async_op: bool = False) -> Tuple[torch.Tensor, AsyncCommHandle]:
+    def input_hook(self, _input: torch.Tensor, async_op: bool = False) -> Tuple[torch.Tensor, AsyncCommHandle]:
         """
         tensor parallel should do nothing for input.
         """
         return _input, DUMMY_HANDLE_CONST
 
-    def gather_grad_output(
+    def grad_output_hook(
         self, grad_output: torch.Tensor, async_op: bool = False
     ) -> Tuple[torch.Tensor, AsyncCommHandle]:
         """
@@ -97,32 +101,60 @@ class TensorParallelCommunicator(TPCommunicator):
         """
         return grad_output, DUMMY_HANDLE_CONST
 
-    def reduce_grad_input(
+    def grad_input_hook(
         self, grad_input: torch.Tensor, async_op: bool = False
     ) -> Tuple[torch.Tensor, AsyncCommHandle]:
         """
         all reduce grad_input only for column parallel linear when backward.
         """
-        if dist.get_world_size(self._process_group) <= 1 or self._role == CommRole.ROW:
+        if dist.get_world_size(self._process_group) <= 1 or self._role == LinearRole.ROW:
             return grad_input, DUMMY_HANDLE_CONST
 
         return all_reduce_raw(grad_input, process_group=self._process_group, async_op=async_op)
 
-    def reduce_output(self, output: torch.Tensor, async_op: bool = False) -> Tuple[torch.Tensor, AsyncCommHandle]:
+    def output_hook(self, output: torch.Tensor, async_op: bool = False) -> Tuple[torch.Tensor, AsyncCommHandle]:
         """
         all reduce output only for row parallel linear when forward.
         """
-        if dist.get_world_size(self._process_group) <= 1 or self._role == CommRole.COLUMN:
+        if dist.get_world_size(self._process_group) <= 1 or self._role == LinearRole.COLUMN:
             return output, DUMMY_HANDLE_CONST
 
         return all_reduce_raw(output, process_group=self._process_group, async_op=async_op)
 
 
+class HeadTensorParallelCommunicator(TensorParallelCommunicator):
+    def __init__(self, parallel_mode: ParallelMode, retain_out_sharded: bool = True) -> None:
+        super().__init__(process_group=gpc.get_group(parallel_mode), role=LinearRole.COLUMN)
+
+        self._parallel_mode = parallel_mode
+        self._retain_out_sharded = retain_out_sharded
+
+    def grad_output_hook(
+        self, grad_output: torch.Tensor, async_op: bool = False
+    ) -> Tuple[torch.Tensor, AsyncCommHandle]:
+        """
+        split grad_output if retain_out_sharded is False.
+        """
+        if self._retain_out_sharded or dist.get_world_size(self._process_group) <= 1:
+            return grad_output, DUMMY_HANDLE_CONST
+
+        return _split(grad_output, parallel_mode=self._parallel_mode, dim=-1)
+
+    def output_hook(self, output: torch.Tensor, async_op: bool = False) -> Tuple[torch.Tensor, AsyncCommHandle]:
+        """
+        all gather output for head layer if retain_out_sharded is False.
+        """
+        if self._retain_out_sharded or dist.get_world_size(self._process_group) <= 1:
+            return output, DUMMY_HANDLE_CONST
+
+        return _gather(output, parallel_mode=self._parallel_mode, dim=-1)
+
+
 class SequenceParallelCommunicator(TPCommunicator):
     def __init__(
-        self, process_group: dist.ProcessGroup, role: CommRole, save_total_input_as_activation: bool = False
+        self, process_group: dist.ProcessGroup, role: LinearRole, save_total_input_as_activation: bool = False
     ) -> None:
-        assert role in (CommRole.COLUMN, CommRole.ROW), f"Unknown sequence parallel role: {role}"
+        assert role in (LinearRole.COLUMN, LinearRole.ROW), f"Unknown sequence parallel role: {role}"
 
         self._process_group = process_group
         self._role = role
@@ -132,49 +164,49 @@ class SequenceParallelCommunicator(TPCommunicator):
     def save_total_input(self) -> bool:
         return self._save_total_input
 
-    def gather_input(self, _input: torch.Tensor, async_op: bool = False) -> Tuple[torch.Tensor, AsyncCommHandle]:
+    def input_hook(self, _input: torch.Tensor, async_op: bool = False) -> Tuple[torch.Tensor, AsyncCommHandle]:
         """
         all gather input only for column parallel linear when forward/backward.
         """
         # 1. world_size <= 1
         # 2. row parallel linear should not allgather input.
         # 3. column parallel linear should not allgather input if save_total_input_as_activation is True.
-        if dist.get_world_size(self._process_group) <= 1 or self._role == CommRole.ROW or self._save_total_input:
+        if dist.get_world_size(self._process_group) <= 1 or self._role == LinearRole.ROW or self._save_total_input:
             return _input, DUMMY_HANDLE_CONST
 
         return all_gather_raw(
             _input, process_group=self._process_group, async_op=async_op, gather_dim=__INPUT_GATHER_DIM
         )
 
-    def gather_grad_output(
+    def grad_output_hook(
         self, grad_output: torch.Tensor, async_op: bool = False
     ) -> Tuple[torch.Tensor, AsyncCommHandle]:
         """
         all gather grad_output only for row parallel linear when backward.
         """
-        if dist.get_world_size(self._process_group) <= 1 or self._role == CommRole.COLUMN:
+        if dist.get_world_size(self._process_group) <= 1 or self._role == LinearRole.COLUMN:
             return grad_output, DUMMY_HANDLE_CONST
 
         return all_gather_raw(
             grad_output, process_group=self._process_group, async_op=async_op, gather_dim=__INPUT_GATHER_DIM
         )
 
-    def reduce_grad_input(
+    def grad_input_hook(
         self, grad_input: torch.Tensor, async_op: bool = False
     ) -> Tuple[torch.Tensor, AsyncCommHandle]:
         """
         reduce scatter grad_input only for column parallel linear when backward.
         """
-        if dist.get_world_size(self._process_group) <= 1 or self._role == CommRole.ROW:
+        if dist.get_world_size(self._process_group) <= 1 or self._role == LinearRole.ROW:
             return grad_input, DUMMY_HANDLE_CONST
 
         return reduce_scatter_raw(grad_input, process_group=self._process_group, async_op=async_op)
 
-    def reduce_output(self, output: torch.Tensor, async_op: bool = False) -> Tuple[torch.Tensor, AsyncCommHandle]:
+    def output_hook(self, output: torch.Tensor, async_op: bool = False) -> Tuple[torch.Tensor, AsyncCommHandle]:
         """
         reduce scatter output only for row parallel linear when forward.
         """
-        if dist.get_world_size(self._process_group) <= 1 or self._role == CommRole.COLUMN:
+        if dist.get_world_size(self._process_group) <= 1 or self._role == LinearRole.COLUMN:
             return output, DUMMY_HANDLE_CONST
 
         return reduce_scatter_raw(output, process_group=self._process_group, async_op=async_op)

@@ -14,7 +14,7 @@ from torch.nn import Module
 
 from internlm.core.context import global_context as gpc
 from internlm.model.embedding import DynamicNTKScalingRotaryEmbedding, RotaryEmbedding
-from internlm.model.modules.ffn import get_linear_cls
+from internlm.model.modules.linear import new_linear
 
 
 # adpated from https://github.com/microsoft/DeepSpeed/blob/master/deepspeed/sequence/layer.py
@@ -361,16 +361,8 @@ class MHA(nn.Module):
                     self.rotary_emb_dim, base=rope_base, scale_base=rotary_emb_scale_base, device=device
                 )
 
-        # notice here should change bias=True
-        Wqkv_cls = get_linear_cls(self.tp_mode, "column")
-        self.Wqkv = Wqkv_cls(
-            embed_dim,
-            3 * embed_dim,
-            process_group,
-            bias=True,
-            sequence_parallel=gpc.config.parallel.sequence_parallel,
-            **factory_kwargs,
-        )  # according to https://spaces.ac.cn/archives/9577
+        # bias=True is according to https://spaces.ac.cn/archives/9577
+        self.Wqkv = new_linear("Wqkv", embed_dim, 3 * embed_dim, bias=True, **factory_kwargs)
 
         if gpc.config.model.use_flash_attn:
             from flash_attn.modules.mha import FlashCrossAttention, FlashSelfAttention
@@ -391,15 +383,7 @@ class MHA(nn.Module):
             )
 
         # output projection always have the bias (for now)
-        out_proj_cls = get_linear_cls(self.tp_mode, "row")
-        self.out_proj = out_proj_cls(
-            embed_dim,
-            embed_dim,
-            process_group,
-            bias=True,
-            sequence_parallel=gpc.config.parallel.sequence_parallel,
-            **factory_kwargs,
-        )
+        self.out_proj = new_linear("out_proj", embed_dim, embed_dim, bias=True, **factory_kwargs)
 
     def forward(self, x, seqlen=None, inference_params=None, **kwargs):
         if kwargs.get("indexes", None) is not None:

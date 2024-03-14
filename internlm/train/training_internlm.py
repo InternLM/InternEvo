@@ -24,7 +24,12 @@ from internlm.core.parallel.comm.isp import (
     ISPCommunicator,
     ISPCommunicatorSchedulerHook,
 )
-from internlm.core.parallel.comm.tensor import CommRole, TensorParallelCommunicator, SequenceParallelCommunicator
+from internlm.core.parallel.comm.tensor import (
+    LinearRole,
+    TensorParallelCommunicator,
+    SequenceParallelCommunicator,
+    HeadTensorParallelCommunicator,
+)
 from internlm.core.parallel.comm.zero import ParamAsyncBcastHandler
 from internlm.core.context import (
     IS_REPLICA_ZERO_PARALLEL,
@@ -254,6 +259,7 @@ def wrap_FSDP_model(model: Union[nn.Module, nn.ModuleList]):
     return model
 
 
+# TODO: move to internlm/core/parallel package.
 def initialize_parallel_communicator(model: Union[nn.Module, nn.ModuleList]):
     """
     Initialize communicator for isp tensor parallel mode.
@@ -285,10 +291,10 @@ def initialize_parallel_communicator(model: Union[nn.Module, nn.ModuleList]):
     # register communictor for mtp/msp/fsp linear.
     if gpc.config.parallel.tensor.mode == "mtp":
         ColumnParallelLinear.register_communicator(
-            TensorParallelCommunicator(process_group=gpc.get_group(ParallelMode.TENSOR), role=CommRole.COLUMN)
+            TensorParallelCommunicator(process_group=gpc.get_group(ParallelMode.TENSOR), role=LinearRole.COLUMN)
         )
         RowParallelLinear.register_communicator(
-            TensorParallelCommunicator(process_group=gpc.get_group(ParallelMode.TENSOR), role=CommRole.ROW)
+            TensorParallelCommunicator(process_group=gpc.get_group(ParallelMode.TENSOR), role=LinearRole.ROW)
         )
     if gpc.config.parallel.tensor.mode in ("msp", "fsp"):
         save_total_input_as_activation = gpc.config.parallel.tensor.mode == "msp"
@@ -296,17 +302,23 @@ def initialize_parallel_communicator(model: Union[nn.Module, nn.ModuleList]):
         ColumnParallelLinear.register_communicator(
             SequenceParallelCommunicator(
                 process_group=gpc.get_group(ParallelMode.TENSOR),
-                role=CommRole.COLUMN,
+                role=LinearRole.COLUMN,
                 save_total_input_as_activation=save_total_input_as_activation,
             )
         )
         RowParallelLinear.register_communicator(
             SequenceParallelCommunicator(
                 gpc.get_group(ParallelMode.TENSOR),
-                role=CommRole.ROW,
+                role=LinearRole.ROW,
                 save_total_input_as_activation=save_total_input_as_activation,
             )
         )
+
+    # register communicator for isp column parallel linear.
+    _retain_out_sharded=gpc.config.model.get("parallel_output", True)
+    _head_comminucator = HeadTensorParallelCommunicator(ParallelMode.TENSOR, _retain_out_sharded)
+    ScaleColumnParallelLinear.register_communicator(_head_comminucator)
+    RewardModelLinear.register_communicator(_head_comminucator)
 
     return isp_communicator
 

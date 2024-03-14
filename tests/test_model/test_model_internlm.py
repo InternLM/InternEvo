@@ -10,7 +10,7 @@ import internlm
 from internlm.core.context import ParallelMode
 from internlm.core.context.parallel_context import Config
 from internlm.core.context.parallel_context import global_context as gpc
-from internlm.model.modules.ffn import RewardModelLinear, ScaleColumnParallelLinear
+from internlm.model.modules.linear import new_linear
 from internlm.model.modeling_internlm import PackedFlashBaseLayer1D
 from internlm.model.modules.utils import gather_forward_split_backward
 
@@ -201,7 +201,6 @@ def check_head(args):
 
     # load standard
     if is_reward:
-        head_cls = RewardModelLinear
         standard_result = torch.tensor([[3.5938], [1.0703], [3.6250], [3.6250]], dtype=torch.bfloat16).to(device)
         standard_grad = torch.tensor(
             [
@@ -213,7 +212,6 @@ def check_head(args):
             dtype=torch.bfloat16,
         ).to(device)
     else:
-        head_cls = ScaleColumnParallelLinear
         standard_result = torch.tensor(
             [
                 [3.5938, -2.2188, 2.0312, 3.5625],
@@ -234,13 +232,14 @@ def check_head(args):
         ).to(device)
 
     # define head
-    head = head_cls(
+    head = new_linear(
+        name="head",
         in_features=hidden_size,
         out_features=gpc.get_world_size(ParallelMode.TENSOR) if is_reward else vocab_size,
-        process_group=gpc.get_group(ParallelMode.TENSOR),
         bias=False,
         device=device,
         dtype=torch.bfloat16,
+        is_reward=is_reward,
         weight_scale=embed_grad_scale,
     )
 
