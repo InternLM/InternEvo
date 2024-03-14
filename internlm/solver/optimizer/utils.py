@@ -25,14 +25,6 @@ from internlm.utils.parallel import (
 
 logger = get_logger(__file__)
 
-try:
-    import amp_C
-    from apex.multi_tensor_apply import multi_tensor_applier
-
-    APEX_AVAILABLE = True
-except (ModuleNotFoundError, ImportError):
-    logger.warning("The torch implementation for cal_l2norm is slower than apex. Please note this!")
-    APEX_AVAILABLE = False
 
 inf = math.inf
 
@@ -174,44 +166,13 @@ def sync_param(flat_tensor, tensor_list):
     for p, q in zip(tensor_list, updated_params):
         p.data = q.data
 
-
-def multi_tensor_l2norm_torch(tensor_list, per_tensor):
-    # Convert tensor_list elements to torch.float32
-    tensor_list = [tensor.float() for tensor in tensor_list]
-    norms_tensor = torch.stack([torch.norm(tensor, p=2) for tensor in tensor_list])
-    l2_norm = torch.norm(norms_tensor, p=2).unsqueeze(0)
-
-    if per_tensor:
-        per_tensor_norm = norms_tensor
-    else:
-        per_tensor_norm = torch.Tensor([]).to(norms_tensor.device)
-
-    return l2_norm, per_tensor_norm
-
-
-def calc_l2_norm(grads):
-    norm = 0.0
-    if len(grads) > 0:
-        if APEX_AVAILABLE:
-            dummy_overflow_buf = torch.cuda.IntTensor([0])
-            norm, _ = multi_tensor_applier(
-                amp_C.multi_tensor_l2norm,
-                dummy_overflow_buf,
-                [grads],
-                False,  # no per-parameter norm
-            )
-        else:
-            norm, _ = multi_tensor_l2norm_torch(grads, False)
-    return norm
-
-
 def calc_lp(grads, norm_type):
-    norm = 0.0
-    for grad in grads:
-        grad_norm = torch.norm(grad, norm_type)
-        norm += grad_norm**norm_type
+    if int(norm_type) % 2 == 0: # nen-negative cases
+        norm_power = torch.stack([torch.sum(grad ** norm_type) for grad in grads])
+    else:
+        norm_power = torch.stack([torch.sum(grad.abs() ** norm_type) for grad in grads])
+    norm = torch.sum(norm_power)
     return norm
-
 
 def calc_zero_grad(grads):
     zero_count = 0
@@ -225,8 +186,6 @@ def calc_zero_grad(grads):
 def get_norm(grads, norm_type, enable_cuda_kernels):
     if norm_type == inf:
         grad_norm = max(g.data.abs().max() for g in grads)
-    elif norm_type == 2.0 and enable_cuda_kernels:
-        grad_norm = calc_l2_norm(grads) ** norm_type
     else:
         grad_norm = calc_lp(grads, norm_type)
     return grad_norm
