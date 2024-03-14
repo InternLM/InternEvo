@@ -298,7 +298,7 @@ STOP_FILE_PATH = "./alter.log"
 def query_quit_file(rank, world_size=2):
     from internlm.core.context import global_context as gpc
     from internlm.initialize import initialize_distributed_env
-    from internlm.utils.model_checkpoint import CheckpointSaveType
+    from internlm.checkpoint.checkpoint_manager import CheckpointSaveType
 
     ckpt_config = Config(
         dict(
