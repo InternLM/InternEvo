@@ -266,7 +266,7 @@ class CheckpointManager:
 
         self.feishu_address = feishu_address
         self.storage_manager = get_storage_manager()
-        self.snapshot_counter = 0
+        self.snapshot_counter = -1
 
         if hasattr(model, "model"):
             model = model.model
@@ -376,12 +376,25 @@ now step_count is {train_state.step_count}",
 
         return now_break, now_save_ckpt, save_type
 
-    def is_now_to_save_ckpt(self, train_state) -> (bool, CheckpointSaveType, bool):
+    def is_now_to_save_ckpt(self, train_state, force=False) -> (bool, CheckpointSaveType, bool):
         save_ckpts, save_type, now_break = False, CheckpointSaveType.NORMAL_CHECKPOINT, False
-        if self.oss_snapshot_freq > 1 and train_state.step_count % self.oss_snapshot_freq == 0:
+        if force:
+            return True, CheckpointSaveType.NORMAL_CHECKPOINT, False
+
+        if (
+            self.oss_snapshot_freq > 1
+            and train_state.step_count > 0
+            and train_state.step_count % self.oss_snapshot_freq == 0
+        ):
             save_ckpts, save_type = True, CheckpointSaveType.SNAPSHOT_CHECKPOINT
-        if train_state.step_count % self.checkpoint_every == 0 or train_state.step_count == train_state.total_steps:
+
+        if (
+            train_state.step_count > 0
+            and train_state.step_count % self.checkpoint_every == 0
+            or train_state.step_count == train_state.total_steps
+        ):
             save_ckpts, save_type = True, CheckpointSaveType.NORMAL_CHECKPOINT
+
         now_break, singal_save_ckpts, singal_save_type = self.quit_signal_handler(train_state)
         if save_ckpts is False:
             save_ckpts = singal_save_ckpts
@@ -389,11 +402,11 @@ now step_count is {train_state.step_count}",
 
         return save_ckpts, save_type, now_break
 
-    def try_save_checkpoint(self, train_state):
+    def try_save_checkpoint(self, train_state, force=False):
         if not self.enable_save_ckpt:
             return False
 
-        save_ckpts, save_type, now_break = self.is_now_to_save_ckpt(train_state)
+        save_ckpts, save_type, now_break = self.is_now_to_save_ckpt(train_state, force=force)
 
         if save_ckpts:
             # Wait for the previous round of asynchronous upload storage to complete.
@@ -453,7 +466,7 @@ now step_count is {train_state.step_count}",
                 if max_normal_step != 0:
                     break
 
-            max_normal_step = ckpt_list[0]
+                max_normal_step = ckpt_list[0]
             load_normal_ckpt_path = os.path.join(self.save_ckpt_folder, str(max_normal_step))
 
         snapshot_path_0 = os.path.join(self.save_ckpt_folder, "snapshot", "0")
@@ -538,7 +551,9 @@ now step_count is {train_state.step_count}",
             load_content_str = load_func(self, self.load_ckpt_info, train_state)
 
             # If we only load model weight, we need rewrite zero optim's fp32 buffer.
-            if load_content.only_load(CheckpointLoadContent.MODEL) and isinstance(self.optimizer, HybridZeroOptimizer):
+            if (
+                load_content.only_load(CheckpointLoadContent.MODEL) and isinstance(self.optimizer, HybridZeroOptimizer)
+            ) or gpc.config.get("only_load_lr", False):
                 reload_zero_fp32_buff(self.optimizer)
 
             if gpc.is_rank_for_log():
