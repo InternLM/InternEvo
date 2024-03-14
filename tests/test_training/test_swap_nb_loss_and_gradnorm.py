@@ -272,7 +272,7 @@ def exam_loss(args):
     criterion = FlashGPTLMLoss(parallel_output=True, label_smoothing=gpc.config.loss.label_smoothing)
 
     # initialize the train and validation data loader
-    train_dl, dataset_types = build_train_loader_with_data_type(num_worker=0)
+    train_dl, dataset_types = build_train_loader_with_data_type()
     val_dls = build_valid_loader_with_data_type()
 
     optimizer, beta2_scheduler, lr_scheduler = initialize_optimizer(model=model)

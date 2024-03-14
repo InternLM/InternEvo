@@ -57,8 +57,8 @@ def do_warmup(args):
     trainer = DummyTrainer(scheduler)
 
     try:
-        train_dl, _ = build_train_loader_with_data_type(num_worker=0)
-        val_dls = build_valid_loader_with_data_type(num_worker=0)
+        train_dl, _ = build_train_loader_with_data_type()
+        val_dls = build_valid_loader_with_data_type()
     except Exception as e:
         assert should_sccuess is False, f"{e}"
     else:

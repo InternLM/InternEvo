@@ -188,7 +188,7 @@ def train_model(args):
     criterion = FlashGPTLMLoss(parallel_output=True, label_smoothing=gpc.config.loss.label_smoothing)
 
     # initialize the train and validation data loader
-    train_dl, dataset_types = build_train_loader_with_data_type(num_worker=0)
+    train_dl, dataset_types = build_train_loader_with_data_type()
 
     train_state = TrainState(gpc.config, train_dl.batch_sampler)
 

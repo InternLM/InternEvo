@@ -78,7 +78,7 @@ def train_check_norm_weight(args):
 
     optimizer, beta2_scheduler, lr_scheduler = initialize_optimizer(model, isp_communicator)
 
-    train_dl, dataset_types = build_train_loader_with_data_type(num_worker=0)
+    train_dl, dataset_types = build_train_loader_with_data_type()
 
     metric = AccPerplex(
         device=torch.cuda.current_device(),
