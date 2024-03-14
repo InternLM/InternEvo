@@ -50,7 +50,7 @@ def load_llama_pretrained_weights(folder, model):
 
     if "tok_embeddings.weight" in model_state_keys:
         current_states["tok_embeddings.weight"] = states["tok_embeddings.weight"]
-        assert model.first_layer == 0, f"Expect model.first_layer to be 0, but got {model.first_layer}"
+        assert model.first_layer == 0, f"Expect model.NaiveAMPModel to be 0, but got {model.first_layer}"
     if "output.weight" in model_state_keys:
         current_states["norm.weight"] = states["norm.weight"]
         current_states["output.weight"] = states["output.weight"]
@@ -62,6 +62,10 @@ def load_llama_pretrained_weights(folder, model):
             f"Missing keys:{missing_keys}, unexpected keys:{unexpected_keys} in "
             f"tp:{gpc.get_local_rank(ParallelMode.TENSOR)}, pp:{pp_rank}"
         )
+
+    del states
+    del current_states
+    torch.cuda.empty_cache()
 
 
 def load_hf_llama_pretrained_weights(folder, model):
@@ -85,7 +89,7 @@ def load_hf_llama_pretrained_weights(folder, model):
 
     current_states = {}
     for idx, i in enumerate(range(model.first_layer, model.last_layer)):
-        if gpc.config.model_type == "LLAMA":
+        if gpc.config.model_type == "LLAMA2":
             if deep_split:
                 layer_ids = i // 2
             else:
@@ -122,12 +126,12 @@ def load_hf_llama_pretrained_weights(folder, model):
                     gpc.get_world_size(ParallelMode.TENSOR),
                     dim=0,
                 )[gpc.get_local_rank(ParallelMode.TENSOR)]
-                states[f"layers.{i}.feed_forward.w2.weight"] = torch.chunk(
+                states[f"layers.{i}.feed_forward.w3.weight"] = torch.chunk(
                     states.pop(f"model.layers.{layer_ids}.mlp.up_proj.weight"),
                     gpc.get_world_size(ParallelMode.TENSOR),
                     dim=0,
                 )[gpc.get_local_rank(ParallelMode.TENSOR)]
-                states[f"layers.{i}.feed_forward.w3.weight"] = torch.chunk(
+                states[f"layers.{i}.feed_forward.w2.weight"] = torch.chunk(
                     states.pop(f"model.layers.{layer_ids}.mlp.down_proj.weight"),
                     gpc.get_world_size(ParallelMode.TENSOR),
                     dim=1,
@@ -140,8 +144,7 @@ def load_hf_llama_pretrained_weights(folder, model):
             if f"model.layers.{layer_ids}.self_attn.rotary_emb.inv_freq" in states:
                 states.pop(f"model.layers.{layer_ids}.self_attn.rotary_emb.inv_freq")
 
-        if gpc.config.model_type in ("LLAMA"):
-            # LLAMA's w2 and w3 are in reverse order
+        if gpc.config.model_type in ("LLAMA2",):
             w2 = states.pop(f"layers.{i}.feed_forward.w2.weight")
             w3 = states.pop(f"layers.{i}.feed_forward.w3.weight")
             states[f"layers.{i}.feed_forward.w2.weight"] = w3
