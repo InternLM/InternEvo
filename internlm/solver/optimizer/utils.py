@@ -183,7 +183,7 @@ def calc_zero_grad(grads):
     return torch.tensor([zero_count, grad_size])
 
 
-def get_norm(grads, norm_type, enable_cuda_kernels):
+def get_norm(grads, norm_type):
     if norm_type == inf:
         grad_norm = max(g.data.abs().max() for g in grads)
     else:
@@ -311,10 +311,10 @@ def compute_norm(
     else:
         tensor_parallel_grads = reduce_grads(gradients, parameters, weight_parallel_mode)
 
-        tensor_parallel_norm = get_norm(tensor_parallel_grads, norm_type, enable_cuda_kernels)
+        tensor_parallel_norm = get_norm(tensor_parallel_grads, norm_type)
 
         # If norm is type of float, then we convert them into torch.Tensor.
-        tensor_parallel_norm = get_tensor_norm(tensor_parallel_norm, enable_cuda_kernels)
+        tensor_parallel_norm = get_tensor_norm(tensor_parallel_norm)
         # If grads are on CPU, the norms is also on CPU. Cast them to CUDA tensors
         if not enable_cuda_kernels:
             tensor_parallel_norm = move_norm_to_cuda(tensor_parallel_norm)
@@ -408,7 +408,7 @@ def compute_vocab_grad_norm(
             vocab_slice_size = grad.shape[0]
             local_tp_rank = gpc.get_local_rank(ParallelMode.TENSOR)
             for i in range(vocab_slice_size):
-                cur_vocab_grad_norm = get_norm([grad[i, :]], norm_type, enable_cuda_kernels)[0]
+                cur_vocab_grad_norm = get_norm([grad[i, :]], norm_type)[0]
                 vocab_grad_norm[i + vocab_slice_size * local_tp_rank] += get_tensor_norm(
                     cur_vocab_grad_norm, move_to_cuda=True
                 )
@@ -487,7 +487,7 @@ def compute_param_metric(
 
     for param_name, grads in param_grads.items():
         if metric_type == "norm":
-            param_metric = get_norm(grads, norm_type, enable_cuda_kernels)
+            param_metric = get_norm(grads, norm_type)
             param_metrics[param_name] = param_metric.item() if torch.is_tensor(param_metric) else param_metric
         elif metric_type == "zero_grad":
             param_zero_grad_count = calc_zero_grad(grads)
