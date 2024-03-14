@@ -926,29 +926,6 @@ class PackedFlashLlama1D(nn.Module):
                 else:
                     uniform_(std=out_head_init_std)(param)
 
-            if extra_pred_tokens > 0:
-                self.extra_pred_tokens = extra_pred_tokens
-                assert not is_reward, "extra_pred_tokens > 0 means using multi token prediction, not implement for RLHF"
-                self.extra_outputs = nn.ModuleList(
-                    [
-                        head_cls(
-                            in_features=hidden_size,
-                            out_features=vocab_size,
-                            process_group=gpc.get_group(ParallelMode.TENSOR),
-                            bias=False,
-                            device=device,
-                            dtype=dtype,
-                            weight_scale=embed_grad_scale,
-                        )
-                        for _ in range(self.extra_pred_tokens)
-                    ]
-                )
-                for _, param in self.extra_outputs.named_parameters():
-                    if init_type == "normal":
-                        normal_(std=out_head_init_std)(param)
-                    else:
-                        uniform_(std=out_head_init_std)(param)
-
         self.parallel_output = parallel_output
 
     def forward(self, hidden_states=None, cu_seqlens=None, input_ids=None, indexes=None, inference_params=None):
@@ -990,10 +967,7 @@ class PackedFlashLlama1D(nn.Module):
 
         if hasattr(self, "norm"):
             hidden_states = self.norm(hidden_states.float())
-        if hasattr(self, "extra_pred_tokens") and self.extra_pred_tokens > 0:
-            extra_hidden_states_list = [self.extra_outputs[i](hidden_states) for i in range(self.extra_pred_tokens)]
-        else:
-            extra_hidden_states_list = None
+
         if hasattr(self, "output"):
             # Evaluation
             if gpc.is_evaluating is True:
@@ -1003,14 +977,6 @@ class PackedFlashLlama1D(nn.Module):
 
         if not self.parallel_output:
             hidden_states = gather_forward_split_backward(hidden_states, ParallelMode.TENSOR, dim=-1)
-            if extra_hidden_states_list is not None:
-                extra_hidden_states_list = [
-                    gather_forward_split_backward(extra_hidden_states, ParallelMode.TENSOR, dim=-1)
-                    for extra_hidden_states in extra_hidden_states_list
-                ]
-
-        if extra_hidden_states_list is not None:
-            return (hidden_states, extra_hidden_states_list)
 
         return hidden_states
 

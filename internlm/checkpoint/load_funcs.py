@@ -54,9 +54,6 @@ def load_llama_pretrained_weights(folder, model):
     if "output.weight" in model_state_keys:
         current_states["norm.weight"] = states["norm.weight"]
         current_states["output.weight"] = states["output.weight"]
-        if hasattr(model, "extra_pred_tokens") and model.extra_pred_tokens > 0:
-            for i in range(model.extra_pred_tokens):
-                current_states[f"extra_outputs.{i}.weight"] = current_states["output.weight"].clone()
     missing_keys, unexpected_keys = model.load_state_dict(current_states, strict=False)
 
     if gpc.get_local_rank(ParallelMode.DATA) == 0:
@@ -143,7 +140,7 @@ def load_hf_llama_pretrained_weights(folder, model):
             if f"model.layers.{layer_ids}.self_attn.rotary_emb.inv_freq" in states:
                 states.pop(f"model.layers.{layer_ids}.self_attn.rotary_emb.inv_freq")
 
-        if gpc.config.model_type in ("LLAMA", "BAICHUAN2", "MISTRAL"):
+        if gpc.config.model_type in ("LLAMA"):
             # LLAMA's w2 and w3 are in reverse order
             w2 = states.pop(f"layers.{i}.feed_forward.w2.weight")
             w3 = states.pop(f"layers.{i}.feed_forward.w3.weight")
@@ -172,9 +169,6 @@ def load_hf_llama_pretrained_weights(folder, model):
         current_states["output.weight"] = torch.chunk(
             states["lm_head.weight"], gpc.get_world_size(ParallelMode.TENSOR), dim=0
         )[gpc.get_local_rank(ParallelMode.TENSOR)]
-        if hasattr(model, "extra_pred_tokens") and model.extra_pred_tokens > 0:
-            for i in range(model.extra_pred_tokens):
-                current_states[f"extra_outputs.{i}.weight"] = current_states["output.weight"].clone()
 
     missing_keys, unexpected_keys = model.load_state_dict(current_states, strict=False)
 
