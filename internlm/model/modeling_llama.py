@@ -773,7 +773,6 @@ class PackedFlashLlama1D(nn.Module):
         ffn_other_init_std (float): std used to init ffn_other weight. 0.02 by default,
         out_head_init_std (float): std used to init output lmhead weight. 0.02 by default,
         init_type (str): Initialization type. Use uniform or normal. "normal" by default,
-        extra_pred_tokens (int): The number of extra output head for multi-token-prediction. 0 by default.
         rope_base (int): The value of `base` for rotary position embeddings. 10000 by default.
     """
 
@@ -815,7 +814,6 @@ class PackedFlashLlama1D(nn.Module):
         ffn_other_init_std: float = 0.02,
         out_head_init_std: float = 0.02,
         init_type: str = "normal",
-        extra_pred_tokens: int = 0,
         rope_base: int = 10000,
     ):
         super().__init__()
@@ -1050,7 +1048,6 @@ def build_model_with_cfg(
     ffn_other_init_std: float = 0.02,
     out_head_init_std: float = 0.02,
     init_type: str = "normal",
-    extra_pred_tokens: int = 0,
     rope_base: int = 10000,
 ):
     """
@@ -1090,7 +1087,6 @@ def build_model_with_cfg(
         ffn_other_init_std (float): std used to init ffn_other weight. 0.02 by default,
         out_head_init_std (float): std used to init output lmhead weight. 0.02 by default,
         init_type (str): Initialization type. Use uniform or normal. "normal" by default,
-        extra_pred_tokens (int): The number of extra output head for multi-token-prediction. 0 by default.
         rope_base (int): The value of `base` for rotary position embeddings. 10000 by default.
     """
     if deepnorm:
@@ -1127,7 +1123,6 @@ def build_model_with_cfg(
         ffn_other_init_std=ffn_other_init_std,
         out_head_init_std=out_head_init_std,
         init_type=init_type,
-        extra_pred_tokens=extra_pred_tokens,
         rope_base=rope_base,
     )
 
