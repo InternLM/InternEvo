@@ -316,7 +316,7 @@ def compute_norm(
         tensor_parallel_norm = get_norm(tensor_parallel_grads, norm_type)
 
         # If norm is type of float, then we convert them into torch.Tensor.
-        tensor_parallel_norm = get_tensor_norm(tensor_parallel_norm)
+        tensor_parallel_norm = get_tensor_norm(tensor_parallel_norm, enable_cuda_kernels)
         # If grads are on CPU, the norms is also on CPU. Cast them to CUDA tensors
         if not enable_cuda_kernels:
             tensor_parallel_norm = move_norm_to_cuda(tensor_parallel_norm)
