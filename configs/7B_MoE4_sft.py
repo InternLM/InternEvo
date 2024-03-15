@@ -149,7 +149,7 @@ model = dict(
     num_chunks=1,  # if num_chunks > 1, interleaved pipeline scheduler is used.
     num_experts=4,
     moe_use_residual=False,
-    moe_type="GShard",
+    moe_type="GShard",  # Support: "GShard", "MegaBlock", "MegaBlock-D"
 )
 """
 zero1 parallel (dict):
@@ -200,6 +200,7 @@ monitor = dict(
 )
 
 # custom moe impl configs
+# GShard MoE config
 moe = dict(
     top_k=2,
     capacity_factor=1.0,
@@ -209,6 +210,14 @@ moe = dict(
     drop_tokens=True,
     use_rts=True,
 )
+
+# MegaBlock MoE config
+# moe = dict(
+#    top_k=2,
+#    capacity_factor=1.0, # only used in MegaBlock(non-dmoe)
+#    drop_tokens=True, # only used in MegaBlock(non-dmoe)
+#    #parallel_mode="tensor", # only used in MegaBlock-D(dmoe), parallel_mode can be tensor or weight
+# )
 
 model_type = "INTERNLM_MoE"
 

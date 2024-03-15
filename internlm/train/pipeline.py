@@ -50,6 +50,7 @@ from internlm.model.ops.linear import (
     ScaleColumnParallelLinear,
 )
 from internlm.model.utils import is_moe_param, try_import_RMSNorm
+from internlm.moe.megablock.mlp import MegaBlockFeedForward, MegaBlockGroupedFeedForward
 from internlm.monitor import send_heartbeat, set_env_var
 from internlm.monitor.monitor import monitor_manager as mm
 from internlm.solver.optimizer import FSDPadaptOptimizer, HybridZeroOptimizer
@@ -117,7 +118,10 @@ def set_parallel_attr_for_param_groups(model: Union[nn.Module, nn.ModuleList]):
                     setattr(param, IS_TENSOR_ZERO_PARALLEL, True)
 
         # for linear module
-        if isinstance(module, (ColumnParallelLinearTorch, RowParallelLinearTorch)):
+        if isinstance(
+            module,
+            (ColumnParallelLinearTorch, RowParallelLinearTorch, MegaBlockFeedForward, MegaBlockGroupedFeedForward),
+        ):
             for param in module.parameters():
                 if gpc.is_initialized(ParallelMode.EXPERT_DATA) and is_moe_param(param):
                     # module should be MoE experts's linear
