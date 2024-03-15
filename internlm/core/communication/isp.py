@@ -11,7 +11,7 @@ from torch import nn
 
 from internlm.core.context import global_context as gpc
 from internlm.core.naive_amp import NaiveAMPModel
-from internlm.model.linear import ISPLinear
+from internlm.model.linear import GroupedISPLinear, ISPLinear
 from internlm.model.utils import all_gather_raw, reduce_scatter_raw
 from internlm.utils.common import SchedulerHook
 
@@ -221,11 +221,12 @@ class ISPCommunicator:
                         if name.split(".")[-1] in ["out_proj", "wo"]:
                             self._overlap_states[cid].isp_outs.append(child)
                             self._overlap_states[cid].module_to_index[child] = idx
-                        if isinstance(child, ISPLinear):
+                        if isinstance(child, (ISPLinear, GroupedISPLinear)):
                             if name not in self._module_shapes:
-                                origin_shape = tuple(
-                                    [child.weight.shape[0] * dist.get_world_size(child.process_group)]
-                                    + list(child.weight.shape[1:])
+                                gather_dim = 1 if isinstance(child, GroupedISPLinear) else 0
+                                origin_shape = list(child.weight.shape)
+                                origin_shape[gather_dim] = origin_shape[gather_dim] * dist.get_world_size(
+                                    child.process_group
                                 )
                                 self._module_shapes[name] = torch.Size(origin_shape)
                             self._overlap_states[cid].module_to_index[child] = idx
@@ -250,6 +251,7 @@ class ISPCommunicator:
         self._overlap_states[cid].num_blocks = len(self._overlap_states[cid].index_to_isp_modules)
 
     def _all_gather_module_weight(self, module):
+        is_grouped_linear = isinstance(module, GroupedISPLinear)
         with_bias = module.bias is not None
         block_index = self._module_to_index[module]
 
@@ -279,6 +281,7 @@ class ISPCommunicator:
                 module.bias,
                 module.process_group,
                 async_op=True,
+                gather_dim=1 if is_grouped_linear else 0,
                 memory_pool_allocator=bias_memory_pool_allocator,
             )
             self._bias_global_handle[module] = bias_handle
@@ -288,6 +291,7 @@ class ISPCommunicator:
             module.weight,
             module.process_group,
             async_op=True,
+            gather_dim=1 if is_grouped_linear else 0,
             memory_pool_allocator=weight_memory_pool_allocator,
         )
         self._weight_global_handle[module] = weight_handle
@@ -472,7 +476,13 @@ class ISPCommunicator:
             return tensor
 
         if not self.overlap:
-            result, _ = all_gather_raw(tensor, module.process_group, async_op=False)
+            if isinstance(module, ISPLinear):
+                gather_dim = 0
+            elif isinstance(module, GroupedISPLinear):
+                gather_dim = 1
+            else:
+                assert False
+            result, _ = all_gather_raw(tensor, module.process_group, async_op=False, gather_dim=gather_dim)
         elif is_bias:
             result = self._bias_global_output[module]
         else:
@@ -490,8 +500,18 @@ class ISPCommunicator:
         if dist.get_world_size(model.process_group) <= 1:
             return tensor, None
 
+        # cal scatter output shape
+        if isinstance(model, ISPLinear):
+            scatter_dim = 0
+        elif isinstance(model, GroupedISPLinear):
+            scatter_dim = 1
+        else:
+            assert False
+
         if not self.overlap:
-            result, handle = reduce_scatter_raw(tensor, model.process_group, op=op, async_op=True)
+            result, handle = reduce_scatter_raw(
+                tensor, model.process_group, op=op, scatter_dim=scatter_dim, async_op=True
+            )
         else:
             if is_bias:
                 assert hasattr(model.bias, "isp_reduce_scatter_name")
@@ -505,18 +525,16 @@ class ISPCommunicator:
                 model.process_group,
                 op=op,
                 async_op=True,
+                scatter_dim=scatter_dim,
                 memory_pool_allocator=(
                     self.memory_pool.allocate_reduce_scatter_memory if self.enable_memory_pool else None
                 ),
             )
 
+            shape = list(tensor.shape)
+            shape[scatter_dim] = shape[scatter_dim] // dist.get_world_size(model.process_group)
             result, handle = (
-                self._get_constant_zero(
-                    (
-                        tensor.shape[0] // dist.get_world_size(model.process_group),
-                        *tensor.shape[1:],
-                    )
-                ),
+                self._get_constant_zero(tuple(shape)),
                 None,
             )
 

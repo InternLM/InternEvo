@@ -27,7 +27,7 @@ class BaseMoELayer(Base):
         if expert_group_name not in gpc.expert_parallel_group_names:
             gpc.expert_parallel_group_names.append(expert_group_name)
         self.gate = gate
-        self.experts = Experts(experts, num_local_experts, expert_group_name)
+        self.experts = Experts(experts, expert_group_name)
         self.ep_group = ep_group
         self.ep_size = ep_size
         self.num_local_experts = num_local_experts

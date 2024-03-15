@@ -53,6 +53,7 @@ from internlm.model.linear import (
     BaseScaleColumnParallelLinear,
     ColumnParallelLinearTorch,
     FeedForward,
+    GroupedISPLinear,
     ISPLinear,
     RewardModelLinear,
     RowParallelLinearTorch,
@@ -135,7 +136,7 @@ def set_parallel_attr_for_param_groups(model: Union[nn.Module, nn.ModuleList]):
         #             set non-moe param as IS_TENSOR_ZERO_PARALLEL
         # 2. if isp is used, set moe param as IS_WEIGHT_EXPERT_DATA_PARALLEL and
         #             set non-moe param as IS_WEIGHT_ZERO_PARALLEL
-        if isinstance(module, (ColumnParallelLinearTorch, RowParallelLinearTorch)):
+        if isinstance(module, (ColumnParallelLinearTorch, RowParallelLinearTorch, GroupedISPLinear)):
             for param in module.parameters():
                 if gpc.is_initialized(ParallelMode.TENSOR) and not is_using_isp():
                     if is_moe_param(param):
@@ -290,6 +291,7 @@ def initialize_isp_communicator(model: Union[nn.Module, nn.ModuleList]):
         )
         # register communicator for isp linear.
         ISPLinear.register_communicator(isp_communicator)
+        GroupedISPLinear.register_communicator(isp_communicator)
 
     return isp_communicator
 
