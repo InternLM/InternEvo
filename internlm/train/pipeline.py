@@ -40,6 +40,10 @@ from internlm.model.metrics import SchedulerMetricHook
 from internlm.model.modules.embedding import Embedding1D
 from internlm.model.modules.mlp import FeedForward
 from internlm.model.modules.multi_head_attention import MHA
+from internlm.model.moe.megablock.mlp import (
+    MegaBlockFeedForward,
+    MegaBlockGroupedFeedForward,
+)
 from internlm.model.moe.moe import MoE
 from internlm.model.ops.linear import (
     BaseScaleColumnParallelLinear,
@@ -50,7 +54,6 @@ from internlm.model.ops.linear import (
     ScaleColumnParallelLinear,
 )
 from internlm.model.utils import is_moe_param, try_import_RMSNorm
-from internlm.moe.megablock.mlp import MegaBlockFeedForward, MegaBlockGroupedFeedForward
 from internlm.monitor import send_heartbeat, set_env_var
 from internlm.monitor.monitor import monitor_manager as mm
 from internlm.solver.optimizer import FSDPadaptOptimizer, HybridZeroOptimizer
