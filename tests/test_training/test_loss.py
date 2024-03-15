@@ -6,24 +6,24 @@ import torch
 import torch.distributed as dist
 
 import internlm
+from internlm.checkpoint import CheckpointManager
 from internlm.core.context import ParallelMode
 from internlm.core.context import global_context as gpc
 from internlm.core.trainer import TrainState
+from internlm.data import build_train_loader_with_data_type
 from internlm.initialize import initialize_distributed_env
-from internlm.model.loss import FlashGPTLMLoss
+from internlm.model.losses import FlashGPTLMLoss
 from internlm.model.metrics import AccPerplex
 from internlm.train import (
-    get_train_data_loader,
+    get_scheduler_hooks,
+    initialize_isp_communicator,
     initialize_model,
     initialize_optimizer,
-    initialize_isp_communicator,
     load_new_batch,
-    get_scheduler_hooks,
 )
 from internlm.utils.common import BatchSkipper, launch_time
 from internlm.utils.gputest import empty_cache_and_diag
 from internlm.utils.megatron_timers import megatron_timer as timer
-from internlm.utils.model_checkpoint import CheckpointManager
 
 CONFIG_FILE_PATH = os.getenv("CONFIG_FILE_PATH", "./configs/7B_sft.py")
 TOTAL_STEPS = 10
@@ -31,16 +31,16 @@ LOSS_SPIKE_LIMIT = 1.5
 LOSS_DEVIATION_LIMIT = 0.2
 # dp_size = 4
 BASELINE_LOSS_LIST = [
-    11.680583953857422, 
-    7.83256721496582, 
-    6.745327949523926, 
-    6.187380790710449, 
-    5.421087265014648, 
-    5.3960981369018555, 
-    5.090664863586426, 
-    4.77808952331543, 
-    4.6484055519104, 
-    4.634660720825195
+    11.680583953857422,
+    7.83256721496582,
+    6.745327949523926,
+    6.187380790710449,
+    5.421087265014648,
+    5.3960981369018555,
+    5.090664863586426,
+    4.77808952331543,
+    4.6484055519104,
+    4.634660720825195,
 ]
 cur_loss_list = []
 
@@ -122,7 +122,7 @@ def train(
     criterion = FlashGPTLMLoss(parallel_output=True, label_smoothing=label_smoothing)
 
     # initialize the train data loader
-    train_dl, dataset_types = get_train_data_loader(num_worker=4)
+    train_dl, dataset_types = build_train_loader_with_data_type()
 
     # initialize and resume train state
     train_state = TrainState(gpc.config, train_dl.batch_sampler)

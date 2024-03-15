@@ -11,10 +11,11 @@ import internlm
 from internlm.core.context import ParallelMode
 from internlm.core.context import global_context as gpc
 from internlm.core.context.parallel_context import Config
+from internlm.data import build_train_loader_with_data_type
 from internlm.initialize.launch import args_sanity_check
-from internlm.model.loss import FlashGPTLMLoss
+from internlm.model.losses import FlashGPTLMLoss
 from internlm.model.metrics import AccPerplex, SchedulerMetricHook
-from internlm.train import get_train_data_loader, initialize_model, initialize_optimizer
+from internlm.train import initialize_model, initialize_optimizer
 from internlm.utils.logger import get_logger
 
 logger = get_logger(__file__)
@@ -29,6 +30,7 @@ config = Config(
             weight=dict(size=1, overlap=True, memory_pool=True),
         ),
         data=dict(
+            type="tokenized",
             seq_len=2048,
             micro_num=4,
             micro_bsz=2,
@@ -166,7 +168,7 @@ def train_check_output(args):
 
     optimizer, beta2_scheduler, lr_scheduler = initialize_optimizer(model=model)
 
-    train_dl, dataset_types = get_train_data_loader(num_worker=0)
+    train_dl, dataset_types = build_train_loader_with_data_type()
 
     metric = AccPerplex(
         device=torch.cuda.current_device(),

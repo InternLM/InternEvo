@@ -15,30 +15,30 @@ from internlm.initialize.initialize_tensor import (
     scaled_init_method_uniform,
     uniform_,
 )
-from internlm.model.embedding import (
+from internlm.model.modules.embedding import (
     DynamicNTKScalingRotaryEmbedding,
     Embedding1D,
     RotaryEmbedding,
 )
-from internlm.model.linear import (
-    InternLM2ScaleColumnParallelLinear,
-    RewardModelLinear,
-    get_linear_cls,
-    get_mlp_cls,
-)
-from internlm.model.multi_head_attention import (
+from internlm.model.modules.mlp import get_mlp_cls
+from internlm.model.modules.multi_head_attention import (
     CrossAttention,
     DistributedAttention,
     SelfAttention,
     _update_kv_cache,
+)
+from internlm.model.ops.linear import (
+    RewardModelLinear,
+    ScaleColumnParallelLinearWithNormHead,
+    get_linear_cls,
 )
 from internlm.model.utils import (
     gather_forward_split_backward,
     split_forward_gather_backward,
     try_import_RMSNorm,
 )
+from internlm.solver.activation_checkpoint import activation_checkpoint
 from internlm.solver.pipeline_utils import partition_uniform
-from internlm.utils.checkpoint import activation_checkpoint
 from internlm.utils.common import filter_kwargs
 from internlm.utils.logger import get_logger
 from internlm.utils.registry import MODEL_INITIALIZER
@@ -856,7 +856,7 @@ class PackedFlashLlama1D(nn.Module):
         if is_reward:
             head_cls = RewardModelLinear
         else:
-            head_cls = InternLM2ScaleColumnParallelLinear
+            head_cls = ScaleColumnParallelLinearWithNormHead
 
         sequence_parallel = gpc.config.parallel.get("sequence_parallel", False)
 
@@ -929,10 +929,10 @@ class PackedFlashLlama1D(nn.Module):
                 else:
                     self.norm = nn.LayerNorm(hidden_size, eps=layer_norm_epsilon)
 
-            if norm_head and not issubclass(head_cls, InternLM2ScaleColumnParallelLinear):
+            if norm_head and not issubclass(head_cls, ScaleColumnParallelLinearWithNormHead):
                 raise TypeError(
                     "Parameter ``norm_head`` should only be True when head_cls is "
-                    f"``InternLM2ScaleColumnParallelLinear``, instead of {head_cls}."
+                    f"``ScaleColumnParallelLinearWithNormHead``, instead of {head_cls}."
                 )
             self.output = head_cls(  # pylint: disable=E1123
                 in_features=hidden_size,

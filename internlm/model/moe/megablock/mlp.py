@@ -3,8 +3,13 @@ from torch import nn
 
 from internlm.core.context import ParallelMode
 from internlm.core.context import global_context as gpc
+from internlm.model.moe.megablock.utils import (
+    act_fn,
+    dsd_nn,
+    sdd_nt,
+    tensor_parallel_bmm,
+)
 from internlm.model.utils import Silu
-from internlm.moe.megablock.utils import act_fn, dsd_nn, sdd_nt, tensor_parallel_bmm
 
 
 class MegaBlockFeedForward(nn.Module):

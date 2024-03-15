@@ -1,6 +1,6 @@
 import multiprocessing
 
-backup_ForkingPickler= multiprocessing.reduction.ForkingPickler
+backup_ForkingPickler = multiprocessing.reduction.ForkingPickler
 backup_dump = multiprocessing.reduction.dump
 import os
 from functools import partial
@@ -9,10 +9,10 @@ import pytest
 import torch
 import torch.distributed as dist
 
+from internlm.checkpoint import CheckpointManager
 from internlm.core.context.parallel_context import Config
 from internlm.core.trainer import TrainState
 from internlm.solver.optimizer.hybrid_zero_optim import HybridZeroOptimizer
-from internlm.utils.model_checkpoint import CheckpointManager
 from internlm.utils.storage_manager import SingletonMeta, wait_async_upload_finish
 from tests.test_utils.common_fixture import (  # noqa # pylint: disable=unused-import
     ASYNC_TMP_FOLDER,
@@ -187,9 +187,9 @@ def return_latest_save_path(save_ckpt_folder, total_step, snapshot_freq, ckpt_fr
         return normal_latest_step, os.path.join(return_prefix_path(save_ckpt_folder), f"{normal_latest_step}")
     elif normal_latest_step < snapshot_latest_step:
         if snapshot_latest_count % 2 == 0:
-            re_path = f"{return_prefix_path(save_ckpt_folder)}/snapshot/0"
-        else:
             re_path = f"{return_prefix_path(save_ckpt_folder)}/snapshot/1"
+        else:
+            re_path = f"{return_prefix_path(save_ckpt_folder)}/snapshot/0"
         return snapshot_latest_step, re_path
     else:
         assert False
@@ -201,7 +201,7 @@ def return_latest_save_path(save_ckpt_folder, total_step, snapshot_freq, ckpt_fr
 @pytest.mark.parametrize("ckpt_config", ckpt_config_list)
 def test_ckpt_mm(step_info, ckpt_config, init_dist_and_model):  # noqa # pylint: disable=unused-import
     from internlm.core.context import global_context as gpc
-    from internlm.utils.model_checkpoint import CheckpointLoadMask, CheckpointLoadType
+    from internlm.checkpoint.checkpoint_manager import CheckpointLoadMask
 
     ckpt_config = Config(ckpt_config)
     total_step, checkpoint_every, oss_snapshot_freq = step_info
@@ -268,13 +268,13 @@ def test_ckpt_mm(step_info, ckpt_config, init_dist_and_model):  # noqa # pylint:
             ckpt_mm.load_ckpt_info = dict(
                 path=os.path.join(LOCAL_SAVE_PATH, f"{ckpt_config.checkpoint_every}"),
                 content=CheckpointLoadMask(("all",)),
-                ckpt_type=CheckpointLoadType.INTERNLM,
+                ckpt_type="internevo",
             )
         else:
             ckpt_mm.load_ckpt_info = dict(
                 path=os.path.join(BOTO_SAVE_PATH, f"{ckpt_config.checkpoint_every}"),
                 content=CheckpointLoadMask(("all",)),
-                ckpt_type=CheckpointLoadType.INTERNLM,
+                ckpt_type="internevo",
             )
 
         ckpt_mm.try_resume_training(train_state)
@@ -298,7 +298,7 @@ STOP_FILE_PATH = "./alter.log"
 def query_quit_file(rank, world_size=2):
     from internlm.core.context import global_context as gpc
     from internlm.initialize import initialize_distributed_env
-    from internlm.utils.model_checkpoint import CheckpointSaveType
+    from internlm.checkpoint.checkpoint_manager import CheckpointSaveType
 
     ckpt_config = Config(
         dict(
@@ -348,6 +348,7 @@ def query_quit_file(rank, world_size=2):
 
 def test_quit_siganl_handler():  # noqa # pylint: disable=unused-import
     import multiprocessing
+
     # we do hack here to workaround the bug of 3rd party library dill, which only occurs in this unittest:
     # https://github.com/uqfoundation/dill/issues/380
     multiprocessing.reduction.ForkingPickler = backup_ForkingPickler

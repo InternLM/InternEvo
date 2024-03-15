@@ -7,10 +7,10 @@ from megablocks import ops
 
 from internlm.core.context import ParallelMode
 from internlm.core.context import global_context as gpc
-from internlm.moe.base_moe import BaseMoELayer
-from internlm.moe.megablock.megablock_moe import MegaBlockMoE
-from internlm.moe.megablock.mlp import MegaBlockGroupedFeedForward
-from internlm.moe.megablock.utils import promote_scalar
+from internlm.model.moe.base_layer import BaseMoELayer
+from internlm.model.moe.megablock.megablock_moe import MegaBlockMoE
+from internlm.model.moe.megablock.mlp import MegaBlockGroupedFeedForward
+from internlm.model.moe.megablock.utils import promote_scalar
 from internlm.utils.registry import MODEL_INITIALIZER
 
 

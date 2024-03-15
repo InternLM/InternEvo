@@ -12,7 +12,10 @@ import torch
 from internlm.core.context import Config
 from internlm.core.context import global_context as gpc
 from internlm.core.context.process_group_initializer import ParallelMode
-from internlm.moe.megablock.utils import check_megablock_installed, check_stk_installed
+from internlm.model.moe.megablock.utils import (
+    check_megablock_installed,
+    check_stk_installed,
+)
 from internlm.monitor import initialize_light_monitor
 from internlm.utils.common import get_master_node
 from internlm.utils.gputest import warmup_process_group
@@ -118,6 +121,9 @@ def args_sanity_check():
         logger.warning("packed_length would be ignored and will be setted as seq_len * micro_bsz.")
 
     data._add_item("packed_length", data.seq_len * data.micro_bsz)
+
+    if "type" not in data:
+        data._add_item("type", "tokenized")
 
     if "micro_num" not in data:
         data._add_item("micro_num", 1)

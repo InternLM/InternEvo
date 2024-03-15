@@ -3,7 +3,7 @@ import multiprocessing as mp
 import pytest
 import torch
 
-from internlm.model.embedding import Embedding1D
+from internlm.model.modules.embedding import Embedding1D
 from tests.test_model.test_model_internlm import build_environment, seed_all
 
 

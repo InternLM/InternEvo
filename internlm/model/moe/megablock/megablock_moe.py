@@ -7,9 +7,9 @@ from megablocks import ops
 
 from internlm.core.context import ParallelMode
 from internlm.core.context import global_context as gpc
-from internlm.moe.base_moe import BaseMoELayer
-from internlm.moe.megablock.mlp import MegaBlockFeedForward
-from internlm.moe.utils import all_to_all
+from internlm.model.moe.base_layer import BaseMoELayer
+from internlm.model.moe.megablock.mlp import MegaBlockFeedForward
+from internlm.model.moe.utils import all_to_all
 from internlm.utils.registry import MODEL_INITIALIZER
 
 

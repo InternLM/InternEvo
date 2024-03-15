@@ -4,6 +4,7 @@ https://github.com/microsoft/DeepSpeed/blob/master/deepspeed/moe/experts.py
  Git commit hash: f3943cf9109226ed3ecf2d5dbb639a11cd925555
  We retain the following license from the original files:
 """
+
 from typing import Callable, Dict, Optional, Tuple
 
 import torch
@@ -14,12 +15,12 @@ from torch.nn import Module
 
 from internlm.core.context import ParallelMode
 from internlm.core.context import global_context as gpc
-from internlm.model.linear import FeedForward
+from internlm.model.modules.mlp import FeedForward
 from internlm.utils.logger import get_logger
 from internlm.utils.megatron_timers import megatron_timer as timer
 from internlm.utils.registry import MODEL_INITIALIZER
 
-from .base_moe import BaseMoELayer
+from .base_layer import BaseMoELayer
 from .utils import all_to_all
 
 # global llm logger
