@@ -7,6 +7,7 @@ from megablocks import ops
 
 from internlm.core.context import ParallelMode
 from internlm.core.context import global_context as gpc
+from internlm.model.modules.mlp import get_mlp_cls
 from internlm.model.moe.base_layer import BaseMoELayer
 from internlm.model.moe.megablock.mlp import MegaBlockFeedForward
 from internlm.model.moe.utils import all_to_all
@@ -40,7 +41,6 @@ class MegaBlockMoE(BaseMoELayer):
         dtype: Optional[torch.device] = None,
         multiple_of: int = 256,
     ) -> None:
-        assert not gpc.config.parallel.sequence_parallel, "do not support sequence parallel"
         self.top_k = top_k
         self.num_experts = num_experts
 
@@ -49,15 +49,30 @@ class MegaBlockMoE(BaseMoELayer):
         self.capacity_factor = capacity_factor
         self.drop_tokens = drop_tokens
         assert self.ffn_dim % tp_size == 0
+        tp_mode = (
+            gpc.config.parallel["tensor"].get("mode", "mtp")
+            if isinstance(gpc.config.parallel["tensor"], dict)
+            else "mtp"
+        )
+        parallel_mode = ParallelMode.EXPERT_WEIGHT if tp_mode == "isp" else ParallelMode.TENSOR
+
+        mlp_cls = get_mlp_cls(tp_mode, grouped_linear=True)
+        if tp_mode != "isp":
+            mlp_cls = MegaBlockFeedForward
+            assert not gpc.config.parallel.sequence_parallel, "do not support sequence parallel"
+        experts = mlp_cls(  # pylint: disable=E1123
+            hidden_size,
+            int(hidden_size * gpc.config.model.mlp_ratio),
+            out_features=hidden_size,
+            num_linear_in_group=num_experts // ep_size,
+            process_group=gpc.get_group(parallel_mode),
+            bias=False,
+            device=device,
+            dtype=dtype,
+        )
         super().__init__(
             torch.nn.Linear(hidden_size, num_experts, bias=False),
-            MegaBlockFeedForward(
-                hidden_size,
-                self.ffn_dim // tp_size,
-                num_experts // ep_size,
-                device,
-                dtype,
-            ),
+            experts,
             ep_group,
             ep_size,
             1,
