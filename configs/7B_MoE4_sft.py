@@ -28,8 +28,8 @@ ckpt = dict(
     # 'load_ckpt_info' setting guide:
     # 1. the 'path' indicate ckpt path,
     # 2. the 'content‘ means what states will be loaded, support: "model", "sampler", "optimizer", "scheduler", "all"
-    # 3. the ’ckpt_type‘ means the type of checkpoint to be loaded, support: "internlm", "llama", "hf_llama".
-    load_ckpt_info=dict(path=MODEL_ONLY_FOLDER, content=("model",), ckpt_type="internlm"),
+    # 3. the ’ckpt_type‘ means the type of checkpoint to be loaded, support: "internevo", "llama", "hf_llama".
+    load_ckpt_info=dict(path=MODEL_ONLY_FOLDER, content=("model",), ckpt_type="internevo"),
     # 'auto_resume' is designed to automatically load the latest checkpoint from 'save_ckpt_folder' when encountering
     # training interruptions/hangs caused by hardware failures, using a scheduling system (such as k8s/slurm)
     # with an automatic restart mechanism upon training reboot.
@@ -149,7 +149,7 @@ model = dict(
     num_chunks=1,  # if num_chunks > 1, interleaved pipeline scheduler is used.
     num_experts=4,
     moe_use_residual=False,
-    moe_type="GShard",
+    moe_type="GShard",  # Support: "GShard", "MegaBlock", "MegaBlock-D"
 )
 """
 zero1 parallel (dict):
@@ -208,6 +208,7 @@ monitor = dict(
 )
 
 # custom moe impl configs
+# GShard MoE config
 moe = dict(
     top_k=2,
     capacity_factor=1.0,
@@ -217,6 +218,14 @@ moe = dict(
     drop_tokens=True,
     use_rts=True,
 )
+
+# MegaBlock MoE config
+# moe = dict(
+#    top_k=2,
+#    capacity_factor=1.0, # only used in MegaBlock(non-dmoe)
+#    drop_tokens=True, # only used in MegaBlock(non-dmoe)
+#    #parallel_mode="tensor", # only used in MegaBlock-D(dmoe), parallel_mode can be tensor or weight
+# )
 
 model_type = "INTERNLM_MoE"
 

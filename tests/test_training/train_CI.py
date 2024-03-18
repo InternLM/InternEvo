@@ -17,11 +17,17 @@ project_root = os.path.abspath(os.path.join(script_dir, "../../"))
 sys.path.append(project_root)
 
 import internlm  # noqa: E402
+from internlm.checkpoint import CheckpointManager
 from internlm.core.context import ParallelMode  # noqa: E402
 from internlm.core.context import global_context as gpc  # noqa: E402
 from internlm.core.trainer import TrainState  # noqa: E402
+from internlm.data import (
+    build_train_loader_with_data_type,
+    build_valid_loader_with_data_type,
+)
+from internlm.eval.evaluation import evaluate_on_val_dls  # noqa: E402
 from internlm.initialize import initialize_distributed_env  # noqa: E402
-from internlm.model.loss import FlashGPTLMLoss  # noqa: E402
+from internlm.model.losses import FlashGPTLMLoss  # noqa: E402
 from internlm.model.metrics import AccPerplex, SchedulerMetricHook  # noqa: E402
 from internlm.monitor import (  # noqa: E402
     initialize_monitor_manager,
@@ -29,8 +35,6 @@ from internlm.monitor import (  # noqa: E402
 )
 from internlm.monitor.monitor import monitor_manager as mm  # noqa: E402
 from internlm.train import (  # noqa: E402
-    get_train_data_loader,
-    get_validation_data_loader,
     initialize_llm_profile,
     initialize_model,
     initialize_optimizer,
@@ -42,11 +46,9 @@ from internlm.utils.common import (  # noqa: E402
     launch_time,
     parse_args,
 )
-from internlm.utils.evaluation import evaluate_on_val_dls  # noqa: E402
 from internlm.utils.gputest import empty_cache_and_diag  # noqa: E402
 from internlm.utils.logger import get_logger, initialize_uniscale_logger  # noqa: E402
 from internlm.utils.megatron_timers import megatron_timer as timer  # noqa: E402
-from internlm.utils.model_checkpoint import CheckpointManager  # noqa: E402
 from internlm.utils.parallel import get_parallel_log_file_name  # noqa: E402
 from internlm.utils.simple_memory_profiler import SimpleMemoryProfiler  # noqa: E402
 from internlm.utils.writer import Writer  # noqa: E402
@@ -133,8 +135,8 @@ def main(args):
     criterion = FlashGPTLMLoss(parallel_output=True, label_smoothing=label_smoothing)
 
     # initialize the train and validation data loader
-    train_dl, dataset_types = get_train_data_loader(num_worker=4)
-    val_dls = get_validation_data_loader()
+    train_dl, dataset_types = build_train_loader_with_data_type()
+    val_dls = build_valid_loader_with_data_type()
 
     # initialize and resume train state
     train_state = TrainState(gpc.config, train_dl.batch_sampler)

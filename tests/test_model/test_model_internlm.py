@@ -10,7 +10,7 @@ import internlm
 from internlm.core.context import ParallelMode
 from internlm.core.context.parallel_context import Config
 from internlm.core.context.parallel_context import global_context as gpc
-from internlm.model.linear import RewardModelLinear, ScaleColumnParallelLinear
+from internlm.model.ops.linear import RewardModelLinear, ScaleColumnParallelLinear
 from internlm.model.modeling_internlm import PackedFlashBaseLayer1D
 from internlm.model.utils import gather_forward_split_backward
 
@@ -23,7 +23,15 @@ config = Config(
             weight=dict(size=1, overlap=True, memory_pool=True),
         ),
         model_type="INTERNLM",
-        data=dict(seq_len=2048, micro_num=1, micro_bsz=1, pack_sample_into_one=False, min_length=0, total_steps=9999),
+        data=dict(
+            type="tokenized",
+            seq_len=2048,
+            micro_num=1,
+            micro_bsz=1,
+            pack_sample_into_one=False,
+            min_length=0,
+            total_steps=9999,
+        ),
         model=dict(
             checkpoint=False,
             num_attention_heads=2,

@@ -19,7 +19,7 @@ from internlm.core.context.parallel_context import (
     IS_TENSOR_ZERO_PARALLEL,
     IS_WEIGHT_ZERO_PARALLEL,
 )
-from internlm.moe.utils import is_moe_param
+from internlm.model.moe.utils import is_moe_param
 from internlm.monitor import send_alert_message
 from internlm.solver.optimizer.store import (
     BucketStore,

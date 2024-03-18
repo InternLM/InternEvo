@@ -11,20 +11,17 @@ from internlm.core.context import ParallelMode
 from internlm.core.context.parallel_context import global_context as gpc
 from internlm.core.naive_amp import set_output_attr_to_module
 from internlm.initialize.initialize_tensor import normal_, scaled_init_method_normal
-from internlm.model.embedding import Embedding1D
-from internlm.model.linear import (
-    RewardModelLinear,
-    ScaleColumnParallelLinear,
-    get_mlp_cls,
-)
-from internlm.model.multi_head_attention import MHA
+from internlm.model.modules.embedding import Embedding1D
+from internlm.model.modules.mlp import get_mlp_cls
+from internlm.model.modules.multi_head_attention import MHA
+from internlm.model.ops.linear import RewardModelLinear, ScaleColumnParallelLinear
 from internlm.model.utils import (
     gather_forward_split_backward,
     split_forward_gather_backward,
     try_import_RMSNorm,
 )
+from internlm.solver.activation_checkpoint import activation_checkpoint
 from internlm.solver.pipeline_utils import partition_uniform
-from internlm.utils.checkpoint import activation_checkpoint
 from internlm.utils.common import filter_kwargs
 from internlm.utils.logger import get_logger
 from internlm.utils.registry import MODEL_INITIALIZER

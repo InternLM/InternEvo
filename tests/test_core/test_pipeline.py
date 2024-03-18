@@ -25,7 +25,15 @@ config = Config(
             weight=dict(size=1, overlap=True, memory_pool=True),
         ),
         model_type="INTERNLM",
-        data=dict(seq_len=8, micro_num=16, micro_bsz=1, pack_sample_into_one=False, min_length=0, total_steps=9999),
+        data=dict(
+            type="tokenized",
+            seq_len=8,
+            micro_num=16,
+            micro_bsz=1,
+            pack_sample_into_one=False,
+            min_length=0,
+            total_steps=9999,
+        ),
         model=dict(
             dtype=torch.bfloat16,
             num_chunks=2,

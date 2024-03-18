@@ -11,8 +11,8 @@ from torch.nn.modules.loss import _Loss
 from torch.optim.lr_scheduler import _LRScheduler
 
 from internlm.core.gradient_handler import BaseGradientHandler
-from internlm.solver.beta2_scheduler import Beta2Scheduler
 from internlm.solver.optimizer.hybrid_zero_optim import BaseOptimizer
+from internlm.solver.schedulers.beta2_scheduler import Beta2Scheduler
 from internlm.utils.common import get_batch_size, move_to_device
 
 

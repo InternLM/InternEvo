@@ -11,7 +11,7 @@ from torch import Tensor, nn
 from internlm.core.context import ParallelMode
 from internlm.core.context import global_context as gpc
 
-from .utils import gather_forward_split_backward, split_forward_gather_backward
+from ..utils import gather_forward_split_backward, split_forward_gather_backward
 
 
 class Embedding1D(nn.Module):
@@ -110,7 +110,7 @@ def apply_rotary_torch(
         cos_pt = cos
         sin_pt = sin
 
-    output = apply_rotary_emb_torch(x_pt.float(), cos_pt.float(), sin_pt.float(), interleaved)
+    output = apply_rotary_emb_torch(x_pt, cos_pt, sin_pt, interleaved)
     return output
 
 
