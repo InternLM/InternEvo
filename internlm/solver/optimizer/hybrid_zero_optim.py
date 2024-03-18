@@ -493,7 +493,7 @@ class HybridZeroOptimizer(BaseOptimizer):
                 for group_id, param_group in enumerate(self.optim.param_groups):
                     for param in self._fp16_param_groups[group_id]:
                         self._param_store.set_param_reduction_state(param, False)
-                self._param_store.clear_grads_of_previous_reduced_params()
+                # self._param_store.clear_grads_of_previous_reduced_params()
                 
             else: 
                 self._param_store.set_param_reduction_state(param, True)
