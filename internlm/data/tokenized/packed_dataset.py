@@ -448,7 +448,7 @@ def get_packed_dataset_without_short_length(
                 if pack_sample_into_one:
                     ds = PackedDatasetWithoutCuSeqlen(ds, max_length_per_sample, packed_length)
                 else:
-                    ds = PackedDataset(ds, max_length_per_sample, packed_length)
+                    ds = PackedDatasetWithCut(ds, max_length_per_sample, packed_length)
 
                 num_token_in_folder += len(ds) * packed_length
                 datasets.append(ds)
