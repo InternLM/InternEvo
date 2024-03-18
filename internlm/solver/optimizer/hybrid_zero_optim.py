@@ -376,6 +376,11 @@ class HybridZeroOptimizer(BaseOptimizer):
 
         for group_id in range(self.num_param_groups):
             self._accum_grads_store_in_bucket(self._accum_grad_buckets[group_id])
+            
+    def reduce_grad_by_bucket_after_backward(self):
+        for group_id in range(self.num_param_groups):
+            self._reduce_grads_stored_in_bucket(self._bucket_store[group_id], reduce_rank=None, last_bucket=True)
+            
 
     def belongs_to_current_rank(self, param) -> bool:
         """
@@ -481,8 +486,18 @@ class HybridZeroOptimizer(BaseOptimizer):
                 raise RuntimeError(msg)
 
             # update the flag
-            self._param_store.set_param_reduction_state(param, True)
-
+            
+            if last_bucket==True:
+                # self._param_store.clear_grads_of_previous_reduced_params()
+                # self._param_store.set_param_reduction_state(param, False)
+                for group_id, param_group in enumerate(self.optim.param_groups):
+                    for param in self._fp16_param_groups[group_id]:
+                        self._param_store.set_param_reduction_state(param, False)
+                self._param_store.clear_grads_of_previous_reduced_params()
+                
+            else: 
+                self._param_store.set_param_reduction_state(param, True)
+            
             if self.belongs_to_current_rank(param):
                 self._param_store.add_reduced_param_for_compute_norm(param, last_bucket)
             else:
