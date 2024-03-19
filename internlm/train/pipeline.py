@@ -137,6 +137,12 @@ def set_parallel_attr_for_param_groups(model: Union[nn.Module, nn.ModuleList]):
     if not isinstance(model, nn.ModuleList):
         model = [model]
 
+    # hard code for vit and vision_proj
+    for param in model[0].model.vit.parameters():
+        setattr(param, IS_TENSOR_ZERO_PARALLEL, True)
+    for param in model[0].model.vision_proj.parameters():
+        setattr(param, IS_TENSOR_ZERO_PARALLEL, True)
+
     for _chunk in model:
         if isinstance(_chunk, NaiveAMPModel):
             _chunk = _chunk.model

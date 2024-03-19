@@ -462,3 +462,125 @@ def get_packed_dataset_without_short_length(
         )
 
     return dataset
+
+
+class PackedDatasetWithPadForMultimodal(PackedDataset):
+    """
+    The class PackedDataset takes in a dataset and aggregates samples of different
+    lengths together based on the packed_length using pad mode.
+
+    packed_length = 5
+    max_length_per_sample = 3
+
+    [1, 2]
+    [6, 7]
+    [3, 4, 5]
+    [8, 9, 10, 11, 12, 13]
+
+    --->
+    [1, 2, 6, 7, 0]
+    [3 ,4, 5, 0, 0]
+    [8, 9, 10, 0, 0]
+
+    Args:
+        dataset: The original dataset to pack.
+        max_length_per_sample: The maximum length of each original sample. Default is 2048.
+        packed_length: The length of each packed sample. Default is 4096.
+        padding_idx: The token id of padding. Default is 0.
+    """
+
+    def __init__(
+        self,
+        dataset,
+        max_length_per_sample: int = 2048,
+        packed_length: int = 4096,
+        padding_idx: int = 0,
+        image_token_id: int = 200000,
+    ):
+        super().__init__(dataset, max_length_per_sample, packed_length)
+        self.padding_idx = padding_idx
+        self.sample_indices, self.belongs = self.accu_sample_len(self.seed)
+        self.num_tokens = sum(self.lengths)
+        self.image_token_id = image_token_id
+
+    def get_dataset_name(self):
+        return self.dataset.get_dataset_name()
+
+    def accu_sample_len(self, seed=None):
+        """accumulative length of samples"""
+        if seed is not None:
+            rng = np.random.RandomState(seed)
+        else:
+            rng = np.random.RandomState(self.seed - 1)
+
+        sample_indices = np.arange(len(self.lengths))
+        rng.shuffle(sample_indices)
+        len_samples_shuffled = list(map(self.lengths.__getitem__, sample_indices))
+        belongs = np.zeros(len(self.lengths), dtype=np.int32)
+        cur_num = 0
+        cur_tot_len = 0
+        last_pos = 0
+        for idx, cur_sample_len in enumerate(len_samples_shuffled):
+            cur_sample_len = min(cur_sample_len, self.max_length_per_sample)
+            if cur_tot_len + cur_sample_len > self.packed_length:
+                cur_tot_len = 0
+                belongs[last_pos:idx] = cur_num
+                cur_num += 1
+                last_pos = idx
+            cur_tot_len += cur_sample_len
+        if cur_tot_len != 0:
+            belongs[last_pos:] = cur_num
+            cur_tot_len = 0
+            cur_num += 1
+        return sample_indices, belongs
+
+    def __len__(self):
+        return self.belongs[-1]
+
+    def build_pack(self, index):
+
+        pack, cu_seqlens, indexes, labels, type_ids, images = [], [0], [], [], [], []
+
+        start_pos = np.searchsorted(self.belongs, index, "left")
+        end_pos = np.searchsorted(self.belongs, index, "right")
+        assert self.belongs[end_pos - 1] == self.belongs[start_pos] and (
+            end_pos >= len(self.belongs) or self.belongs[end_pos] == self.belongs[start_pos] + 1
+        )
+        cur_samples = self.sample_indices[start_pos:end_pos]
+
+        for sample_idx in cur_samples:
+            sample = self.dataset[sample_idx]
+            length = min(len(sample["tokens"]), self.max_length_per_sample)
+            cur_images = sample["images"]
+            images.extend(cur_images)
+            chunk = sample["tokens"][:length]
+            pack.extend(chunk)
+            cu_seqlens.append(cu_seqlens[-1] + len(chunk))
+            _labels = deepcopy(chunk)
+            _labels = list(_labels[1:]) + [-100]
+            for i in range(len(_labels)):
+                if _labels[i] == self.image_token_id:
+                    _labels[i] = -100
+            labels.extend(_labels)
+            type_ids.extend([sample.get("type_id", 0)] * len(chunk))
+            indexes.extend(list(range(length)))
+
+        if cu_seqlens[-1] != self.packed_length:
+            pack = pack + [self.padding_idx] * (self.packed_length - cu_seqlens[-1])
+            labels = labels + [-100] * (self.packed_length - cu_seqlens[-1])
+            type_ids = type_ids + [0] * (self.packed_length - cu_seqlens[-1])
+            indexes.extend([0] * (self.packed_length - cu_seqlens[-1]))
+            cu_seqlens.append(self.packed_length)
+
+        out = {
+            "tokens": pack,
+            "images": images,
+            "cu_seqlens": cu_seqlens,
+            "indexes": indexes,
+            "labels": labels,
+            "type_ids": type_ids,
+        }
+        return out
+
+    def build_unpack(self, index):
+        raise NotImplementedError
