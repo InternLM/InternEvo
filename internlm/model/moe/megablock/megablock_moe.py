@@ -9,7 +9,6 @@ from internlm.core.context import ParallelMode
 from internlm.core.context import global_context as gpc
 from internlm.model.modules.mlp import get_mlp_cls
 from internlm.model.moe.base_layer import BaseMoELayer
-from internlm.model.moe.megablock.mlp import MegaBlockFeedForward
 from internlm.model.moe.utils import all_to_all
 from internlm.utils.registry import MODEL_INITIALIZER
 
@@ -57,9 +56,6 @@ class MegaBlockMoE(BaseMoELayer):
         parallel_mode = ParallelMode.EXPERT_WEIGHT if tp_mode == "isp" else ParallelMode.TENSOR
 
         mlp_cls = get_mlp_cls(tp_mode, grouped_linear=True)
-        if tp_mode != "isp":
-            mlp_cls = MegaBlockFeedForward
-            assert not gpc.config.parallel.sequence_parallel, "do not support sequence parallel"
         experts = mlp_cls(  # pylint: disable=E1123
             hidden_size,
             int(hidden_size * gpc.config.model.mlp_ratio),
@@ -75,7 +71,7 @@ class MegaBlockMoE(BaseMoELayer):
             experts,
             ep_group,
             ep_size,
-            1,
+            num_experts // ep_size,
         )
 
         # Calculate the number of bits needed to represent the expert indices

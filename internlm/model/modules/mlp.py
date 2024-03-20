@@ -7,9 +7,15 @@ import torch
 from torch import nn
 
 from internlm.core.context import global_context as gpc
+from internlm.model.ops.group_linear import (
+    GroupedColumnParallelLinear,
+    GroupedISPLinear,
+    GroupedMegatronColumnParallelLinear,
+    GroupedMegatronRowParallelLinear,
+    GroupedRowParallelLinear,
+)
 from internlm.model.ops.linear import (
     ColumnParallelLinearTorch,
-    GroupedISPLinear,
     ISPLinear,
     MegatronColumnParallelLinearTorch,
     MegatronRowParallelLinearTorch,
@@ -48,15 +54,14 @@ class BaseFeedForward(nn.Module):
         multiple_of: int = 256,
         column_cls: Optional[Callable] = None,
         row_cls: Optional[Callable] = None,
-        num_linear_in_group: int = 1,
+        num_linear_in_group: int = -1,
     ):
         super().__init__()
         hidden_features = multiple_of * ((hidden_features + multiple_of - 1) // multiple_of)
 
-        if num_linear_in_group == 1:
-            kwargs = {}
-        else:
-            kwargs = {"num_linear_in_group": num_linear_in_group}
+        kwargs = {}
+        if num_linear_in_group != -1:
+            kwargs["num_linear_in_group"] = num_linear_in_group
 
         self.w1 = column_cls(
             in_features,
@@ -137,6 +142,49 @@ class FeedForward(BaseFeedForward):
         )
 
 
+class GroupedFeedForward(BaseFeedForward):
+    """
+    FeedForward in flash implementation.
+
+    Args:
+        in_features (int): size of each input sample
+        hidden_features (int): size of hidden state of FFN
+        out_features (int): size of each output sample
+        process_group (Optional[torch.distributed.ProcessGroup]): The group of the current device for `parallel_mode`.
+        bias (bool): Whether the bias is needed for linears. True by default. But it is typically set to False
+                    in the config.
+        device (Optional[Union[str, torch.device]]): The device will be used.
+        dtype (Optional[torch.dtype]): The type of data.
+        multiple_of (int): For efficient training. Reset the size of hidden feature. 256 by default.
+    """
+
+    def __init__(
+        self,
+        in_features: int,
+        hidden_features: int,
+        out_features: int = None,
+        num_linear_in_group: int = 1,
+        process_group: Optional[torch.distributed.ProcessGroup] = None,
+        bias: bool = True,
+        device: Optional[torch.device] = None,
+        dtype: Optional[torch.dtype] = None,
+        multiple_of: int = 256,
+    ):
+        super().__init__(
+            in_features,
+            hidden_features,
+            out_features,
+            process_group,
+            bias,
+            device,
+            dtype,
+            multiple_of,
+            GroupedColumnParallelLinear,
+            GroupedRowParallelLinear,
+            num_linear_in_group,
+        )
+
+
 class MegatronFeedForward(BaseFeedForward):
     """
     FeedForward in megatron implementation.
@@ -175,6 +223,49 @@ class MegatronFeedForward(BaseFeedForward):
             multiple_of,
             MegatronColumnParallelLinearTorch,
             MegatronRowParallelLinearTorch,
+        )
+
+
+class GroupedMegatronFeedForward(BaseFeedForward):
+    """
+    FeedForward in megatron implementation.
+
+    Args:
+        in_features (int): size of each input sample
+        hidden_features (int): size of hidden state of FFN
+        out_features (int): size of each output sample
+        process_group (Optional[torch.distributed.ProcessGroup]): The group of the current device for `parallel_mode`.
+        bias (bool): Whether the bias is needed for linears. True by default. But it is typically set to False
+                    in the config.
+        device (Optional[Union[str, torch.device]]): The device will be used.
+        dtype (Optional[torch.dtype]): The type of data.
+        multiple_of (int): For efficient training. Reset the size of hidden feature. 256 by default.
+    """
+
+    def __init__(
+        self,
+        in_features: int,
+        hidden_features: int,
+        out_features: int = None,
+        num_linear_in_group: int = 1,
+        process_group: Optional[torch.distributed.ProcessGroup] = None,
+        bias: bool = True,
+        device: Optional[torch.device] = None,
+        dtype: Optional[torch.dtype] = None,
+        multiple_of: int = 256,
+    ):
+        super().__init__(
+            in_features,
+            hidden_features,
+            out_features,
+            process_group,
+            bias,
+            device,
+            dtype,
+            multiple_of,
+            GroupedMegatronColumnParallelLinear,
+            GroupedMegatronRowParallelLinear,
+            num_linear_in_group,
         )
 
 
@@ -263,10 +354,19 @@ class GroupedISPFeedForward(BaseFeedForward):
 
 
 def get_mlp_cls(tp_mode: str, grouped_linear=False):
-    if tp_mode in ["mtp", "fsp"]:
-        mlp_cls = FeedForward
-    elif tp_mode == "msp":
-        mlp_cls = MegatronFeedForward
+    if grouped_linear:
+        if tp_mode in ["mtp", "fsp"]:
+            mlp_cls = GroupedFeedForward
+        elif tp_mode == "msp":
+            mlp_cls = GroupedMegatronFeedForward
+        else:
+            mlp_cls = GroupedISPFeedForward
+        return mlp_cls
     else:
-        mlp_cls = GroupedISPFeedForward if grouped_linear else ISPFeedForward
-    return mlp_cls
+        if tp_mode in ["mtp", "fsp"]:
+            mlp_cls = FeedForward
+        elif tp_mode == "msp":
+            mlp_cls = MegatronFeedForward
+        else:
+            mlp_cls = ISPFeedForward
+        return mlp_cls

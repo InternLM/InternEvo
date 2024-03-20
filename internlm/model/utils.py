@@ -27,15 +27,16 @@ class ReduceScatterFunc(torch.autograd.Function):
     """Reduce scatter the input from the sequence parallel region and concatenate."""
 
     @staticmethod
-    def forward(ctx, input_: Tensor, process_group: ProcessGroup) -> Tensor:
+    def forward(ctx, input_: Tensor, process_group: ProcessGroup, scatter_dim: int = 0) -> Tensor:
         ctx.process_group = process_group
-        output, _ = reduce_scatter_raw(input_, process_group)
+        ctx.scatter_dim = scatter_dim
+        output, _ = reduce_scatter_raw(input_, process_group, scatter_dim=scatter_dim)
         return output
 
     @staticmethod
     def backward(ctx, grad_output: Tensor):
-        grad_input, _ = all_gather_raw(grad_output, ctx.process_group)
-        return grad_input, None
+        grad_input, _ = all_gather_raw(grad_output, ctx.process_group, gather_dim=ctx.scatter_dim)
+        return grad_input, None, None
 
 
 # Supports autograd, but does not support async
@@ -228,6 +229,7 @@ class FusedDenseFunc(torch.autograd.Function):
         sequence_parallel=True,
         gather_dim=0,
         is_using_cuda: bool = True,
+        is_grouped_linear: bool = False,
     ):
         """
         If process_group is not None and sequence_parallel=True, we're doing Tensor Parallel
@@ -239,6 +241,7 @@ class FusedDenseFunc(torch.autograd.Function):
         ctx.sequence_parallel = sequence_parallel
         ctx.gather_dim = gather_dim
         ctx.is_using_cuda = is_using_cuda
+        ctx.is_grouped_linear = is_grouped_linear
 
         if torch.is_autocast_enabled():
             x = x.to(dtype=torch.get_autocast_gpu_dtype())
@@ -260,7 +263,14 @@ class FusedDenseFunc(torch.autograd.Function):
         # https://github.com/pytorch/pytorch/blob/5b51849b48a7dbccd297286cc0110def4706f9e7/aten/src/ATen/native/cuda/Blas.cpp#L174
         if min(batch_dim, n, *weight.shape) > 65535 * 32:
             raise RuntimeError("fused_dense only supports matrix dims <= 2M")
-        output = F.linear(total_x, weight, bias)
+        if is_grouped_linear:
+            # TODO can be optim
+            output = torch.bmm(total_x.reshape(total_x.shape[0], -1, total_x.shape[-1]), weight.transpose(-2, -1))
+            if bias:
+                output += bias
+            output = output.reshape(*batch_shape, output.shape[-1])
+        else:
+            output = F.linear(total_x, weight, bias)
         if ctx.compute_weight_gradient:
             ctx.save_for_backward(x, weight)
         else:
@@ -281,7 +291,7 @@ class FusedDenseFunc(torch.autograd.Function):
         if gpc.config.model.use_flash_attn:
             import fused_dense_lib as fused_dense_cuda
 
-        if gpc.config.model.use_flash_attn and ctx.is_using_cuda:
+        if gpc.config.model.use_flash_attn and ctx.is_using_cuda and not ctx.is_grouped_linear:
             backward_func = fused_dense_cuda.linear_bias_wgrad
         else:
             backward_func = linear_bias_wgrad_torch
@@ -295,22 +305,46 @@ class FusedDenseFunc(torch.autograd.Function):
         else:
             (weight,) = ctx.saved_tensors
             total_x = None
-        batch_shape = grad_output.shape[:-1]
-        batch_dim = batch_shape.numel()
-        grad_output = grad_output.reshape(batch_dim, grad_output.shape[-1])
+        if ctx.is_grouped_linear:
+            # (num_linear, *batch_shape, hidden_dim)
+            batch_shape = grad_output.shape[1:-1]
+            batch_dim = batch_shape.numel()
+            grad_output = grad_output.reshape(grad_output.shape[0], batch_dim, grad_output.shape[-1])
+        else:
+            # (*batch_shape, hidden_dim)
+            batch_shape = grad_output.shape[:-1]
+            batch_dim = batch_shape.numel()
+            grad_output = grad_output.reshape(batch_dim, grad_output.shape[-1])
         if ctx.needs_input_grad[0]:
             if not ctx.return_residual:
-                grad_input = F.linear(grad_output, weight.t())
+                if ctx.is_grouped_linear:
+                    grad_input = torch.bmm(grad_output, weight)
+                else:
+                    grad_input = F.linear(grad_output, weight.t())
             else:
-                grad_input = torch.addmm(
-                    grad_input.reshape(batch_dim, grad_input.shape[-1]),
-                    grad_output,
-                    weight,
-                )
-            grad_input = grad_input.reshape(*batch_shape, grad_input.shape[-1])
+                if ctx.is_grouped_linear:
+                    grad_input = torch.baddbmm(
+                        grad_input.reshape(grad_input.shape[0], batch_dim, grad_input.shape[-1]),
+                        grad_output,
+                        weight,
+                    )
+                else:
+                    grad_input = torch.addmm(
+                        grad_input.reshape(batch_dim, grad_input.shape[-1]),
+                        grad_output,
+                        weight,
+                    )
+            if ctx.is_grouped_linear:
+                grad_input = grad_input.reshape(grad_input.shape[0], *batch_shape, grad_input.shape[-1])
+            else:
+                grad_input = grad_input.reshape(*batch_shape, grad_input.shape[-1])
             if process_group is not None:
-                reduce_fn = reduce_scatter_raw if sequence_parallel else all_reduce_raw
-                grad_input, handle_grad_input = reduce_fn(grad_input, process_group, async_op=True)
+                if sequence_parallel:
+                    grad_input, handle_grad_input = reduce_scatter_raw(
+                        grad_input, process_group, scatter_dim=gather_dim, async_op=True
+                    )
+                else:
+                    grad_input, handle_grad_input = all_reduce_raw(grad_input, process_group, async_op=True)
         else:
             grad_input = None
         if ctx.needs_input_grad[1]:
@@ -318,7 +352,9 @@ class FusedDenseFunc(torch.autograd.Function):
             if process_group is not None and sequence_parallel and handle_x is not None:
                 handle_x.wait()
             grad_weight, grad_bias = backward_func(
-                total_x.reshape(batch_dim, total_x.shape[-1]),
+                total_x.reshape(grad_output.shape[0], batch_dim, total_x.shape[-1])
+                if ctx.is_grouped_linear
+                else total_x.reshape(batch_dim, total_x.shape[-1]),
                 grad_output,
                 ctx.needs_input_grad[2],
             )
@@ -327,7 +363,7 @@ class FusedDenseFunc(torch.autograd.Function):
             grad_bias = grad_output if ctx.needs_input_grad[2] else None
         if process_group is not None and ctx.needs_input_grad[0] and handle_grad_input is not None:
             handle_grad_input.wait()
-        return grad_input, grad_weight, grad_bias, None, None, None, None, None
+        return grad_input, grad_weight, grad_bias, None, None, None, None, None, None
 
 
 class MegatronFusedDenseFunc(torch.autograd.Function):
@@ -349,6 +385,7 @@ class MegatronFusedDenseFunc(torch.autograd.Function):
         sequence_parallel=True,
         gather_dim=0,
         is_using_cuda: bool = True,
+        is_grouped_linear: bool = False,
     ):
         """
         If process_group is not None and sequence_parallel=True, we're doing Tensor Parallel
@@ -358,7 +395,9 @@ class MegatronFusedDenseFunc(torch.autograd.Function):
         ctx.return_residual = return_residual
         ctx.process_group = process_group
         ctx.sequence_parallel = sequence_parallel
+        ctx.gather_dim = gather_dim
         ctx.is_using_cuda = is_using_cuda
+        ctx.is_grouped_linear = is_grouped_linear
 
         if torch.is_autocast_enabled():
             x = x.to(dtype=torch.get_autocast_gpu_dtype())
@@ -380,7 +419,14 @@ class MegatronFusedDenseFunc(torch.autograd.Function):
         # https://github.com/pytorch/pytorch/blob/5b51849b48a7dbccd297286cc0110def4706f9e7/aten/src/ATen/native/cuda/Blas.cpp#L174
         if min(batch_dim, n, *weight.shape) > 65535 * 32:
             raise RuntimeError("fused_dense only supports matrix dims <= 2M")
-        output = F.linear(total_x, weight, bias)
+        if is_grouped_linear:
+            # TODO can be optim
+            output = torch.bmm(total_x.reshape(total_x.shape[0], -1, total_x.shape[-1]), weight.transpose(-2, -1))
+            if bias:
+                output += bias
+            output = output.reshape(*batch_shape, output.shape[-1])
+        else:
+            output = F.linear(total_x, weight, bias)
         if ctx.compute_weight_gradient:
             ctx.save_for_backward(total_x, weight)
         else:
@@ -396,11 +442,12 @@ class MegatronFusedDenseFunc(torch.autograd.Function):
             grad_input = grad_input.contiguous()
         process_group = ctx.process_group
         sequence_parallel = ctx.sequence_parallel
+        scatter_dim = ctx.gather_dim
 
         if gpc.config.model.use_flash_attn:
             import fused_dense_lib as fused_dense_cuda
 
-        if gpc.config.model.use_flash_attn and ctx.is_using_cuda:
+        if gpc.config.model.use_flash_attn and ctx.is_using_cuda and not ctx.is_grouped_linear:
             backward_func = fused_dense_cuda.linear_bias_wgrad
         else:
             backward_func = linear_bias_wgrad_torch
@@ -410,28 +457,54 @@ class MegatronFusedDenseFunc(torch.autograd.Function):
         else:
             (weight,) = ctx.saved_tensors
             total_x = None
-        batch_shape = grad_output.shape[:-1]
-        batch_dim = batch_shape.numel()
-        grad_output = grad_output.reshape(batch_dim, grad_output.shape[-1])
+        if ctx.is_grouped_linear:
+            # (num_linear, *batch_shape, hidden_dim)
+            batch_shape = grad_output.shape[1:-1]
+            batch_dim = batch_shape.numel()
+            grad_output = grad_output.reshape(grad_output.shape[0], batch_dim, grad_output.shape[-1])
+        else:
+            # (*batch_shape, hidden_dim)
+            batch_shape = grad_output.shape[:-1]
+            batch_dim = batch_shape.numel()
+            grad_output = grad_output.reshape(batch_dim, grad_output.shape[-1])
         if ctx.needs_input_grad[0]:
             if not ctx.return_residual:
-                grad_input = F.linear(grad_output, weight.t())
+                if ctx.is_grouped_linear:
+                    grad_input = torch.bmm(grad_output, weight)
+                else:
+                    grad_input = F.linear(grad_output, weight.t())
             else:
-                grad_input = torch.addmm(
-                    grad_input.reshape(batch_dim, grad_input.shape[-1]),
-                    grad_output,
-                    weight,
-                )
-            grad_input = grad_input.reshape(*batch_shape, grad_input.shape[-1])
+                if ctx.is_grouped_linear:
+                    grad_input = torch.baddbmm(
+                        grad_input.reshape(grad_input.shape[0], batch_dim, grad_input.shape[-1]),
+                        grad_output,
+                        weight,
+                    )
+                else:
+                    grad_input = torch.addmm(
+                        grad_input.reshape(batch_dim, grad_input.shape[-1]),
+                        grad_output,
+                        weight,
+                    )
+            if ctx.is_grouped_linear:
+                grad_input = grad_input.reshape(grad_input.shape[0], *batch_shape, grad_input.shape[-1])
+            else:
+                grad_input = grad_input.reshape(*batch_shape, grad_input.shape[-1])
             if process_group is not None:
-                reduce_fn = reduce_scatter_raw if sequence_parallel else all_reduce_raw
-                grad_input, handle_grad_input = reduce_fn(grad_input, process_group, async_op=True)
+                if sequence_parallel:
+                    grad_input, handle_grad_input = reduce_scatter_raw(
+                        grad_input, process_group, scatter_dim=scatter_dim, async_op=True
+                    )
+                else:
+                    grad_input, handle_grad_input = all_reduce_raw(grad_input, process_group, async_op=True)
         else:
             grad_input = None
         if ctx.needs_input_grad[1]:
             assert ctx.compute_weight_gradient
             grad_weight, grad_bias = backward_func(
-                total_x.reshape(batch_dim, total_x.shape[-1]),
+                total_x.reshape(grad_output.shape[0], batch_dim, total_x.shape[-1])
+                if ctx.is_grouped_linear
+                else total_x.reshape(batch_dim, total_x.shape[-1]),
                 grad_output,
                 ctx.needs_input_grad[2],
             )
@@ -440,7 +513,7 @@ class MegatronFusedDenseFunc(torch.autograd.Function):
             grad_bias = grad_output if ctx.needs_input_grad[2] else None
         if process_group is not None and ctx.needs_input_grad[0] and handle_grad_input is not None:
             handle_grad_input.wait()
-        return grad_input, grad_weight, grad_bias, None, None, None, None, None
+        return grad_input, grad_weight, grad_bias, None, None, None, None, None, None
 
 
 class ISPFusedDenseFunc(torch.autograd.Function):
@@ -605,6 +678,7 @@ def fused_dense_func(
     process_group: Optional[ProcessGroup] = None,
     sequence_parallel: bool = True,
     gather_dim: int = 0,
+    is_grouped_linear: bool = False,
 ):
     dtype_eligible = x.dtype in [torch.float16, torch.bfloat16] or (
         x.dtype == torch.float32 and torch.is_autocast_enabled()
@@ -619,6 +693,7 @@ def fused_dense_func(
         sequence_parallel,
         gather_dim,
         is_using_cuda,
+        is_grouped_linear,
     )
 
 
@@ -630,6 +705,7 @@ def megatron_fused_dense_func(
     process_group: Optional[ProcessGroup] = None,
     sequence_parallel: bool = True,
     gather_dim: int = 0,
+    is_grouped_linear: bool = False,
 ):
     dtype_eligible = x.dtype in [torch.float16, torch.bfloat16] or (
         x.dtype == torch.float32 and torch.is_autocast_enabled()
@@ -644,6 +720,7 @@ def megatron_fused_dense_func(
         sequence_parallel,
         gather_dim,
         is_using_cuda,
+        is_grouped_linear,
     )
 
 

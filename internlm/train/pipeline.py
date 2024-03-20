@@ -47,10 +47,14 @@ from internlm.model.moe.megablock.mlp import (
 )
 from internlm.model.moe.moe import MoE
 from internlm.model.moe.utils import is_moe_param
+from internlm.model.ops.group_linear import (
+    GroupedColumnParallelLinear,
+    GroupedISPLinear,
+    GroupedRowParallelLinear,
+)
 from internlm.model.ops.linear import (
     BaseScaleColumnParallelLinear,
     ColumnParallelLinearTorch,
-    GroupedISPLinear,
     ISPLinear,
     RewardModelLinear,
     RowParallelLinearTorch,
@@ -134,7 +138,8 @@ def set_parallel_attr_for_param_groups(model: Union[nn.Module, nn.ModuleList]):
             (
                 ColumnParallelLinearTorch,
                 RowParallelLinearTorch,
-                GroupedISPLinear,
+                GroupedColumnParallelLinear,
+                GroupedRowParallelLinear,
                 MegaBlockFeedForward,
                 MegaBlockGroupedFeedForward,
             ),

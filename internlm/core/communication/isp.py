@@ -11,7 +11,8 @@ from torch import nn
 
 from internlm.core.context import global_context as gpc
 from internlm.core.naive_amp import NaiveAMPModel
-from internlm.model.ops.linear import GroupedISPLinear, ISPLinear
+from internlm.model.ops.group_linear import GroupedISPLinear
+from internlm.model.ops.linear import ISPLinear
 from internlm.model.utils import all_gather_raw, reduce_scatter_raw
 from internlm.utils.common import SchedulerHook
 
