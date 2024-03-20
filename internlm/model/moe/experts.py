@@ -15,7 +15,7 @@ class Experts(torch.nn.Module):
     Local Experts.
     """
 
-    def __init__(self, experts: Union[Module, ModuleList], num_local_experts=1, expert_group_name=None):
+    def __init__(self, experts: Union[Module, ModuleList], expert_group_name=None):
         """
         Encapsulating the moe experts.
         Args:
@@ -29,8 +29,6 @@ class Experts(torch.nn.Module):
             self.wrapped_experts = cast(ModuleList, experts)
         else:
             self.wrapped_experts = ModuleList([experts])
-        self.num_local_experts = num_local_experts
-        assert self.num_local_experts == len(self.wrapped_experts)
 
         # TODO: revisit allreduce for moe.gate...
         for expert in self.wrapped_experts:
@@ -48,14 +46,13 @@ class Experts(torch.nn.Module):
                                     expert, should be list(int)
             kwargs: args used for expert's forward pass other than input tokens
         """
-
-        if self.num_local_experts == 1:
+        if len(self.wrapped_experts) == 1:
             return self.wrapped_experts[0](inputs, **kwargs)
 
         # The following code is designed for multiple experts.
         if split_size_or_sections is None:
             # chunk can be faster than split
-            chunks = inputs.chunk(self.num_local_experts, dim=1)
+            chunks = inputs.chunk(len(self.wrapped_experts), dim=1)
         else:
             chunks = inputs.split(split_size_or_sections, dim=1)
         expert_outputs = []

@@ -185,24 +185,21 @@ def reduce_scatter_raw(
     process_group: ProcessGroup,
     op=dist.ReduceOp.SUM,
     async_op: bool = False,
+    scatter_dim: int = 0,
     memory_pool_allocator: Callable = None,
 ):
     world_size = dist.get_world_size(process_group)
-    assert input_.shape[0] % world_size == 0
+    assert input_.shape[scatter_dim] % world_size == 0
 
     if world_size <= 1:
         return input_, None
 
+    shape = list(input_.shape)
+    shape[scatter_dim] = shape[scatter_dim] // dist.get_world_size(process_group)
     if memory_pool_allocator is not None:
-        size = (input_.shape[0] // world_size, *input_.shape[1:])
-        output = memory_pool_allocator(size)
+        output = memory_pool_allocator(tuple(shape))
     else:
-        output = torch.empty(
-            input_.shape[0] // world_size,
-            *input_.shape[1:],
-            dtype=input_.dtype,
-            device=input_.device,
-        ).contiguous()
+        output = torch.empty(shape, dtype=input_.dtype, device=input_.device)
 
     handle = dist.reduce_scatter_tensor(output, input_.contiguous(), op=op, group=process_group, async_op=async_op)
     return output, handle
@@ -210,8 +207,8 @@ def reduce_scatter_raw(
 
 def linear_bias_wgrad_torch(my_input, grad_output, has_d_bias):
     assert my_input.dtype == grad_output.dtype
-    grad_weight = torch.matmul(grad_output.t(), my_input)
-    grad_bias = grad_output.sum(dim=0) if has_d_bias else None
+    grad_weight = torch.matmul(grad_output.transpose(-2, -1), my_input)
+    grad_bias = grad_output.sum(dim=-2) if has_d_bias else None
     return grad_weight, grad_bias
 
 
@@ -460,12 +457,14 @@ class ISPFusedDenseFunc(torch.autograd.Function):
         communicator,
         return_residual=False,
         is_using_cuda: bool = True,
+        is_grouped_linear: bool = False,
     ):
         ctx.compute_weight_gradient = weight.requires_grad
         ctx.return_residual = return_residual
         ctx.module = module
         ctx.communicator = communicator
         ctx.is_using_cuda = is_using_cuda
+        ctx.is_grouped_linear = is_grouped_linear
 
         if torch.is_autocast_enabled():
             x = x.to(dtype=torch.get_autocast_gpu_dtype())
@@ -486,7 +485,14 @@ class ISPFusedDenseFunc(torch.autograd.Function):
         if min(batch_dim, n, *total_weight.shape) > 65535 * 32:
             raise RuntimeError("fused_dense only supports matrix dims <= 2M")
 
-        output = F.linear(x, total_weight, total_bias)
+        if is_grouped_linear:
+            # TODO can be optim
+            output = torch.bmm(x.reshape(x.shape[0], -1, x.shape[-1]), total_weight.transpose(-2, -1))
+            if total_bias:
+                output += total_bias
+            output = output.reshape(*batch_shape, output.shape[-1])
+        else:
+            output = F.linear(x, total_weight, total_bias)
 
         # release memory
         del total_weight
@@ -506,7 +512,7 @@ class ISPFusedDenseFunc(torch.autograd.Function):
         if gpc.config.model.use_flash_attn:
             import fused_dense_lib as fused_dense_cuda
 
-        if gpc.config.model.use_flash_attn and ctx.is_using_cuda:
+        if gpc.config.model.use_flash_attn and ctx.is_using_cuda and not ctx.is_grouped_linear:
             backward_func = fused_dense_cuda.linear_bias_wgrad
         else:
             backward_func = linear_bias_wgrad_torch
@@ -521,9 +527,16 @@ class ISPFusedDenseFunc(torch.autograd.Function):
         else:
             x, weight = (None, *ctx.saved_tensors)
 
-        batch_shape = grad_output.shape[:-1]
-        batch_dim = batch_shape.numel()
-        grad_output = grad_output.reshape(batch_dim, grad_output.shape[-1])
+        if ctx.is_grouped_linear:
+            # (num_linear, *batch_shape, hidden_dim)
+            batch_shape = grad_output.shape[1:-1]
+            batch_dim = batch_shape.numel()
+            grad_output = grad_output.reshape(grad_output.shape[0], batch_dim, grad_output.shape[-1])
+        else:
+            # (*batch_shape, hidden_dim)
+            batch_shape = grad_output.shape[:-1]
+            batch_dim = batch_shape.numel()
+            grad_output = grad_output.reshape(batch_dim, grad_output.shape[-1])
 
         total_weight = communicator.all_gather(weight, module)
 
@@ -531,7 +544,9 @@ class ISPFusedDenseFunc(torch.autograd.Function):
         if ctx.needs_input_grad[1]:
             assert ctx.compute_weight_gradient
             grad_weight, grad_bias = backward_func(
-                x.reshape(batch_dim, x.shape[-1]),
+                x.reshape(grad_output.shape[0], batch_dim, x.shape[-1])
+                if ctx.is_grouped_linear
+                else x.reshape(batch_dim, x.shape[-1]),
                 grad_output,
                 ctx.needs_input_grad[2],
             )
@@ -547,14 +562,27 @@ class ISPFusedDenseFunc(torch.autograd.Function):
 
         if ctx.needs_input_grad[0]:
             if not ctx.return_residual:
-                grad_input = F.linear(grad_output, total_weight.t())
+                if ctx.is_grouped_linear:
+                    grad_input = torch.bmm(grad_output, total_weight)
+                else:
+                    grad_input = F.linear(grad_output, total_weight.t())
             else:
-                grad_input = torch.addmm(
-                    grad_input.reshape(batch_dim, grad_input.shape[-1]),
-                    grad_output,
-                    total_weight,
-                )
-            grad_input = grad_input.reshape(*batch_shape, grad_input.shape[-1])
+                if ctx.is_grouped_linear:
+                    grad_input = torch.baddbmm(
+                        grad_input.reshape(grad_input.shape[0], batch_dim, grad_input.shape[-1]),
+                        grad_output,
+                        total_weight,
+                    )
+                else:
+                    grad_input = torch.addmm(
+                        grad_input.reshape(batch_dim, grad_input.shape[-1]),
+                        grad_output,
+                        total_weight,
+                    )
+            if ctx.is_grouped_linear:
+                grad_input = grad_input.reshape(grad_input.shape[0], *batch_shape, grad_input.shape[-1])
+            else:
+                grad_input = grad_input.reshape(*batch_shape, grad_input.shape[-1])
         else:
             grad_input = None
 
@@ -566,7 +594,7 @@ class ISPFusedDenseFunc(torch.autograd.Function):
             if grad_bias is not None and grad_bias_sync is not None:
                 grad_bias_sync.wait()
 
-        return grad_input, grad_weight, grad_bias, None, None, None, None
+        return grad_input, grad_weight, grad_bias, None, None, None, None, None
 
 
 def fused_dense_func(
@@ -626,6 +654,7 @@ def isp_fused_dense_func(
     communicator,
     bias: Optional[Tensor] = None,
     return_residual: bool = False,
+    is_grouped_linear: bool = False,
 ):
     dtype_eligible = x.dtype in [torch.float16, torch.bfloat16] or (
         x.dtype == torch.float32 and torch.is_autocast_enabled()
@@ -639,6 +668,7 @@ def isp_fused_dense_func(
         communicator,
         return_residual,
         is_using_cuda,
+        is_grouped_linear,
     )
 
 
@@ -656,12 +686,6 @@ def try_import_RMSNorm():
         from internlm.model.ops.norm import RMSNormTorch as RMSNorm
 
         return RMSNorm
-
-
-def is_moe_param(param: torch.Tensor) -> bool:
-    if hasattr(param, "is_expert") and param.is_expert:
-        return True
-    return False
 
 
 def Silu(w1_o, w2_o):

@@ -15,7 +15,7 @@ from torch.nn import Module
 
 from internlm.core.context import ParallelMode
 from internlm.core.context import global_context as gpc
-from internlm.model.modules.mlp import FeedForward
+from internlm.model.modules.mlp import get_mlp_cls
 from internlm.utils.logger import get_logger
 from internlm.utils.megatron_timers import megatron_timer as timer
 from internlm.utils.registry import MODEL_INITIALIZER
@@ -406,6 +406,43 @@ class GShardMOELayer(BaseMoELayer):
         assert (
             num_experts % ep_size == 0
         ), f"Number of experts ({num_experts}) should be divisible by expert parallel size ({ep_size})"
+
+        tp_mode = (
+            gpc.config.parallel["tensor"].get("mode", "mtp")
+            if isinstance(gpc.config.parallel["tensor"], dict)
+            else "mtp"
+        )
+        parallel_mode = ParallelMode.EXPERT_WEIGHT if tp_mode == "isp" else ParallelMode.TENSOR
+
+        self.use_grouped_linear = num_experts // ep_size > 1 and tp_mode == "isp"
+        mlp_cls = get_mlp_cls(tp_mode, grouped_linear=self.use_grouped_linear)
+        if self.use_grouped_linear:
+            experts = mlp_cls(  # pylint: disable=E1123
+                hidden_size,
+                int(hidden_size * gpc.config.model.mlp_ratio),
+                out_features=hidden_size,
+                num_linear_in_group=num_experts // ep_size,
+                process_group=gpc.get_group(parallel_mode),
+                bias=False,
+                device=device,
+                dtype=dtype,
+            )
+        else:
+            experts = torch.nn.ModuleList(
+                [
+                    mlp_cls(
+                        hidden_size,
+                        int(hidden_size * gpc.config.model.mlp_ratio),
+                        out_features=hidden_size,
+                        process_group=gpc.get_group(parallel_mode),
+                        bias=False,
+                        device=device,
+                        dtype=dtype,
+                    )
+                    for _ in range(num_experts // ep_size)
+                ]
+            )
+
         super().__init__(
             TopKGate(
                 hidden_size,
@@ -418,20 +455,7 @@ class GShardMOELayer(BaseMoELayer):
                 drop_tokens,
                 use_rts,
             ),
-            torch.nn.ModuleList(
-                [
-                    FeedForward(
-                        hidden_size,
-                        int(hidden_size * gpc.config.model.mlp_ratio),
-                        out_features=hidden_size,
-                        process_group=gpc.get_group(ParallelMode.TENSOR),
-                        bias=False,
-                        device=device,
-                        dtype=dtype,
-                    )
-                    for _ in range(num_experts // ep_size)
-                ]
-            ),
+            experts,
             ep_group,
             ep_size,
             num_experts // ep_size,
@@ -471,7 +495,8 @@ class GShardMOELayer(BaseMoELayer):
 
         # Re-shape after all-to-all: ecm -> gecm
         dispatched_inputs = dispatched_inputs.reshape(self.ep_size, self.num_local_experts, -1, d_model)
-
+        if self.use_grouped_linear:
+            dispatched_inputs = dispatched_inputs.permute(1, 0, 2, 3)
         expert_output = self.experts(dispatched_inputs)
 
         if self.wall_clock_breakdown:

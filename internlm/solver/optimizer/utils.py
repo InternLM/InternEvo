@@ -20,6 +20,7 @@ from internlm.utils.parallel import (
     is_tensor_expert_data_parallel_parameter,
     is_tensor_zero_parallel_parameter,
     is_using_isp,
+    is_weight_expert_data_parallel_parameter,
     is_weight_zero_parallel_parameter,
 )
 
@@ -284,6 +285,9 @@ def reduce_grads(gradients, parameters, weight_parallel_mode, fine_grained=False
         elif is_tensor_expert_data_parallel_parameter(p):
             # process all ranks for IS_TENSOR_EXPERT_DATA_PARALLEL parameter group
             append_grad(g, p)
+        elif is_weight_expert_data_parallel_parameter(p):
+            # process all ranks for IS_TENSOR_EXPERT_DATA_PARALLEL parameter group
+            append_grad(g, p)
         elif gpc.get_local_rank(weight_parallel_mode) != 0:
             continue
         else:
@@ -377,6 +381,8 @@ def compute_norm(
         3. For the IS_TENSOR_ZERO_PARALLEL parameter group, gradients along the tp+pp+zero dimensions
             from all ranks should be aggregated.
         4. For the IS_WEIGHT_ZERO_PARALLEL parameter group, gradients along the wp+pp+zero dimensions
+            from all ranks should be aggregated.
+        5. For the IS_WEIGHT_EXPERT_DATA_PARALLEL parameter group, gradients along the ewp+pp+zero+ep dimensions
             from all ranks should be aggregated.
         """
         if is_tensor_data_parallel_parameter(parameters[0]):
