@@ -2,8 +2,6 @@
 # -*- encoding: utf-8 -*-
 
 import functools
-import os
-import pickle
 import time
 from typing import Callable, Iterable, List, Optional, Union
 
@@ -60,12 +58,7 @@ from internlm.solver.optimizer import FSDPadaptOptimizer, HybridZeroOptimizer
 from internlm.solver.schedulers.beta2_scheduler import Beta2Scheduler
 from internlm.solver.schedulers.lr_scheduler import FineTuneCosineAnnealingWarmupLR
 from internlm.train.utils import create_param_groups
-from internlm.utils.common import (
-    DummyProfile,
-    SchedulerHook,
-    get_current_device,
-    launch_time,
-)
+from internlm.utils.common import DummyProfile, SchedulerHook, get_current_device
 from internlm.utils.logger import get_logger
 from internlm.utils.megatron_timers import megatron_timer as timer
 from internlm.utils.parallel import (
@@ -75,7 +68,6 @@ from internlm.utils.parallel import (
     is_tensor_zero_parallel_parameter,
     is_using_isp,
     is_weight_zero_parallel_parameter,
-    set_model_params_layer_name,
     sync_model_param,
     sync_model_replica_param_group,
 )
@@ -291,14 +283,6 @@ def initialize_optimizer(model: Union[nn.Module, nn.ModuleList], isp_communicato
     Returns:
         A tuple of (optimizer, beta2_scheduler, lr_scheduler).
     """
-    grad_profiling_config = gpc.config.get("grad_profiling", {})
-    if (
-        grad_profiling_config.get("grad_norm_profiling", False)
-        or grad_profiling_config.get("zero_grad_profiling", False)
-        or grad_profiling_config.get("vocab_grad_norm_profiling", False)
-    ):
-        # set the layer name as an attribute of the model parameters
-        set_model_params_layer_name(model)
 
     if gpc.config.hybrid_zero_optimizer.overlap_sync_param:
         param_bcast_sync_handler = ParamAsyncBcastHandler(ParallelMode.ZERO1, model, isp_communicator)
@@ -545,42 +529,6 @@ def record_current_batch_training_metrics(
 
         for key, value in acc_perplex.items():
             infos[key] = value
-
-        grad_profiling_config = gpc.config.get("grad_profiling", {})
-        interval_steps = grad_profiling_config.get("interval_steps", 1)
-        if batch_count % interval_steps == 0:
-            layer_metrics = [metric for metric in ["layer_grad_norm", "layer_zero_grad"] if metric in grad_norm]
-            param_metrics = [metric for metric in ["param_grad_norm", "param_zero_grad"] if metric in grad_norm]
-            layer_names = grad_profiling_config.get("layers", [])
-            for metric_name in layer_metrics:
-                metric = grad_norm.get(metric_name)
-                for group_name, layer_group in metric.items():
-                    title = f"{metric_name}/{group_name}"
-                    metrics = {k: v for k, v in layer_group.items() if not layer_names or k in layer_names}
-                    if metrics:
-                        writer.add_scalars(key=title, value=metrics, step=train_state.step_count)
-                del grad_norm[metric_name]
-            for metric_name in param_metrics:
-                metric = grad_norm.get(metric_name)
-                for group_name, layer_group in metric.items():
-                    for param_name, param_group in layer_group.items():
-                        title = f"{param_name}/{group_name}_{metric_name}"
-                        metrics = {k: v for k, v in param_group.items() if not layer_names or k in layer_names}
-                        if metrics:
-                            writer.add_scalars(key=title, value=metrics, step=train_state.step_count)
-                del grad_norm[metric_name]
-            if grad_profiling_config.get("vocab_grad_norm_profiling", False):
-                local_save_path = f"RUN/{gpc.config.JOB_NAME}/{launch_time()}/grad_norm"
-                os.makedirs(local_save_path, exist_ok=True)
-                local_save_file = f"{local_save_path}/vocab_grad_norm.pt"
-                vocab_grad_norms = grad_norm.get("vocab_grad_norm")
-                if vocab_grad_norms:
-                    try:
-                        with open(local_save_file, "ab+") as vocab_f:
-                            pickle.dump((train_state.step_count, vocab_grad_norms), vocab_f)
-                    except IOError as e:
-                        logger.warning(f"Error saving vocab_grad_norm: {e}")
-                del grad_norm["vocab_grad_norm"]
 
         line = ""
         for key, value in infos.items():

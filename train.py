@@ -198,7 +198,6 @@ def main(args):
             # torch.cuda.memory._record_memory_history()
             start_time = time.time()
             timer("one-batch").start()
-            gpc.config.batch_count = batch_count
 
             # load batch data
             batch, train_iter = load_new_batch(train_dl=train_dl, train_iter=train_iter, train_state=train_state)
