@@ -381,6 +381,8 @@ def load_new_batch(train_dl: DataLoader, train_iter: Iterable, train_state: Trai
         batch = next(train_iter)
         train_state.num_consumed_samples_in_epoch = 0
         if hasattr(train_state, "batch_sampler"):
+            train_state.batch_sampler.batch_count = 0
+            train_state.batch_sampler.num_consumed_samples_in_epoch = 0
             train_state.batch_sampler_iter = iter(train_state.batch_sampler)
             next(train_state.batch_sampler_iter)
     timer("batch-gen").stop()
