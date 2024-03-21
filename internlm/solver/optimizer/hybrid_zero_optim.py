@@ -11,9 +11,10 @@ import torch.distributed as dist
 from torch.optim import Optimizer
 
 from internlm.core.communication.utils import ParamAsyncBcastHandler
-from internlm.core.context import IS_REPLICA_ZERO_PARALLEL, Config, ParallelMode
+from internlm.core.context import Config, ParallelMode
 from internlm.core.context import global_context as gpc
 from internlm.core.context.parallel_context import (
+    IS_REPLICA_ZERO_PARALLEL,
     IS_TENSOR_DATA_PARALLEL,
     IS_TENSOR_EXPERT_DATA_PARALLEL,
     IS_TENSOR_ZERO_PARALLEL,
@@ -615,12 +616,15 @@ class HybridZeroOptimizer(BaseOptimizer):
             grads = [self.padding_grad.to(dtype)]
             params = [self.padding_tensor.to(dtype)]
 
-            if self.optim.param_groups[group_id]["name"] in ("default", "fp32"):
+            if self.optim.param_groups[group_id]["name"] == "default":
                 for param in params:
                     if self.use_isp:
                         setattr(param, IS_WEIGHT_ZERO_PARALLEL, True)
                     else:
                         setattr(param, IS_TENSOR_ZERO_PARALLEL, True)
+            elif self.optim.param_groups[group_id]["name"] == "fp32":
+                for param in params:
+                    setattr(param, IS_REPLICA_ZERO_PARALLEL, True)
             elif self.optim.param_groups[group_id]["name"] == "embed_head":
                 # should be isp mode
                 for param in params:

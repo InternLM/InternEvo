@@ -5,7 +5,6 @@ from typing import Dict, List, Tuple, Union
 
 import torch
 import torch.distributed as dist
-from flash_attn.modules.embedding import ParallelGPT2Embeddings
 from torch import nn
 
 from internlm.core.communication.isp import ISPCommunicator
@@ -217,9 +216,14 @@ class ParamAsyncBcastHandler:
             # NOTE: Although the layernorm layer does not have explicit processing,
             # both ISPCommunicator and ParamAsyncBcastHandler handle transformer blocks as granularity,
             # so everything is fine.
-            if isp_communicator is None or isinstance(
-                block, (Embedding1D, ParallelGPT2Embeddings, BaseScaleColumnParallelLinear)
-            ):
+
+            embedding_head_cls = (Embedding1D, BaseScaleColumnParallelLinear)
+            if gpc.config.model.use_flash_attn:
+                from flash_attn.modules.embedding import ParallelGPT2Embeddings
+
+                embedding_head_cls = (Embedding1D, ParallelGPT2Embeddings, BaseScaleColumnParallelLinear)
+
+            if isp_communicator is None or isinstance(block, embedding_head_cls):
                 block.register_forward_pre_hook(_pre_forward_hook)
         if isp_communicator:
             isp_communicator.register_prerequisite_for_forward_prefetch_hooks(_pre_forward_hook)
