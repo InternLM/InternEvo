@@ -318,8 +318,8 @@ class TensorParallelDsdNn(torch.autograd.Function):
 
 
 # TODO merge two sdd into one kernel
-def sdd_nt(a, b, topo, group, parallel_mode):
-    parallel_impl = WeightParallelSddNt if parallel_mode == "weight" else TensorParallelSddNt
+def sdd_nt(a, b, topo, group, tp_mode):
+    parallel_impl = WeightParallelSddNt if tp_mode == "isp" else TensorParallelSddNt
     return stk.Matrix(
         topo.size(),
         parallel_impl.apply(a, b, topo, group),
@@ -332,8 +332,8 @@ def sdd_nt(a, b, topo, group, parallel_mode):
     )
 
 
-def dsd_nn(a, b, group, parallel_mode):
-    parallel_impl = WeightParallelDsdNn if parallel_mode == "weight" else TensorParallelDsdNn
+def dsd_nn(a, b, group, tp_mode):
+    parallel_impl = WeightParallelDsdNn if tp_mode == "isp" else TensorParallelDsdNn
     return parallel_impl.apply(
         a.size(),
         a.data,

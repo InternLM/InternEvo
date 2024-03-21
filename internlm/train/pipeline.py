@@ -41,10 +41,7 @@ from internlm.model.metrics import SchedulerMetricHook
 from internlm.model.modules.embedding import Embedding1D
 from internlm.model.modules.mlp import FeedForward
 from internlm.model.modules.multi_head_attention import MHA
-from internlm.model.moe.megablock.mlp import (
-    MegaBlockFeedForward,
-    MegaBlockGroupedFeedForward,
-)
+from internlm.model.moe.megablock.mlp import MegaBlockFeedForward
 from internlm.model.moe.moe import MoE
 from internlm.model.moe.utils import is_moe_param
 from internlm.model.ops.group_linear import (
@@ -141,7 +138,6 @@ def set_parallel_attr_for_param_groups(model: Union[nn.Module, nn.ModuleList]):
                 GroupedColumnParallelLinear,
                 GroupedRowParallelLinear,
                 MegaBlockFeedForward,
-                MegaBlockGroupedFeedForward,
             ),
         ):
             for param in module.parameters():

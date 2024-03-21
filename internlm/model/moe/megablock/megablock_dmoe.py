@@ -9,7 +9,7 @@ from internlm.core.context import ParallelMode
 from internlm.core.context import global_context as gpc
 from internlm.model.moe.base_layer import BaseMoELayer
 from internlm.model.moe.megablock.megablock_moe import MegaBlockMoE
-from internlm.model.moe.megablock.mlp import MegaBlockGroupedFeedForward
+from internlm.model.moe.megablock.mlp import MegaBlockFeedForward
 from internlm.model.moe.megablock.utils import promote_scalar
 from internlm.utils.registry import MODEL_INITIALIZER
 
@@ -35,35 +35,45 @@ class MegaBlockdMoE(MegaBlockMoE):
         ep_size: int,
         num_experts: int,
         top_k: int = 1,
-        parallel_mode: str = "tensor",
         device: Optional[torch.device] = None,
         dtype: Optional[torch.device] = None,
         multiple_of: int = 256,
     ) -> None:
-        assert gpc.expert_parallel_size == 1, "do not support expert parallel"
+        assert gpc.expert_parallel_size == 1, "megablock-dmoe do not support expert parallel"
+        tp_mode = (
+            gpc.config.parallel["tensor"].get("mode", "mtp")
+            if isinstance(gpc.config.parallel["tensor"], dict)
+            else "mtp"
+        )
+        if tp_mode == "isp":
+            assert not gpc.config.parallel.weight.overlap, "megablock-dmoe do not support overlaped isp parallel"
+        else:
+            assert (
+                not gpc.config.parallel.sequence_parallel
+            ), "megablock-dmoe do not support sequence parallel for msp/fsp"
         self.top_k = top_k
         self.num_experts = num_experts
 
         tp_size = gpc.get_world_size(ParallelMode.TENSOR)
         self.ffn_dim = multiple_of * ((int(hidden_size * gpc.config.model.mlp_ratio) + multiple_of - 1) // multiple_of)
         assert self.ffn_dim % tp_size == 0
-        if parallel_mode == "tensor":
+        if tp_mode != "isp":
             self.ffn_dim_per_row = self.ffn_dim // tp_size // ep_size
         else:
             self.ffn_dim_per_row = self.ffn_dim // ep_size
         BaseMoELayer.__init__(  # pylint: disable=W0233
             self,
             torch.nn.Linear(hidden_size, num_experts, bias=False),
-            MegaBlockGroupedFeedForward(
+            MegaBlockFeedForward(
                 hidden_size,
                 (self.ffn_dim // tp_size) * (num_experts // ep_size),
-                parallel_mode,
+                tp_mode,
                 device,
                 dtype,
             ),
             ep_group,
             ep_size,
-            1,
+            num_experts // ep_size,
         )
 
         # Calculate the number of bits needed to represent the expert indices
@@ -76,9 +86,6 @@ class MegaBlockdMoE(MegaBlockMoE):
         # in the intermediate sparse matrix.
         max_column_index = (self.ffn_dim * (self.num_experts // ep_size)) // self.blocking
         self.transpose_sort_end_bit = max(int(np.ceil(np.log2(max_column_index))), 1)
-
-        # re-init the number of experts in each device
-        self.num_local_experts = num_experts // ep_size
 
         self.forward_fn = self._forward
 
