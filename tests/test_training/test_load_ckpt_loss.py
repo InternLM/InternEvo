@@ -82,6 +82,7 @@ config = Config(
             valid_folder=os.path.join(
                 os.environ["share_path"], "quailty_assurance/0623_scratch_tokenized_filtered/val"
             ),
+            num_worker=0,
         ),
         model=dict(
             checkpoint=False,
@@ -195,7 +196,7 @@ def train_model(args):
     if train_round == 1:
         gpc.config.ckpt.enable_save_ckpt = False
         gpc.config.ckpt._add_item(
-            "load_ckpt_info", dict(path=f"local:{temp_folder}/5/", content=("all",), ckpt_type="internlm")
+            "load_ckpt_info", dict(path=f"local:{temp_folder}/5/", content=("all",), ckpt_type="internevo")
         )
     else:
         assert (
