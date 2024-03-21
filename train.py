@@ -111,7 +111,7 @@ def main(args):
         config_lines = f.readlines()
 
     # initialize loss function
-    criterion = FlashGPTLMLoss(parallel_output=True, label_smoothing=label_smoothing)
+    criterion = FlashGPTLMLoss(parallel_output=gpc.config.model.parallel_output, label_smoothing=label_smoothing)
 
     # initialize the train and validation data loader
     train_dl, dataset_types = build_train_loader_with_data_type()

@@ -291,11 +291,17 @@ def initialize_optimizer(model: Union[nn.Module, nn.ModuleList], isp_communicato
 
     adam_cfg = gpc.config.adam
     params = create_param_groups(model, adam_cfg.weight_decay)
+    adam_extra_kwargs = {}
+    # set fused=True to avoid nan grad norm when model size is larger and use_fp32_norm=True
+    if torch.__version__ >= "2.1.0":
+        adam_extra_kwargs["fused"] = True
+
     naive_optimizer = torch.optim.AdamW(
         params=params,
         lr=adam_cfg.lr,
         betas=(adam_cfg.adam_beta1, adam_cfg.adam_beta2),
         eps=adam_cfg.adam_eps,
+        **adam_extra_kwargs,
     )
 
     if not gpc.config.parallel.zero1.fsdp:
