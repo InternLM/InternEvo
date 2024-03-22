@@ -1,9 +1,11 @@
-#!/usr/bin/env python
-# -*- encoding: utf-8 -*-
-
 import time
 
 import torch
+
+from internlm.accelerator import get_accelerator, internlm_accelerator
+
+#!/usr/bin/env python
+# -*- encoding: utf-8 -*-
 
 
 class _Timer:
@@ -14,7 +16,7 @@ class _Timer:
         self.elapsed_ = 0.0
         self.started_ = False
         self.start_time = time.time()
-        self.stream = torch.cuda.current_stream()
+        self.stream = internlm_accelerator.current_stream()
 
     def start(self, reset_all=True):
         """Start the timer."""

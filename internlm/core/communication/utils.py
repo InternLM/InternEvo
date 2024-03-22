@@ -1,5 +1,3 @@
-# adopted from https://github.com/hpcaitech/ColossalAI/blob/main/colossalai/communication
-
 from collections import OrderedDict
 from typing import Dict, List, Tuple, Union
 
@@ -7,6 +5,7 @@ import torch
 import torch.distributed as dist
 from torch import nn
 
+from internlm.accelerator import get_accelerator, internlm_accelerator
 from internlm.core.communication.isp import ISPCommunicator
 from internlm.core.context import ParallelMode
 from internlm.core.context import global_context as gpc
@@ -14,6 +13,9 @@ from internlm.core.naive_amp import NaiveAMPModel
 from internlm.model.modules.embedding import Embedding1D
 from internlm.model.ops.linear import BaseScaleColumnParallelLinear
 from internlm.utils.common import get_current_device
+
+# adopted from https://github.com/hpcaitech/ColossalAI/blob/main/colossalai/communication
+
 
 TensorShape = Union[torch.Size, List[int], Tuple[int]]
 
@@ -107,7 +109,7 @@ def split_tensor_into_1d_equal_chunks(tensor: torch.Tensor, new_buffer=False) ->
     start_index = partition_size * gpc.get_local_rank(ParallelMode.TENSOR)
     end_index = start_index + partition_size
     if new_buffer:
-        data = torch.empty(partition_size, dtype=tensor.dtype, device=torch.cuda.current_device(), requires_grad=False)
+        data = torch.empty(partition_size, dtype=tensor.dtype, device=get_current_device(), requires_grad=False)
         data.copy_(tensor.view(-1)[start_index:end_index])
     else:
         data = tensor.view(-1)[start_index:end_index]
@@ -125,7 +127,7 @@ def gather_split_1d_tensor(tensor: torch.Tensor) -> torch.Tensor:
     world_size = gpc.get_world_size(ParallelMode.TENSOR)
     numel = torch.numel(tensor)
     numel_gathered = world_size * numel
-    gathered = torch.empty(numel_gathered, dtype=tensor.dtype, device=torch.cuda.current_device(), requires_grad=False)
+    gathered = torch.empty(numel_gathered, dtype=tensor.dtype, device=get_current_device(), requires_grad=False)
     chunks = [gathered[i * numel : (i + 1) * numel] for i in range(world_size)]
     dist.all_gather(chunks, tensor, group=gpc.get_group(ParallelMode.TENSOR))
     return gathered

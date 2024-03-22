@@ -4,10 +4,10 @@ from collections import OrderedDict
 from functools import partial, reduce
 from typing import Any, Dict, List, Tuple
 
-import pyecharts
 import torch
 
 from internlm.core.naive_amp import NaiveAMPModel
+from internlm.utils.common import get_current_device
 
 mb = 1024 * 1024
 
@@ -363,6 +363,8 @@ class SimpleMemoryProfiler:
             self._render_sunburst_chart(summary_sunburst_data, "summary_sunburst")
 
     def _render_sunburst_chart(self, data: Any, name: str) -> None:
+        import pyecharts
+
         pyecharts.charts.Sunburst(init_opts=pyecharts.options.InitOpts(width="1000px", height="1000px")).add(
             name,
             data_pair=data,
@@ -647,9 +649,9 @@ if __name__ == "__main__":
     # init model and optimizer
     if _num_chunks > 1:
         _chunks = [SimpleModel(skip_layer2=idx % 2 == 0) for idx in range(_num_chunks)]
-        _model = torch.nn.ModuleList(_chunks).cuda()
+        _model = torch.nn.ModuleList(_chunks).to(get_current_device())
     else:
-        _model: torch.nn.Module = SimpleModel().cuda()
+        _model: torch.nn.Module = SimpleModel().to(get_current_device())
     _optimizer = torch.optim.Adam(_model.parameters())
 
     # init profiler
@@ -658,8 +660,8 @@ if __name__ == "__main__":
     _optimizer.zero_grad()
 
     # inputs
-    x1 = torch.randn((128, 5120)).cuda()
-    x2 = torch.randn((128, 5120)).cuda()
+    x1 = torch.randn((128, 5120)).to(get_current_device())
+    x2 = torch.randn((128, 5120)).to(get_current_device())
     # forward
     out1 = _simple_schedule(_num_chunks, _model, x1)
     out2 = _simple_schedule(_num_chunks, _model, x2)

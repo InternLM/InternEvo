@@ -1,8 +1,3 @@
-#!/usr/bin/env python
-# -*- encoding: utf-8 -*-
-
-# adopted from https://github.com/hpcaitech/ColossalAI/blob/main/colossalai/communication
-
 import operator
 from functools import reduce
 from typing import List, Tuple, Union
@@ -10,11 +5,18 @@ from typing import List, Tuple, Union
 import torch
 import torch.distributed as dist
 
+from internlm.accelerator import get_accelerator, internlm_accelerator
 from internlm.core.context import ParallelMode
 from internlm.core.context import global_context as gpc
 from internlm.utils.common import get_current_device
 
 from .utils import gather_split_1d_tensor, split_tensor_into_1d_equal_chunks
+
+#!/usr/bin/env python
+# -*- encoding: utf-8 -*-
+
+# adopted from https://github.com/hpcaitech/ColossalAI/blob/main/colossalai/communication
+
 
 TensorShape = Union[torch.Size, List[int], Tuple[int]]
 
@@ -171,7 +173,7 @@ def _communicate(
         for req in reqs:
             req.wait()
     # To protect against race condition when using batch_isend_irecv().
-    torch.cuda.synchronize()
+    internlm_accelerator.synchronize()
 
     if recv_prev and recv_prev_split:
         if isinstance(tensor_recv_prev, torch.Tensor):
@@ -471,7 +473,7 @@ def send_forward_and_recv_next_forward_async(
     for req in reqs:
         req.wait()
     # To protect against race condition when using batch_isend_irecv()
-    torch.cuda.synchronize()
+    internlm_accelerator.synchronize()
 
     # Process received data
     if recv_prev_shape is not None and recv_prev_split:
@@ -531,7 +533,7 @@ def send_backward_and_recv_next_backward_async(
     for req in reqs:
         req.wait()
     # To protect against race condition when using batch_isend_irecv()
-    torch.cuda.synchronize()
+    internlm_accelerator.synchronize()
 
     # Process received data
     if recv_next_shape is not None and recv_next_split:

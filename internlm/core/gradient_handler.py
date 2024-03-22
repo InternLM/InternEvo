@@ -1,6 +1,3 @@
-#!/usr/bin/env python
-# -*- encoding: utf-8 -*-
-
 from abc import ABC, abstractmethod
 from collections import defaultdict
 
@@ -8,7 +5,11 @@ import torch
 import torch.distributed as dist
 from torch._utils import _flatten_dense_tensors, _unflatten_dense_tensors
 
+from internlm.accelerator import get_accelerator, internlm_accelerator
 from internlm.core.context import global_context as gpc
+
+#!/usr/bin/env python
+# -*- encoding: utf-8 -*-
 
 
 class BaseGradientHandler(ABC):
@@ -70,7 +71,7 @@ class PipelineSharedModuleGradientHandler(BaseGradientHandler):
                         param.colo_attr.grad_payload if hasattr(param, "colo_attr") else param.grad.data
                         for param in bucket
                     ]
-                    coalesced = _flatten_dense_tensors(grads).to(torch.cuda.current_device())
+                    coalesced = _flatten_dense_tensors(grads).to(internlm_accelerator.current_device())
                     dist.all_reduce(coalesced, op=dist.ReduceOp.SUM, group=group)
                     for buf, synced in zip(grads, _unflatten_dense_tensors(coalesced, grads)):
                         buf.copy_(synced)

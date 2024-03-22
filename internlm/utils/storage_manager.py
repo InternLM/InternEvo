@@ -2,12 +2,14 @@
 # -*- encoding: utf-8 -*-
 
 import multiprocessing
+import os
 
 import dill
 
-dill.Pickler.dumps, dill.Pickler.loads = dill.dumps, dill.loads
-multiprocessing.reduction.ForkingPickler = dill.Pickler
-multiprocessing.reduction.dump = dill.dump
+if "USE_DILL_PICKLE" in os.environ:
+    dill.Pickler.dumps, dill.Pickler.loads = dill.dumps, dill.loads
+    multiprocessing.reduction.ForkingPickler = dill.Pickler
+    multiprocessing.reduction.dump = dill.dump
 
 import asyncio  # noqa: E402  #pylint: disable=wrong-import-position
 import concurrent.futures  # noqa: E402  #pylint: disable=wrong-import-position

@@ -7,6 +7,7 @@ import torch.nn.functional as F
 from einops import rearrange
 from torch import nn
 
+from internlm.accelerator import get_accelerator, internlm_accelerator
 from internlm.core.context import ParallelMode
 from internlm.core.context.parallel_context import global_context as gpc
 from internlm.initialize.initialize_tensor import (
@@ -220,7 +221,7 @@ class MHA(nn.Module):
                     q = q.to(torch.bfloat16)
                 if kv.dtype not in [torch.float16, torch.bfloat16]:
                     kv = kv.to(torch.bfloat16)
-                with torch.cuda.amp.autocast(dtype=torch.bfloat16):
+                with internlm_accelerator.amp.autocast(dtype=torch.bfloat16):
                     context = self.inner_cross_attn(q, kv).to(self.dtype)
             else:
                 context = self.inner_cross_attn(q, kv)
@@ -325,7 +326,7 @@ class MHA(nn.Module):
                             total_q = total_q.to(torch.bfloat16)
                         if total_kv.dtype not in [torch.float16, torch.bfloat16]:
                             total_kv = total_kv.to(torch.bfloat16)
-                        with torch.cuda.amp.autocast(dtype=torch.bfloat16):
+                        with internlm_accelerator.amp.autocast(dtype=torch.bfloat16):
                             output = flash_attn_varlen_kvpacked_func(
                                 q=total_q,
                                 kv=total_kv,
@@ -386,7 +387,7 @@ class MHA(nn.Module):
                         q = q.to(torch.bfloat16)
                     if kv.dtype not in [torch.float16, torch.bfloat16]:
                         kv = kv.to(torch.bfloat16)
-                    with torch.cuda.amp.autocast(dtype=torch.bfloat16):
+                    with internlm_accelerator.amp.autocast(dtype=torch.bfloat16):
                         context = self.inner_cross_attn(q, kv, causal=True).to(self.dtype)
                 else:
                     context = self.inner_cross_attn(q, kv, causal=True)
@@ -435,7 +436,7 @@ class MHA(nn.Module):
                     q = q.to(torch.bfloat16)
                 if kv.dtype not in [torch.float16, torch.bfloat16]:
                     kv = kv.to(torch.bfloat16)
-                with torch.cuda.amp.autocast(dtype=torch.bfloat16):
+                with internlm_accelerator.amp.autocast(dtype=torch.bfloat16):
                     context = self.attn(
                         q=q,
                         kv=kv,
@@ -1004,16 +1005,17 @@ class PackedFlashLlama1D(nn.Module):
         return hidden_states
 
 
-def _build_generic_model_1d(num_layers, num_chunks, device=torch.device("cuda"), **kwargs):
+def _build_generic_model_1d(num_layers, num_chunks, **kwargs):
     """
     build generic model 1d
 
     Args:
         num_layers (int): The number of layer.
         num_chunks (int): The number of partitions in pipeline parallel.
-        device (Optional[Union[str, torch.device]]): The device will be used. torch.device("cuda") by default.
+        device (Optional[Union[str, torch.device]]): The device will be used. internlm_accelerator.device() by default.
 
     """
+    device = internlm_accelerator.device()
     pipeline_size = gpc.get_world_size(ParallelMode.PIPELINE)
     pipeline_rank = gpc.get_local_rank(ParallelMode.PIPELINE)
 

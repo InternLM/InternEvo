@@ -1,13 +1,9 @@
-#!/usr/bin/env python
-# -*- encoding: utf-8 -*-
-
-# adopted from https://github.com/hpcaitech/ColossalAI/blob/main/colossalai/engine
-
 from typing import Any, Callable, Iterable, List, Optional
 
 import torch
 import torch.distributed as dist
 
+from internlm.accelerator import get_accelerator, internlm_accelerator
 from internlm.core.context import ParallelMode
 from internlm.core.context import global_context as gpc
 from internlm.core.engine import Engine
@@ -16,6 +12,12 @@ from internlm.utils.logger import get_logger
 from internlm.utils.timeout import llm_timeout
 
 from .base_scheduler import BaseScheduler
+
+#!/usr/bin/env python
+# -*- encoding: utf-8 -*-
+
+# adopted from https://github.com/hpcaitech/ColossalAI/blob/main/colossalai/engine
+
 
 logger = get_logger(__file__)
 
@@ -127,7 +129,9 @@ class NonPipelineScheduler(BaseScheduler):
                 moe_loss = (
                     sum(moe_losses) * gpc.config.loss.moe_loss_coeff
                     if hasattr(gpc.config.model, "num_experts") and gpc.config.model.num_experts > 1
-                    else torch.tensor(0.0, device=torch.cuda.current_device(), dtype=gpc.config.model.get("dtype"))
+                    else torch.tensor(
+                        0.0, device=internlm_accelerator.current_device(), dtype=gpc.config.model.get("dtype")
+                    )
                 )
                 # the moe_loss is computed among the "tensor" group if sequence parallel is enabled,
                 # so we need to do allreduce

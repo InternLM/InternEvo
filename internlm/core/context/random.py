@@ -5,8 +5,9 @@
 from contextlib import contextmanager
 
 import torch
-import torch.cuda
 from torch import Tensor
+
+from internlm.accelerator import internlm_accelerator
 
 from .process_group_initializer import ParallelMode
 
@@ -40,11 +41,11 @@ class SeedManager:
         """Sets the current mode of the seed manager."""
         if self.current_mode:
             # save state for current mode
-            self._seed_states[self._current_mode] = torch.cuda.get_rng_state()
+            self._seed_states[self._current_mode] = internlm_accelerator.get_rng_state()
 
         # set new state for new mode
         self._current_mode = parallel_mode
-        torch.cuda.set_rng_state(self._seed_states[parallel_mode])
+        internlm_accelerator.set_rng_state(self._seed_states[parallel_mode])
 
     def add_seed(self, parallel_mode: ParallelMode, seed: int, overwrite: bool = False):
         """Adds a seed to the seed manager for `parallel_mode`."""
@@ -54,11 +55,11 @@ class SeedManager:
         elif parallel_mode in self._seed_states:
             print(f"Warning: {parallel_mode} seed overwritten.", flush=True)
 
-        current_state = torch.cuda.get_rng_state()
-        torch.cuda.manual_seed(seed)
-        self._seed_states[parallel_mode] = torch.cuda.get_rng_state()
+        current_state = internlm_accelerator.get_rng_state()
+        internlm_accelerator.manual_seed(seed)
+        self._seed_states[parallel_mode] = internlm_accelerator.get_rng_state()
         self._seeds[parallel_mode] = seed
-        torch.cuda.set_rng_state(current_state)
+        internlm_accelerator.set_rng_state(current_state)
 
     def reset(self):
         self._current_mode = None
@@ -117,7 +118,7 @@ def set_seed_states(parallel_mode: ParallelMode, state: Tensor):
 
 def sync_states():
     current_mode = get_current_mode()
-    current_states = torch.cuda.get_rng_state()
+    current_states = internlm_accelerator.get_rng_state()
     set_seed_states(current_mode, current_states)
 
 

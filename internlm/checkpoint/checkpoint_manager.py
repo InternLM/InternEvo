@@ -1,6 +1,3 @@
-#!/usr/bin/env python
-# -*- encoding: utf-8 -*-
-
 import os
 import socket
 import time
@@ -10,6 +7,7 @@ from typing import Callable, Dict
 
 import torch
 
+from internlm.accelerator import get_accelerator, internlm_accelerator
 from internlm.core.context import ParallelMode
 from internlm.core.context import global_context as gpc
 from internlm.core.trainer import TrainState
@@ -20,6 +18,7 @@ from internlm.initialize.legacy.launch import (
 )
 from internlm.monitor import send_alert_message
 from internlm.solver.optimizer import HybridZeroOptimizer, reload_zero_fp32_buff
+from internlm.utils.common import get_current_device
 from internlm.utils.logger import get_logger
 from internlm.utils.megatron_timers import megatron_timer as timer
 from internlm.utils.storage_manager import (
@@ -42,6 +41,10 @@ from .components import (
 )
 from .load_funcs import LOAD_FUNC_DICT
 from .utils import process_load_info
+
+#!/usr/bin/env python
+# -*- encoding: utf-8 -*-
+
 
 logger = get_logger(__file__)
 
@@ -208,7 +211,7 @@ def try_load_internlm_ckpt_func(ckpt_mm, load_info, *args, func=None, **kwargs):
     func(folder=load_ckpt_folder, model=ckpt_mm.model)
 
     load_content_str += f"{CheckpointLoadContent.MODEL}, "
-    torch.cuda.synchronize()
+    internlm_accelerator.synchronize()
 
     if isinstance(ckpt_mm.optimizer, HybridZeroOptimizer):
         reload_zero_fp32_buff(ckpt_mm.optimizer)
@@ -346,7 +349,7 @@ class CheckpointManager:
             return now_break, now_save_ckpt, save_type
 
         with torch.no_grad():
-            action_step_t = torch.zeros((1,), dtype=torch.int64).cuda()
+            action_step_t = torch.zeros((1,), dtype=torch.int64).to(get_current_device())
             if gpc.get_global_rank() == 0:
                 with open(self.stop_file_path, "r+", encoding="utf-8") as f:
                     f.seek(0)
@@ -582,7 +585,7 @@ now step_count is {train_state.step_count}",
 
         start = time.time()
         self.set_save_folder(folder, train_state.step_count)
-        torch.cuda.synchronize()
+        internlm_accelerator.synchronize()
         torch.distributed.barrier()
         if gpc.is_rank_for_log():
             logger.info(f"Saving checkpoint to `{folder}` at batch count:{train_state.step_count}...")

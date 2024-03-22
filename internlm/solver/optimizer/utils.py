@@ -1,6 +1,3 @@
-#!/usr/bin/env python
-# -*- encoding: utf-8 -*-
-
 import math
 from abc import ABC, abstractmethod
 from typing import Dict, Optional
@@ -10,6 +7,7 @@ import torch.distributed as dist
 from torch import Tensor
 from torch._utils import _flatten_dense_tensors, _unflatten_dense_tensors
 
+from internlm.accelerator import get_accelerator, internlm_accelerator
 from internlm.core.context import ParallelMode
 from internlm.core.context import global_context as gpc
 from internlm.utils.common import get_current_device, get_tensor_norm, move_norm_to_cuda
@@ -22,6 +20,10 @@ from internlm.utils.parallel import (
     is_using_isp,
     is_weight_zero_parallel_parameter,
 )
+
+#!/usr/bin/env python
+# -*- encoding: utf-8 -*-
+
 
 logger = get_logger(__file__)
 
@@ -68,10 +70,10 @@ def get_grad_accumulate_object(tensor):
 
 def split_half_float_double(tensor_list):
     dtype_buckets = {
-        "torch.cuda.HalfTensor": [],
-        "torch.cuda.FloatTensor": [],
-        "torch.cuda.DoubleTensor": [],
-        "torch.cuda.BFloat16Tensor": [],
+        "internlm_accelerator.HalfTensor": [],
+        "internlm_accelerator.FloatTensor": [],
+        "internlm_accelerator.DoubleTensor": [],
+        "internlm_accelerator.BFloat16Tensor": [],
     }
 
     for t in tensor_list:
@@ -193,7 +195,7 @@ def calc_l2_norm(grads):
     norm = 0.0
     if len(grads) > 0:
         if APEX_AVAILABLE:
-            dummy_overflow_buf = torch.cuda.IntTensor([0])
+            dummy_overflow_buf = internlm_accelerator.IntTensor([0])
             norm, _ = multi_tensor_applier(
                 amp_C.multi_tensor_l2norm,
                 dummy_overflow_buf,
@@ -407,7 +409,7 @@ class BaseGradScaler(ABC):
 
     def __init__(self, initial_scale: float):
         assert initial_scale > 0
-        self._scale = torch.cuda.FloatTensor([initial_scale])
+        self._scale = internlm_accelerator.FloatTensor([initial_scale])
 
     @property
     def scale(self) -> Tensor:
@@ -473,12 +475,12 @@ class DynamicGradScaler(BaseGradScaler):
     ):
         super().__init__(initial_scale)
         if min_scale:
-            self._min_scale = torch.cuda.FloatTensor([min_scale])
+            self._min_scale = internlm_accelerator.FloatTensor([min_scale])
         else:
             self._min_scale = None
 
         if max_scale:
-            self._max_scale = torch.cuda.FloatTensor([max_scale])
+            self._max_scale = internlm_accelerator.FloatTensor([max_scale])
         else:
             self._max_scale = None
 

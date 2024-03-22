@@ -2,6 +2,7 @@ import sys
 
 import torch
 
+from internlm.accelerator import get_accelerator, internlm_accelerator
 from internlm.model.utils import Silu
 
 try:
@@ -16,7 +17,7 @@ class TensorParallelBmm(torch.autograd.Function):
     """
 
     @staticmethod
-    @torch.cuda.amp.custom_fwd
+    @internlm_accelerator.amp.custom_fwd
     def forward(ctx, x, w, group=None):
         # [m, k] x [n, k] = [m, n]
         if not x.is_contiguous() or not w.is_contiguous():
@@ -31,7 +32,7 @@ class TensorParallelBmm(torch.autograd.Function):
         return torch.bmm(x, w)
 
     @staticmethod
-    @torch.cuda.amp.custom_bwd
+    @internlm_accelerator.amp.custom_bwd
     def backward(ctx, grad):
         x, w = ctx.saved_tensors[:2]
 
@@ -119,7 +120,7 @@ class WeightParallelSddNt(torch.autograd.Function):
     """
 
     @staticmethod
-    @torch.cuda.amp.custom_fwd
+    @internlm_accelerator.amp.custom_fwd
     def forward(ctx, x, w, topo, group):
         # [m, k] x [n, k] = [m, n]
         if not x.is_contiguous() or not w.is_contiguous():
@@ -143,7 +144,7 @@ class WeightParallelSddNt(torch.autograd.Function):
         return stk.ops.sdd(x, parallel_w.t(), topo).data
 
     @staticmethod
-    @torch.cuda.amp.custom_bwd
+    @internlm_accelerator.amp.custom_bwd
     def backward(ctx, grad):
         x, w = ctx.saved_tensors[:2]
         grad = stk.Matrix(ctx.shape, grad, *ctx.saved_tensors[2:])
@@ -176,7 +177,7 @@ class WeightParallelDsdNn(torch.autograd.Function):
     """
 
     @staticmethod
-    @torch.cuda.amp.custom_fwd
+    @internlm_accelerator.amp.custom_fwd
     def forward(
         ctx, shape, data, row_indices, column_indices, offsets, column_indices_t, offsets_t, block_offsets_t, w, group
     ):
@@ -196,7 +197,7 @@ class WeightParallelDsdNn(torch.autograd.Function):
         return stk.ops.dsd(x, parallel_w)
 
     @staticmethod
-    @torch.cuda.amp.custom_bwd
+    @internlm_accelerator.amp.custom_bwd
     def backward(ctx, grad):
         x = stk.Matrix(ctx.shape, *ctx.saved_tensors[:-1])
         w = ctx.saved_tensors[-1]
@@ -229,7 +230,7 @@ class TensorParallelSddNt(torch.autograd.Function):
     """
 
     @staticmethod
-    @torch.cuda.amp.custom_fwd
+    @internlm_accelerator.amp.custom_fwd
     def forward(ctx, x, w, topo, group):
         # [m, k] x [n, k] = [m, n]
         if not x.is_contiguous() or not w.is_contiguous():
@@ -251,7 +252,7 @@ class TensorParallelSddNt(torch.autograd.Function):
         return stk.ops.sdd(x, w.t(), topo).data
 
     @staticmethod
-    @torch.cuda.amp.custom_bwd
+    @internlm_accelerator.amp.custom_bwd
     def backward(ctx, grad):
         x, w = ctx.saved_tensors[:2]
         grad = stk.Matrix(ctx.shape, grad, *ctx.saved_tensors[2:])
@@ -279,7 +280,7 @@ class TensorParallelDsdNn(torch.autograd.Function):
     """
 
     @staticmethod
-    @torch.cuda.amp.custom_fwd
+    @internlm_accelerator.amp.custom_fwd
     def forward(
         ctx, shape, data, row_indices, column_indices, offsets, column_indices_t, offsets_t, block_offsets_t, w, group
     ):
@@ -300,7 +301,7 @@ class TensorParallelDsdNn(torch.autograd.Function):
         return out
 
     @staticmethod
-    @torch.cuda.amp.custom_bwd
+    @internlm_accelerator.amp.custom_bwd
     def backward(ctx, grad):
         x = stk.Matrix(ctx.shape, *ctx.saved_tensors[:-1])
         w = ctx.saved_tensors[-1]

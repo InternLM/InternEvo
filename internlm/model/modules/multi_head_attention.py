@@ -1,6 +1,3 @@
-#!/usr/bin/env python
-# -*- encoding: utf-8 -*-
-
 import math
 import warnings
 from typing import Any, Optional, Tuple
@@ -12,12 +9,16 @@ from einops import rearrange, repeat
 from torch import Tensor, nn
 from torch.nn import Module
 
+from internlm.accelerator import get_accelerator, internlm_accelerator
 from internlm.core.context import global_context as gpc
 from internlm.model.modules.embedding import (
     DynamicNTKScalingRotaryEmbedding,
     RotaryEmbedding,
 )
 from internlm.model.ops.linear import get_linear_cls
+
+#!/usr/bin/env python
+# -*- encoding: utf-8 -*-
 
 
 # adpated from https://github.com/microsoft/DeepSpeed/blob/master/deepspeed/sequence/layer.py
@@ -429,7 +430,7 @@ class MHA(nn.Module):
             kwargs["inference_params"] = inference_params
             qkv = self.rotary_emb(qkv, **kwargs)
             if gpc.config.model.dtype is torch.float32 and gpc.config.model.use_flash_attn:
-                with torch.cuda.amp.autocast(dtype=torch.bfloat16):
+                with internlm_accelerator.amp.autocast(dtype=torch.bfloat16):
                     if qkv.dtype not in [torch.float16, torch.bfloat16]:
                         qkv = qkv.to(torch.bfloat16)
                     context = self.inner_attn(qkv).to(x.dtype)
@@ -554,7 +555,7 @@ class MHA(nn.Module):
                     )
 
                     if gpc.config.model.dtype is torch.float32 and gpc.config.model.use_flash_attn:
-                        with torch.cuda.amp.autocast(dtype=torch.bfloat16):
+                        with internlm_accelerator.amp.autocast(dtype=torch.bfloat16):
                             if total_q.dtype not in [torch.float16, torch.bfloat16]:
                                 total_q = total_q.to(torch.bfloat16)
                             if total_kv.dtype not in [torch.float16, torch.bfloat16]:
@@ -642,7 +643,7 @@ class MHA(nn.Module):
         kwargs.pop("indexes")
         if inference_params is None:
             if gpc.config.model.dtype is torch.float32 and gpc.config.model.use_flash_attn:
-                with torch.cuda.amp.autocast(dtype=torch.bfloat16):
+                with internlm_accelerator.amp.autocast(dtype=torch.bfloat16):
                     if qkv.dtype not in [torch.float16, torch.bfloat16]:
                         qkv = qkv.to(torch.bfloat16)
                     context = self.inner_attn(qkv, **kwargs).to(x.dtype)

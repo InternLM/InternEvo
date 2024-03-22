@@ -1,3 +1,5 @@
+from internlm.accelerator import get_accelerator, internlm_accelerator
+
 """
 Directly load models in internlm format for interactive dialogue.
 """
@@ -115,7 +117,7 @@ def combine_history(prompt):
 
 
 def main():
-    # torch.cuda.empty_cache()
+    # internlm_accelerator.empty_cache()
     print("load model begin.")
     model, tokenizer = load_model()
     print("load model end.")
@@ -161,7 +163,7 @@ def main():
         st.session_state.messages.append(
             {"role": "robot", "content": cur_response, "avatar": robot_avator}  # pylint: disable=W0631
         )
-        torch.cuda.empty_cache()
+        internlm_accelerator.empty_cache()
 
 
 if __name__ == "__main__":

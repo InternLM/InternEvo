@@ -1,11 +1,9 @@
-#!/usr/bin/env python
-# -*- encoding: utf-8 -*-
-
 import weakref
 
 import torch
 from torch.utils.checkpoint import check_backward_validity, detach_variable
 
+from internlm.accelerator import get_accelerator, internlm_accelerator
 from internlm.core.context.random import (
     get_current_mode,
     get_states,
@@ -15,6 +13,9 @@ from internlm.core.context.random import (
 )
 
 from ..utils.common import get_current_device
+
+#!/usr/bin/env python
+# -*- encoding: utf-8 -*-
 
 
 def copy_to_device(obj, device):
@@ -121,7 +122,7 @@ class CheckpointFunction(torch.autograd.Function):
             inputs[idx] = tensors[i]
         detached_inputs = detach_variable(tuple(inputs))
         if ctx.had_autocast_in_fwd:
-            with torch.enable_grad(), torch.cuda.amp.autocast():
+            with torch.enable_grad(), internlm_accelerator.amp.autocast():
                 outputs = ctx.run_function(*detached_inputs)
         else:
             with torch.enable_grad():
@@ -235,7 +236,7 @@ def _checkpoint_without_reentrant(function, activation_offload=False, *args):  #
 
             # rerun forward, the inner_pack will store all the activations in storage
             if has_autocast_in_fwd:
-                with torch.enable_grad(), torch.cuda.amp.autocast(), torch.autograd.graph.saved_tensors_hooks(
+                with torch.enable_grad(), internlm_accelerator.amp.autocast(), torch.autograd.graph.saved_tensors_hooks(
                     inner_pack, inner_unpack
                 ):
                     function(*args)

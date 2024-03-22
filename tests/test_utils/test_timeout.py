@@ -7,6 +7,8 @@ import pytest
 import torch
 import torch.distributed as dist
 
+from internlm.accelerator import get_accelerator, internlm_accelerator
+
 os.environ["INTERNLM_ENABLE_TIMEOUT"] = "1"  # noqa  # pylint: disable=wrong-import-position
 os.environ["NCCL_TIMEOUT"] = "5"
 from internlm.utils.timeout import llm_timeout
@@ -28,10 +30,10 @@ def nccl_timeout_func(rank):
     # 'NCCL_ASYNC_ERROR_HANDLING' cannot take effect on the first collective communication.
     buff = torch.ones([64, 64]).cuda(rank)
     dist.all_reduce(buff)  # lazy communicator init
-    torch.cuda.synchronize()
+    internlm_accelerator.synchronize()
     if rank == 0:
         dist.all_reduce(buff)
-        torch.cuda.synchronize()  # main thread will hang at here.
+        internlm_accelerator.synchronize()  # main thread will hang at here.
     else:
         time.sleep(9999)
 

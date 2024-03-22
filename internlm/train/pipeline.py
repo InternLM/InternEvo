@@ -291,10 +291,11 @@ def initialize_optimizer(model: Union[nn.Module, nn.ModuleList], isp_communicato
     params = create_param_groups(model, adam_cfg.weight_decay)
     adam_extra_kwargs = {}
     # set fused=True to avoid nan grad norm when model size is larger and use_fp32_norm=True
-    if torch.__version__ >= "2.1.0":
-        adam_extra_kwargs["fused"] = True
+    # if torch.__version__ >= "2.1.0":
+    #     adam_extra_kwargs["fused"] = True
+    import torch_npu
 
-    naive_optimizer = torch.optim.AdamW(
+    naive_optimizer = torch_npu.optim.NpuFusedAdamW(
         params=params,
         lr=adam_cfg.lr,
         betas=(adam_cfg.adam_beta1, adam_cfg.adam_beta2),
