@@ -399,7 +399,6 @@ def compute_norm(
     return total_norm
 
 
-<<<<<<< HEAD
 def compute_vocab_grad_norm(
     gradients,
     parameters,
@@ -669,8 +668,6 @@ def compute_layer_zero_grad_count(param_zero_grad_count):
     return layer_zero_grad_count, param_zero_grad_count_groupby_layer
 
 
-=======
->>>>>>> f2519d52f3e053372059c09620b1b7726920c386
 class BaseGradScaler(ABC):
     """A base class for the gradient scaler.
 

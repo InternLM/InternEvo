@@ -621,7 +621,7 @@ def initialize_distributed_env(
     # close automatic garbage collection
     gc.disable()
 
-    internlm_accelerator.empty_cache()
+    # internlm_accelerator.empty_cache()
 
     if launcher == "torch":
         launch_from_torch(config=config, seed=seed)

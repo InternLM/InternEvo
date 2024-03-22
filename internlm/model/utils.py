@@ -321,10 +321,10 @@ class FusedDenseFunc(torch.autograd.Function):
                 )
             grad_input = grad_input.reshape(*batch_shape, grad_input.shape[-1])
             if process_group is not None:
-                reduce_fn = reduce_scatter_raw if sequence_parallel else all_reduce_raw
-                grad_input, handle_grad_input = reduce_fn(
-                    grad_input, process_group, async_op=True, reduce_dim=gather_dim
-                )
+                if sequence_parallel:
+                    grad_input, handle_grad_input = reduce_scatter_raw(grad_input, process_group, async_op=True, reduce_dim=gather_dim)
+                else:
+                    grad_input, handle_grad_input = all_reduce_raw(grad_input, process_group, async_op=True)
         else:
             grad_input = None
         if ctx.needs_input_grad[1]:
@@ -439,10 +439,10 @@ class MegatronFusedDenseFunc(torch.autograd.Function):
                 )
             grad_input = grad_input.reshape(*batch_shape, grad_input.shape[-1])
             if process_group is not None:
-                reduce_fn = reduce_scatter_raw if sequence_parallel else all_reduce_raw
-                grad_input, handle_grad_input = reduce_fn(
-                    grad_input, process_group, async_op=True, reduce_dim=ctx.gather_dim
-                )
+                if sequence_parallel:
+                    grad_input, handle_grad_input = reduce_scatter_raw(grad_input, process_group, async_op=True, reduce_dim=ctx.gather_dim)
+                else:
+                    grad_input, handle_grad_input = all_reduce_raw(grad_input, process_group, async_op=True)
         else:
             grad_input = None
         if ctx.needs_input_grad[1]:
