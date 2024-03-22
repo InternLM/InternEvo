@@ -284,12 +284,10 @@ def initialize_optimizer(model: Union[nn.Module, nn.ModuleList], isp_communicato
         A tuple of (optimizer, beta2_scheduler, lr_scheduler).
     """
 
-    if gpc.config.hybrid_zero_optimizer.overlap_sync_param:
-        param_bcast_sync_handler = ParamAsyncBcastHandler(ParallelMode.ZERO1, model, isp_communicator)
-    else:
-        param_bcast_sync_handler = None
-
     adam_cfg = gpc.config.adam
+    zero_cfg = gpc.config.hybrid_zero_optimizer
+    grad_scal_cfg = gpc.config.grad_scaler
+
     params = create_param_groups(model, adam_cfg.weight_decay)
     adam_extra_kwargs = {}
     # set fused=True to avoid nan grad norm when model size is larger and use_fp32_norm=True
@@ -304,19 +302,38 @@ def initialize_optimizer(model: Union[nn.Module, nn.ModuleList], isp_communicato
         **adam_extra_kwargs,
     )
 
+    if (
+        zero_cfg.overlap_sync_grad
+        and gpc.is_using_parallel_mode(ParallelMode.PIPELINE)
+        and gpc.is_pipeline_first_stage() is False
+    ):
+        # When pipeline parallelism is enabled, we prefer to only enable optimizer
+        # gradient communication overlap in the first stage, to avoid amplifying
+        # the communication overhead stage by stage in cases where the optimizer
+        # communication overhead is greater than the compute overhead.
+        # For pipeline stages except the first, even if overlap is not enabled,
+        # their gradient synchronization overhead can be well hidden by
+        # the inherent bubbles of pipeline parallelism.
+        zero_cfg.overlap_sync_grad = False
+
+    if zero_cfg.overlap_sync_param:
+        param_bcast_sync_handler = ParamAsyncBcastHandler(ParallelMode.ZERO1, model, isp_communicator)
+    else:
+        param_bcast_sync_handler = None
+
     if not gpc.config.parallel.zero1.fsdp:
         optimizer = HybridZeroOptimizer(
             naive_optimizer,
-            grad_scal_cfg=gpc.config.grad_scaler,
-            zero_cfg=gpc.config.hybrid_zero_optimizer,
+            grad_scal_cfg=grad_scal_cfg,
+            zero_cfg=zero_cfg,
             param_bcast_sync_handler=param_bcast_sync_handler,
             isp_communicator=isp_communicator,
         )
     else:
         optimizer = FSDPadaptOptimizer(
             naive_optimizer,
-            grad_scal_cfg=gpc.config.grad_scaler,
-            zero_cfg=gpc.config.hybrid_zero_optimizer,
+            grad_scal_cfg=grad_scal_cfg,
+            zero_cfg=zero_cfg,
         )
 
     beta2_scheduler = Beta2Scheduler(optimizer=naive_optimizer, **gpc.config.beta2_scheduler)
