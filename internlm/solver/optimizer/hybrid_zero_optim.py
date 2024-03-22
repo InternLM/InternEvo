@@ -12,9 +12,10 @@ from torch.optim import Optimizer
 
 from internlm.accelerator import internlm_accelerator
 from internlm.core.communication.utils import ParamAsyncBcastHandler
-from internlm.core.context import IS_REPLICA_ZERO_PARALLEL, Config, ParallelMode
+from internlm.core.context import Config, ParallelMode
 from internlm.core.context import global_context as gpc
 from internlm.core.context.parallel_context import (
+    IS_REPLICA_ZERO_PARALLEL,
     IS_TENSOR_DATA_PARALLEL,
     IS_TENSOR_EXPERT_DATA_PARALLEL,
     IS_TENSOR_ZERO_PARALLEL,
@@ -44,14 +45,7 @@ from internlm.utils.parallel import is_using_isp, is_using_sequence_parallel
 from internlm.utils.timeout import llm_timeout
 
 from .base_optimizer import BaseOptimizer
-from .utils import (
-    compute_layer_norm,
-    compute_layer_zero_grad_count,
-    compute_norm,
-    compute_param_norm,
-    compute_vocab_grad_norm,
-    compute_zero_grad_count,
-)
+from .utils import compute_norm
 
 inf = math.inf
 logger = get_logger(__file__)
@@ -661,168 +655,6 @@ class HybridZeroOptimizer(BaseOptimizer):
 
         return norm
 
-    def _compute_param_norm_stage(
-        self, group_id: int = 0, last_bucket: bool = False, last_stage: bool = False, previous_param_norms=None
-    ):
-        # compute norm for gradients that have been reduced
-        params, grads = self._param_store.get_reduced_param_for_compute_norm(group_id=group_id, last_bucket=last_bucket)
-        params_is_padding = False
-        total_param_norms = {}
-        if len(params) == 0:
-            params_is_padding = True
-            dtype = self.param_groups[group_id]["dtype"]
-            grads = [self.padding_grad.to(dtype)]
-            params = [self.padding_tensor.to(dtype)]
-
-            if self.optim.param_groups[group_id]["name"] in ("default", "fp32"):
-                for param in params:
-                    if self.use_isp:
-                        setattr(param, IS_WEIGHT_ZERO_PARALLEL, True)
-                    else:
-                        setattr(param, IS_TENSOR_ZERO_PARALLEL, True)
-            elif self.optim.param_groups[group_id]["name"] == "fp32":
-                for param in params:
-                    setattr(param, IS_REPLICA_ZERO_PARALLEL, True)
-            elif self.optim.param_groups[group_id]["name"] == "embed_head":
-                # should be isp mode
-                for param in params:
-                    setattr(param, IS_TENSOR_DATA_PARALLEL, True)
-            elif self._is_moe_group(self.optim.param_groups[group_id]):
-                for param in params:
-                    setattr(param, IS_TENSOR_EXPERT_DATA_PARALLEL, True)
-            else:
-                raise NotImplementedError("unrecognized parameter group.")
-
-        if self._clip_grad_norm > 0:
-            total_param_norms = compute_param_norm(
-                grads,
-                params,
-                last_stage=last_stage,
-                previous_param_norms=previous_param_norms,
-                zero_mode=self._broadcast_parallel_mode[group_id],
-            )
-
-        if params_is_padding:
-            for param in params:
-                if hasattr(param, IS_REPLICA_ZERO_PARALLEL):
-                    delattr(param, IS_REPLICA_ZERO_PARALLEL)
-                if hasattr(param, IS_TENSOR_DATA_PARALLEL):
-                    delattr(param, IS_TENSOR_DATA_PARALLEL)
-                if hasattr(param, IS_TENSOR_ZERO_PARALLEL):
-                    delattr(param, IS_TENSOR_ZERO_PARALLEL)
-                if hasattr(param, IS_WEIGHT_ZERO_PARALLEL):
-                    delattr(param, IS_WEIGHT_ZERO_PARALLEL)
-                if hasattr(param, IS_TENSOR_EXPERT_DATA_PARALLEL):
-                    delattr(param, IS_TENSOR_EXPERT_DATA_PARALLEL)
-
-        return total_param_norms
-
-    def _compute_vocab_grad_norm_stage(
-        self, group_id: int = 0, last_bucket: bool = False, last_stage: bool = False, previous_vocab_grad_norm=None
-    ):
-        params, grads = self._param_store.get_reduced_param_for_compute_norm(group_id=group_id, last_bucket=last_bucket)
-        params_is_padding = False
-        if len(params) == 0:
-            params_is_padding = True
-            dtype = self.param_groups[group_id]["dtype"]
-            grads = [self.padding_grad.to(dtype)]
-            params = [self.padding_tensor.to(dtype)]
-
-            if self.optim.param_groups[group_id]["name"] == "default":
-                for param in params:
-                    if self.use_isp:
-                        setattr(param, IS_WEIGHT_ZERO_PARALLEL, True)
-                    else:
-                        setattr(param, IS_TENSOR_ZERO_PARALLEL, True)
-            elif self.optim.param_groups[group_id]["name"] == "embed_head":
-                # should be isp mode
-                for param in params:
-                    setattr(param, IS_TENSOR_DATA_PARALLEL, True)
-            elif self._is_moe_group(self.optim.param_groups[group_id]):
-                for param in params:
-                    setattr(param, IS_TENSOR_EXPERT_DATA_PARALLEL, True)
-            else:
-                raise NotImplementedError("unrecognized parameter group.")
-
-        vocab_grad_norm = None
-
-        if self._clip_grad_norm > 0:
-            vocab_grad_norm = compute_vocab_grad_norm(
-                grads,
-                params,
-                last_stage=last_stage,
-                previous_vocab_grad_norm=previous_vocab_grad_norm,
-                zero_mode=self._broadcast_parallel_mode[group_id],
-            )
-
-        if params_is_padding:
-            for param in params:
-                if hasattr(param, IS_REPLICA_ZERO_PARALLEL):
-                    delattr(param, IS_REPLICA_ZERO_PARALLEL)
-                if hasattr(param, IS_TENSOR_DATA_PARALLEL):
-                    delattr(param, IS_TENSOR_DATA_PARALLEL)
-                if hasattr(param, IS_TENSOR_ZERO_PARALLEL):
-                    delattr(param, IS_TENSOR_ZERO_PARALLEL)
-                if hasattr(param, IS_WEIGHT_ZERO_PARALLEL):
-                    delattr(param, IS_WEIGHT_ZERO_PARALLEL)
-                if hasattr(param, IS_TENSOR_EXPERT_DATA_PARALLEL):
-                    delattr(param, IS_TENSOR_EXPERT_DATA_PARALLEL)
-
-        return vocab_grad_norm
-
-    def _count_zero_grads_stage(
-        self, group_id: int = 0, last_bucket: bool = False, last_stage: bool = False, previous_zero_grad_count=None
-    ):
-        params, grads = self._param_store.get_reduced_param_for_compute_norm(group_id=group_id, last_bucket=last_bucket)
-        params_is_padding = False
-        total_zero_grad_count = {}
-
-        if len(params) == 0:
-            params_is_padding = True
-            dtype = self.param_groups[group_id]["dtype"]
-            grads = [self.padding_grad.to(dtype)]
-            params = [self.padding_tensor.to(dtype)]
-
-            if self.optim.param_groups[group_id]["name"] in ("default", "fp32"):
-                for param in params:
-                    if self.use_isp:
-                        setattr(param, IS_WEIGHT_ZERO_PARALLEL, True)
-                    else:
-                        setattr(param, IS_TENSOR_ZERO_PARALLEL, True)
-            elif self.optim.param_groups[group_id]["name"] == "embed_head":
-                # should be isp mode
-                for param in params:
-                    setattr(param, IS_TENSOR_DATA_PARALLEL, True)
-            elif self._is_moe_group(self.optim.param_groups[group_id]):
-                for param in params:
-                    setattr(param, IS_TENSOR_EXPERT_DATA_PARALLEL, True)
-            else:
-                raise NotImplementedError("unrecognized parameter group.")
-
-        if self._clip_grad_norm > 0:
-            total_zero_grad_count = compute_zero_grad_count(
-                grads,
-                params,
-                last_stage=last_stage,
-                previous_zero_grad_count=previous_zero_grad_count,
-                zero_mode=self._broadcast_parallel_mode[group_id],
-            )
-
-        if params_is_padding:
-            for param in params:
-                if hasattr(param, IS_REPLICA_ZERO_PARALLEL):
-                    delattr(param, IS_REPLICA_ZERO_PARALLEL)
-                if hasattr(param, IS_TENSOR_DATA_PARALLEL):
-                    delattr(param, IS_TENSOR_DATA_PARALLEL)
-                if hasattr(param, IS_TENSOR_ZERO_PARALLEL):
-                    delattr(param, IS_TENSOR_ZERO_PARALLEL)
-                if hasattr(param, IS_WEIGHT_ZERO_PARALLEL):
-                    delattr(param, IS_WEIGHT_ZERO_PARALLEL)
-                if hasattr(param, IS_TENSOR_EXPERT_DATA_PARALLEL):
-                    delattr(param, IS_TENSOR_EXPERT_DATA_PARALLEL)
-
-        return total_zero_grad_count
-
     @llm_timeout(func_name="optim_step")
     def step(self, closure=None):
         """Performs a single optimization step.
@@ -849,23 +681,10 @@ class HybridZeroOptimizer(BaseOptimizer):
             self._reduce_grads_stored_in_bucket(self._bucket_store[group_id], reduce_rank=None, last_bucket=True)
 
         # compute norm for gradients in the before bucket
-        grad_profiling_config = gpc.config.get("grad_profiling", {})
         groups_norms = []
-        groups_param_norms = []
-        group_param_zero_grad_count = []
-        group_vocab_norms = []
-        batch_count = gpc.config.get("batch_count")
-        interval_steps = grad_profiling_config.get("interval_steps", 1)
-        is_profiling = batch_count % interval_steps == 0 if batch_count is not None else False
+
         for group_id in range(self.num_param_groups):
             groups_norms.append(self._compute_norm_with_stage(group_id=group_id))
-            if is_profiling:
-                if grad_profiling_config.get("grad_norm_profiling", False):
-                    groups_param_norms.append(self._compute_param_norm_stage(group_id=group_id))
-                if grad_profiling_config.get("zero_grad_profiling", False):
-                    group_param_zero_grad_count.append(self._count_zero_grads_stage(group_id=group_id))
-                if grad_profiling_config.get("vocab_grad_norm_profiling", False):
-                    group_vocab_norms.append(self._compute_vocab_grad_norm_stage(group_id=group_id))
 
         # clear reduced grads
         # grads in the last bucket is reduced
@@ -877,11 +696,6 @@ class HybridZeroOptimizer(BaseOptimizer):
         self._param_store.clear_grads_of_previous_reduced_params()
         # compute norm for gradients in the last bucket
         total_norms = {}
-        total_param_grad_norms = {}
-        total_layer_grad_norms = {}
-        total_param_zero_grad_count = {}
-        total_layer_zero_grad_count = {}
-        total_vocab_grad_norms = {}
         for group_id in range(self.num_param_groups):
             group_name = self.param_groups[group_id]["name"] if "name" in self.param_groups[group_id] else "default"
             group_name = f"{group_id}_{group_name}"
@@ -891,56 +705,12 @@ class HybridZeroOptimizer(BaseOptimizer):
                 last_stage=True,
                 previous_norm=groups_norms[group_id],
             )
-            if is_profiling:
-                if grad_profiling_config.get("grad_norm_profiling", False):
-                    param_norms = self._compute_param_norm_stage(
-                        group_id=group_id,
-                        last_bucket=True,
-                        last_stage=True,
-                        previous_param_norms=groups_param_norms[group_id],
-                    )
-                    total_layer_grad_norms[group_name], total_param_grad_norms[group_name] = compute_layer_norm(
-                        param_norms=param_norms, loss_scale=self.loss_scale.item()
-                    )
-                if grad_profiling_config.get("zero_grad_profiling", False):
-                    zero_grad_count = self._count_zero_grads_stage(
-                        group_id=group_id,
-                        last_bucket=True,
-                        last_stage=True,
-                        previous_zero_grad_count=group_param_zero_grad_count[group_id],
-                    )
-                    (
-                        total_layer_zero_grad_count[group_name],
-                        total_param_zero_grad_count[group_name],
-                    ) = compute_layer_zero_grad_count(zero_grad_count)
-                if grad_profiling_config.get("vocab_grad_norm_profiling", False):
-                    vocab_grad_norms = self._compute_vocab_grad_norm_stage(
-                        group_id=group_id,
-                        last_bucket=True,
-                        last_stage=True,
-                        previous_vocab_grad_norm=group_vocab_norms[group_id],
-                    )
-                    inf_mask = vocab_grad_norms == -1
-                    nan_mask = vocab_grad_norms == -2
-                    vocab_grad_norms = vocab_grad_norms**0.5 / self.loss_scale.item()
-                    vocab_grad_norms[inf_mask] = -1
-                    vocab_grad_norms[nan_mask] = -2
-                    total_vocab_grad_norms[group_name] = vocab_grad_norms.to("cpu")
 
         timer("sync_grad").start()
         self._sync_grad()
         timer("sync_grad").stop()
 
         state, global_norms = self._step(closure=closure, norms=total_norms)
-        if is_profiling:
-            if grad_profiling_config.get("grad_norm_profiling", False):
-                global_norms["layer_grad_norm"] = total_layer_grad_norms
-                global_norms["param_grad_norm"] = total_param_grad_norms
-            if grad_profiling_config.get("zero_grad_profiling", False):
-                global_norms["layer_zero_grad"] = total_layer_zero_grad_count
-                global_norms["param_zero_grad"] = total_param_zero_grad_count
-            if grad_profiling_config.get("vocab_grad_norm_profiling", False):
-                global_norms["vocab_grad_norm"] = total_vocab_grad_norms
 
         return state, global_norms
 

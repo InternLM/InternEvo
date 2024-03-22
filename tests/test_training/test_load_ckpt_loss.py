@@ -1,28 +1,57 @@
 import multiprocessing as mp
-import os
-import random
-import shutil
-import socket
 
-import numpy as np
-import pytest
-import torch
-import torch.distributed as dist
+backup_ForkingPickler = mp.reduction.ForkingPickler
+backup_dump = mp.reduction.dump
+import os  # noqa: E402  #pylint: disable=wrong-import-position
+import random  # noqa: E402  #pylint: disable=wrong-import-position
+import shutil  # noqa: E402  #pylint: disable=wrong-import-position
+import socket  # noqa: E402  #pylint: disable=wrong-import-position
 
-import internlm
-from internlm.checkpoint import CheckpointManager
-from internlm.core.context import ParallelMode
-from internlm.core.context import global_context as gpc
-from internlm.core.context.parallel_context import Config
-from internlm.core.trainer import TrainState
-from internlm.data import build_train_loader_with_data_type
-from internlm.initialize.launch import args_sanity_check
-from internlm.model.losses import FlashGPTLMLoss
-from internlm.model.metrics import AccPerplex, SchedulerMetricHook
-from internlm.train import initialize_model, initialize_optimizer, load_new_batch
-from internlm.utils.common import launch_time
-from internlm.utils.logger import get_logger
-from internlm.accelerator import internlm_accelerator
+import numpy as np  # noqa: E402  #pylint: disable=wrong-import-position
+import pytest  # noqa: E402  #pylint: disable=wrong-import-position
+import torch  # noqa: E402  #pylint: disable=wrong-import-position
+import torch.distributed as dist  # noqa: E402  #pylint: disable=wrong-import-position
+
+import internlm  # noqa: E402  #pylint: disable=wrong-import-position
+from internlm.checkpoint import (  # noqa: E402  #pylint: disable=wrong-import-position
+    CheckpointManager,
+)
+from internlm.core.context import (  # noqa: E402  #pylint: disable=wrong-import-position
+    ParallelMode,
+)
+from internlm.core.context import (  # noqa: E402  #pylint: disable=wrong-import-position
+    global_context as gpc,
+)
+from internlm.core.context.parallel_context import (  # noqa: E402  #pylint: disable=wrong-import-position
+    Config,
+)
+from internlm.core.trainer import (  # noqa: E402  #pylint: disable=wrong-import-position
+    TrainState,
+)
+from internlm.data import (  # noqa: E402  #pylint: disable=wrong-import-position
+    build_train_loader_with_data_type,
+)
+from internlm.initialize.launch import (  # noqa: E402  #pylint: disable=wrong-import-position
+    args_sanity_check,
+)
+from internlm.model.losses import (  # noqa: E402  #pylint: disable=wrong-import-position
+    FlashGPTLMLoss,
+)
+from internlm.model.metrics import (  # noqa: E402  #pylint: disable=wrong-import-position
+    AccPerplex,
+    SchedulerMetricHook,
+)
+from internlm.train import (  # noqa: E402  #pylint: disable=wrong-import-position
+    initialize_model,
+    initialize_optimizer,
+    load_new_batch,
+)
+from internlm.utils.common import (  # noqa: E402  #pylint: disable=wrong-import-position
+    launch_time,
+)
+from internlm.utils.logger import (  # noqa: E402  #pylint: disable=wrong-import-position
+    get_logger,
+)
 
 logger = get_logger(__file__)
 
@@ -53,6 +82,7 @@ config = Config(
             valid_folder=os.path.join(
                 os.environ["share_path"], "quailty_assurance/0623_scratch_tokenized_filtered/val"
             ),
+            num_worker=0,
         ),
         model=dict(
             checkpoint=False,
@@ -166,7 +196,7 @@ def train_model(args):
     if train_round == 1:
         gpc.config.ckpt.enable_save_ckpt = False
         gpc.config.ckpt._add_item(
-            "load_ckpt_info", dict(path=f"local:{temp_folder}/5/", content=("all",), ckpt_type="internlm")
+            "load_ckpt_info", dict(path=f"local:{temp_folder}/5/", content=("all",), ckpt_type="internevo")
         )
     else:
         assert (
@@ -288,6 +318,8 @@ def train_model(args):
 
 
 def test_loss():
+    mp.reduction.ForkingPickler = backup_ForkingPickler
+    mp.reduction.dump = backup_dump
     results = []
     free_port = find_free_port()
     ctx = mp.get_context("spawn")

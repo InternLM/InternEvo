@@ -214,15 +214,6 @@ def calc_lp(grads, norm_type):
     return norm
 
 
-def calc_zero_grad(grads):
-    zero_count = 0
-    grad_size = 0
-    for grad in grads:
-        zero_count += (grad == 0).sum().item()
-        grad_size += grad.numel()
-    return torch.tensor([zero_count, grad_size])
-
-
 def get_norm(grads, norm_type, enable_cuda_kernels):
     if norm_type == inf:
         grad_norm = max(g.data.abs().max() for g in grads)
@@ -233,27 +224,8 @@ def get_norm(grads, norm_type, enable_cuda_kernels):
     return grad_norm
 
 
-def reduce_grads(gradients, parameters, weight_parallel_mode, fine_grained=False, only_output=False):
+def reduce_grads(gradients, parameters, weight_parallel_mode):
     parallel_grads = []
-    if fine_grained:
-        parallel_grads = {}
-
-    def append_grad(g, p):
-        if fine_grained:
-            param_name = p.param_name if hasattr(p, "param_name") else "unknown-padding"
-            if param_name not in parallel_grads:
-                parallel_grads[param_name] = []
-            parallel_grads[param_name].append(g.data.float())
-        elif only_output:
-            param_name = p.param_name if hasattr(p, "param_name") else "unknown-padding"
-            if (
-                gpc.config.model["vocab_size"] == g.shape[0] * gpc.get_world_size(ParallelMode.TENSOR)
-                and gpc.config.model["hidden_size"] == g.shape[1]
-                and "embedding" not in param_name.lower()
-            ):
-                parallel_grads.append(g.data.float())
-        else:
-            parallel_grads.append(g.data.float())
 
     for g, p in zip(gradients, parameters):
         # TODO: consider the pipeline shared parameter
@@ -262,7 +234,7 @@ def reduce_grads(gradients, parameters, weight_parallel_mode, fine_grained=False
             and hasattr(p, "pipeline_shared_module_pg")
             and dist.get_rank(p.pipeline_shared_module_pg) == 0
         ):  # if shared between different pipe, only count o
-            append_grad(g, p)
+            parallel_grads.append(g.data.float())
         elif (
             gpc.is_initialized(ParallelMode.PIPELINE)
             and hasattr(p, "pipeline_shared_module_pg")
@@ -272,19 +244,19 @@ def reduce_grads(gradients, parameters, weight_parallel_mode, fine_grained=False
         elif (
             is_replica_zero_parallel_parameter(p) and gpc.get_local_rank(weight_parallel_mode) == 0
         ):  # if not used in each chunk, such as layernorm IS_REPLICA_ZERO_PARALLEL parameter group
-            append_grad(g, p)
+            parallel_grads.append(g.data.float())
         elif is_tensor_data_parallel_parameter(p):
             # process all ranks for IS_TENSOR_DATA_PARALLEL parameter group
-            append_grad(g, p)
+            parallel_grads.append(g.data.float())
         elif is_tensor_zero_parallel_parameter(p):
             # process all ranks for IS_TENSOR_ZERO_PARALLEL parameter group
-            append_grad(g, p)
+            parallel_grads.append(g.data.float())
         elif is_weight_zero_parallel_parameter(p):
             # process all ranks for IS_WEIGHT_ZERO_PARALLEL parameter group
-            append_grad(g, p)
+            parallel_grads.append(g.data.float())
         elif is_tensor_expert_data_parallel_parameter(p):
             # process all ranks for IS_TENSOR_EXPERT_DATA_PARALLEL parameter group
-            append_grad(g, p)
+            parallel_grads.append(g.data.float())
         elif gpc.get_local_rank(weight_parallel_mode) != 0:
             continue
         else:
@@ -427,6 +399,7 @@ def compute_norm(
     return total_norm
 
 
+<<<<<<< HEAD
 def compute_vocab_grad_norm(
     gradients,
     parameters,
@@ -696,6 +669,8 @@ def compute_layer_zero_grad_count(param_zero_grad_count):
     return layer_zero_grad_count, param_zero_grad_count_groupby_layer
 
 
+=======
+>>>>>>> f2519d52f3e053372059c09620b1b7726920c386
 class BaseGradScaler(ABC):
     """A base class for the gradient scaler.
 

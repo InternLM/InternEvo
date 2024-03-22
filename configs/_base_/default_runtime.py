@@ -5,18 +5,6 @@ cudnn_benchmark = False
 
 enable_tb = True
 
-grad_profiling = dict(
-    # calculate layer norms and parameter norms, and show them on tensorboard
-    grad_norm_profiling=False,
-    # count zero gradients, and show them on tensorboard
-    zero_grad_profiling=False,
-    # [optional] layers displayed on tensorboard, default: layers=["ScaleColumnParallelLinear"]
-    # if not set, display all layers
-    layers=["ScaleColumnParallelLinear"],
-    vocab_grad_norm_profiling=False,
-    interval_steps=5,
-)
-
 grad_scaler = dict(
     fp16=dict(
         # the initial loss scale, defaults to 2**16
