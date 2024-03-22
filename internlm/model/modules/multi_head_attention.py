@@ -3,10 +3,12 @@
 
 import enum
 import math
+import time
 import warnings
 from typing import Optional
 
 import torch
+import torch.distributed as dist
 import torch.nn.functional as F
 from einops import rearrange
 from torch import nn
@@ -27,6 +29,7 @@ from internlm.model.modules.embedding import (
     RotaryEmbedding,
 )
 from internlm.model.ops.linear import get_linear_cls
+from internlm.utils.common import get_current_device
 
 
 class AttnType(enum.Enum):
@@ -103,10 +106,86 @@ def _update_kv_cache(kv, inference_params, layer_idx):
         return kv
 
 
-def get_attn_cls(attn_type: AttnType, tp_mode: str, attn_args: dict):
+def get_ltor_masks_and_position_ids(
+    data,
+    eod_token,
+    reset_attention_mask,
+    reset_position_ids=False,
+    eod_mask_loss=True,
+    gen_loss_mask=False,
+    gen_position_ids=False,
+):
+    """Build masks and position id for left to right model."""
+
+    # Extract batch size and sequence length.
+    micro_batch_size, seq_length = data.size()
+
+    # Attention mask (lower triangular).
+    if reset_attention_mask:
+        att_mask_batch = micro_batch_size
+    else:
+        att_mask_batch = 1
+
+    attention_mask = torch.tril(torch.ones((att_mask_batch, seq_length, seq_length), device=get_current_device())).view(
+        att_mask_batch, 1, seq_length, seq_length
+    )
+
+    # Loss mask.
+    if gen_loss_mask:
+        loss_mask = torch.ones(data.size(), dtype=torch.float, device=data.device)
+        if eod_mask_loss:
+            loss_mask[data == eod_token] = 0.0
+    else:
+        loss_mask = None
+
+    # Position ids.
+    position_ids = torch.arange(seq_length, dtype=torch.long, device=data.device)
+    position_ids = position_ids.unsqueeze(0).expand_as(data)
+    # We need to clone as the ids will be modifed based on batch index.
+    if reset_position_ids:
+        position_ids = position_ids.clone()
+
+    if reset_position_ids or reset_attention_mask:
+        # Loop through the batches:
+        for b in range(micro_batch_size):
+
+            # Find indecies where EOD token is.
+            eod_index = position_ids[b, data[b] == gpc.config.model.vocab_size + 1]
+            # Detach indecies from positions if going to modify positions.
+            if reset_position_ids:
+                eod_index = eod_index.clone()
+
+            # Loop through EOD indecies:
+            prev_index = 0
+            for j in range(eod_index.size()[0]):
+                i = eod_index[j]
+                # reset EOD token.
+                data[b][i] = eod_token
+                # Mask attention loss.
+                if reset_attention_mask:
+                    attention_mask[b, 0, (i + 1) :, : (i + 1)] = 0
+                # Reset positions.
+                if reset_position_ids:
+                    position_ids[b, (i + 1) :] -= i + 1 - prev_index
+                    prev_index = i + 1
+
+    # Convert attention mask to binary:
+    attention_mask = attention_mask < 0.5
+    return attention_mask, loss_mask, position_ids
+
+
+def get_attn_cls(attn_type: AttnType, tp_mode: str, use_gqa: bool, attn_args: dict):
     if attn_type == AttnType.FLASH:
-        inner_attn_cls = FlashSelfAttention
-        inner_cross_attn_cls = FlashCrossAttention
+        if not use_gqa:
+            inner_attn_cls = FlashSelfAttention
+            inner_cross_attn_cls = FlashCrossAttention
+        else:
+            from flash_attn.flash_attn_interface import (
+                flash_attn_varlen_kvpacked_func as flash_attn_unpadded_func,
+            )
+
+            inner_attn = flash_attn_varlen_kvpacked_func
+            inner_cross_attn = CrossAttention
     elif attn_type == AttnType.ASCEND_FLASH:
         inner_attn_cls = AscendFlashSelfAttention
         inner_cross_attn_cls = CrossAttention
@@ -116,17 +195,18 @@ def get_attn_cls(attn_type: AttnType, tp_mode: str, attn_args: dict):
     else:
         raise ValueError(f"Unexcept attention type: {attn_type}")
 
-    causal = attn_args.pop("causal")
-    softmax_scale = attn_args.pop("softmax_scale")
-    attention_dropout = attn_args.pop("attention_dropout")
-    sequence_process_group = attn_args.pop("sequence_process_group")
+    if not use_gqa:
+        causal = attn_args.pop("causal")
+        softmax_scale = attn_args.pop("softmax_scale")
+        attention_dropout = attn_args.pop("attention_dropout")
+        sequence_process_group = attn_args.pop("sequence_process_group")
 
-    inner_attn = inner_attn_cls(
-        causal=causal, softmax_scale=softmax_scale, attention_dropout=attention_dropout, **attn_args
-    )
-    inner_cross_attn = inner_cross_attn_cls(
-        causal=causal, softmax_scale=softmax_scale, attention_dropout=attention_dropout, **attn_args
-    )
+        inner_attn = inner_attn_cls(
+            causal=causal, softmax_scale=softmax_scale, attention_dropout=attention_dropout, **attn_args
+        )
+        inner_cross_attn = inner_cross_attn_cls(
+            causal=causal, softmax_scale=softmax_scale, attention_dropout=attention_dropout, **attn_args
+        )
 
     if tp_mode == "isp":
         inner_attn = DistributedAttention(inner_attn, sequence_process_group=sequence_process_group)
@@ -218,6 +298,7 @@ class MHA(nn.Module):
             process_group,
             bias=True,
             sequence_parallel=gpc.config.parallel.sequence_parallel,
+            comm_dim=0 if gpc.config.data.use_flash_style_data_format else 1,
             **factory_kwargs,
         )  # according to https://spaces.ac.cn/archives/9577
 
@@ -227,7 +308,7 @@ class MHA(nn.Module):
             "attention_dropout": dropout,
             "sequence_process_group": sequence_process_group,
         }
-        self.inner_attn, self.inner_cross_attn = get_attn_cls(attn_type, self.tp_mode, attn_args)
+        self.inner_attn, self.inner_cross_attn = get_attn_cls(attn_type, self.tp_mode, False, attn_args)
 
         # output projection always have the bias (for now)
         out_proj_cls = get_linear_cls(self.tp_mode, "row")
@@ -237,6 +318,7 @@ class MHA(nn.Module):
             process_group,
             bias=True,
             sequence_parallel=gpc.config.parallel.sequence_parallel,
+            comm_dim=0 if gpc.config.data.use_flash_style_data_format else 1,
             **factory_kwargs,
         )
 

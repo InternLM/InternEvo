@@ -56,7 +56,11 @@ from internlm.model.ops.linear import (
 from internlm.model.utils import is_moe_param, try_import_RMSNorm
 from internlm.monitor import send_heartbeat, set_env_var
 from internlm.monitor.monitor import monitor_manager as mm
-from internlm.solver.optimizer import FSDPadaptOptimizer, HybridZeroOptimizer
+from internlm.solver.optimizer import (
+    AscendAdamW,
+    FSDPadaptOptimizer,
+    HybridZeroOptimizer,
+)
 from internlm.solver.schedulers.beta2_scheduler import Beta2Scheduler
 from internlm.solver.schedulers.lr_scheduler import FineTuneCosineAnnealingWarmupLR
 from internlm.train.utils import create_param_groups
@@ -307,11 +311,20 @@ def initialize_optimizer(model: Union[nn.Module, nn.ModuleList], isp_communicato
 
     adam_cfg = gpc.config.adam
     params = create_param_groups(model, adam_cfg.weight_decay)
-    naive_optimizer = torch.optim.AdamW(
+    adam_extra_kwargs = {}
+    # set fused=True to avoid nan grad norm when model size is larger and use_fp32_norm=True
+    # if torch.__version__ >= "2.1.0":
+    #     adam_extra_kwargs["fused"] = True
+
+    # naive_optimizer = AscendAdamW(
+    import torch_npu
+
+    naive_optimizer = torch_npu.optim.NpuFusedAdamW(
         params=params,
         lr=adam_cfg.lr,
         betas=(adam_cfg.adam_beta1, adam_cfg.adam_beta2),
         eps=adam_cfg.adam_eps,
+        # **adam_extra_kwargs,
     )
 
     if not gpc.config.parallel.zero1.fsdp:
@@ -381,15 +394,11 @@ def load_new_batch(train_dl: DataLoader, train_iter: Iterable, train_state: Trai
         batch = next(train_iter)
         train_state.num_consumed_samples_in_epoch = 0
         if hasattr(train_state, "batch_sampler"):
+            train_state.batch_sampler.batch_count = 0
+            train_state.batch_sampler.num_consumed_samples_in_epoch = 0
             train_state.batch_sampler_iter = iter(train_state.batch_sampler)
             next(train_state.batch_sampler_iter)
     timer("batch-gen").stop()
-
-    # if use_flash_attn is False, we need to unpack type_ids
-    # if gpc.config.model.attn_type == AttnType.FLASH:
-    #     if batch[0].get("type_ids", None) is not None:
-    #         if not gpc.config.model.use_flash_attn:
-    #             batch[0]["type_ids"] = unpack_data(batch[0]["type_ids"], batch[0]["cu_seqlens"], is_type_ids=True)
 
     return batch, train_iter
 

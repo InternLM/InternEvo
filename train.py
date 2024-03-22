@@ -8,6 +8,7 @@ import time
 import traceback
 from functools import partial
 
+import torch
 import torch.distributed as dist
 
 import internlm

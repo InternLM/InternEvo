@@ -3,10 +3,11 @@
 
 # adopted from https://github.com/hpcaitech/ColossalAI/blob/main/colossalai/engine
 
+import os
 from contextlib import contextmanager
 from typing import Callable, List, Optional, Tuple, Union
 
-import torch.cuda
+import torch
 import torch.distributed as dist
 
 import internlm.core.communication as comm
@@ -49,11 +50,19 @@ def get_tensor_shape():
                     gpc.config.model["hidden_size"],
                 )
         else:
-            tensor_shape = (
-                gpc.config.data["micro_bsz"],
-                gpc.config.data["seq_len"],
-                gpc.config.model["hidden_size"],
-            )
+            if gpc.config.parallel.sequence_parallel:
+                sequence_world_size = gpc.get_world_size(ParallelMode.TENSOR)
+                tensor_shape = (
+                    gpc.config.data["micro_bsz"],
+                    gpc.config.data["seq_len"] // sequence_world_size,
+                    gpc.config.model["hidden_size"],
+                )
+            else:
+                tensor_shape = (
+                    gpc.config.data["micro_bsz"],
+                    gpc.config.data["seq_len"],
+                    gpc.config.model["hidden_size"],
+                )
         return tensor_shape
     else:
         return None
@@ -517,8 +526,17 @@ class PipelineScheduler(BaseScheduler):
         for i in range(num_warmup_microsteps):
             # Receive the input from the previous stage
             if not gpc.is_first_rank(ParallelMode.PIPELINE):
+                if "DEBUG_PP" in os.environ:
+                    print(
+                        f"PP: {gpc.get_local_rank(ParallelMode.PIPELINE)},forward_recv_shapes init: {forward_recv_shapes}",
+                        flush=True,
+                    )
                 if forward_recv_shapes is None:
                     forward_recv_shapes = comm.recv_obj_meta()
+                if "DEBUG_PP" in os.environ:
+                    logger.info(
+                        f"PP: {gpc.get_local_rank(ParallelMode.PIPELINE)}, Run warmup recv_forward :{forward_recv_shapes}"
+                    )
                 input_obj = comm.recv_forward(
                     forward_recv_shapes,
                     dtype=self.dtype,
@@ -536,6 +554,8 @@ class PipelineScheduler(BaseScheduler):
                 accum_loss=accum_loss,
                 accum_moe_loss=accum_moe_loss,
             )
+            if "DEBUG_PP" in os.environ:
+                logger.info(f"PP: {gpc.get_local_rank(ParallelMode.PIPELINE)}, Run warmup forward_step done")
 
             if not gpc.is_last_rank(ParallelMode.PIPELINE):
                 if isinstance(output_obj, torch.Tensor):
@@ -551,6 +571,10 @@ class PipelineScheduler(BaseScheduler):
             # forward computation
             if not gpc.is_last_rank(ParallelMode.PIPELINE):
                 assert output_obj.dtype == self.dtype
+                if "DEBUG_PP" in os.environ:
+                    logger.info(
+                        f"PP: {gpc.get_local_rank(ParallelMode.PIPELINE)}, Run warmup send_forward :{output_obj.shape}"
+                    )
                 comm.send_forward(output_obj, scatter_gather_tensors=self.scatter_gather_tensors)
 
             input_objs.append(input_obj)
@@ -561,8 +585,12 @@ class PipelineScheduler(BaseScheduler):
         # receive this tensor here.
         if num_1f1b_micropairs > 0:
             if not gpc.is_first_rank(ParallelMode.PIPELINE):
+                if "DEBUG_PP" in os.environ:
+                    logger.info(f"PP: {gpc.get_local_rank(ParallelMode.PIPELINE)}, before 1f1b :{forward_recv_shapes}")
                 if forward_recv_shapes is None:
                     forward_recv_shapes = comm.recv_obj_meta(forward_recv_shapes)
+                if "DEBUG_PP" in os.environ:
+                    logger.info(f"PP: {gpc.get_local_rank(ParallelMode.PIPELINE)}, before 1f1b :{forward_recv_shapes}")
                 input_obj = comm.recv_forward(
                     forward_recv_shapes,
                     dtype=self.dtype,
@@ -587,6 +615,10 @@ class PipelineScheduler(BaseScheduler):
                 output_obj_grad = None
             else:
                 assert output_obj.dtype == self.dtype
+                if "DEBUG_PP" in os.environ:
+                    logger.info(
+                        f"PP: {gpc.get_local_rank(ParallelMode.PIPELINE)}, 1f1b output_obj:{output_obj.shape}, backward_recv_shapes: {backward_recv_shapes}"
+                    )
                 output_obj_grad = comm.send_forward_recv_backward(
                     output_obj,
                     backward_recv_shapes,

@@ -14,6 +14,7 @@ import torch.distributed as dist
 from torch.utils.data import ConcatDataset, Dataset
 from tqdm import tqdm
 
+from internlm.core.context import ParallelMode
 from internlm.core.context import global_context as gpc
 from internlm.data.tokenized.single_dataset import JsonlDataset
 from internlm.data.utils import get_dataset_type_id, get_dataset_type_ids_map
@@ -94,9 +95,9 @@ packed_dataset_type = {
 }
 
 
-class DatasetWithPadding(torch.utils.data.Dataset):
+class DatasetWithPad(torch.utils.data.Dataset):
     """
-    The class PackedDataset takes in a dataset and aggregates samples of different
+    The class DatasetWithPad takes in a dataset and aggregates samples of different
     lengths together based on the packed_length.
 
     Args:
@@ -178,6 +179,9 @@ class DatasetWithPadding(torch.utils.data.Dataset):
                 chunk = sample["tokens"][0:length]
                 token_length = len(chunk)
                 padding_length = self.max_length_per_sample - token_length
+                if chunk[length - 1] == self.eos_token:
+                    chunk[length - 1] = gpc.config.model.vocab_size + 1
+
                 chunk = np.pad(chunk, (0, padding_length), "constant", constant_values=(self.eos_token, self.eos_token))
 
                 label = np.array(list(chunk[1:]) + [self.eos_token])
@@ -203,7 +207,6 @@ class DatasetWithPadding(torch.utils.data.Dataset):
         {
          'tokens': List[int],
          'cu_seqlens': List[int],
-         'indexes': List[int], # denotes positional vector as 'tokens'
          'labels': List[int], # corresponds to 'tokens' and shifted yet, -100 means skipping prediction
         }
         """
@@ -251,7 +254,7 @@ class PackedDataset(torch.utils.data.Dataset):
         return self.build_pack(item)
 
 
-class DatasetWithoutCuSeqlen(torch.utils.data.Dataset):
+class DatasetPackIntoOne(torch.utils.data.Dataset):
     """
     A dataset wrapper that aggregates samples with different lengths based on packed_length.
     If a sample is shorter than max_length_per_sample, it will be merged with other samples.
@@ -411,7 +414,7 @@ class DatasetWithoutCuSeqlen(torch.utils.data.Dataset):
             }
 
 
-class PackedDatasetWithCut(PackedDataset):
+class DatasetWithCut(PackedDataset):
     """
     The class PackedDataset takes in a dataset and aggregates samples of different
     lengths together based on the packed_length using cut mode.
@@ -615,7 +618,8 @@ def get_packed_dataset_without_short_length(
                     continue
 
                 if pack_sample_into_one:
-                    ds = DatasetWithoutCuSeqlen(
+                    assert break_mode == "cut", "pack_sample_into_one only support cut mode"
+                    ds = DatasetPackIntoOne(
                         ds,
                         max_length_per_sample,
                         packed_length,
@@ -623,10 +627,12 @@ def get_packed_dataset_without_short_length(
                     )
                 else:
                     if break_mode == "cut":
-                        assert use_flash_style_data_format is True
-                        ds = PackedDatasetWithCut(ds, max_length_per_sample, packed_length)
+                        assert (
+                            use_flash_style_data_format is True
+                        ), "If pack_sample_into_one is False and using cut mode, must set use_flash_style_data_format is True"
+                        ds = DatasetWithCut(ds, max_length_per_sample, packed_length)
                     elif break_mode == "pad":
-                        ds = DatasetWithPadding(
+                        ds = DatasetWithPad(
                             ds,
                             max_length_per_sample,
                             packed_length,
@@ -681,10 +687,6 @@ def test_npu_fa_packed_sample_into_one_batch(batch):
         token_batch["input_ids"] = torch.unsqueeze(token_batch["input_ids"], 1)  # -> [micro_num, micro_bsz, seqlen]
         token_batch["attention_mask"] = attention_mask_list
         token_batch.pop("indexes")
-
-        #         print(f"DP: {gpc.get_local_rank(ParallelMode.DATA)}, input_ids.shape: {token_batch['input_ids'].shape},\
-        # cu_seqlens.shape: {token_batch['cu_seqlens'].shape}, \
-        # # type_ids.shape: {token_batch['type_ids'].shape}, labels: {batch[1].shape}", flush=True)
 
         batch = (token_batch, batch[1])
 

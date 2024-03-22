@@ -4,12 +4,14 @@
 # adopted from https://github.com/hpcaitech/ColossalAI/blob/main/colossalai/engine
 
 import os
+import time
 from abc import ABC, abstractmethod
 from typing import Any, Callable, Dict, Iterable
 
 import torch
 
 from internlm.core.engine import Engine
+from internlm.utils.common import get_current_device
 
 
 class BaseScheduler(ABC):
@@ -65,11 +67,22 @@ class BaseScheduler(ABC):
             # squeeze the dim of micro num.
             micro_batch_data["input_ids"] = micro_batch_data["input_ids"].squeeze(0)
         else:
-            micro_batch_data = {k: v[offset] for k, v in data.items()}
+            micro_batch_data = {k: v[offset].to(get_current_device()) for k, v in data.items()}
             micro_batch_label = label[offset]
 
             micro_batch_data.pop("cu_seqlens", None)
             micro_batch_data.pop("indexes", None)
+
+            from internlm.model.modules.multi_head_attention import (
+                get_ltor_masks_and_position_ids,
+            )
+
+            attention_mask, _, _ = get_ltor_masks_and_position_ids(
+                data=micro_batch_data["input_ids"],
+                eod_token=2,
+                reset_attention_mask=True,
+            )
+            micro_batch_data.update({"attention_mask": attention_mask})
 
         if "DEBUG_DATA_SHAPE" in os.environ:
             attention_mask_shape = (

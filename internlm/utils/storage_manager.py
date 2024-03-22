@@ -31,11 +31,10 @@ import dill
 import torch  # noqa: E402  #pylint: disable=wrong-import-position
 import torch.distributed as dist  # noqa: E402  #pylint: disable=wrong-import-position
 
-# dill.Pickler.dumps, dill.Pickler.loads = dill.dumps, dill.loads
-# multiprocessing.reduction.ForkingPickler = dill.Pickler
-# multiprocessing.reduction.dump = dill.dump
-
-
+if "USE_DILL_PICKLER" in os.environ:
+    dill.Pickler.dumps, dill.Pickler.loads = dill.dumps, dill.loads
+    multiprocessing.reduction.ForkingPickler = dill.Pickler
+    multiprocessing.reduction.dump = dill.dump
 
 try:
     import boto3
@@ -1285,4 +1284,3 @@ def get_storage_manager():
 def wait_async_upload_finish():
     dist.barrier()
     storage_manager.wait()
-                                          

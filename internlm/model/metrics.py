@@ -147,6 +147,7 @@ class AccPerplex:
 
             acc = corrects.sum()
             torch.distributed.all_reduce(acc, op=torch.distributed.ReduceOp.SUM, group=self.tp_pg)
+            torch.npu.synchronize()
             self.right += acc  # Masked_fill is not needed here because -100 is not available anyway
             self.total += mask.sum()
             # Subtract the maximum value.

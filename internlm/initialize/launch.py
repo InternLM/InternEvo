@@ -352,19 +352,19 @@ def args_sanity_check():
             check_megablock_installed()
             check_stk_installed()
 
-    # model._add_item("parallel_output", model.get("parallel_output", False))
-    # if model.attn_type != AttnType.FLASH:
-    #     if gpc.is_rank_for_log():
-    #         logger.warning('parallel_output must set as False when not use Flash attention')
-    #     gpc.config.model.parallel_output = False
+    model._add_item("parallel_output", model.get("parallel_output", False))
+    if model.attn_type != AttnType.FLASH:
+        if gpc.is_rank_for_log():
+            logger.warning("parallel_output must set as False when not use Flash attention")
+        gpc.config.model.parallel_output = False
 
     # process the parallel config
     if "sequence_parallel" not in gpc.config.parallel:
         gpc.config.parallel._add_item("sequence_parallel", False)
-    else:
-        assert not (
-            gpc.config.parallel.sequence_parallel is True and gpc.config.model.use_flash_attn is False
-        ), "sequence parallel does not support use_flash_attn=False"
+    # else:
+    #     assert not (
+    #         gpc.config.parallel.sequence_parallel is True and gpc.config.model.use_flash_attn is False
+    #     ), "sequence parallel does not support use_flash_attn=False"
 
     # set default value for tensor parallel
     if isinstance(gpc.config.parallel["tensor"], int):

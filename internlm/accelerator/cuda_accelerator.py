@@ -206,3 +206,6 @@ class CUDA_Accelerator(Accelerator):
 
     def return_custom_bwd(self):
         return torch.cuda.amp.custom_bwd
+
+    def return_custom_fwd(self):
+        return torch.cuda.amp.custom_fwd

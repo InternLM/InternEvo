@@ -12,14 +12,14 @@ from internlm.data.tokenized.batch_sampler import (
 )
 from internlm.data.tokenized.collaters import (
     jsonl_ds_collate_fn,
+    nopack_collate_fn,
     packed_collate_fn,
-    packed_collate_fn_nopack,
 )
 from internlm.data.tokenized.dataset import get_dataset_dict
 from internlm.data.tokenized.dummy_dataset import RandomDataset
 from internlm.data.tokenized.packed_dataset import (
-    DatasetWithoutCuSeqlen,
-    PackedDatasetWithCut,
+    DatasetPackIntoOne,
+    DatasetWithCut,
     get_packed_dataset_without_short_length,
 )
 from internlm.data.utils import get_dataset_type_ids_map
@@ -36,14 +36,14 @@ def get_tokenized_train_loader_items(data_cfg):
         train_ds = RandomDataset(num_samples=1000000, max_len=data_cfg.seq_len)
 
         if data_cfg.pack_sample_into_one:
-            train_ds = DatasetWithoutCuSeqlen(
+            train_ds = DatasetPackIntoOne(
                 train_ds, max_length_per_sample=data_cfg.seq_len, packed_length=data_cfg.packed_length
             )
         else:
             assert (
                 gpc.config.model.attn_type != AttnType.ASCEND_FLASH
             ), "NPU flash attention can't support dummy data with 'pack_sample_into_one' is False!"
-            train_ds = PackedDatasetWithCut(
+            train_ds = DatasetWithCut(
                 train_ds, max_length_per_sample=data_cfg.seq_len, packed_length=data_cfg.packed_length
             )
     else:
@@ -76,7 +76,7 @@ def get_tokenized_train_loader_items(data_cfg):
         train_collate_fn = partial(packed_collate_fn, packed_length=data_cfg.packed_length)
     else:
         train_collate_fn = partial(
-            packed_collate_fn_nopack,
+            nopack_collate_fn,
             packed_length=data_cfg.packed_length,
             eos_token=data_cfg.eos_token,
             gen_attn_mask=gen_attn_mask,

@@ -14,7 +14,6 @@ from internlm.core.context import global_context as gpc
 from ..utils import gather_forward_split_backward, split_forward_gather_backward
 
 
-
 class Embedding1D(nn.Module):
     """
     1D Embedding.
@@ -129,6 +128,78 @@ def apply_rotary_packed_torch(x1, x2, cos, sin, conj):
         out2 = x1 * sin + x2 * cos
 
     return out1, out2
+
+
+class TorchApplyRotaryEmb(torch.autograd.Function):
+    """
+    TorchApplyRotaryEmb
+    """
+
+    @staticmethod
+    def forward(ctx, x, cos, sin, interleaved=False):
+        """
+            x: (batch_size, seqlen, nheads, headdim)
+            cos, sin: (seqlen, rotary_dim / 2)
+            interleaved: if True, rotate pairs of even and odd dimensions (GPT-J style) instead
+                of 1st half and 2nd half (GPT-NeoX style).
+        rotary_dim must be <= headdim
+        Apply rotary embedding to the first rotary_dim of x.
+        """
+        _, seqlen, _, headdim = x.shape
+        rotary_seqlen, rotary_dim = cos.shape
+        rotary_dim *= 2
+        assert rotary_dim <= headdim
+        assert seqlen <= rotary_seqlen
+        assert sin.shape == (rotary_seqlen, rotary_dim // 2)
+        x_ro = x[..., :rotary_dim]
+        x1, x2 = x_ro.chunk(2, dim=-1) if not interleaved else (x_ro[..., ::2], x_ro[..., 1::2])
+
+        if gpc.config.model.use_flash_attn:
+            import rotary_emb
+
+            print(f"ht debug before rotary_emb.apply_rotary", flush=True)
+
+            rotary_emb.apply_rotary(
+                x1, x2, rearrange(cos[:seqlen], "s d -> s 1 d"), rearrange(sin[:seqlen], "s d -> s 1 d"), x1, x2, False
+            )
+            print(f"ht debug after rotary_emb.apply_rotary", flush=True)
+        else:
+            x1, x2 = apply_rotary_packed_torch(
+                x1, x2, rearrange(cos[:seqlen], "s d -> s 1 d"), rearrange(sin[:seqlen], "s d -> s 1 d"), False
+            )
+        ctx.save_for_backward(cos, sin)
+        ctx.interleaved = interleaved
+        return x
+
+    @staticmethod
+    def backward(ctx, do):
+        cos, sin = ctx.saved_tensors
+        _, seqlen, _, _ = do.shape
+        rotary_dim = cos.shape[-1]
+        rotary_dim *= 2
+        do_ro = do[..., :rotary_dim]
+        do1, do2 = do_ro.chunk(2, dim=-1) if not ctx.interleaved else (do_ro[..., ::2], do_ro[..., 1::2])
+
+        if gpc.config.model.use_flash_attn:
+            import rotary_emb
+
+            rotary_emb.apply_rotary(
+                do1,
+                do2,
+                rearrange(cos[:seqlen], "s d -> s 1 d"),
+                rearrange(sin[:seqlen], "s d -> s 1 d"),
+                do1,
+                do2,
+                True,
+            )
+        else:
+            do1, do2 = apply_rotary_packed_torch(
+                do1, do2, rearrange(cos[:seqlen], "s d -> s 1 d"), rearrange(sin[:seqlen], "s d -> s 1 d"), True
+            )
+        return do, None, None, None, None
+
+
+apply_torch_rotary_emb = TorchApplyRotaryEmb.apply
 
 
 class ApplyRotaryEmb(torch.autograd.Function):
@@ -431,15 +502,6 @@ class RotaryEmbedding(torch.nn.Module):
         self.dim = dim
         self.base = base
         self.inv_freq = 1.0 / (base ** (torch.arange(0, dim, 2, device=device, dtype=torch.float32) / dim))
-
-        # self.inv_freq1 = torch.tensor([1.0], device=device)
-        # self.inv_freq2 = torch.tensor([base], device=device)
-        # self.inv_freq3 = torch.arange(0, dim, 2, device=device, dtype=torch.float32)
-        # self.inv_freq4 = torch.tensor([dim], device=device)
-        # self.inv_freq5 = self.inv_freq2 ** self.inv_freq3
-        # self.inv_freq6 = self.inv_freq5 / self.inv_freq4
-        # self.inv_freq7 = self.inv_freq1 / self.inv_freq6
-        # self.inv_freq =  self.inv_freq7
         self.scale_base = scale_base
         self.scale = (
             (torch.arange(0, dim, 2, device=device, dtype=torch.float32) + 0.4 * dim) / (1.4 * dim)
@@ -525,9 +587,14 @@ class RotaryEmbedding(torch.nn.Module):
         assert self.scale is None
         self._update_cos_sin_cache(x, indexes)
         x = x[None, ...]
-        ret = apply_rotary_emb(
-            x, self._cos_cached[indexes], self._sin_cached[indexes], False, False, 0, cu_seqlens, max_seqlen
+        print(f"ht debug before apply_torch_rotary_emb", flush=True)
+        ret = apply_torch_rotary_emb(
+            x,
+            self._cos_cached[indexes],
+            self._sin_cached[indexes],
         ).squeeze(0)
+
+        print(f"ht debug after apply_torch_rotary_emb", flush=True)
         return ret
 
     def _single_eval_forward(self, x, seqlen_offset=0):

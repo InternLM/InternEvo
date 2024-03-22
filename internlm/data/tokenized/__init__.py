@@ -1,13 +1,13 @@
 from .batch_sampler import get_dpsampler_dataloader
 from .collaters import jsonl_ds_collate_fn, packed_collate_fn
 from .dummy_dataset import RandomDataset
-from .packed_dataset import DatasetWithoutCuSeqlen, PackedDatasetWithCut
+from .packed_dataset import DatasetPackIntoOne, DatasetWithCut
 
 __all__ = [
     "jsonl_ds_collate_fn",
     "packed_collate_fn",
     "RandomDataset",
-    "PackedDatasetWithCut",
-    "DatasetWithoutCuSeqlen",
+    "DatasetWithCut",
+    "DatasetPackIntoOne",
     "get_dpsampler_dataloader",
 ]

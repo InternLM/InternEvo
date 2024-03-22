@@ -7,6 +7,7 @@ import torch.nn.functional as F
 from einops import rearrange
 from torch import nn
 
+from internlm.accelerator import internlm_accelerator
 from internlm.core.context import ParallelMode
 from internlm.core.context.parallel_context import global_context as gpc
 from internlm.initialize.initialize_tensor import (
@@ -42,7 +43,6 @@ from internlm.solver.pipeline_utils import partition_uniform
 from internlm.utils.common import filter_kwargs
 from internlm.utils.logger import get_logger
 from internlm.utils.registry import MODEL_INITIALIZER
-from internlm.accelerator import internlm_accelerator
 
 MODEL_TYPE = "INTERNLM2_PUBLIC"
 
@@ -999,7 +999,7 @@ class PackedFlashLlama1D(nn.Module):
             else:  # Training
                 hidden_states = self.output(hidden_states, gather_dim=0, tp_mode=self.tp_mode)
 
-        if not self.parallel_output:
+        if not self.parallel_output and gpc.is_pipeline_last_stage():
             hidden_states = gather_forward_split_backward(hidden_states, ParallelMode.TENSOR, dim=-1)
 
         return hidden_states

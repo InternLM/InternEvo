@@ -10,6 +10,7 @@ import torch
 import torch.distributed as dist
 from torch.optim import Optimizer
 
+from internlm.accelerator import internlm_accelerator
 from internlm.core.communication.utils import ParamAsyncBcastHandler
 from internlm.core.context import IS_REPLICA_ZERO_PARALLEL, Config, ParallelMode
 from internlm.core.context import global_context as gpc
@@ -123,7 +124,7 @@ class HybridZeroOptimizer(BaseOptimizer):
             hysteresis=hysteresis,
             max_scale=max_scale,
         )
-        self._found_overflow = torch.cuda.FloatTensor([0], device=get_current_device())
+        self._found_overflow = internlm_accelerator.FloatTensor([0], device=get_current_device())
 
         # gradient clipping
         self._clip_grad_norm = clip_grad_norm
@@ -615,12 +616,15 @@ class HybridZeroOptimizer(BaseOptimizer):
             grads = [self.padding_grad.to(dtype)]
             params = [self.padding_tensor.to(dtype)]
 
-            if self.optim.param_groups[group_id]["name"] in ("default", "fp32"):
+            if self.optim.param_groups[group_id]["name"] == "default":
                 for param in params:
                     if self.use_isp:
                         setattr(param, IS_WEIGHT_ZERO_PARALLEL, True)
                     else:
                         setattr(param, IS_TENSOR_ZERO_PARALLEL, True)
+            elif self.optim.param_groups[group_id]["name"] == "fp32":
+                for param in params:
+                    setattr(param, IS_REPLICA_ZERO_PARALLEL, True)
             elif self.optim.param_groups[group_id]["name"] == "embed_head":
                 # should be isp mode
                 for param in params:
@@ -676,6 +680,9 @@ class HybridZeroOptimizer(BaseOptimizer):
                         setattr(param, IS_WEIGHT_ZERO_PARALLEL, True)
                     else:
                         setattr(param, IS_TENSOR_ZERO_PARALLEL, True)
+            elif self.optim.param_groups[group_id]["name"] == "fp32":
+                for param in params:
+                    setattr(param, IS_REPLICA_ZERO_PARALLEL, True)
             elif self.optim.param_groups[group_id]["name"] == "embed_head":
                 # should be isp mode
                 for param in params:
@@ -721,7 +728,7 @@ class HybridZeroOptimizer(BaseOptimizer):
             grads = [self.padding_grad.to(dtype)]
             params = [self.padding_tensor.to(dtype)]
 
-            if self.optim.param_groups[group_id]["name"] in ("default", "fp32"):
+            if self.optim.param_groups[group_id]["name"] == "default":
                 for param in params:
                     if self.use_isp:
                         setattr(param, IS_WEIGHT_ZERO_PARALLEL, True)
@@ -1040,7 +1047,7 @@ class HybridZeroOptimizer(BaseOptimizer):
                     )
                     fp32_param = self._fp32_flat_param_groups_of_current_rank[group_id]
                     fp16_param.data.copy_(fp32_param)
-        torch.cuda.synchronize()
+        internlm_accelerator.synchronize()
         self.broadcast_params()
 
         timer("step").stop()
@@ -1193,4 +1200,3 @@ def reload_zero_fp32_buff(optimizer):
                 )
                 # param_group["params"] is fp32 flatten optimizer states of this zero rank.
                 param_group["params"][0].data.copy_(fp16_flat_current_rank.float())
-                                                                          

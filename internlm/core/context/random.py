@@ -3,11 +3,11 @@
 # adopted from https://github.com/hpcaitech/ColossalAI/blob/main/colossalai/context
 
 from contextlib import contextmanager
-from internlm.accelerator import internlm_accelerator
 
 import torch
-import torch.cuda
 from torch import Tensor
+
+from internlm.accelerator import internlm_accelerator
 
 from .process_group_initializer import ParallelMode
 

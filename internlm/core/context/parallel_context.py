@@ -4,6 +4,7 @@
 # adopted from https://github.com/hpcaitech/ColossalAI/blob/main/colossalai/context
 
 import inspect
+import os
 import random
 import socket
 import sys
@@ -14,9 +15,9 @@ from typing import Union
 
 import numpy as np
 import torch
-import os
 import torch.distributed as dist
 
+from internlm.accelerator import AcceleratorType, internlm_accelerator
 from internlm.utils.common import SingletonMeta
 from internlm.utils.logger import get_logger
 from internlm.utils.timeout import LLM_NCCL_TIMEOUT
@@ -24,7 +25,6 @@ from internlm.utils.timeout import LLM_NCCL_TIMEOUT
 from . import process_group_initializer as pgroup_initializer
 from .process_group_initializer import ParallelMode
 from .random import add_seed, get_seeds, set_mode
-from internlm.accelerator import internlm_accelerator, AcceleratorType
 
 IS_REPLICA_ZERO_PARALLEL = "is_replica_zero_parallel"
 # for isp, with optimizer split in dp group
@@ -203,9 +203,9 @@ class ParallelContext(metaclass=SingletonMeta):
         hostname_list = [None for _ in range(self.get_world_size(ParallelMode.GLOBAL))]
 
         if internlm_accelerator.get_accelerator_name() == AcceleratorType.NPU:
-            if "A+K" in os.environ:
+            if "A_K" in os.environ:
                 self.num_processes_on_current_node = 8
-            elif "A+X" in os.environ:
+            elif "A_X" in os.environ:
                 self.num_processes_on_current_node = 16
             else:
                 self.num_processes_on_current_node = 8
