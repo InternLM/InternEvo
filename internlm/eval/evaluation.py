@@ -49,21 +49,11 @@ def switch_evaluation_pipeline_scheduler(trainer, num_microbatches, tensor_shape
 
 @contextmanager
 def switch_evaluation_mode():
-    prev_seq = gpc.config.parallel.sequence_parallel
     prev_eval = gpc.is_evaluating
     try:
         gpc.is_evaluating = True
-
-        # when training x.shape is torch.Size([1024, 4096]), linear all gather in dim=0(sequence dim)
-        # but evaluation x.shape is torch.Size([1, 1024, 4096]), gather in dim=0 is error.
-        if gpc.config.parallel["tensor"]["mode"] == "isp":
-            gpc.config.parallel.sequence_parallel = True
-        else:
-            gpc.config.parallel.sequence_parallel = False
-
         yield
     finally:
-        gpc.config.parallel.sequence_parallel = prev_seq
         gpc.is_evaluating = prev_eval
 
 

@@ -414,11 +414,7 @@ class PackedFlashInternLm1D(nn.Module):
         if hasattr(self, "norm"):
             hidden_states = self.norm(hidden_states.float())
         if hasattr(self, "head"):
-            # Evaluation
-            if hidden_states.ndim == 3:
-                hidden_states = self.head(hidden_states, gather_dim=1, tp_mode=self.tp_mode)
-            else:  # Training
-                hidden_states = self.head(hidden_states, gather_dim=0, tp_mode=self.tp_mode)
+            hidden_states = self.head(hidden_states, tp_mode=self.tp_mode)
 
         if not self.parallel_output and gpc.is_pipeline_last_stage():
             hidden_states = gather_forward_split_backward(hidden_states, ParallelMode.TENSOR, dim=-1)

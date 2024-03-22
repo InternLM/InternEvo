@@ -49,11 +49,19 @@ def get_tensor_shape():
                     gpc.config.model["hidden_size"],
                 )
         else:
-            tensor_shape = (
-                gpc.config.data["micro_bsz"],
-                gpc.config.data["seq_len"],
-                gpc.config.model["hidden_size"],
-            )
+            if gpc.config.parallel.sequence_parallel:
+                sequence_world_size = gpc.get_world_size(ParallelMode.TENSOR)
+                tensor_shape = (
+                    gpc.config.data["micro_bsz"],
+                    gpc.config.data["seq_len"] // sequence_world_size,
+                    gpc.config.model["hidden_size"],
+                )
+            else:
+                tensor_shape = (
+                    gpc.config.data["micro_bsz"],
+                    gpc.config.data["seq_len"],
+                    gpc.config.model["hidden_size"],
+                )
         return tensor_shape
     else:
         return None

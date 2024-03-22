@@ -81,15 +81,20 @@ class DistributedAttention(torch.nn.Module):
         self._scatter_gather_idx["q"] = [1, 0]  # q/k/v shape: [sequence, head, head_dim]
         self._scatter_gather_idx["output"] = [0, 1]  # output shape: [sequence, head, head_dim]
 
+        self.eval_scatter_gather_idx = {key: [x + 1 for x in value] for key, value in self._scatter_gather_idx.items()}
+
+    def try_switch_all2all_op_dim(self):
+        if gpc.is_evaluating is True or gpc.config.model.use_flash_attn is False:
+            # when not use varlen flash attention, the scatter and gather index should add 1.
+            return self.eval_scatter_gather_idx
+        else:
+            return self._scatter_gather_idx
+
     def forward(
         self, qkv: Tensor = None, kv: Tensor = None, q: Tensor = None, k: Tensor = None, v: Tensor = None, **kwargs: Any
     ) -> Tensor:
-        if gpc.is_evaluating is True:
-            # when conducting evaluation, the scatter and gather index should add 1.
-            eval_scatter_gather_idx = {key: [x + 1 for x in value] for key, value in self._scatter_gather_idx.items()}
-            return self._forward(qkv=qkv, kv=kv, q=q, k=k, v=v, scatter_gather=eval_scatter_gather_idx, **kwargs)
-        else:
-            return self._forward(qkv=qkv, kv=kv, q=q, k=k, v=v, scatter_gather=self._scatter_gather_idx, **kwargs)
+        a = self._forward(qkv=qkv, kv=kv, q=q, k=k, v=v, scatter_gather=self.try_switch_all2all_op_dim(), **kwargs)
+        return a
 
     def _forward(
         self,

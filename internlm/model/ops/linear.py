@@ -10,11 +10,11 @@ from torch.distributed import ProcessGroup
 from internlm.core.context import ParallelMode
 from internlm.core.context import global_context as gpc
 from internlm.model.utils import (
-    all_reduce,
     fused_dense_func,
     isp_fused_dense_func,
     megatron_fused_dense_func,
-    reduce_scatter,
+    tp_sp_reduce_module,
+    try_switch_scatter_gather_op_dim,
 )
 from internlm.utils.logger import get_logger
 
@@ -62,7 +62,7 @@ class ScaleColumnParallelLinear(BaseScaleColumnParallelLinear):
     ScaleColumnParallelLinear in flash implementation.
     """
 
-    def forward(self, input, gather_dim=0, tp_mode: str = "mtp"):  # pylint: disable=W0622
+    def forward(self, input, tp_mode: str = "mtp"):  # pylint: disable=W0622
         # If self.sequence_parallel is True, we're doing Tensor Parallel with sequence parallelism:
         # we do an all_gather of x before doing the matmul.
         # If not, then the input is already gathered.
@@ -78,7 +78,7 @@ class ScaleColumnParallelLinear(BaseScaleColumnParallelLinear):
             self.bias,
             process_group=self.process_group,
             sequence_parallel=gpc.config.parallel.sequence_parallel,
-            gather_dim=gather_dim,
+            gather_dim=try_switch_scatter_gather_op_dim(),
         )
 
 
@@ -121,7 +121,7 @@ class ScaleColumnParallelLinearWithNormHead(BaseScaleColumnParallelLinear):
         self.first_eval_flag = True
         self.tmp_weight = None
 
-    def forward(self, input, gather_dim=0, tp_mode: str = "mtp"):  # pylint: disable=W0622
+    def forward(self, input, tp_mode: str = "mtp"):  # pylint: disable=W0622
         if self.weight_scale != 1:
             weight = self.weight * self.weight_scale + (1 - self.weight_scale) * self.weight.detach()
         else:
@@ -149,7 +149,7 @@ class ScaleColumnParallelLinearWithNormHead(BaseScaleColumnParallelLinear):
             self.bias,
             process_group=self.process_group,
             sequence_parallel=gpc.config.parallel.sequence_parallel,
-            gather_dim=gather_dim,
+            gather_dim=try_switch_scatter_gather_op_dim(),
         )
 
 
@@ -199,6 +199,7 @@ class RewardModelLinear(BaseScaleColumnParallelLinear):
             self.bias,
             process_group=self.process_group,
             sequence_parallel=gpc.config.parallel.sequence_parallel,
+            gather_dim=try_switch_scatter_gather_op_dim(),
         )
 
 
@@ -243,7 +244,7 @@ class ColumnParallelLinearTorch(nn.Linear):
         self.process_group = process_group
         self.sequence_parallel = sequence_parallel
 
-    def forward(self, x, gather_dim=0):
+    def forward(self, x):
         # If self.sequence_parallel is True, we're doing Tensor Parallel with sequence parallelism:
         # we do an all_gather of x before doing the matmul.
         # If not, then the input is already gathered.
@@ -253,7 +254,7 @@ class ColumnParallelLinearTorch(nn.Linear):
             self.bias,
             process_group=self.process_group,
             sequence_parallel=self.sequence_parallel,
-            gather_dim=gather_dim,
+            gather_dim=try_switch_scatter_gather_op_dim(),
         )
 
 
@@ -262,7 +263,7 @@ class MegatronColumnParallelLinearTorch(ColumnParallelLinearTorch):
     MegatronColumnParallelLinearTorch
     """
 
-    def forward(self, x, gather_dim=0):
+    def forward(self, x):
         # If self.sequence_parallel is True, we're doing Tensor Parallel with sequence parallelism:
         # we do an all_gather of x before doing the matmul.
         # If not, then the input is already gathered.
@@ -272,7 +273,7 @@ class MegatronColumnParallelLinearTorch(ColumnParallelLinearTorch):
             self.bias,
             process_group=self.process_group,
             sequence_parallel=self.sequence_parallel,
-            gather_dim=gather_dim,
+            gather_dim=try_switch_scatter_gather_op_dim(),
         )
 
 
@@ -331,8 +332,7 @@ class RowParallelLinearTorch(nn.Linear):
         a reduce_scatter of the result.
         """
         out = fused_dense_func(x, self.weight, self.bias)
-        reduce_fn = reduce_scatter if self.sequence_parallel else all_reduce
-        return reduce_fn(out, self.process_group)
+        return tp_sp_reduce_module(out, self.sequence_parallel, self.process_group, try_switch_scatter_gather_op_dim())
 
 
 class MegatronRowParallelLinearTorch(RowParallelLinearTorch):
@@ -346,8 +346,7 @@ class MegatronRowParallelLinearTorch(RowParallelLinearTorch):
         a reduce_scatter of the result.
         """
         out = megatron_fused_dense_func(x, self.weight, self.bias)
-        reduce_fn = reduce_scatter if self.sequence_parallel else all_reduce
-        return reduce_fn(out, self.process_group)
+        return tp_sp_reduce_module(out, self.sequence_parallel, self.process_group, try_switch_scatter_gather_op_dim())
 
 
 class ISPLinear(ColumnParallelLinearTorch):
