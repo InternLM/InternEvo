@@ -432,7 +432,7 @@ class HybridZeroOptimizer(BaseOptimizer):
         current_bucket = self._bucket_store[group_id]
 
         if current_bucket.num_elements_in_bucket(reduce_rank) + param_size > self._reduce_bucket_size:
-            self._reduce_grads_stored_in_bucket(current_bucket, reduce_rank, last_bucket=False)
+            self._reduce_grads_stored_in_bucket(current_bucket, reduce_rank)
 
         # the param must not be reduced to ensure correctness
         is_param_reduced = self._param_store.is_param_reduced(param)
@@ -450,7 +450,7 @@ class HybridZeroOptimizer(BaseOptimizer):
         current_bucket.add_grad(param.grad, reduce_rank)
         current_bucket.add_param(param, reduce_rank)
 
-    def _reduce_grads_stored_in_bucket(self, current_bucket, reduce_rank=None, last_bucket=False):
+    def _reduce_grads_stored_in_bucket(self, current_bucket, reduce_rank=None):
         # reduce grads
         self._reduce_grads_by_rank(
             reduce_rank=reduce_rank,
@@ -478,7 +478,7 @@ class HybridZeroOptimizer(BaseOptimizer):
             self._param_store.set_param_reduction_state(param, True)
 
             if self.belongs_to_current_rank(param):
-                self._param_store.add_reduced_param_for_compute_norm(param, last_bucket)
+                self._param_store.add_reduced_param_for_compute_norm(param)
             else:
                 self._param_store.add_previous_reduced_param(param)
 
@@ -593,15 +593,9 @@ class HybridZeroOptimizer(BaseOptimizer):
 
         # Gradients may not be fully synchronized here.
 
-    def _compute_norm_with_stage(
-        self,
-        group_id: int = 0,
-        last_bucket: bool = False,
-        last_stage: bool = False,
-        previous_norm=None,
-    ):
+    def _compute_norm(self, group_id: int = 0):
         # compute norm for gradients that have been reduced
-        params, grads = self._param_store.get_reduced_param_for_compute_norm(group_id=group_id, last_bucket=last_bucket)
+        params, grads = self._param_store.get_reduced_param_for_compute_norm(group_id=group_id)
         params_is_padding = False
         if len(params) == 0:
             params_is_padding = True
@@ -631,13 +625,7 @@ class HybridZeroOptimizer(BaseOptimizer):
         norm = 0
         if self._clip_grad_norm > 0:
             # this norm is before scaling, it will be very large
-            norm = compute_norm(
-                gradients=grads,
-                parameters=params,
-                last_stage=last_stage,
-                previous_norm=previous_norm,
-                zero_mode=self._broadcast_parallel_mode[group_id],
-            )
+            norm = compute_norm(gradients=grads, parameters=params, zero_mode=self._broadcast_parallel_mode[group_id])
 
         if params_is_padding:
             for param in params:
@@ -677,33 +665,22 @@ class HybridZeroOptimizer(BaseOptimizer):
 
         # we need to reduce the gradients left in the communication bucket
         for group_id in range(self.num_param_groups):
-            self._reduce_grads_stored_in_bucket(self._bucket_store[group_id], reduce_rank=None, last_bucket=True)
+            self._reduce_grads_stored_in_bucket(self._bucket_store[group_id], reduce_rank=None)
 
-        # compute norm for gradients in the before bucket
-        groups_norms = []
-
-        for group_id in range(self.num_param_groups):
-            groups_norms.append(self._compute_norm_with_stage(group_id=group_id))
-
-        # clear reduced grads
-        # grads in the last bucket is reduced
+        # wait grads reduced and clear reduced grads
         for bucket in self._bucket_in_progress:
             bucket.commu_handle.wait()
             bucket.unflatten_and_copy()
             bucket.empty()
         self._bucket_in_progress = []
         self._param_store.clear_grads_of_previous_reduced_params()
+
         # compute norm for gradients in the last bucket
         total_norms = {}
         for group_id in range(self.num_param_groups):
             group_name = self.param_groups[group_id]["name"] if "name" in self.param_groups[group_id] else "default"
             group_name = f"{group_id}_{group_name}"
-            total_norms[group_name] = self._compute_norm_with_stage(
-                group_id=group_id,
-                last_bucket=True,
-                last_stage=True,
-                previous_norm=groups_norms[group_id],
-            )
+            total_norms[group_name] = self._compute_norm(group_id=group_id)
 
         timer("sync_grad").start()
         self._sync_grad()
