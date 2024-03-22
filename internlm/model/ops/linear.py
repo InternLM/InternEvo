@@ -229,7 +229,6 @@ class ColumnParallelLinearTorch(nn.Linear):
         multiple_of=1,
         device=None,
         dtype=None,
-        comm_dim=0,
     ) -> None:
         world_size = torch.distributed.get_world_size(process_group)
         if out_features % multiple_of:
@@ -243,20 +242,18 @@ class ColumnParallelLinearTorch(nn.Linear):
         super().__init__(in_features, local_multiple * multiple_of, bias=bias, device=device, dtype=dtype)
         self.process_group = process_group
         self.sequence_parallel = sequence_parallel
-        self.gather_dim = comm_dim
 
-    def forward(self, x):
+    def forward(self, x, gather_dim=0):
         # If self.sequence_parallel is True, we're doing Tensor Parallel with sequence parallelism:
         # we do an all_gather of x before doing the matmul.
         # If not, then the input is already gathered.
-        # print(f"ColumnParallelLinearTorch, x: {x.shape}, gather_dim: {self.gather_dim}", flush=True)
         return fused_dense_func(
             x,
             self.weight,
             self.bias,
             process_group=self.process_group,
             sequence_parallel=self.sequence_parallel,
-            gather_dim=self.gather_dim,
+            gather_dim=gather_dim,
         )
 
 
@@ -265,7 +262,7 @@ class MegatronColumnParallelLinearTorch(ColumnParallelLinearTorch):
     MegatronColumnParallelLinearTorch
     """
 
-    def forward(self, x):
+    def forward(self, x, gather_dim=0):
         # If self.sequence_parallel is True, we're doing Tensor Parallel with sequence parallelism:
         # we do an all_gather of x before doing the matmul.
         # If not, then the input is already gathered.
@@ -275,7 +272,7 @@ class MegatronColumnParallelLinearTorch(ColumnParallelLinearTorch):
             self.bias,
             process_group=self.process_group,
             sequence_parallel=self.sequence_parallel,
-            gather_dim=self.gather_dim,
+            gather_dim=gather_dim,
         )
 
 
@@ -306,7 +303,6 @@ class RowParallelLinearTorch(nn.Linear):
         multiple_of=1,
         device=None,
         dtype=None,
-        comm_dim=0,
     ) -> None:
         world_size = torch.distributed.get_world_size(process_group)
         rank = torch.distributed.get_rank(process_group)
@@ -328,19 +324,15 @@ class RowParallelLinearTorch(nn.Linear):
         )
         self.process_group = process_group
         self.sequence_parallel = sequence_parallel
-        self.reduce_dim = comm_dim
 
     def forward(self, x):
         """
         We're doing Tensor Parallel with sequence parallelism: we do the matmul and then
         a reduce_scatter of the result.
         """
-        # print(f"RowParallelLinearTorch, x: {x.shape}, reduce_dim: {self.reduce_dim}", flush=True)
         out = fused_dense_func(x, self.weight, self.bias)
-        if self.sequence_parallel:
-            return reduce_scatter(out, self.process_group, self.reduce_dim)
-        else:
-            return all_reduce(out, self.process_group)
+        reduce_fn = reduce_scatter if self.sequence_parallel else all_reduce
+        return reduce_fn(out, self.process_group)
 
 
 class MegatronRowParallelLinearTorch(RowParallelLinearTorch):
@@ -354,10 +346,8 @@ class MegatronRowParallelLinearTorch(RowParallelLinearTorch):
         a reduce_scatter of the result.
         """
         out = megatron_fused_dense_func(x, self.weight, self.bias)
-        if self.sequence_parallel:
-            return reduce_scatter(out, self.process_group, self.reduce_dim)
-        else:
-            return all_reduce(out, self.process_group)
+        reduce_fn = reduce_scatter if self.sequence_parallel else all_reduce
+        return reduce_fn(out, self.process_group)
 
 
 class ISPLinear(ColumnParallelLinearTorch):

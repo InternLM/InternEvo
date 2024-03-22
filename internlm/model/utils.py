@@ -7,21 +7,14 @@ import torch
 import torch.distributed as dist
 import torch.nn.functional as F
 from torch import Tensor
-
-# from internlm_accelerator.amp import custom_bwd, custom_fwd
+from torch.cuda.amp import custom_bwd, custom_fwd
 from torch.distributed import ProcessGroup
 
-from internlm.accelerator import get_accelerator, internlm_accelerator
 from internlm.core.context import global_context as gpc
 from internlm.utils.logger import get_logger
 
 logger = get_logger(__file__)
 
-if internlm_accelerator is None:
-    internlm_accelerator = get_accelerator()
-
-custom_bwd = internlm_accelerator.return_custom_bwd()
-custom_fwd = internlm_accelerator.return_custom_fwd()
 
 # Raw operation, does not support autograd, but does support async
 def all_reduce_raw(input_: Tensor, process_group: ProcessGroup, async_op: bool = False):
@@ -34,16 +27,15 @@ class ReduceScatterFunc(torch.autograd.Function):
     """Reduce scatter the input from the sequence parallel region and concatenate."""
 
     @staticmethod
-    def forward(ctx, input_: Tensor, process_group: ProcessGroup, reduce_dim=0) -> Tensor:
+    def forward(ctx, input_: Tensor, process_group: ProcessGroup) -> Tensor:
         ctx.process_group = process_group
-        ctx.reduce_dim = reduce_dim
-        output, _ = reduce_scatter_raw(input_, process_group, reduce_dim=reduce_dim)
+        output, _ = reduce_scatter_raw(input_, process_group)
         return output
 
     @staticmethod
     def backward(ctx, grad_output: Tensor):
-        grad_input, _ = all_gather_raw(grad_output, ctx.process_group, gather_dim=ctx.reduce_dim)
-        return grad_input, None, None
+        grad_input, _ = all_gather_raw(grad_output, ctx.process_group)
+        return grad_input, None
 
 
 # Supports autograd, but does not support async
@@ -62,7 +54,7 @@ class AllReduceFunc(torch.autograd.Function):
     @staticmethod
     def backward(ctx, grad_output: Tensor):
         _ = ctx  # avoid lint warning W0613
-        return grad_output, None, None
+        return grad_output, None
 
 
 # Supports autograd, but does not support async
@@ -193,25 +185,24 @@ def reduce_scatter_raw(
     process_group: ProcessGroup,
     op=dist.ReduceOp.SUM,
     async_op: bool = False,
-    reduce_dim: int = 0,
     memory_pool_allocator: Callable = None,
 ):
     world_size = dist.get_world_size(process_group)
-    shape = input_.shape
-
-    assert shape[reduce_dim] % world_size == 0, f"{shape[reduce_dim]}, {world_size}, {shape}"
+    assert input_.shape[0] % world_size == 0
 
     if world_size <= 1:
         return input_, None
 
-    shape = list(shape)
-    shape[reduce_dim] = shape[reduce_dim] // world_size
-    shape = torch.Size(shape)
-
     if memory_pool_allocator is not None:
-        output = memory_pool_allocator(shape)
+        size = (input_.shape[0] // world_size, *input_.shape[1:])
+        output = memory_pool_allocator(size)
     else:
-        output = torch.empty(shape, dtype=input_.dtype, device=input_.device).contiguous()
+        output = torch.empty(
+            input_.shape[0] // world_size,
+            *input_.shape[1:],
+            dtype=input_.dtype,
+            device=input_.device,
+        ).contiguous()
 
     handle = dist.reduce_scatter_tensor(output, input_.contiguous(), op=op, group=process_group, async_op=async_op)
     return output, handle
@@ -322,9 +313,7 @@ class FusedDenseFunc(torch.autograd.Function):
             grad_input = grad_input.reshape(*batch_shape, grad_input.shape[-1])
             if process_group is not None:
                 reduce_fn = reduce_scatter_raw if sequence_parallel else all_reduce_raw
-                grad_input, handle_grad_input = reduce_fn(
-                    grad_input, process_group, async_op=True, reduce_dim=gather_dim
-                )
+                grad_input, handle_grad_input = reduce_fn(grad_input, process_group, async_op=True)
         else:
             grad_input = None
         if ctx.needs_input_grad[1]:
@@ -373,7 +362,6 @@ class MegatronFusedDenseFunc(torch.autograd.Function):
         ctx.process_group = process_group
         ctx.sequence_parallel = sequence_parallel
         ctx.is_using_cuda = is_using_cuda
-        ctx.gather_dim = gather_dim
 
         if torch.is_autocast_enabled():
             x = x.to(dtype=torch.get_autocast_gpu_dtype())
@@ -440,9 +428,7 @@ class MegatronFusedDenseFunc(torch.autograd.Function):
             grad_input = grad_input.reshape(*batch_shape, grad_input.shape[-1])
             if process_group is not None:
                 reduce_fn = reduce_scatter_raw if sequence_parallel else all_reduce_raw
-                grad_input, handle_grad_input = reduce_fn(
-                    grad_input, process_group, async_op=True, reduce_dim=ctx.gather_dim
-                )
+                grad_input, handle_grad_input = reduce_fn(grad_input, process_group, async_op=True)
         else:
             grad_input = None
         if ctx.needs_input_grad[1]:
@@ -665,8 +651,7 @@ def try_import_RMSNorm():
         from apex.normalization.fused_layer_norm import MixedFusedRMSNorm as RMSNorm
 
         return RMSNorm
-    except ImportError:
-        # except ModuleNotFoundError:
+    except ModuleNotFoundError:
         logger.warning("The torch implementation for MixFusedRMSNorm is slower than apex. Please note this!")
         from internlm.model.ops.norm import RMSNormTorch as RMSNorm
 

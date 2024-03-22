@@ -125,7 +125,6 @@ class MHA(nn.Module):
             )
 
         Wqkv_cls = get_linear_cls(self.tp_mode, "column")
-        comm_dim = 0 if gpc.config.data.use_flash_style_data_format else 1
         # notice here should change bias=True
         self.wq = Wqkv_cls(
             embed_dim,
@@ -133,7 +132,6 @@ class MHA(nn.Module):
             process_group,
             bias=bias,
             sequence_parallel=sequence_parallel,
-            comm_dim=comm_dim,
             **factory_kwargs,
         )
         self.wk = Wqkv_cls(
@@ -142,7 +140,6 @@ class MHA(nn.Module):
             process_group,
             bias=bias,
             sequence_parallel=sequence_parallel,
-            comm_dim=comm_dim,
             **factory_kwargs,
         )
         self.wv = Wqkv_cls(
@@ -151,7 +148,6 @@ class MHA(nn.Module):
             process_group,
             bias=bias,
             sequence_parallel=sequence_parallel,
-            comm_dim=comm_dim,
             **factory_kwargs,
         )
 
@@ -175,7 +171,6 @@ class MHA(nn.Module):
             process_group,
             bias=bias,
             sequence_parallel=sequence_parallel,
-            comm_dim=comm_dim,
             **factory_kwargs,
         )
 
@@ -594,7 +589,6 @@ class PackedFlashLlamaLayer1D(nn.Module):
                 bias=False,
                 device=device,
                 dtype=dtype,
-                comm_dim=0 if gpc.config.data.use_flash_style_data_format else 1,
             )
         else:
             from flash_attn.modules.mlp import ParallelFusedMLP

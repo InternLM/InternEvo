@@ -298,7 +298,6 @@ class MHA(nn.Module):
             process_group,
             bias=True,
             sequence_parallel=gpc.config.parallel.sequence_parallel,
-            comm_dim=0 if gpc.config.data.use_flash_style_data_format else 1,
             **factory_kwargs,
         )  # according to https://spaces.ac.cn/archives/9577
 
@@ -318,7 +317,6 @@ class MHA(nn.Module):
             process_group,
             bias=True,
             sequence_parallel=gpc.config.parallel.sequence_parallel,
-            comm_dim=0 if gpc.config.data.use_flash_style_data_format else 1,
             **factory_kwargs,
         )
 

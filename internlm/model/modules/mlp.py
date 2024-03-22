@@ -45,7 +45,6 @@ class BaseFeedForward(nn.Module):
         device: Optional[torch.device] = None,
         dtype: Optional[torch.dtype] = None,
         multiple_of: int = 256,
-        comm_dim: int = 0,
         column_cls: Optional[Callable] = None,
         row_cls: Optional[Callable] = None,
     ):
@@ -60,7 +59,6 @@ class BaseFeedForward(nn.Module):
             sequence_parallel=gpc.config.parallel.sequence_parallel,
             device=device,
             dtype=dtype,
-            comm_dim=comm_dim,
         )
         self.w2 = row_cls(
             hidden_features,
@@ -70,7 +68,6 @@ class BaseFeedForward(nn.Module):
             sequence_parallel=gpc.config.parallel.sequence_parallel,
             device=device,
             dtype=dtype,
-            comm_dim=comm_dim,
         )
         self.w3 = column_cls(
             in_features,
@@ -80,7 +77,6 @@ class BaseFeedForward(nn.Module):
             sequence_parallel=gpc.config.parallel.sequence_parallel,
             device=device,
             dtype=dtype,
-            comm_dim=comm_dim,
         )
 
     def forward(self, x):
@@ -116,7 +112,6 @@ class FeedForward(BaseFeedForward):
         device: Optional[torch.device] = None,
         dtype: Optional[torch.dtype] = None,
         multiple_of: int = 256,
-        comm_dim: int = 0,
     ):
         super().__init__(
             in_features,
@@ -127,7 +122,6 @@ class FeedForward(BaseFeedForward):
             device,
             dtype,
             multiple_of,
-            comm_dim,
             ColumnParallelLinearTorch,
             RowParallelLinearTorch,
         )
@@ -159,7 +153,6 @@ class MegatronFeedForward(BaseFeedForward):
         device: Optional[torch.device] = None,
         dtype: Optional[torch.dtype] = None,
         multiple_of: int = 256,
-        comm_dim: int = 0,
     ):
         super().__init__(
             in_features,
@@ -170,7 +163,6 @@ class MegatronFeedForward(BaseFeedForward):
             device,
             dtype,
             multiple_of,
-            comm_dim,
             MegatronColumnParallelLinearTorch,
             MegatronRowParallelLinearTorch,
         )
@@ -202,7 +194,6 @@ class ISPFeedForward(BaseFeedForward):
         device: Optional[torch.device] = None,
         dtype: Optional[torch.dtype] = None,
         multiple_of: int = 256,
-        comm_dim: int = 0,
     ):
         super().__init__(
             in_features,
@@ -213,7 +204,6 @@ class ISPFeedForward(BaseFeedForward):
             device,
             dtype,
             multiple_of,
-            comm_dim,
             ISPLinear,
             ISPLinear,
         )

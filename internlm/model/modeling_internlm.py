@@ -127,7 +127,6 @@ class PackedFlashBaseLayer1D(nn.Module):
                 bias=False,
                 device=device,
                 dtype=dtype,
-                comm_dim=0 if gpc.config.data.use_flash_style_data_format else 1,
             )
         else:
             from flash_attn.modules.mlp import ParallelFusedMLP
