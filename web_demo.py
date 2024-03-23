@@ -11,10 +11,10 @@ from dataclasses import asdict
 
 import streamlit as st
 import torch
-from transformers import AutoModelForCausalLM, AutoTokenizer
-from transformers.utils import logging
 
 from tools.interface import GenerationConfig, generate_interactive
+from transformers import AutoModelForCausalLM, AutoTokenizer
+from transformers.utils import logging
 
 logger = logging.get_logger(__name__)
 
@@ -26,11 +26,11 @@ def on_btn_click():
 @st.cache_resource
 def load_model():
     model = (
-        AutoModelForCausalLM.from_pretrained("internlm/internlm-chat-7b-v1_1", trust_remote_code=True)
+        AutoModelForCausalLM.from_pretrained("internlm/internlm2-chat-7b", trust_remote_code=True)
         .to(torch.bfloat16)
         .cuda()
     )
-    tokenizer = AutoTokenizer.from_pretrained("internlm/internlm-chat-7b-v1_1", trust_remote_code=True)
+    tokenizer = AutoTokenizer.from_pretrained("internlm/internlm2-chat-7b", trust_remote_code=True)
     return model, tokenizer
 
 
@@ -47,15 +47,16 @@ def prepare_generation_config():
 
 
 system_meta_instruction = (
-    """<|System|>:You are an AI assistant whose name is InternLM (书生·浦语).
+    """<|im_start|>system:You are an AI assistant whose name is InternLM (书生·浦语).
 - InternLM (书生·浦语) is a conversational language model that is developed by Shanghai AI Laboratory (上海人工智能实验室). """
     + """It is designed to be helpful, honest, and harmless.
 - InternLM (书生·浦语) can understand and communicate fluently in the language chosen by the user such as English and 中文.
+<|im_end|>\n
 """
 )
-user_prompt = "<|User|>:{user}\n"
-robot_prompt = "<|Bot|>:{robot}<eoa>\n"
-cur_query_prompt = "<|User|>:{user}\n<|Bot|>:"
+user_prompt = "<|im_start|>user:{user}<|im_end|>\n"
+robot_prompt = "<|im_start|>assistant:{robot}<|im_end|>\n"
+cur_query_prompt = "<|im_start|>user:{user}\n<|im_end|>\n<|im_start|>assistant:\n"
 
 
 def combine_history(prompt):
@@ -83,7 +84,7 @@ def main():
     user_avator = "doc/imgs/user.png"
     robot_avator = "doc/imgs/robot.png"
 
-    st.title("InternLM-Chat-7B")
+    st.title("InternLM2-Chat-7B")
 
     generation_config = prepare_generation_config()
 
@@ -111,7 +112,9 @@ def main():
                 model=model,
                 tokenizer=tokenizer,
                 prompt=real_prompt,
-                additional_eos_token_id=103028,
+                # internlm: 103028
+                # internlm2: 92542
+                additional_eos_token_id=92542,
                 **asdict(generation_config),
             ):
                 # Display robot response in chat message container

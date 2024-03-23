@@ -26,7 +26,7 @@ This folder contains the `InternLM2` model in transformers format and some scrip
 
 ## Load InternLM and InternLM2 with HuggingFace
 
-`InternLM`` and `InternLM2`` HuggingFace models can be adapted to different scenarios or deployments by specifying different parameters. Here are some commonly used parameters:
+`InternLM` and `InternLM2` HuggingFace models can be adapted to different scenarios or deployments by specifying different parameters. Here are some commonly used parameters:
 
 - `trust_remote_code=True`: This parameter must be specified so that HuggingFace can load the model file or tokenizer file located in the model path.
 - `torch_dtype`(*Optional*): Specify the data type of the loaded parameters:

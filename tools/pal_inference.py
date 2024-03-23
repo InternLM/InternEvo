@@ -21,16 +21,23 @@ import argparse
 import copy
 import json
 import os
+import sys
 from dataclasses import asdict
 from typing import Any, Dict, List
 
 import torch
 import tqdm
 from datasets import load_dataset
+
 from transformers import AutoModelForCausalLM, AutoTokenizer
 
-from internlm.utils.timeout import Timeout
-from tools.interface import GenerationConfig, generate_interactive
+sys.path.append(os.getcwd())
+
+from internlm.utils.timeout import Timeout  # pylint: disable=C0413
+from tools.interface import (  # pylint: disable=C0413
+    GenerationConfig,
+    generate_interactive,
+)
 
 
 def parse_args():
@@ -53,6 +60,24 @@ def parse_args():
         help="Probability threshold to choose sample tokens during generation.",
     )
     parser.add_argument(
+        "--system",
+        default="<|System|>:",
+        type=str,
+        help="Start of system token.",
+    )
+    parser.add_argument(
+        "--user",
+        default="<|User|>:",
+        type=str,
+        help="Start of human (user) token.",
+    )
+    parser.add_argument(
+        "--assist",
+        default="<|Bot|>:",
+        type=str,
+        help="Start of assistant (bot) token.",
+    )
+    parser.add_argument(
         "--eoh",
         default="",
         type=str,
@@ -70,6 +95,7 @@ def parse_args():
         type=str,
         help="End of system token.",
     )
+    parser.add_argument("--additional_eos", default=103028, type=int, help="End of sentence token id")
     parser.add_argument(
         "--temperature", "-t", default=1.0, type=float, help="Temperature of token sampling during generation."
     )
@@ -102,10 +128,10 @@ class GenericRuntime:
             self.exec_code(c)
 
     def exec_code(self, code_piece: str) -> None:
-        exec(code_piece, self._global_vars)
+        exec(code_piece, self._global_vars)  # pylint: disable=W0122
 
     def eval_code(self, expr: str) -> Any:
-        return eval(expr, self._global_vars)
+        return eval(expr, self._global_vars)  # pylint: disable=W0123
 
     def inject(self, var_dict: Dict[str, Any]) -> None:
         for k, v in var_dict.items():
@@ -136,7 +162,7 @@ class PALInterface:
         model: AutoModelForCausalLM,
         tokenizer: AutoTokenizer,
         generation_config: GenerationConfig,
-        additional_eos_token_id: int = 103028,
+        additional_eos_token_id: int = 92542,
         get_answer_expr: str = "solution()",
         verbose: bool = False,
     ):
@@ -161,9 +187,9 @@ class PALInterface:
         ):
             continue
         # Get final response
-        self.history.append(cur_gen)
+        self.history.append(cur_gen)  # pylint: disable=W0631
         # Extract code block
-        code = self.process_generation_to_code(cur_gen)
+        code = self.process_generation_to_code(cur_gen)  # pylint: disable=W0631
         return code
 
     def process_generation_to_code(self, gens: str):
@@ -213,15 +239,15 @@ def load_data(args):
     return input_data
 
 
-PROMPT = """<|System|>:You are a helpful assistant which use tools to solve mathematical reasoning questions. The tools you can use are:
+PROMPT = """{system}You are a helpful assistant which use tools to solve mathematical reasoning questions. The tools you can use are:
 PythonExecutor: It can execute Python code. The code must be a function, and the function name must be 'solution'. The example format is as follows:
 ```python
 def solution():
     variable_names_with_real_meaning = func(variable)
     return variable_names_with_real_meaning
 ```{eos}
-<|User|>:Olivia has $23. She bought five bagels for $3 each. How much money does she have left?{eoh}
-<|Bot|>:
+{user}Olivia has $23. She bought five bagels for $3 each. How much money does she have left?{eoh}
+{assist}
 ```python
 def solution():
     money_initial = 23
@@ -232,8 +258,8 @@ def solution():
     result = money_left
     return result
 ```{eoa}
-<|User|>:Michael had 58 golf balls. On tuesday, he lost 23 golf balls. On wednesday, he lost 2 more. How many golf balls did he have at the end of wednesday?{eoh}
-<|Bot|>:
+{user}Michael had 58 golf balls. On tuesday, he lost 23 golf balls. On wednesday, he lost 2 more. How many golf balls did he have at the end of wednesday?{eoh}
+{assist}
 ```python
 def solution():
     golf_balls_initial = 58
@@ -243,8 +269,8 @@ def solution():
     result = golf_balls_left
     return result
 ```{eoa}
-<|User|>:There were nine computers in the server room. Five more computers were installed each day, from monday to thursday. How many computers are now in the server room?{eoh}
-<|Bot|>:
+{user}There were nine computers in the server room. Five more computers were installed each day, from monday to thursday. How many computers are now in the server room?{eoh}
+{assist}
 ```python
 def solution():
     computers_initial = 9
@@ -255,9 +281,9 @@ def solution():
     result = computers_total
     return result
 ```{eoa}
-<|System|>:How about this question?{eos}
-<|User|>:{question}{eoh}
-<|Bot|>:""".strip()
+{system}How about this question?{eos}
+{user}{question}{eoh}
+{assist}"""
 
 
 def main():
@@ -279,7 +305,8 @@ def main():
 
     # Load from history results
     if args.append and os.path.exists(savepath):
-        lines = open(savepath).readlines()
+        with open(savepath) as fp:
+            lines = fp.readlines()
         num_skip_exps = len(lines)
         scores = [x["score"] for x in map(json.loads, lines)]
     else:
@@ -295,7 +322,15 @@ def main():
 
             try:
                 answer = interface.run(
-                    prompt=PROMPT.format(question=question, eoh=args.eoh, eoa=args.eoa, eos=args.eos),
+                    prompt=PROMPT.format(
+                        question=question,
+                        user=args.user,
+                        assist=args.assist,
+                        system=args.system,
+                        eoh=args.eoh,
+                        eoa=args.eoa,
+                        eos=args.eos,
+                    ),
                     time_out=args.time_out,
                 )
                 answer = float(answer)

@@ -15,6 +15,14 @@
 └── tokenizer.py # 将原始数据转换成bin和meta文件的工具
 ```
 
+# load_internlm_model.py
+
+该文件用于加载原生训练的 InternLM 模型和 InternLM2 模型并进行推理示例。 `initialize_internlm_model` 函数的 `ckpt_dir` 参数为模型路径，`model_type` 为模型的类型（目前支持 `INTERNLM` `INTERNLM2` `INTERNLM_MoE` 和 `LLAMA2`），`model_config` 为模型配置。
+
+```bash
+torchrun --nproc_per_node=1 tools/load_internlm_model.py
+```
+
 # tokenizer.py
 
 生成原始数据的`bin`和`meta`文件需要使用`tokenizer`，我们通过在`tools/tokenizer.py`中指定模型参数路径的方式来导入tokenizer模型。目前我们提供了`tokenizer_internlm.model`来生成tokens。若想使用不同的模型，可直接修改`tokernizer.py`中的模型参数路径。
@@ -66,13 +74,23 @@ $ python tools/tokenizer.py --text_input_path raw_data.txt --bin_output_path cn/
 
 `json`和`jsonl`类型的文件的`bin`和`meta`文件格式和`txt`一致，此处不再赘叙。
 
+# alpaca_tokenizer.py
+
+`alpac_tokenizer.py` 是用 `InternLM2` 的 tokenizer 处理 [Alpaca](https://github.com/tatsu-lab/stanford_alpaca) 数据的样例，最终会生成适合训练的 `bin` 和 `meta` 文件。
+
+```bash
+wget https://github.com/tatsu-lab/stanford_alpaca/raw/main/alpaca_data.json
+# 输出位于 `alpaca_output` 文件夹下
+python tools/alpaca_tokenizer.py alpaca_data.json alpaca_output tools/tokenizer_internlm2.model --split_ratio 0.1
+```
+
 # pal_inference.py
 
 在 [GSM8K](https://huggingface.co/datasets/gsm8k) 数据集上使用 [PAL](https://github.com/reasoning-machines/pal) 范式推理，使模型编写代码并通过 Python 解释器执行来解决数学问题。其用法如下：
 
 ```python
 # 用法:
-python pal_inference.py <model> <out_dir> [--dataset <dataset>] [--max_length <length>] [--top_p <threshold>] [--eoh <end token>] [--eoa <end token>] [--eos <end token>] [--temperature <temp>] [--time_out <time>] [--verbose, -v] [--append, -a]
+python tools/pal_inference.py <model> <out_dir> [--dataset <dataset>] [--max_length <length>] [--top_p <threshold>] [--system <system>] [--user <user>] [--assist <assistant>] [--eoh <end token>] [--eoa <end token>] [--eos <end token>] [--additional_eos <eos_id>] [--temperature <temp>] [--time_out <time>] [--verbose, -v] [--append, -a]
 
 # 参数:
 # <model>                   用于推理的模型的路径。
@@ -82,9 +100,13 @@ python pal_inference.py <model> <out_dir> [--dataset <dataset>] [--max_length <l
 # --dataset <dataset>       用于代码生成的数据集名称（默认：gsm8k）。
 # --max_length <length>     模型最大输入 token 长度（默认：2048）。
 # --top_p <threshold>       候选 token 相加的概率阈值（默认：0.8）。
+# --system <system>         系统输入开始标识符（默认：<|System|>:）。
+# --user <user>             系统输入开始标识符（默认：<|User|>:）。
+# --assist <assistant>      系统输入开始标识符（默认：<|Bot|>:）。
 # --eoh <end token>         用户输入结束标识符 (默认: "") 。
 # --eoa <end token>         模型输入结束标识符 (默认: "") 。
-# --eos <end token>         系统输入结束标识符. (默认: "") 。
+# --eos <end token>         系统输入结束标识符(默认: "") 。
+# --additional_eos <eos_id> 生成中的 eos token id（默认：103028）。
 # --temperature， -t <temp> 生成过程中的采样温度（默认：1.0）。
 # --time_out <time>         执行生成的代码的最大时间（秒）（默认：100）。
 # --verbose, -v             打印代码错误信息（可选）。
@@ -94,7 +116,10 @@ python pal_inference.py <model> <out_dir> [--dataset <dataset>] [--max_length <l
 以下是使用示例：
 
 ```bash
-python tools/pal_inference.py internlm/internlm-chat-7k ./output -v
+# InternLM
+python tools/pal_inference.py internlm/internlm-chat-7b ./output -v
+# InternLM2
+python tools/pal_inference.py internlm/internlm2-chat-7b ./output -v --system $'<|im_start|>system\n' --user $'<|im_start|>user\n' --assist $'<|im_start|>assistance\n' --eoa "<|im_end|>" --eoh "<|im_end|>" --eos "<|im_end|>" --additional_eos 92542
 ```
 
 其输出文件每一行包括输入的问题，正确答案，执行答案，得分，以及模型生成的 Python 代码块：
@@ -111,10 +136,10 @@ python tools/pal_inference.py internlm/internlm-chat-7k ./output -v
 
 InternLM 在 GSM8K 数据集中带工具和不带工具的性能表现：
 
-| Method   | **InternLM-Chat-7B** |
-| -------- | -------------------- |
-| w/o tool | 34.5                 |
-| w tool   | 39.2                 |
+| Method   | **InternLM-Chat-7B** | **InternLM2-Chat-7B** |
+| -------- | -------------------- | --------------------- |
+| w/o tool | 34.5                 | 70.7                  |
+| w tool   | 39.2                 | 72.4                  |
 
 # openai_api.py
 
@@ -132,7 +157,7 @@ if __name__ == "__main__":
     openai.api_base = "http://localhost:8000/internlm"
     openai.api_key = "none"
     for chunk in openai.ChatCompletion.create(
-        model="internlm-chat-7b",
+        model="internlm2-chat-7b",
         messages=[
             {"role": "user", "content": "你好"},
         ],
