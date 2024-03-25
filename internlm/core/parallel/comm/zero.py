@@ -8,12 +8,12 @@ from typing import Dict, List, Union
 from flash_attn.modules.embedding import ParallelGPT2Embeddings
 from torch import nn
 
-
 from internlm.core.context import ParallelMode
-from internlm.core.parallel.comm.isp import ISPCommunicator
 from internlm.core.naive_amp import NaiveAMPModel
-from internlm.model.embedding import Embedding1D
-from internlm.model.modules.ffn import ScaleColumnParallelLinear
+from internlm.core.parallel.comm.isp import ISPCommunicator
+from internlm.model.modules.embedding import Embedding1D
+from internlm.model.modules.mlp import ScaleColumnParallelLinear
+
 
 class ParamAsyncBcastHandler:
     """

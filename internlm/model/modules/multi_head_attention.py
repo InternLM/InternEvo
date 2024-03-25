@@ -13,10 +13,10 @@ from torch import Tensor, nn
 from torch.nn import Module
 
 from internlm.core.context import global_context as gpc
-from internlm.model.embedding import DynamicNTKScalingRotaryEmbedding, RotaryEmbedding
+from internlm.model.modules.embedding import DynamicNTKScalingRotaryEmbedding, RotaryEmbedding
 from internlm.model.modules.linear import new_linear
 from internlm.model.modules.utils import update_kv_cache
-from internlm.model.ops.attention import SelfAttention, CrossAttention
+from internlm.model.ops.attention import CrossAttention, SelfAttention
 
 
 # adpated from https://github.com/microsoft/DeepSpeed/blob/master/deepspeed/sequence/layer.py
@@ -216,9 +216,7 @@ class MHA(nn.Module):
         #     inner_attn_cls = SelfAttention
         #     inner_cross_attn_cls = CrossAttention
         self.inner_attn = SelfAttention(causal=causal, softmax_scale=softmax_scale, attention_dropout=dropout)
-        self.inner_cross_attn = CrossAttention(
-            causal=causal, softmax_scale=softmax_scale, attention_dropout=dropout
-        )
+        self.inner_cross_attn = CrossAttention(causal=causal, softmax_scale=softmax_scale, attention_dropout=dropout)
         # TODO: improve it.
         if self.tp_mode == "isp":
             self.inner_attn = DistributedAttention(self.inner_attn, sequence_process_group=None)
@@ -501,8 +499,8 @@ class MHA2(nn.Module):
         embed_dim: int,
         num_heads: int,
         num_kv_heads: int,
-        # process_group: Optional[torch.distributed.ProcessGroup],
-        # sequence_process_group: Optional[torch.distributed.ProcessGroup],
+        process_group: Optional[torch.distributed.ProcessGroup],
+        sequence_process_group: Optional[torch.distributed.ProcessGroup],
         bias: bool = True,
         dropout: float = 0.0,
         softmax_scale: float = None,
@@ -511,11 +509,11 @@ class MHA2(nn.Module):
         rope_base: int = 10000,
         rotary_emb_dim: int = 0,
         rotary_emb_scale_base: int = 0,
-        # use_flash_attn: bool = True,
+        use_flash_attn: bool = True,
         device: Optional[torch.device] = None,
         dtype: Optional[torch.dtype] = None,
         rot_embed_HF_impl: Optional[bool] = False,
-        # tp_mode: str = "mtp",
+        tp_mode: str = "mtp",
     ) -> None:
         factory_kwargs = {"device": device, "dtype": dtype}
         super().__init__()
@@ -534,16 +532,39 @@ class MHA2(nn.Module):
         self.tp_mode = tp_mode
 
         self.rot_embed_HF_impl = rot_embed_HF_impl
+        sequence_parallel = gpc.config.parallel.get("sequence_parallel", False)
 
         if self.rotary_emb_dim > 0:
             self.rotary_emb = RotaryEmbedding(
                 self.rotary_emb_dim, base=rope_base, scale_base=rotary_emb_scale_base, device=device
             )
 
+        Wqkv_cls = get_linear_cls(self.tp_mode, "column")
         # notice here should change bias=True
-        self.wq = new_linear("wq", embed_dim, embed_dim, bias, **factory_kwargs)
-        self.wk = new_linear("wk", embed_dim, self.kv_dim, bias, **factory_kwargs)
-        self.wv = new_linear("wv", embed_dim, self.kv_dim, bias, **factory_kwargs)
+        self.wq = Wqkv_cls(
+            embed_dim,
+            embed_dim,
+            process_group,
+            bias=bias,
+            sequence_parallel=sequence_parallel,
+            **factory_kwargs,
+        )
+        self.wk = Wqkv_cls(
+            embed_dim,
+            self.kv_dim,
+            process_group,
+            bias=bias,
+            sequence_parallel=sequence_parallel,
+            **factory_kwargs,
+        )
+        self.wv = Wqkv_cls(
+            embed_dim,
+            self.kv_dim,
+            process_group,
+            bias=bias,
+            sequence_parallel=sequence_parallel,
+            **factory_kwargs,
+        )
 
         if use_flash_attn:
             from flash_attn import flash_attn_varlen_kvpacked_func
@@ -565,7 +586,15 @@ class MHA2(nn.Module):
             self.attn = DistributedAttention(self.attn, sequence_process_group=sequence_process_group)
 
         # output projection always have the bias (for now)
-        self.wo = new_linear("wo", embed_dim, embed_dim, bias, **factory_kwargs)
+        out_proj_cls = get_linear_cls(self.tp_mode, "row")
+        self.wo = out_proj_cls(
+            embed_dim,
+            embed_dim,
+            process_group,
+            bias=bias,
+            sequence_parallel=sequence_parallel,
+            **factory_kwargs,
+        )
 
     def forward(self, x, seqlen=None, inference_params=None, **kwargs):
         if kwargs.get("indexes", None) is not None:
@@ -637,21 +666,15 @@ class MHA2(nn.Module):
                 else:
                     q = q.squeeze(1)
                     k = k.squeeze(1)
-                    cu_seqlens = kwargs.get("cu_seqlens", None)
-                    max_seqlen = kwargs.get("max_seqlen", None)
                     q = self.rotary_emb._single_forward(
                         q,
                         inference_params.sequence_len_offset * torch.ones(q.size(0), dtype=torch.int, device=q.device)
                         - empties,
-                        cu_seqlens=cu_seqlens,
-                        max_seqlen=max_seqlen,
                     ).unsqueeze(1)
                     k = self.rotary_emb._single_forward(
                         k,
                         inference_params.sequence_len_offset * torch.ones(k.size(0), dtype=torch.int, device=k.device)
                         - empties,
-                        cu_seqlens=cu_seqlens,
-                        max_seqlen=max_seqlen,
                     ).unsqueeze(1)
             else:
                 raise NotImplementedError(
@@ -674,13 +697,13 @@ class MHA2(nn.Module):
                     inference_params.real_sequence_len_offset = inference_params.sequence_len_offset
                     inference_params.sequence_len_offset = inference_params.window_size - 1
 
-                    kv = update_kv_cache(kv, inference_params, self.layer_idx)
+                    kv = _update_kv_cache(kv, inference_params, self.layer_idx)
 
                     inference_params.sequence_len_offset = inference_params.real_sequence_len_offset
                 else:
-                    kv = update_kv_cache(kv, inference_params, self.layer_idx)
+                    kv = _update_kv_cache(kv, inference_params, self.layer_idx)
             else:
-                kv = update_kv_cache(kv, inference_params, self.layer_idx)
+                kv = _update_kv_cache(kv, inference_params, self.layer_idx)
 
             # When using FP16, there is a high probability of NAN in the KV.
             # Since NAN cannot be removed by multiplying with and 0, it needs
@@ -817,10 +840,8 @@ class MHA2(nn.Module):
             k = torch.cat([k[..., ::2], k[..., 1::2]], dim=-1)
 
         indexes = kwargs.pop("indexes")
-        cu_seqlens = kwargs.pop("cu_seqlens")
-        max_seqlen = kwargs.pop("max_seqlen")
-        q = self.rotary_emb._single_forward(q, indexes=indexes, cu_seqlens=cu_seqlens, max_seqlen=max_seqlen)
-        k = self.rotary_emb._single_forward(k, indexes=indexes, cu_seqlens=cu_seqlens, max_seqlen=max_seqlen)
+        q = self.rotary_emb._single_forward(q, indexes=indexes)
+        k = self.rotary_emb._single_forward(k, indexes=indexes)
 
         if inference_params is None:
             kv = torch.concat([k.unsqueeze(1), v.unsqueeze(1)], dim=1)
@@ -932,6 +953,7 @@ class MHA3(nn.Module):
         self.q_per_kv = num_heads // num_kv_heads
 
         self.rot_embed_HF_impl = rot_embed_HF_impl
+        sequence_parallel = gpc.config.parallel.get("sequence_parallel", False)
 
         self.max_position_embeddings = max_position_embeddings
         self.use_dynamic_ntk_rope = use_dynamic_ntk_rope
@@ -952,7 +974,15 @@ class MHA3(nn.Module):
                     self.rotary_emb_dim, base=rope_base, scale_base=rotary_emb_scale_base, device=device
                 )
 
-        self.wqkv = new_linear("wqkv", embed_dim, embed_dim + 2 * self.kv_dim, bias, **factory_kwargs)
+        Wqkv_cls = get_linear_cls(self.tp_mode, "column")
+        self.wqkv = Wqkv_cls(
+            embed_dim,
+            embed_dim + 2 * self.kv_dim,
+            process_group,
+            bias=bias,
+            sequence_parallel=sequence_parallel,
+            **factory_kwargs,
+        )
 
         if use_flash_attn:
             from flash_attn import flash_attn_varlen_kvpacked_func
@@ -973,7 +1003,15 @@ class MHA3(nn.Module):
         if self.tp_mode == "isp":
             self.attn = DistributedAttention(self.attn, sequence_process_group=sequence_process_group)
 
-        self.wo = new_linear("wo", embed_dim, embed_dim, bias, **factory_kwargs)
+        wo_cls = get_linear_cls(self.tp_mode, "row")
+        self.wo = wo_cls(
+            embed_dim,
+            embed_dim,
+            process_group,
+            bias=bias,
+            sequence_parallel=sequence_parallel,
+            **factory_kwargs,
+        )
 
     def forward(self, x, seqlen=None, inference_params=None, **kwargs):
         if kwargs.get("indexes", None) is not None:
@@ -1047,21 +1085,15 @@ class MHA3(nn.Module):
                 else:
                     q = q.squeeze(1)
                     k = k.squeeze(1)
-                    cu_seqlens = kwargs.get("cu_seqlens", None)
-                    max_seqlen = kwargs.get("max_seqlen", None)
                     q = self.rotary_emb._single_forward(
                         q,
                         inference_params.sequence_len_offset * torch.ones(q.size(0), dtype=torch.int, device=q.device)
                         - empties,
-                        cu_seqlens=cu_seqlens,
-                        max_seqlen=max_seqlen,
                     ).unsqueeze(1)
                     k = self.rotary_emb._single_forward(
                         k,
                         inference_params.sequence_len_offset * torch.ones(k.size(0), dtype=torch.int, device=k.device)
                         - empties,
-                        cu_seqlens=cu_seqlens,
-                        max_seqlen=max_seqlen,
                     ).unsqueeze(1)
             else:
                 raise NotImplementedError(
@@ -1084,13 +1116,13 @@ class MHA3(nn.Module):
                     inference_params.real_sequence_len_offset = inference_params.sequence_len_offset
                     inference_params.sequence_len_offset = inference_params.window_size - 1
 
-                    kv = update_kv_cache(kv, inference_params, self.layer_idx)
+                    kv = _update_kv_cache(kv, inference_params, self.layer_idx)
 
                     inference_params.sequence_len_offset = inference_params.real_sequence_len_offset
                 else:
-                    kv = update_kv_cache(kv, inference_params, self.layer_idx)
+                    kv = _update_kv_cache(kv, inference_params, self.layer_idx)
             else:
-                kv = update_kv_cache(kv, inference_params, self.layer_idx)
+                kv = _update_kv_cache(kv, inference_params, self.layer_idx)
 
             # When using FP16, there is a high probability of NAN in the KV.
             # Since NAN cannot be removed by multiplying with and 0, it needs
@@ -1226,10 +1258,8 @@ class MHA3(nn.Module):
             k = torch.cat([k[..., ::2], k[..., 1::2]], dim=-1)
 
         indexes = kwargs.pop("indexes")
-        cu_seqlens = kwargs.pop("cu_seqlens")
-        max_seqlen = kwargs.pop("max_seqlen")
-        q = self.rotary_emb._single_forward(q, indexes=indexes, cu_seqlens=cu_seqlens, max_seqlen=max_seqlen)
-        k = self.rotary_emb._single_forward(k, indexes=indexes, cu_seqlens=cu_seqlens, max_seqlen=max_seqlen)
+        q = self.rotary_emb._single_forward(q, indexes=indexes)
+        k = self.rotary_emb._single_forward(k, indexes=indexes)
 
         if inference_params is None:
             kv = torch.concat([k.unsqueeze(1), v.unsqueeze(1)], dim=1)

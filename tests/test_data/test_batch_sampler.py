@@ -10,12 +10,9 @@ from internlm.core.context import global_context as gpc
 # from internlm.core.context import ParallelMode
 from internlm.core.context.parallel_context import Config
 from internlm.core.trainer import TrainState
-from internlm.train import (
-    get_train_data_loader,
-    get_validation_data_loader,
-    load_new_batch,
-)
-from internlm.utils.evaluation import (
+from internlm.data import build_train_loader_with_data_type, build_valid_loader_with_data_type
+from internlm.train import load_new_batch
+from internlm.eval.evaluation import (
     switch_evaluation_no_pipeline_scheduler,
     switch_evaluation_pipeline_scheduler,
 )
@@ -60,8 +57,8 @@ def do_warmup(args):
     trainer = DummyTrainer(scheduler)
 
     try:
-        train_dl, _ = get_train_data_loader(num_worker=0)
-        val_dls = get_validation_data_loader(num_worker=0)
+        train_dl, _ = build_train_loader_with_data_type()
+        val_dls = build_valid_loader_with_data_type()
     except Exception as e:
         assert should_sccuess is False, f"{e}"
     else:
@@ -169,12 +166,14 @@ def test_warmup(use_flash_atten_case, group_case, micro_bsz_case):
                 weight=dict(size=1, overlap=True, memory_pool=True),
             ),
             data=dict(
+                type="tokenized",
                 train_folder=None,
                 valid_folder=None,
                 valid_micro_num=4,
                 pack_sample_into_one=False,
                 min_length=0,
                 total_steps=8,
+                num_worker=0,
             ),
             model=dict(
                 dtype=torch.bfloat16,

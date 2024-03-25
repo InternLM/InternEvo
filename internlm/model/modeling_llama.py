@@ -13,16 +13,16 @@ from internlm.initialize.initialize_tensor import (
     scaled_init_method_uniform,
     uniform_,
 )
-from internlm.model.embedding import Embedding1D
-from internlm.model.modules.ffn import new_fead_forward
+from internlm.model.modules.embedding import Embedding1D
 from internlm.model.modules.linear import new_linear
+from internlm.model.modules.mlp import new_fead_forward
 from internlm.model.modules.multi_head_attention import MHA2
 from internlm.model.modules.utils import (
     split_forward_gather_backward,
     try_import_RMSNorm,
 )
+from internlm.solver.activation_checkpoint import activation_checkpoint
 from internlm.solver.pipeline_utils import partition_uniform
-from internlm.utils.checkpoint import activation_checkpoint
 from internlm.utils.common import filter_kwargs
 from internlm.utils.logger import get_logger
 from internlm.utils.registry import MODEL_INITIALIZER
@@ -328,7 +328,6 @@ class PackedFlashLlama1D(nn.Module):
         ffn_other_init_std (float): std used to init ffn_other weight. 0.02 by default,
         out_head_init_std (float): std used to init output lmhead weight. 0.02 by default,
         init_type (str): Initialization type. Use uniform or normal. "normal" by default,
-        extra_pred_tokens (int): The number of extra output head for multi-token-prediction. 0 by default.
         rope_base (int): The value of `base` for rotary position embeddings. 10000 by default.
     """
 
@@ -370,7 +369,6 @@ class PackedFlashLlama1D(nn.Module):
         ffn_other_init_std: float = 0.02,
         out_head_init_std: float = 0.02,
         init_type: str = "normal",
-        extra_pred_tokens: int = 0,
         rope_base: int = 10000,
     ):
         super().__init__()
@@ -469,31 +467,6 @@ class PackedFlashLlama1D(nn.Module):
                 else:
                     uniform_(std=out_head_init_std)(param)
 
-            if extra_pred_tokens > 0:
-                self.extra_pred_tokens = extra_pred_tokens
-                assert not is_reward, "extra_pred_tokens > 0 means using multi token prediction, not implement for RLHF"
-                self.extra_outputs = nn.ModuleList(
-                    [
-                        new_linear(
-                            name="extra_outputs",
-                            in_features=hidden_size,
-                            out_features=vocab_size,
-                            bias=False,
-                            device=device,
-                            dtype=dtype,
-                            is_reward=is_reward,
-                            weight_scale=embed_grad_scale,
-                            manual_select_class = "head",  # manual select linear class for extra outputs
-                        )
-                        for _ in range(self.extra_pred_tokens)
-                    ]
-                )
-                for _, param in self.extra_outputs.named_parameters():
-                    if init_type == "normal":
-                        normal_(std=out_head_init_std)(param)
-                    else:
-                        uniform_(std=out_head_init_std)(param)
-
         self.parallel_output = parallel_output
 
     def forward(self, hidden_states=None, cu_seqlens=None, input_ids=None, indexes=None, inference_params=None):
@@ -535,19 +508,13 @@ class PackedFlashLlama1D(nn.Module):
 
         if hasattr(self, "norm"):
             hidden_states = self.norm(hidden_states.float())
-        if hasattr(self, "extra_pred_tokens") and self.extra_pred_tokens > 0:
-            extra_hidden_states_list = [self.extra_outputs[i](hidden_states) for i in range(self.extra_pred_tokens)]
-        else:
-            extra_hidden_states_list = None
+
         if hasattr(self, "output"):
             # Evaluation
             if gpc.is_evaluating is True:
                 hidden_states = self.output(hidden_states, gather_dim=1, tp_mode=self.tp_mode)
             else:  # Training
                 hidden_states = self.output(hidden_states, gather_dim=0, tp_mode=self.tp_mode)
-
-        if extra_hidden_states_list is not None:
-            return (hidden_states, extra_hidden_states_list)
 
         return hidden_states
 
@@ -629,7 +596,6 @@ def build_model_with_cfg(
     ffn_other_init_std: float = 0.02,
     out_head_init_std: float = 0.02,
     init_type: str = "normal",
-    extra_pred_tokens: int = 0,
     rope_base: int = 10000,
 ):
     """
@@ -669,7 +635,6 @@ def build_model_with_cfg(
         ffn_other_init_std (float): std used to init ffn_other weight. 0.02 by default,
         out_head_init_std (float): std used to init output lmhead weight. 0.02 by default,
         init_type (str): Initialization type. Use uniform or normal. "normal" by default,
-        extra_pred_tokens (int): The number of extra output head for multi-token-prediction. 0 by default.
         rope_base (int): The value of `base` for rotary position embeddings. 10000 by default.
     """
     if deepnorm:
@@ -706,7 +671,6 @@ def build_model_with_cfg(
         ffn_other_init_std=ffn_other_init_std,
         out_head_init_std=out_head_init_std,
         init_type=init_type,
-        extra_pred_tokens=extra_pred_tokens,
         rope_base=rope_base,
     )
 

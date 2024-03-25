@@ -13,17 +13,16 @@ from internlm.initialize.initialize_tensor import (
     scaled_init_method_uniform,
     uniform_,
 )
-from internlm.model.embedding import Embedding1D
-from internlm.model.modules.multi_head_attention import MHA3
-from internlm.model.modules.ffn import new_fead_forward
+from internlm.model.modules.embedding import Embedding1D
 from internlm.model.modules.linear import new_linear
-
+from internlm.model.modules.mlp import new_fead_forward
+from internlm.model.modules.multi_head_attention import MHA3
 from internlm.model.modules.utils import (
     split_forward_gather_backward,
     try_import_RMSNorm,
 )
+from internlm.solver.activation_checkpoint import activation_checkpoint
 from internlm.solver.pipeline_utils import partition_uniform
-from internlm.utils.checkpoint import activation_checkpoint
 from internlm.utils.common import filter_kwargs
 from internlm.utils.logger import get_logger
 from internlm.utils.registry import MODEL_INITIALIZER

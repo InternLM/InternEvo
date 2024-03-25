@@ -12,6 +12,10 @@ import torch
 from internlm.core.context import Config
 from internlm.core.context import global_context as gpc
 from internlm.core.context.process_group_initializer import ParallelMode
+from internlm.model.moe.megablock.utils import (
+    check_megablock_installed,
+    check_stk_installed,
+)
 from internlm.monitor import initialize_light_monitor
 from internlm.utils.common import get_master_node
 from internlm.utils.gputest import warmup_process_group
@@ -117,6 +121,9 @@ def args_sanity_check():
         logger.warning("packed_length would be ignored and will be setted as seq_len * micro_bsz.")
 
     data._add_item("packed_length", data.seq_len * data.micro_bsz)
+
+    if "type" not in data:
+        data._add_item("type", "tokenized")
 
     if "micro_num" not in data:
         data._add_item("micro_num", 1)
@@ -314,6 +321,13 @@ def args_sanity_check():
             model._add_item("moe_use_residual", False)
         if "moe_type" not in model:
             model._add_item("moe_type", "GShard")
+        # check dependency
+        if gpc.config.model.moe_type == "MegaBlock":
+            check_megablock_installed()
+        if gpc.config.model.moe_type == "MegaBlock-D":
+            check_megablock_installed()
+            check_stk_installed()
+
     # process the parallel config
     if "sequence_parallel" not in gpc.config.parallel:
         gpc.config.parallel._add_item("sequence_parallel", False)

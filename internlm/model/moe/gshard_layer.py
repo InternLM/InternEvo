@@ -4,6 +4,7 @@ https://github.com/microsoft/DeepSpeed/blob/master/deepspeed/moe/experts.py
  Git commit hash: f3943cf9109226ed3ecf2d5dbb639a11cd925555
  We retain the following license from the original files:
 """
+
 from typing import Callable, Dict, Optional, Tuple
 
 import torch
@@ -14,12 +15,12 @@ from torch.nn import Module
 
 from internlm.core.context import ParallelMode
 from internlm.core.context import global_context as gpc
-from internlm.model.modules.ffn import new_fead_forward
+from internlm.model.modules.mlp import new_fead_forward
 from internlm.utils.logger import get_logger
 from internlm.utils.megatron_timers import megatron_timer as timer
 from internlm.utils.registry import MODEL_INITIALIZER
 
-from .base_moe import BaseMoELayer
+from .base_layer import BaseMoELayer
 from .utils import all_to_all
 
 # global llm logger
@@ -385,9 +386,9 @@ class GShardMOELayer(BaseMoELayer):
 
     def __init__(
         self,
-        hidden_size,
+        hidden_size: int,
         num_experts: int,
-        ep_group,
+        ep_group: Optional[torch.distributed.ProcessGroup],
         ep_size: int,
         top_k: int = 1,
         capacity_factor: float = 1.0,
@@ -396,8 +397,8 @@ class GShardMOELayer(BaseMoELayer):
         noisy_gate_policy: str = None,
         drop_tokens: bool = True,
         use_rts: bool = True,
-        device=None,
-        dtype=None,
+        device: Optional[torch.device] = None,
+        dtype: Optional[torch.device] = None,
     ) -> None:
         assert noisy_gate_policy is None or noisy_gate_policy in ["None", "Jitter", "RSample"], (
             "Unsupported noisy_gate_policy: " + noisy_gate_policy

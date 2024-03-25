@@ -22,7 +22,8 @@ RUN yum install deltarpm -y && yum update -y \
         gcc-c++ \
         file \
         texinfo \
-        which
+        which \
+        libnuma-devel
 
 
 ##############################################################################

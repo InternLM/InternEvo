@@ -13,10 +13,14 @@ from torch import distributed as dist
 from torch import nn
 
 from internlm.core.context import global_context as gpc
-from internlm.core.parallel.comm.utils import DUMMY_HANDLE_CONST, AsyncCommHandle
 from internlm.core.naive_amp import NaiveAMPModel
-from internlm.model.modules.ffn import ISPLinear
-from internlm.model.modules.utils import all_gather_raw, reduce_scatter_raw
+from internlm.core.parallel.comm.utils import (
+    DUMMY_HANDLE_CONST,
+    AsyncCommHandle,
+    all_gather_raw,
+    reduce_scatter_raw,
+)
+from internlm.model.modules.linear import ParallelLinearWithCommExt
 from internlm.utils.common import SchedulerHook
 
 
@@ -228,7 +232,7 @@ class ISPCommunicator:
                             if name in ["out_proj", "wo"]:
                                 self._overlap_states[cid].isp_outs.append(child)
                                 self._overlap_states[cid].module_to_index[child] = idx
-                            if isinstance(child, ISPLinear):
+                            if isinstance(child, ParallelLinearWithCommExt):
                                 if name not in self._module_shapes:
                                     origin_shape = tuple(
                                         [child.weight.shape[0] * gpc.weight_parallel_size]
@@ -493,7 +497,7 @@ class ISPCommunicator:
         model: nn.Module,
         op: dist.ReduceOp,
         is_bias: bool = False,
-    )-> Tuple[torch.Tensor, AsyncCommHandle]:
+    ) -> Tuple[torch.Tensor, AsyncCommHandle]:
         if dist.get_world_size(self.process_group) <= 1:
             return tensor, DUMMY_HANDLE_CONST
 

@@ -11,16 +11,16 @@ from internlm.core.context import ParallelMode
 from internlm.core.context.parallel_context import global_context as gpc
 from internlm.core.naive_amp import set_output_attr_to_module
 from internlm.initialize.initialize_tensor import normal_, scaled_init_method_normal
-from internlm.model.embedding import Embedding1D
-from internlm.model.modules.ffn import new_fead_forward
+from internlm.model.modules.embedding import Embedding1D
 from internlm.model.modules.linear import new_linear
+from internlm.model.modules.mlp import new_fead_forward
 from internlm.model.modules.multi_head_attention import MHA
 from internlm.model.modules.utils import (
     split_forward_gather_backward,
     try_import_RMSNorm,
 )
+from internlm.solver.activation_checkpoint import activation_checkpoint
 from internlm.solver.pipeline_utils import partition_uniform
-from internlm.utils.checkpoint import activation_checkpoint
 from internlm.utils.common import filter_kwargs
 from internlm.utils.logger import get_logger
 from internlm.utils.registry import MODEL_INITIALIZER
@@ -153,7 +153,7 @@ class PackedFlashBaseLayer1D(nn.Module):
                     if self.use_scaled_init and "w2" in name:
                         scaled_init_method_normal(sigma=0.006, num_layers=self.layer_idx + 1)(param.data)
                     else:
-                        normal_(std=0.006 if "w1" in name or "w2" in name else 0.0015)(param.data)
+                        normal_(std=0.006 if "w1" in name or "w3" in name else 0.0015)(param.data)
                 else:
                     if self.use_scaled_init and "fc1" not in name:
                         scaled_init_method_normal(sigma=0.006, num_layers=self.layer_idx + 1)(param.data)

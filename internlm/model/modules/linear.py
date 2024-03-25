@@ -5,19 +5,19 @@ Linear Modules
 from typing import Optional, Union
 
 import torch
+import torch.distributed as dist
 from torch import nn
 from torch.cuda.amp import custom_bwd, custom_fwd
-import torch.distributed as dist
 
 from internlm.core.context import global_context as gpc
 from internlm.core.parallel.comm.isp import ISPCommunicator
 from internlm.core.parallel.comm.tensor import TPCommunicator
 from internlm.core.parallel.shard import (
-    get_tensor_split_parallel_mode,
     get_head_parallel_mode,
     get_parallel_strategies_split_mode,
+    get_tensor_split_parallel_mode,
 )
-from internlm.model.ops.linear import linear_forward_op, linear_backward_op
+from internlm.model.ops.linear import linear_backward_op, linear_forward_op
 from internlm.utils.logger import get_logger
 
 logger = get_logger(__file__)

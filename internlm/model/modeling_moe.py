@@ -11,17 +11,17 @@ from internlm.core.context import ParallelMode
 from internlm.core.context.parallel_context import global_context as gpc
 from internlm.core.naive_amp import set_fp32_attr_to_module
 from internlm.initialize.initialize_tensor import normal_, scaled_init_method_normal
-from internlm.model.embedding import Embedding1D
-from internlm.model.modules.ffn import new_fead_forward
+from internlm.model.modules.embedding import Embedding1D
 from internlm.model.modules.linear import new_linear
-from internlm.model.moe import MoE
+from internlm.model.modules.mlp import new_fead_forward
 from internlm.model.modules.multi_head_attention import MHA
 from internlm.model.modules.utils import (
     split_forward_gather_backward,
     try_import_RMSNorm,
 )
+from internlm.model.moe import MoE
+from internlm.solver.activation_checkpoint import activation_checkpoint
 from internlm.solver.pipeline_utils import partition_uniform
-from internlm.utils.checkpoint import activation_checkpoint
 from internlm.utils.common import filter_kwargs
 from internlm.utils.logger import get_logger
 from internlm.utils.registry import MODEL_INITIALIZER

@@ -1,8 +1,8 @@
 #!/usr/bin/env python
 # -*- encoding: utf-8 -*-
 
-from typing import Callable
 from abc import ABC, abstractmethod
+from typing import Callable
 
 import torch
 import torch.distributed as dist
@@ -14,15 +14,18 @@ from internlm.core.context import global_context as gpc
 
 class AsyncCommHandle(ABC):
     """A interface for asynchronous communication handles."""
+
     @abstractmethod
     def wait(self) -> None:
-        """ wait asynchronous communication to complete. """
+        """wait asynchronous communication to complete."""
 
 
 class DummyAsyncCommHandle(AsyncCommHandle):
     """A fake communication handle used to maintain consistency in code writing"""
+
     def wait(self) -> None:
         pass
+
 
 DUMMY_HANDLE_CONST = DummyAsyncCommHandle()
 """

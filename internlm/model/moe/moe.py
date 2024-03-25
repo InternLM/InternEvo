@@ -2,7 +2,7 @@ import torch
 
 import internlm.moe  # noqa # pylint: disable=W0611
 from internlm.core.context import global_context as gpc
-from internlm.model.modules.ffn import new_fead_forward
+from internlm.model.modules.mlp import new_fead_forward
 from internlm.utils.logger import get_logger
 from internlm.utils.registry import MODEL_INITIALIZER
 

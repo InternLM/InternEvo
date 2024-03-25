@@ -2,9 +2,9 @@
 communication for tensor/sequence parallel.
 """
 
-from typing import Tuple
-from enum import Enum
 from abc import ABC, abstractmethod
+from enum import Enum
+from typing import Tuple
 
 import torch
 from torch import distributed as dist
@@ -12,13 +12,13 @@ from torch import distributed as dist
 from internlm.core.context import ParallelMode
 from internlm.core.context.parallel_context import global_context as gpc
 from internlm.core.parallel.comm.utils import (
+    DUMMY_HANDLE_CONST,
+    AsyncCommHandle,
     _gather,
     _split,
     all_gather_raw,
     all_reduce_raw,
     reduce_scatter_raw,
-    DUMMY_HANDLE_CONST,
-    AsyncCommHandle,
 )
 
 # input gather dim

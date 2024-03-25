@@ -35,6 +35,7 @@ class FlashGPTLMLoss(nn.Module):
                 label_smoothing=label_smoothing,
             )  # The loss in this place is bound to the gather_output initialized by VocabParallelClassifier1D
         else:
+            assert parallel_output is False, "parallel_output should be False when using nn.CrossEntropyLoss func"
             # Here, the output will gather output is set in the model, so use ordinary loss
             self.loss_fn = nn.CrossEntropyLoss(reduction="mean", label_smoothing=label_smoothing)
 

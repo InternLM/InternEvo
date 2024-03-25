@@ -1,7 +1,5 @@
-from .training_internlm import (
+from .pipeline import (
     get_scheduler_hooks,
-    get_train_data_loader,
-    get_validation_data_loader,
     initialize_parallel_communicator,
     initialize_llm_profile,
     initialize_model,
@@ -14,8 +12,6 @@ from .training_internlm import (
 )
 
 __all__ = [
-    "get_train_data_loader",
-    "get_validation_data_loader",
     "initialize_llm_profile",
     "initialize_model",
     "initialize_parallel_communicator",

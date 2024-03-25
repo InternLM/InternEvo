@@ -83,7 +83,7 @@ class FSDPadaptOptimizer(BaseOptimizer):
         norm_group = 0
         if len(params) <= 0 or len(gradients) <= 0:
             return norm_group
-        norm_group = compute_norm(gradients=gradients, parameters=params, last_stage=True)
+        norm_group = compute_norm(gradients=gradients, parameters=params)
 
         return norm_group
 

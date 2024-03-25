@@ -10,11 +10,11 @@ from typing import Dict
 import numpy as np
 import torch
 import torch.distributed as dist
-from torch.utils.data import ConcatDataset
+from torch.utils.data import ConcatDataset, Dataset
 from tqdm import tqdm
 
 from internlm.core.context import global_context as gpc
-from internlm.data.single_dataset import JsonlDataset
+from internlm.data.tokenized.single_dataset import JsonlDataset
 from internlm.data.utils import get_dataset_type_id, get_dataset_type_ids_map
 from internlm.utils.logger import get_logger
 
@@ -22,7 +22,7 @@ DEFAULT_SEED = 1024
 logger = get_logger(__file__)
 
 
-class PackedDataset(torch.utils.data.Dataset):
+class PackedDataset(Dataset):
     """
     The class PackedDataset takes in a dataset and aggregates samples of different
     lengths together based on the packed_length.
@@ -50,142 +50,6 @@ class PackedDataset(torch.utils.data.Dataset):
         # Force a seed to be fixed to prevent problems caused by the seed not being restored when restarting
 
         self.seed = DEFAULT_SEED
-        self.sample_indices, self.len_samples_shuffled, self.acm_len_samples = self.accu_sample_len(seed=self.seed)
-        self.num_tokens = sum(self.lengths)
-
-    def get_dataset_name(self):
-        return self.dataset.get_dataset_name()
-
-    def accu_sample_len(self, seed=None):
-        """accumulative length of samples"""
-        if seed is not None:
-            rng = np.random.RandomState(seed)
-        else:
-            rng = np.random.RandomState(self.seed - 1)
-
-        sample_indices = np.arange(len(self.lengths))
-        rng.shuffle(sample_indices)
-        len_samples_shuffled = list(map(self.lengths.__getitem__, sample_indices))
-        acm_len_samples = list(it.accumulate(len_samples_shuffled, operator.add))
-        return sample_indices, len_samples_shuffled, acm_len_samples
-
-    def __len__(self):
-        # Line 405 of document_to_sequence.py in metaseq is directly spliced,
-        # without additional consideration of sos or eos
-        n_packs = self.num_tokens // self.packed_length
-        return n_packs
-
-    def cal_map(self, carriage_idx: int = 0):
-        assert carriage_idx >= 0
-        length_train = (carriage_idx + 1) * self.packed_length
-        post_pos = np.searchsorted(self.acm_len_samples, length_train, side="left")
-        return post_pos
-
-    def mapping(self, pack_idx: int = 0):
-        # pack_idx is zero-based
-        pre_pos, pre_token_id = 0, 0
-        if pack_idx > 0:
-            pre_pos = self.cal_map(pack_idx - 1)
-            pre_token_id = self.len_samples_shuffled[pre_pos] - (
-                self.acm_len_samples[pre_pos] - (pack_idx) * self.packed_length
-            )
-            if pre_token_id == self.len_samples_shuffled[pre_pos]:
-                pre_pos += 1
-                pre_token_id = 0
-
-        pos = self.cal_map(pack_idx)
-        token_id = self.len_samples_shuffled[pos] - (self.acm_len_samples[pos] - (pack_idx + 1) * self.packed_length)
-        return pre_pos, pre_token_id, pos, token_id
-
-    def build_pack(self, pre_pos: int, pre_token_id: int, pos: int, token_id: int):
-        pack, cu_seqlens, indexes, labels, type_ids = [], [0], [], [], []
-
-        while pre_pos < pos:
-            sample_idx = self.sample_indices[pre_pos]
-            sample = self.dataset[sample_idx]
-            chunk = sample["tokens"][pre_token_id:]
-            pack.extend(chunk)
-            _labels = deepcopy(chunk)
-            _labels = list(_labels[1:]) + [-100]
-            assert len(_labels) == len(chunk), (_labels, chunk)
-            labels.extend(_labels)
-            type_ids.extend([sample.get("type_id", 0)] * len(chunk))
-            num_new_samples, tokens_left = divmod(len(chunk), self.max_length_per_sample)
-            for _ in range(num_new_samples):
-                cu_seqlens.append(cu_seqlens[-1] + self.max_length_per_sample)
-                indexes.extend(list(range(self.max_length_per_sample)))
-            if tokens_left > 0:
-                cu_seqlens.append(cu_seqlens[-1] + tokens_left)
-                indexes.extend(list(range(tokens_left)))
-            pre_pos = pre_pos + 1
-            pre_token_id = 0
-
-        sample_idx = self.sample_indices[pos]
-        sample = self.dataset[sample_idx]
-        chunk = sample["tokens"][pre_token_id:token_id]  # fragement of a sample
-        pack.extend(chunk)
-        _labels = deepcopy(chunk)
-        if token_id == len(sample["tokens"]):
-            _labels = list(_labels[1:]) + [-100]
-        else:
-            if token_id > len(sample["tokens"]):
-                print(f"token_id {token_id}, len of sample {len(sample['tokens'])}")
-            _labels = list(_labels[1:]) + [sample["tokens"][token_id]]
-        assert len(_labels) == len(chunk), (_labels, chunk)
-        labels.extend(_labels)
-        type_ids.extend([sample.get("type_id", 0)] * len(chunk))
-        num_new_samples, tokens_left = divmod(len(chunk), self.max_length_per_sample)
-        for _ in range(num_new_samples):
-            cu_seqlens.append(cu_seqlens[-1] + self.max_length_per_sample)
-            indexes.extend(list(range(self.max_length_per_sample)))
-        if tokens_left > 0:
-            cu_seqlens.append(cu_seqlens[-1] + tokens_left)
-            indexes.extend(list(range(tokens_left)))
-
-        out = {"tokens": pack, "cu_seqlens": cu_seqlens, "indexes": indexes, "labels": labels, "type_ids": type_ids}
-        return out
-
-    def cal_pos_unpack(self, index):
-        if index == 0:
-            pre_pos = 0
-        else:
-            pre_pos = index * gpc.config.data["micro_bsz"]
-
-        pos = (index + 1) * gpc.config.data["micro_bsz"]
-        return pre_pos, pos
-
-    def build_unpack(self, index):
-
-        pre_pos, pos = self.cal_pos_unpack(index)
-
-        pack, cu_seqlens, indexes, labels, type_ids = [], [0], [], [], []
-
-        while pre_pos < pos and pre_pos < len(self.dataset):
-            sample_idx = self.sample_indices[pre_pos]
-            sample = self.dataset[sample_idx]
-            length = min(len(sample["tokens"]), self.max_length_per_sample)
-            chunk = sample["tokens"][0:length]
-            pack.extend(chunk)
-            _labels = deepcopy(chunk)
-            _labels = list(_labels[1:]) + [-100]
-            assert len(_labels) == len(chunk), (_labels, chunk)
-            labels.extend(_labels)
-            type_ids.extend([sample.get("type_id", 0)] * len(chunk))
-            cu_seqlens.append(cu_seqlens[-1] + len(chunk))
-            indexes.extend(list(range(length)))
-            pre_pos = pre_pos + 1
-
-        if cu_seqlens[-1] != self.packed_length:
-            pack = pack + [0] * (self.packed_length - cu_seqlens[-1])
-            labels = labels + [-100] * (self.packed_length - cu_seqlens[-1])
-            type_ids = type_ids + [0] * (self.packed_length - cu_seqlens[-1])
-            indexes.extend(list(range(self.packed_length - cu_seqlens[-1])))
-            cu_seqlens.append(self.packed_length)
-
-        assert len(pack) == self.packed_length
-
-        out = {"tokens": pack, "cu_seqlens": cu_seqlens, "indexes": indexes, "labels": labels, "type_ids": type_ids}
-        return out
 
     def __getitem__(self, item: int) -> Dict:
         """Given the index, it returns a dict as
@@ -197,9 +61,8 @@ class PackedDataset(torch.utils.data.Dataset):
         }
         """
 
-        if gpc.config.model.use_flash_attn:
-            pos_before, token_id_before, pos_after, token_id_after = self.mapping(item)
-            return self.build_pack(pos_before, token_id_before, pos_after, token_id_after)
+        if gpc.config is None or gpc.config.model is None or gpc.config.model.use_flash_attn:
+            return self.build_pack(item)
 
         return self.build_unpack(item)
 
@@ -340,6 +203,176 @@ class PackedDatasetWithoutCuSeqlen(torch.utils.data.Dataset):
         }
 
 
+class PackedDatasetWithCut(PackedDataset):
+    """
+    The class PackedDataset takes in a dataset and aggregates samples of different
+    lengths together based on the packed_length using cut mode.
+
+
+    max_length_per_sample = 3
+    packed_length = 5
+    [1, 2]
+    [3, 4]
+    [5, 6, 7]
+    [8, 9, 10, 11, 12, 13]
+
+    --->
+    [1, 2, 3, 4, 5]
+    [6, 7, 8, 9, 10]
+    [11, 12, 13, 0, 0]
+
+    Args:
+        dataset: The original dataset to pack.
+        max_length_per_sample: The maximum length of each original sample. Default is 2048.
+        packed_length: The length of each packed sample. Default is 4096.
+    """
+
+    def __init__(
+        self,
+        dataset,
+        max_length_per_sample: int = 2048,
+        packed_length: int = 4096,
+    ):
+        super().__init__(dataset, max_length_per_sample, packed_length)
+        self.sample_indices, self.len_samples_shuffled, self.acm_len_samples = self.accu_sample_len(seed=self.seed)
+        self.num_tokens = sum(self.lengths)
+
+    def get_dataset_name(self):
+        return self.dataset.get_dataset_name()
+
+    def accu_sample_len(self, seed=None):
+        """accumulative length of samples"""
+        if seed is not None:
+            rng = np.random.RandomState(seed)
+        else:
+            rng = np.random.RandomState(self.seed - 1)
+
+        sample_indices = np.arange(len(self.lengths))
+        rng.shuffle(sample_indices)
+        len_samples_shuffled = list(map(self.lengths.__getitem__, sample_indices))
+        acm_len_samples = list(it.accumulate(len_samples_shuffled, operator.add))
+        return sample_indices, len_samples_shuffled, acm_len_samples
+
+    def __len__(self):
+        # Line 405 of document_to_sequence.py in metaseq is directly spliced,
+        # without additional consideration of sos or eos
+        n_packs = self.num_tokens // self.packed_length
+        return n_packs
+
+    def cal_map(self, carriage_idx: int = 0):
+        assert carriage_idx >= 0
+        length_train = (carriage_idx + 1) * self.packed_length
+        post_pos = np.searchsorted(self.acm_len_samples, length_train, side="left")
+        return post_pos
+
+    def mapping(self, pack_idx: int = 0):
+        # pack_idx is zero-based
+        pre_pos, pre_token_id = 0, 0
+        if pack_idx > 0:
+            pre_pos = self.cal_map(pack_idx - 1)
+            pre_token_id = self.len_samples_shuffled[pre_pos] - (
+                self.acm_len_samples[pre_pos] - (pack_idx) * self.packed_length
+            )
+            if pre_token_id == self.len_samples_shuffled[pre_pos]:
+                pre_pos += 1
+                pre_token_id = 0
+
+        pos = self.cal_map(pack_idx)
+        token_id = self.len_samples_shuffled[pos] - (self.acm_len_samples[pos] - (pack_idx + 1) * self.packed_length)
+        return pre_pos, pre_token_id, pos, token_id
+
+    def build_pack(self, item):
+        pre_pos, pre_token_id, pos, token_id = self.mapping(item)
+        pack, cu_seqlens, indexes, labels, type_ids = [], [0], [], [], []
+
+        while pre_pos < pos:
+            sample_idx = self.sample_indices[pre_pos]
+            sample = self.dataset[sample_idx]
+            chunk = sample["tokens"][pre_token_id:]
+            pack.extend(chunk)
+            _labels = deepcopy(chunk)
+            _labels = list(_labels[1:]) + [-100]
+            assert len(_labels) == len(chunk), (_labels, chunk)
+            labels.extend(_labels)
+            type_ids.extend([sample.get("type_id", 0)] * len(chunk))
+            num_new_samples, tokens_left = divmod(len(chunk), self.max_length_per_sample)
+            for _ in range(num_new_samples):
+                cu_seqlens.append(cu_seqlens[-1] + self.max_length_per_sample)
+                indexes.extend(list(range(self.max_length_per_sample)))
+            if tokens_left > 0:
+                cu_seqlens.append(cu_seqlens[-1] + tokens_left)
+                indexes.extend(list(range(tokens_left)))
+            pre_pos = pre_pos + 1
+            pre_token_id = 0
+
+        sample_idx = self.sample_indices[pos]
+        sample = self.dataset[sample_idx]
+        chunk = sample["tokens"][pre_token_id:token_id]  # fragement of a sample
+        pack.extend(chunk)
+        _labels = deepcopy(chunk)
+        if token_id == len(sample["tokens"]):
+            _labels = list(_labels[1:]) + [-100]
+        else:
+            if token_id > len(sample["tokens"]):
+                print(f"token_id {token_id}, len of sample {len(sample['tokens'])}")
+            _labels = list(_labels[1:]) + [sample["tokens"][token_id]]
+        assert len(_labels) == len(chunk), (_labels, chunk)
+        labels.extend(_labels)
+        type_ids.extend([sample.get("type_id", 0)] * len(chunk))
+        num_new_samples, tokens_left = divmod(len(chunk), self.max_length_per_sample)
+        for _ in range(num_new_samples):
+            cu_seqlens.append(cu_seqlens[-1] + self.max_length_per_sample)
+            indexes.extend(list(range(self.max_length_per_sample)))
+        if tokens_left > 0:
+            cu_seqlens.append(cu_seqlens[-1] + tokens_left)
+            indexes.extend(list(range(tokens_left)))
+
+        out = {"tokens": pack, "cu_seqlens": cu_seqlens, "indexes": indexes, "labels": labels, "type_ids": type_ids}
+        return out
+
+    def cal_pos_unpack(self, index):
+        if index == 0:
+            pre_pos = 0
+        else:
+            pre_pos = index * gpc.config.data["micro_bsz"]
+
+        pos = (index + 1) * gpc.config.data["micro_bsz"]
+        return pre_pos, pos
+
+    def build_unpack(self, index):
+
+        pre_pos, pos = self.cal_pos_unpack(index)
+
+        pack, cu_seqlens, indexes, labels, type_ids = [], [0], [], [], []
+
+        while pre_pos < pos and pre_pos < len(self.dataset):
+            sample_idx = self.sample_indices[pre_pos]
+            sample = self.dataset[sample_idx]
+            length = min(len(sample["tokens"]), self.max_length_per_sample)
+            chunk = sample["tokens"][0:length]
+            pack.extend(chunk)
+            _labels = deepcopy(chunk)
+            _labels = list(_labels[1:]) + [-100]
+            assert len(_labels) == len(chunk), (_labels, chunk)
+            labels.extend(_labels)
+            type_ids.extend([sample.get("type_id", 0)] * len(chunk))
+            cu_seqlens.append(cu_seqlens[-1] + len(chunk))
+            indexes.extend(list(range(length)))
+            pre_pos = pre_pos + 1
+
+        if cu_seqlens[-1] != self.packed_length:
+            pack = pack + [0] * (self.packed_length - cu_seqlens[-1])
+            labels = labels + [0] * (self.packed_length - cu_seqlens[-1])
+            type_ids = type_ids + [0] * (self.packed_length - cu_seqlens[-1])
+            indexes.extend(list(range(self.packed_length - cu_seqlens[-1])))
+            cu_seqlens.append(self.packed_length)
+
+        assert len(pack) == self.packed_length
+
+        out = {"tokens": pack, "cu_seqlens": cu_seqlens, "indexes": indexes, "labels": labels, "type_ids": type_ids}
+        return out
+
+
 def get_packed_dataset_without_short_length(
     folder,
     max_length_per_sample=2048,
@@ -347,7 +380,7 @@ def get_packed_dataset_without_short_length(
     show_progress=False,
     min_length=50,
     min_length_dict=None,
-    pack_into_one_sample=False,
+    pack_sample_into_one=False,
 ):
     """
     Given a folder, combine all the .bin files into a single large dataset.
@@ -412,10 +445,10 @@ def get_packed_dataset_without_short_length(
                         logger.info(f"None of the data in `{fp}` is longer than {min_length}")
                     continue
 
-                if pack_into_one_sample:
+                if pack_sample_into_one:
                     ds = PackedDatasetWithoutCuSeqlen(ds, max_length_per_sample, packed_length)
                 else:
-                    ds = PackedDataset(ds, max_length_per_sample, packed_length)
+                    ds = PackedDatasetWithCut(ds, max_length_per_sample, packed_length)
 
                 num_token_in_folder += len(ds) * packed_length
                 datasets.append(ds)

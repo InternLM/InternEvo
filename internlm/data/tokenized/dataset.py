@@ -3,7 +3,7 @@ from typing import Dict
 
 from torch.utils.data import ConcatDataset
 
-from internlm.data.single_dataset import JsonlDataset
+from internlm.data.tokenized.single_dataset import JsonlDataset
 
 
 def get_dataset_dict(folder, split="valid") -> Dict:
