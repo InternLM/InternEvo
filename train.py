@@ -111,7 +111,7 @@ def main(args):
         config_lines = f.readlines()
 
     # initialize loss function
-    criterion = FlashGPTLMLoss(parallel_output=True, label_smoothing=label_smoothing)
+    criterion = FlashGPTLMLoss(parallel_output=gpc.config.model.parallel_output, label_smoothing=label_smoothing)
 
     # initialize the train and validation data loader
     train_dl, dataset_types = build_train_loader_with_data_type()
@@ -198,7 +198,6 @@ def main(args):
             # torch.cuda.memory._record_memory_history()
             start_time = time.time()
             timer("one-batch").start()
-            gpc.config.batch_count = batch_count
 
             # load batch data
             batch, train_iter = load_new_batch(train_dl=train_dl, train_iter=train_iter, train_state=train_state)

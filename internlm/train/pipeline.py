@@ -2,8 +2,6 @@
 # -*- encoding: utf-8 -*-
 
 import functools
-import os
-import pickle
 import time
 from typing import Callable, Iterable, List, Optional, Union
 
@@ -60,12 +58,7 @@ from internlm.solver.optimizer import FSDPadaptOptimizer, HybridZeroOptimizer
 from internlm.solver.schedulers.beta2_scheduler import Beta2Scheduler
 from internlm.solver.schedulers.lr_scheduler import FineTuneCosineAnnealingWarmupLR
 from internlm.train.utils import create_param_groups
-from internlm.utils.common import (
-    DummyProfile,
-    SchedulerHook,
-    get_current_device,
-    launch_time,
-)
+from internlm.utils.common import DummyProfile, SchedulerHook, get_current_device
 from internlm.utils.logger import get_logger
 from internlm.utils.megatron_timers import megatron_timer as timer
 from internlm.utils.parallel import (
@@ -75,7 +68,6 @@ from internlm.utils.parallel import (
     is_tensor_zero_parallel_parameter,
     is_using_isp,
     is_weight_zero_parallel_parameter,
-    set_model_params_layer_name,
     sync_model_param,
     sync_model_replica_param_group,
 )
@@ -297,42 +289,57 @@ def initialize_optimizer(model: Union[nn.Module, nn.ModuleList], isp_communicato
     Returns:
         A tuple of (optimizer, beta2_scheduler, lr_scheduler).
     """
-    grad_profiling_config = gpc.config.get("grad_profiling", {})
-    if (
-        grad_profiling_config.get("grad_norm_profiling", False)
-        or grad_profiling_config.get("zero_grad_profiling", False)
-        or grad_profiling_config.get("vocab_grad_norm_profiling", False)
-    ):
-        # set the layer name as an attribute of the model parameters
-        set_model_params_layer_name(model)
-
-    if gpc.config.hybrid_zero_optimizer.overlap_sync_param:
-        param_bcast_sync_handler = ParamAsyncBcastHandler(ParallelMode.ZERO1, model, isp_communicator)
-    else:
-        param_bcast_sync_handler = None
 
     adam_cfg = gpc.config.adam
+    zero_cfg = gpc.config.hybrid_zero_optimizer
+    grad_scal_cfg = gpc.config.grad_scaler
+
     params = create_param_groups(model, adam_cfg.weight_decay)
+    adam_extra_kwargs = {}
+    # set fused=True to avoid nan grad norm when model size is larger and use_fp32_norm=True
+    if torch.__version__ >= "2.1.0":
+        adam_extra_kwargs["fused"] = True
+
     naive_optimizer = torch.optim.AdamW(
         params=params,
         lr=adam_cfg.lr,
         betas=(adam_cfg.adam_beta1, adam_cfg.adam_beta2),
         eps=adam_cfg.adam_eps,
+        **adam_extra_kwargs,
     )
+
+    if (
+        zero_cfg.overlap_sync_grad
+        and gpc.is_using_parallel_mode(ParallelMode.PIPELINE)
+        and gpc.is_pipeline_first_stage() is False
+    ):
+        # When pipeline parallelism is enabled, we prefer to only enable optimizer
+        # gradient communication overlap in the first stage, to avoid amplifying
+        # the communication overhead stage by stage in cases where the optimizer
+        # communication overhead is greater than the compute overhead.
+        # For pipeline stages except the first, even if overlap is not enabled,
+        # their gradient synchronization overhead can be well hidden by
+        # the inherent bubbles of pipeline parallelism.
+        zero_cfg.overlap_sync_grad = False
+
+    if zero_cfg.overlap_sync_param:
+        param_bcast_sync_handler = ParamAsyncBcastHandler(ParallelMode.ZERO1, model, isp_communicator)
+    else:
+        param_bcast_sync_handler = None
 
     if not gpc.config.parallel.zero1.fsdp:
         optimizer = HybridZeroOptimizer(
             naive_optimizer,
-            grad_scal_cfg=gpc.config.grad_scaler,
-            zero_cfg=gpc.config.hybrid_zero_optimizer,
+            grad_scal_cfg=grad_scal_cfg,
+            zero_cfg=zero_cfg,
             param_bcast_sync_handler=param_bcast_sync_handler,
             isp_communicator=isp_communicator,
         )
     else:
         optimizer = FSDPadaptOptimizer(
             naive_optimizer,
-            grad_scal_cfg=gpc.config.grad_scaler,
-            zero_cfg=gpc.config.hybrid_zero_optimizer,
+            grad_scal_cfg=grad_scal_cfg,
+            zero_cfg=zero_cfg,
         )
 
     beta2_scheduler = Beta2Scheduler(optimizer=naive_optimizer, **gpc.config.beta2_scheduler)
@@ -387,6 +394,8 @@ def load_new_batch(train_dl: DataLoader, train_iter: Iterable, train_state: Trai
         batch = next(train_iter)
         train_state.num_consumed_samples_in_epoch = 0
         if hasattr(train_state, "batch_sampler"):
+            train_state.batch_sampler.batch_count = 0
+            train_state.batch_sampler.num_consumed_samples_in_epoch = 0
             train_state.batch_sampler_iter = iter(train_state.batch_sampler)
             next(train_state.batch_sampler_iter)
     timer("batch-gen").stop()
@@ -551,42 +560,6 @@ def record_current_batch_training_metrics(
 
         for key, value in acc_perplex.items():
             infos[key] = value
-
-        grad_profiling_config = gpc.config.get("grad_profiling", {})
-        interval_steps = grad_profiling_config.get("interval_steps", 1)
-        if batch_count % interval_steps == 0:
-            layer_metrics = [metric for metric in ["layer_grad_norm", "layer_zero_grad"] if metric in grad_norm]
-            param_metrics = [metric for metric in ["param_grad_norm", "param_zero_grad"] if metric in grad_norm]
-            layer_names = grad_profiling_config.get("layers", [])
-            for metric_name in layer_metrics:
-                metric = grad_norm.get(metric_name)
-                for group_name, layer_group in metric.items():
-                    title = f"{metric_name}/{group_name}"
-                    metrics = {k: v for k, v in layer_group.items() if not layer_names or k in layer_names}
-                    if metrics:
-                        writer.add_scalars(key=title, value=metrics, step=train_state.step_count)
-                del grad_norm[metric_name]
-            for metric_name in param_metrics:
-                metric = grad_norm.get(metric_name)
-                for group_name, layer_group in metric.items():
-                    for param_name, param_group in layer_group.items():
-                        title = f"{param_name}/{group_name}_{metric_name}"
-                        metrics = {k: v for k, v in param_group.items() if not layer_names or k in layer_names}
-                        if metrics:
-                            writer.add_scalars(key=title, value=metrics, step=train_state.step_count)
-                del grad_norm[metric_name]
-            if grad_profiling_config.get("vocab_grad_norm_profiling", False):
-                local_save_path = f"RUN/{gpc.config.JOB_NAME}/{launch_time()}/grad_norm"
-                os.makedirs(local_save_path, exist_ok=True)
-                local_save_file = f"{local_save_path}/vocab_grad_norm.pt"
-                vocab_grad_norms = grad_norm.get("vocab_grad_norm")
-                if vocab_grad_norms:
-                    try:
-                        with open(local_save_file, "ab+") as vocab_f:
-                            pickle.dump((train_state.step_count, vocab_grad_norms), vocab_f)
-                    except IOError as e:
-                        logger.warning(f"Error saving vocab_grad_norm: {e}")
-                del grad_norm["vocab_grad_norm"]
 
         line = ""
         for key, value in infos.items():

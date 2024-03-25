@@ -965,7 +965,7 @@ class PackedFlashLlama1D(nn.Module):
             else:  # Training
                 hidden_states = self.output(hidden_states, gather_dim=0, tp_mode=self.tp_mode)
 
-        if not self.parallel_output:
+        if not self.parallel_output and gpc.is_pipeline_last_stage():
             hidden_states = gather_forward_split_backward(hidden_states, ParallelMode.TENSOR, dim=-1)
 
         return hidden_states
