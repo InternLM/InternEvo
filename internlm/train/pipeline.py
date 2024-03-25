@@ -395,7 +395,7 @@ def load_new_batch(train_dl: DataLoader, train_iter: Iterable, train_state: Trai
     timer("batch-gen").stop()
 
     if batch[0].get("type_ids", None) is not None:
-        # if use_flash_attn is False, we need to unpack type_ids
+        # if use_packed_dataset is False, we need to unpack type_ids
         if not gpc.config.data.use_packed_dataset:
             batch[0]["type_ids"] = unpack_data(batch[0]["type_ids"], batch[0]["cu_seqlens"], is_type_ids=True)
 
