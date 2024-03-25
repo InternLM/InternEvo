@@ -1,3 +1,8 @@
+#!/usr/bin/env python
+# -*- encoding: utf-8 -*-
+
+# adopted from https://github.com/hpcaitech/ColossalAI/blob/main/colossalai/engine
+
 from typing import Any, Callable, Iterable, List, Optional
 
 import torch
@@ -12,9 +17,6 @@ from internlm.utils.logger import get_logger
 from internlm.utils.timeout import llm_timeout
 
 from .base_scheduler import BaseScheduler
-
-# adopted from https://github.com/hpcaitech/ColossalAI/blob/main/colossalai/engine
-
 
 logger = get_logger(__file__)
 

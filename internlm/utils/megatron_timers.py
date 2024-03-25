@@ -1,3 +1,6 @@
+#!/usr/bin/env python
+# -*- encoding: utf-8 -*-
+
 import time
 
 from internlm.accelerator import internlm_accelerator

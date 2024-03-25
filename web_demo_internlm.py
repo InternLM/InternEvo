@@ -1,14 +1,12 @@
-from internlm.accelerator import get_accelerator, internlm_accelerator
-
 """
 Directly load models in internlm format for interactive dialogue.
 """
 import logging
 
 import streamlit as st
-import torch
 from sentencepiece import SentencePieceProcessor
 
+from internlm.accelerator import internlm_accelerator
 from tools.interface import GenerationConfig
 from tools.load_internlm_model import (
     initialize_internlm_model,

@@ -1,7 +1,12 @@
+#!/usr/bin/env python
+# -*- encoding: utf-8 -*-
+
+# adopted from https://github.com/hpcaitech/ColossalAI/blob/main/colossalai/engine
+
 from contextlib import contextmanager
 from typing import Callable, List, Optional, Tuple, Union
 
-import torch.cuda
+import torch
 import torch.distributed as dist
 
 import internlm.core.communication as comm
@@ -19,9 +24,6 @@ from internlm.utils.logger import get_logger
 from internlm.utils.timeout import llm_timeout
 
 from .base_scheduler import BaseScheduler
-
-# adopted from https://github.com/hpcaitech/ColossalAI/blob/main/colossalai/engine
-
 
 logger = get_logger(__file__)
 
@@ -730,7 +732,7 @@ class InterleavedPipelineScheduler(PipelineScheduler):
         """
         assert (
             num_microbatches % gpc.get_world_size(ParallelMode.PIPELINE) == 0
-        ), "num_microbatches must be an integer multiple of pipeline parallel world size"
+        ), f"num_microbatches: {num_microbatches} must be an integer multiple of pipeline parallel world size"
 
         assert (
             isinstance(num_chunks, int) and num_chunks > 0

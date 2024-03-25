@@ -23,7 +23,7 @@ class Accelerator:
     def __init__(self) -> None:
         pass
 
-    def backend_name(self):
+    def get_backend_name(self):
         raise NotImplementedError
 
     def get_accelerator_backend(self):

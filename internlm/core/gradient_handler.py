@@ -1,3 +1,6 @@
+#!/usr/bin/env python
+# -*- encoding: utf-8 -*-
+
 from abc import ABC, abstractmethod
 from collections import defaultdict
 

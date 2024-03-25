@@ -1,3 +1,6 @@
+#!/usr/bin/env python
+# -*- encoding: utf-8 -*-
+
 import argparse
 import gc
 import os
@@ -476,7 +479,7 @@ def launch(
         gpc.set_device(local_rank)
 
     # set the number of processes running on the same node
-    # gpc.detect_num_processes_on_current_node()
+    gpc.detect_num_processes_on_current_node()
 
     internlm_accelerator.synchronize()
     gpc.set_seed(seed)
@@ -590,8 +593,6 @@ def initialize_distributed_env(
 
     # close automatic garbage collection
     gc.disable()
-
-    # internlm_accelerator.empty_cache()
 
     if launcher == "torch":
         launch_from_torch(config=config, seed=seed, backend=backend)

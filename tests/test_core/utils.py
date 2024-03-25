@@ -39,7 +39,7 @@ class MlpModel(nn.Module):
     ):  # pylint: disable=W0613
         if self.model_type != "torch" and self.part[0] != 0:
             input_ids = hidden_states
-
+        
         # Simulate Embedding.
         if self.embedding:
             if len(input_ids.shape) == 2:

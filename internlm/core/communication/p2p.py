@@ -1,3 +1,8 @@
+#!/usr/bin/env python
+# -*- encoding: utf-8 -*-
+
+# adopted from https://github.com/hpcaitech/ColossalAI/blob/main/colossalai/communication
+
 import operator
 from functools import reduce
 from typing import List, Tuple, Union
@@ -11,9 +16,6 @@ from internlm.core.context import global_context as gpc
 from internlm.utils.common import get_current_device
 
 from .utils import gather_split_1d_tensor, split_tensor_into_1d_equal_chunks
-
-# adopted from https://github.com/hpcaitech/ColossalAI/blob/main/colossalai/communication
-
 
 TensorShape = Union[torch.Size, List[int], Tuple[int]]
 

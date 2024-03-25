@@ -1,3 +1,6 @@
+#!/usr/bin/env python
+# -*- encoding: utf-8 -*-
+
 import math
 import warnings
 from typing import Any, Optional, Tuple

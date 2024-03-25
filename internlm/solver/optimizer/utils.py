@@ -1,3 +1,6 @@
+#!/usr/bin/env python
+# -*- encoding: utf-8 -*-
+
 import math
 from abc import ABC, abstractmethod
 from typing import Dict, Optional
@@ -281,7 +284,7 @@ def compute_norm(
     """
 
     weight_parallel_mode = ParallelMode.WEIGHT if is_using_isp() else ParallelMode.TENSOR
-    enable_cuda_kernels = gradients[0].device.type == "cuda"
+    enable_cuda_kernels = gradients[0].device.type != "cpu"
     # Norm parameters.
     norm_type = float(norm_type)
 

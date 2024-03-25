@@ -10,10 +10,11 @@ from torch.nn.parallel import DistributedDataParallel as DDP
 from torch.testing import assert_close
 
 import internlm
-from internlm.accelerator import get_accelerator, internlm_accelerator
+from internlm.accelerator import internlm_accelerator
 from internlm.core.communication.utils import ParamAsyncBcastHandler
 from internlm.core.context.parallel_context import Config, ParallelMode
 from internlm.solver.optimizer import HybridZeroOptimizer
+from internlm.utils.common import get_current_device
 
 
 class MlpModel(nn.Module):
@@ -175,9 +176,9 @@ def exam_hybrid_zero_optim_with_ddp(args):
     seed_all(1024)
 
     # create models
-    torch_model = MlpModel().cuda()
+    torch_model = MlpModel().to(get_current_device())
     zero_model = copy.deepcopy(torch_model).to(dtype)
-    torch_model = DDP(torch_model.cuda(), static_graph=True).cuda()
+    torch_model = DDP(torch_model.to(get_current_device()), static_graph=True).to(get_current_device())
     IS_TENSOR_ZERO_PARALLEL = "is_tensor_zero_parallel"
     for param in zero_model.parameters():
         setattr(param, IS_TENSOR_ZERO_PARALLEL, True)
@@ -222,13 +223,13 @@ def exam_hybrid_zero_optim_with_ddp(args):
 
             seed_all(1024 + rank)
             # create input
-            input_data = torch.rand(16, 128).cuda()
+            input_data = torch.rand(16, 128).to(get_current_device())
 
             # zero-dp forward
             zero_output = zero_model(input_data.to(dtype))
 
             # torch-ddp forward
-            torch_output = torch_model(input_data)
+            torch_output = torch_model(input_data)  # pylint: disable=E1102
 
             # check output
             loose_close(zero_output, torch_output, dtype=dtype)
@@ -287,7 +288,7 @@ def exam_hybrid_zero_optim_with_ckpt_load_save(args):
     build_environment(rank, world_size)
 
     # create models
-    zero_model = MlpModel().cuda().to(dtype)
+    zero_model = MlpModel().to(get_current_device()).to(dtype)
 
     # create optimizer
     if config.hybrid_zero_optimizer.overlap_sync_param:

@@ -18,7 +18,7 @@ class ASCEND_Accelerator(Accelerator):
         self._communication_backend_name = "hccl"
         self.amp = self.get_amp()
 
-    def backend_name(self):
+    def get_backend_name(self):
         return self._name_str
 
     def get_accelerator_backend(self):

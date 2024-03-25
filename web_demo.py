@@ -1,5 +1,3 @@
-from internlm.accelerator import get_accelerator, internlm_accelerator
-
 """
 This script refers to the dialogue example of streamlit, the interactive generation code of chatglm2 and transformers.
 We mainly modified part of the code logic to adapt to the generation of our model.
@@ -14,6 +12,7 @@ from dataclasses import asdict
 import streamlit as st
 import torch
 
+from internlm.accelerator import internlm_accelerator
 from tools.interface import GenerationConfig, generate_interactive
 from transformers import AutoModelForCausalLM, AutoTokenizer
 from transformers.utils import logging

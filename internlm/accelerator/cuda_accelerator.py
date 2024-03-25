@@ -19,7 +19,7 @@ class CUDA_Accelerator(Accelerator):
         self.amp = self.get_amp()
         self.memory = torch.cuda.memory
 
-    def backend_name(self):
+    def get_backend_name(self):
         return self._name_str
 
     def get_accelerator_backend(self):
