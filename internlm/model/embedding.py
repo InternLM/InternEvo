@@ -510,8 +510,9 @@ class RotaryEmbedding(torch.nn.Module):
             )
 
     def _single_forward(
-        self, x, indexes=0, cu_seqlens: Optional[torch.Tensor] = None, max_seqlen: Optional[int] = None
+        self, x, indexes=0, cu_seqlens: Optional[torch.Tensor] = None, max_seqlen: Optional[int] = None, left_padding: bool = False,
     ):
+        # TODO: improve it.
         assert self.scale is None
         self._update_cos_sin_cache(x, indexes)
         x = x[None, ...]
@@ -520,10 +521,30 @@ class RotaryEmbedding(torch.nn.Module):
         ).squeeze(0)
         return ret
 
-    def _single_eval_forward(self, x, seqlen_offset=0):
+    def _single_eval_forward(self, x, seqlen_offset=0, left_padding_mask: Optional[torch.Tensor] = None):
+        # TODO: improve it.
+        if left_padding_mask is not None:
+            moved_x = torch.zeros_like(x) # TODO: check it.
+            empties = left_padding_mask[..., -1].sum(dim=-1)
+            for i in range(len(empties)):
+                if empties[i] == 0:
+                    continue
+                moved_x[i][: -empties[i]] = x[i][empties[i] :]
+            x = moved_x
+
         assert self.scale is None
         self._update_cos_sin_cache(x, seqlen_offset + x.shape[1])
-        return apply_rotary_emb(x, self._cos_cached[seqlen_offset:], self._sin_cached[seqlen_offset:])
+        out = apply_rotary_emb(x, self._cos_cached[seqlen_offset:], self._sin_cached[seqlen_offset:])
+
+        if left_padding_mask is not None:
+            move_out = torch.zeros_like(out) # TODO: check it.
+            for i in range(len(empties)):
+                if empties[i] == 0:
+                    continue
+                move_out[i][empties[i] :] = out[i][: -empties[i]]
+            out = move_out
+
+        return out
 
 
 class LinearRotaryEmbedding(RotaryEmbedding):

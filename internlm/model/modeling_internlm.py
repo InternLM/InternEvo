@@ -14,7 +14,7 @@ from internlm.initialize.initialize_tensor import normal_, scaled_init_method_no
 from internlm.model.embedding import Embedding1D
 from internlm.model.modules.ffn import new_fead_forward
 from internlm.model.modules.linear import new_linear
-from internlm.model.multi_head_attention import MHA
+from internlm.model.modules.multi_head_attention import MHA
 from internlm.model.modules.utils import (
     split_forward_gather_backward,
     try_import_RMSNorm,

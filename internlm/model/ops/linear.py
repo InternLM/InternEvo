@@ -11,7 +11,6 @@ from typing import Optional, Tuple
 from torch.nn.functional import linear as __torch_linear_forward_op
 
 from internlm.core.context import global_context as gpc
-from internlm.utils.logger import get_logger
 
 from .utils import OpsBinding
 
@@ -19,10 +18,8 @@ try:
     from fused_dense_lib import linear_bias_wgrad as __flash_linear_backward_op
 
     flash_attn_impl = True
-except ImportError:
+except (ModuleNotFoundError, ImportError):
     flash_attn_impl = False
-
-logger = get_logger(__file__)
 
 __bound_ops__ = OpsBinding(
     {

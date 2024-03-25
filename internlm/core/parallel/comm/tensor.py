@@ -29,11 +29,13 @@ class LinearRole(Enum):
     COLUMN = "column"
     ROW = "row"
 
+
 # not realy useful, only for code hint.
 class TPCommunicator(ABC):
     """
     Common communicator interafce for tensor/sequence parallel.
     """
+
     @abstractmethod
     def save_total_input(self) -> bool:
         """
@@ -42,7 +44,9 @@ class TPCommunicator(ABC):
         pass
 
     @abstractmethod
-    def input_hook(self, _input: torch.Tensor, async_op: bool = False) -> Tuple[torch.Tensor, AsyncCommHandle]:
+    def input_hook(
+        self, _input: torch.Tensor, async_op: bool = False, is_forward: bool = True
+    ) -> Tuple[torch.Tensor, AsyncCommHandle]:
         """
         communiction for input when forward/backward.
         """
@@ -58,9 +62,7 @@ class TPCommunicator(ABC):
         pass
 
     @abstractmethod
-    def grad_input_hook(
-        self, grad_input: torch.Tensor, async_op: bool = False
-    ) -> Tuple[torch.Tensor, AsyncCommHandle]:
+    def grad_input_hook(self, grad_input: torch.Tensor, async_op: bool = False) -> Tuple[torch.Tensor, AsyncCommHandle]:
         """
         communiction for grad_input when backward.
         """
@@ -74,10 +76,9 @@ class TPCommunicator(ABC):
         pass
 
 
-
 class TensorParallelCommunicator(TPCommunicator):
     def __init__(self, process_group: dist.ProcessGroup, role: LinearRole) -> None:
-        assert role in (LinearRole.COLUMN, LinearRole.ROW), f"Unknown sequence parallel role: {role}"
+        assert role in (LinearRole.COLUMN, LinearRole.ROW), f"Unknown linear role: {role}"
 
         self._process_group = process_group
         self._role = role
@@ -87,7 +88,9 @@ class TensorParallelCommunicator(TPCommunicator):
     def save_total_input(self) -> bool:
         return self._save_total_input
 
-    def input_hook(self, _input: torch.Tensor, async_op: bool = False) -> Tuple[torch.Tensor, AsyncCommHandle]:
+    def input_hook(
+        self, _input: torch.Tensor, async_op: bool = False, is_forward: bool = True
+    ) -> Tuple[torch.Tensor, AsyncCommHandle]:
         """
         tensor parallel should do nothing for input.
         """
@@ -101,9 +104,7 @@ class TensorParallelCommunicator(TPCommunicator):
         """
         return grad_output, DUMMY_HANDLE_CONST
 
-    def grad_input_hook(
-        self, grad_input: torch.Tensor, async_op: bool = False
-    ) -> Tuple[torch.Tensor, AsyncCommHandle]:
+    def grad_input_hook(self, grad_input: torch.Tensor, async_op: bool = False) -> Tuple[torch.Tensor, AsyncCommHandle]:
         """
         all reduce grad_input only for column parallel linear when backward.
         """
@@ -154,7 +155,7 @@ class SequenceParallelCommunicator(TPCommunicator):
     def __init__(
         self, process_group: dist.ProcessGroup, role: LinearRole, save_total_input_as_activation: bool = False
     ) -> None:
-        assert role in (LinearRole.COLUMN, LinearRole.ROW), f"Unknown sequence parallel role: {role}"
+        assert role in (LinearRole.COLUMN, LinearRole.ROW), f"Unknown linear role: {role}"
 
         self._process_group = process_group
         self._role = role
@@ -164,14 +165,20 @@ class SequenceParallelCommunicator(TPCommunicator):
     def save_total_input(self) -> bool:
         return self._save_total_input
 
-    def input_hook(self, _input: torch.Tensor, async_op: bool = False) -> Tuple[torch.Tensor, AsyncCommHandle]:
+    def input_hook(
+        self, _input: torch.Tensor, async_op: bool = False, is_forward: bool = True
+    ) -> Tuple[torch.Tensor, AsyncCommHandle]:
         """
         all gather input only for column parallel linear when forward/backward.
         """
         # 1. world_size <= 1
         # 2. row parallel linear should not allgather input.
-        # 3. column parallel linear should not allgather input if save_total_input_as_activation is True.
-        if dist.get_world_size(self._process_group) <= 1 or self._role == LinearRole.ROW or self._save_total_input:
+        # 3. column parallel linear should not allgather input if save_total_input_as_activation and backward is True.
+        if (
+            dist.get_world_size(self._process_group) <= 1
+            or self._role == LinearRole.ROW
+            or (is_forward is False and self._save_total_input)
+        ):
             return _input, DUMMY_HANDLE_CONST
 
         return all_gather_raw(
@@ -191,9 +198,7 @@ class SequenceParallelCommunicator(TPCommunicator):
             grad_output, process_group=self._process_group, async_op=async_op, gather_dim=__INPUT_GATHER_DIM
         )
 
-    def grad_input_hook(
-        self, grad_input: torch.Tensor, async_op: bool = False
-    ) -> Tuple[torch.Tensor, AsyncCommHandle]:
+    def grad_input_hook(self, grad_input: torch.Tensor, async_op: bool = False) -> Tuple[torch.Tensor, AsyncCommHandle]:
         """
         reduce scatter grad_input only for column parallel linear when backward.
         """

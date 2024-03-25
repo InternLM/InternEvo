@@ -63,7 +63,7 @@ from internlm.model.modules.linear import (
 from internlm.model.modules.ffn import FeedForward
 from internlm.model.metrics import SchedulerMetricHook
 from internlm.model.moe import MoE
-from internlm.model.multi_head_attention import MHA
+from internlm.model.modules.multi_head_attention import MHA
 from internlm.model.modules.utils import is_moe_param, try_import_RMSNorm
 from internlm.monitor import send_heartbeat, set_env_var
 from internlm.monitor.monitor import monitor_manager as mm
@@ -219,6 +219,8 @@ def initialize_model(pre_process_func: Optional[Callable] = None, post_process_f
 
     # if fsdp enabled, wrap the model
     model = wrap_FSDP_model(model)
+
+    # TODO: add a checker to ensure model only use ours linear, expect fsdp.
 
     return model
 

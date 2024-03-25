@@ -98,7 +98,7 @@ class FusedDenseFunc(torch.autograd.Function):
         # parallel strategy-specific communication callback 1-2.
         # see more details in the communicator for different parallel strategies.
         if ctx.needs_input_grad[1]:
-            x, handle_x = communicator.input_hook(x, async_op=True)
+            x, handle_x = communicator.input_hook(x, async_op=True, is_forward=False)
 
         batch_shape = grad_output.shape[:-1]
         batch_dim = batch_shape.numel()

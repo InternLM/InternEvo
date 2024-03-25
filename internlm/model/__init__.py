@@ -9,7 +9,7 @@ from .modeling_internlm2 import build_model_with_cfg as build_model_with_cfg2
 from .modeling_llama import build_model_with_cfg as build_model_with_llama_cfg
 from .modeling_moe import build_model_with_moe_cfg
 from .moe import MoE
-from .multi_head_attention import MHA, DistributedAttention
+from .modules.multi_head_attention import MHA, DistributedAttention
 from .modules.utils import gather_forward_split_backward
 
 __all__ = [
