@@ -164,6 +164,9 @@ def args_sanity_check():
 
     data.diag_outlier_ratio = max(1, data.diag_outlier_ratio)
 
+    if "use_packed_dataset" not in data:
+        data._add_item("use_packed_dataset", True)
+
     if gpc.is_rank_for_log():
         logger.info("+" * 15 + " Data Info " + "+" * 15)  # pylint: disable=W1201
         logger.info(f"seq_len: {data.seq_len}")
@@ -313,6 +316,9 @@ def args_sanity_check():
     # process the model config
     if "use_flash_attn" not in gpc.config.model:
         gpc.config.model._add_item("use_flash_attn", True)
+    # TODO by ht: get accelerator type
+    if gpc.config.model.use_flash_attn is True:
+        assert gpc.config.data.use_packed_dataset is True, "use_packed_dataset should be set True when using flash-attn"
 
     if "MoE" in gpc.config.get("model_type", "INTERNLM"):
         if "num_experts" not in model:

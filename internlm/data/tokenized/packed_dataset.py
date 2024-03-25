@@ -61,7 +61,7 @@ class PackedDataset(Dataset):
         }
         """
 
-        if gpc.config is None or gpc.config.model is None or gpc.config.model.use_flash_attn:
+        if gpc.config is None or gpc.config.model is None or gpc.config.data.use_packed_dataset:
             return self.build_pack(item)
 
         return self.build_unpack(item)

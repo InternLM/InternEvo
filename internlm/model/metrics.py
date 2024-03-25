@@ -56,7 +56,7 @@ class AccPerplex:
         return self.update(logits, labels, type_ids=self.type_ids)
 
     def update(self, logits, labels, type_ids=None):
-        if gpc.config.model.use_flash_attn:
+        if gpc.config.data.use_packed_dataset:
             micro_bsz = labels.size(0)
         else:
             micro_bsz = 1

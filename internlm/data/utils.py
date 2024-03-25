@@ -45,7 +45,7 @@ def unpack_data(input_ids, cu_seqlens, is_type_ids: bool = False):
         cu_seqlens_slice = cu_seqlens[i]
         for j in range(num_sequence):
             seq_length = cu_seqlens_slice[j + 1] - cu_seqlens_slice[j]
-            output[j, 0:seq_length] = input_ids[0, cu_seqlens_slice[j] : cu_seqlens_slice[j + 1]]
+            output[j, 0:seq_length] = input_ids[i, cu_seqlens_slice[j] : cu_seqlens_slice[j + 1]]
         outputs[i] = output
 
     # if the input_ids is not type_ids, we need squeeze the first dimension if it is 1.
