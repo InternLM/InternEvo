@@ -7,7 +7,7 @@ import torch.distributed as dist
 from torch import Tensor
 from torch._utils import _flatten_dense_tensors, _unflatten_dense_tensors
 
-from internlm.accelerator import get_accelerator, internlm_accelerator
+from internlm.accelerator import internlm_accelerator
 from internlm.core.context import ParallelMode
 from internlm.core.context import global_context as gpc
 from internlm.utils.common import get_current_device, get_tensor_norm, move_norm_to_cuda
@@ -20,10 +20,6 @@ from internlm.utils.parallel import (
     is_using_isp,
     is_weight_zero_parallel_parameter,
 )
-
-#!/usr/bin/env python
-# -*- encoding: utf-8 -*-
-
 
 logger = get_logger(__file__)
 

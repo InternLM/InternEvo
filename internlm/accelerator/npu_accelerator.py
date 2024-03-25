@@ -203,8 +203,8 @@ class ASCEND_Accelerator(Accelerator):
         device_str = str(tensor.device)
         return bool(device_str.startswith("npu:"))
 
-    def set_allow_tf32(self, enable: bool):  # pylint: disable=W0613
-        print("Not support tf32 for NPU!")
+    def set_allow_tf32(self, enable: bool):
+        print(f"Not support tf32 for NPU, {enable}!")
 
     def return_custom_bwd(self):
         return torch.npu.amp.custom_bwd

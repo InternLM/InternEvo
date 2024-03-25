@@ -70,8 +70,8 @@ def get_accelerator():
             pass
         else:
             raise ValueError(
-                f'internlm_accelerator must be one of {intern_accelerator_LIST}.\
-Value "{accelerator_name}" is not supported'
+                f"internlm_accelerator must be one of {intern_accelerator_LIST}."
+                + " Value '{accelerator_name}' is not supported"
             )
 
     # 2. If no override, detect which accelerator to use automatically

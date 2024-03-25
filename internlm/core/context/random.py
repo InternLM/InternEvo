@@ -4,7 +4,6 @@
 
 from contextlib import contextmanager
 
-import torch
 from torch import Tensor
 
 from internlm.accelerator import internlm_accelerator

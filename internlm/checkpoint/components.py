@@ -6,7 +6,7 @@ from collections import defaultdict
 import torch
 from torch.distributed._shard.api import load_with_process_group
 
-from internlm.accelerator import get_accelerator, internlm_accelerator
+from internlm.accelerator import internlm_accelerator
 from internlm.core.context import ParallelMode
 from internlm.core.context import global_context as gpc
 from internlm.core.trainer import TrainState
@@ -23,10 +23,6 @@ from .utils import (
     get_shard_state_dict,
     load_shard_state_dict,
 )
-
-#!/usr/bin/env python
-# -*- encoding: utf-8 -*-
-
 
 logger = get_logger(__file__)
 

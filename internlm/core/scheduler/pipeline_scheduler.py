@@ -20,9 +20,6 @@ from internlm.utils.timeout import llm_timeout
 
 from .base_scheduler import BaseScheduler
 
-#!/usr/bin/env python
-# -*- encoding: utf-8 -*-
-
 # adopted from https://github.com/hpcaitech/ColossalAI/blob/main/colossalai/engine
 
 

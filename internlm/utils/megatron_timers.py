@@ -1,11 +1,6 @@
 import time
 
-import torch
-
-from internlm.accelerator import get_accelerator, internlm_accelerator
-
-#!/usr/bin/env python
-# -*- encoding: utf-8 -*-
+from internlm.accelerator import internlm_accelerator
 
 
 class _Timer:

@@ -3,7 +3,7 @@ import os
 
 import torch
 
-from internlm.accelerator import get_accelerator, internlm_accelerator
+from internlm.accelerator import internlm_accelerator
 from internlm.core.context import ParallelMode
 from internlm.core.context import global_context as gpc
 from internlm.utils.logger import get_logger

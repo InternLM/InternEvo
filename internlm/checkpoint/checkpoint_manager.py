@@ -7,7 +7,7 @@ from typing import Callable, Dict
 
 import torch
 
-from internlm.accelerator import get_accelerator, internlm_accelerator
+from internlm.accelerator import internlm_accelerator
 from internlm.core.context import ParallelMode
 from internlm.core.context import global_context as gpc
 from internlm.core.trainer import TrainState
@@ -41,10 +41,6 @@ from .components import (
 )
 from .load_funcs import LOAD_FUNC_DICT
 from .utils import process_load_info
-
-#!/usr/bin/env python
-# -*- encoding: utf-8 -*-
-
 
 logger = get_logger(__file__)
 

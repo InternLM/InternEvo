@@ -3,14 +3,13 @@
 
 import gc
 import math
-import os
 import socket
 
 import torch
 import torch.distributed as dist
 from torch.utils import benchmark
 
-from internlm.accelerator import get_accelerator, internlm_accelerator
+from internlm.accelerator import internlm_accelerator
 from internlm.model.modules.multi_head_attention import SelfAttention
 from internlm.monitor import send_alert_message
 from internlm.utils.common import get_current_device
@@ -25,7 +24,6 @@ except ImportError:
 
 from internlm.core.context import ParallelMode
 from internlm.core.context import global_context as gpc
-from internlm.utils.common import get_current_device
 
 logger = get_logger(__file__)
 

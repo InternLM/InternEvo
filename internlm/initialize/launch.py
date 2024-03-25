@@ -6,7 +6,7 @@ from typing import Dict, Union
 
 import torch
 
-from internlm.accelerator import get_accelerator, internlm_accelerator
+from internlm.accelerator import internlm_accelerator
 from internlm.core.context import Config
 from internlm.core.context import global_context as gpc
 from internlm.core.context.process_group_initializer import ParallelMode
@@ -15,14 +15,10 @@ from internlm.model.moe.megablock.utils import (
     check_stk_installed,
 )
 from internlm.monitor import initialize_light_monitor
-from internlm.utils.common import get_current_device, get_master_node
+from internlm.utils.common import get_master_node
 from internlm.utils.gputest import warmup_process_group
 from internlm.utils.logger import get_logger
 from internlm.utils.timeout import llm_timeout
-
-#!/usr/bin/env python
-# -*- encoding: utf-8 -*-
-
 
 # check package
 try:

@@ -5,15 +5,12 @@ from typing import List, Tuple, Union
 import torch
 import torch.distributed as dist
 
-from internlm.accelerator import get_accelerator, internlm_accelerator
+from internlm.accelerator import internlm_accelerator
 from internlm.core.context import ParallelMode
 from internlm.core.context import global_context as gpc
 from internlm.utils.common import get_current_device
 
 from .utils import gather_split_1d_tensor, split_tensor_into_1d_equal_chunks
-
-#!/usr/bin/env python
-# -*- encoding: utf-8 -*-
 
 # adopted from https://github.com/hpcaitech/ColossalAI/blob/main/colossalai/communication
 

@@ -5,7 +5,6 @@ import torch
 import torch.distributed as dist
 from torch import nn
 
-from internlm.accelerator import get_accelerator, internlm_accelerator
 from internlm.core.communication.isp import ISPCommunicator
 from internlm.core.context import ParallelMode
 from internlm.core.context import global_context as gpc

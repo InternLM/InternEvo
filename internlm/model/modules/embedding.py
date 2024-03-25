@@ -404,8 +404,6 @@ class ApplyRotaryEmbPackedQKV_(torch.autograd.Function):
 
 apply_rotary_emb_packed_qkv_ = ApplyRotaryEmbPackedQKV_.apply
 
-from internlm.utils.common import get_current_device
-
 
 class RotaryEmbedding(torch.nn.Module):
     """

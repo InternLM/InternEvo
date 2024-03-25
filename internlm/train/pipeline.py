@@ -77,7 +77,7 @@ from internlm.utils.timeout import llm_timeout
 
 try:
     import torch_npu
-except (ImportError, ModuleNotFoundError) as e:
+except (ImportError, ModuleNotFoundError):
     pass
 
 RMSNorm = try_import_RMSNorm()

@@ -7,7 +7,6 @@ from typing import Optional
 import torch
 from torch import nn
 
-from internlm.accelerator import internlm_accelerator
 from internlm.core.context import ParallelMode
 from internlm.core.context.parallel_context import global_context as gpc
 from internlm.core.naive_amp import set_output_attr_to_module

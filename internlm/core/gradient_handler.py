@@ -1,15 +1,11 @@
 from abc import ABC, abstractmethod
 from collections import defaultdict
 
-import torch
 import torch.distributed as dist
 from torch._utils import _flatten_dense_tensors, _unflatten_dense_tensors
 
-from internlm.accelerator import get_accelerator, internlm_accelerator
+from internlm.accelerator import internlm_accelerator
 from internlm.core.context import global_context as gpc
-
-#!/usr/bin/env python
-# -*- encoding: utf-8 -*-
 
 
 class BaseGradientHandler(ABC):

@@ -15,7 +15,6 @@ import asyncio  # noqa: E402  #pylint: disable=wrong-import-position
 import concurrent.futures  # noqa: E402  #pylint: disable=wrong-import-position
 import hashlib  # noqa: E402  #pylint: disable=wrong-import-position
 import io  # noqa: E402  #pylint: disable=wrong-import-position
-import os  # noqa: E402  #pylint: disable=wrong-import-position
 import pickle  # noqa: E402  #pylint: disable=wrong-import-position
 import re  # noqa: E402  #pylint: disable=wrong-import-position
 import socket  # noqa: E402  #pylint: disable=wrong-import-position
