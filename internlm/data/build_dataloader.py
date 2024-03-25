@@ -29,22 +29,23 @@ logger = get_logger(__file__)
 
 def get_tokenized_train_loader_items(data_cfg):
     """Get the training data loader for tokenized dataset."""
-    if data_cfg.get("is_multimodal", False):
-        train_ds = RandomDatasetMultimodal(num_samples=1000, max_len=data_cfg.seq_len)
-        train_ds = PackedDatasetWithPadForMultimodal(
-            train_ds, max_length_per_sample=data_cfg.seq_len, packed_length=data_cfg.packed_length
-        )
-    elif data_cfg.get("train_folder", None) is None:
-        train_ds = RandomDataset(num_samples=1000000, max_len=data_cfg.seq_len)
-
-        if data_cfg.pack_sample_into_one:
-            train_ds = PackedDatasetWithoutCuSeqlen(
+    if data_cfg.get("train_folder", None) is None:
+        if data_cfg.get("is_multimodal", False):
+            train_ds = RandomDatasetMultimodal(num_samples=1000, max_len=data_cfg.seq_len)
+            train_ds = PackedDatasetWithPadForMultimodal(
                 train_ds, max_length_per_sample=data_cfg.seq_len, packed_length=data_cfg.packed_length
             )
         else:
-            train_ds = PackedDatasetWithCut(
-                train_ds, max_length_per_sample=data_cfg.seq_len, packed_length=data_cfg.packed_length
-            )
+            train_ds = RandomDataset(num_samples=1000000, max_len=data_cfg.seq_len)
+
+            if data_cfg.pack_sample_into_one:
+                train_ds = PackedDatasetWithoutCuSeqlen(
+                    train_ds, max_length_per_sample=data_cfg.seq_len, packed_length=data_cfg.packed_length
+                )
+            else:
+                train_ds = PackedDatasetWithCut(
+                    train_ds, max_length_per_sample=data_cfg.seq_len, packed_length=data_cfg.packed_length
+                )
     else:
         train_ds = get_packed_dataset_without_short_length(
             folder=data_cfg.train_folder,
@@ -73,12 +74,13 @@ def get_tokenized_train_loader_items(data_cfg):
 
 def get_tokenized_valid_loader_items(data_cfg):
     """Get the validation data loader for tokenized dataset."""
-    if data_cfg.get("is_multimodal", False):
-        valid_ds = RandomDatasetMultimodal(
-            num_samples=gpc.get_world_size(ParallelMode.DATA) * 500, max_len=data_cfg.seq_len
-        )
-    elif not data_cfg.valid_folder:
-        valid_ds = RandomDataset(num_samples=gpc.get_world_size(ParallelMode.DATA) * 500, max_len=data_cfg.seq_len)
+    if not data_cfg.valid_folder:
+        if data_cfg.get("is_multimodal", False):
+            valid_ds = RandomDatasetMultimodal(
+                num_samples=gpc.get_world_size(ParallelMode.DATA) * 500, max_len=data_cfg.seq_len
+            )
+        else:
+            valid_ds = RandomDataset(num_samples=gpc.get_world_size(ParallelMode.DATA) * 500, max_len=data_cfg.seq_len)
     else:
         valid_ds = get_dataset_dict(folder=data_cfg.valid_folder, split="")
 

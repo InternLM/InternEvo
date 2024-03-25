@@ -4,7 +4,6 @@ from .clip_encoder import CLIPVisionTower
 
 
 def build_vision_tower(vision_tower_cfg, **kwargs):
-    print(vision_tower_cfg)
     vision_tower = vision_tower_cfg.get("mm_vision_tower", None)
     is_absolute_path_exists = os.path.exists(vision_tower)
     if is_absolute_path_exists or vision_tower.startswith("openai") or vision_tower.startswith("laion"):
