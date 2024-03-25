@@ -82,8 +82,8 @@ class CUDA_Accelerator(Accelerator):
     def Stream(self):
         return torch.cuda.Stream
 
-    def stream(self, stream):
-        return torch.cuda.stream(stream)
+    def stream(self, _stream):
+        return torch.cuda.stream(_stream)
 
     def current_stream(self, device_index=None):
         return torch.cuda.current_stream(device_index)

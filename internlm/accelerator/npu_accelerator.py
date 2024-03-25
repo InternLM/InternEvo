@@ -81,8 +81,8 @@ class ASCEND_Accelerator(Accelerator):
     def Stream(self):
         return torch.npu.Stream
 
-    def stream(self, stream):
-        return torch.npu.stream(stream)
+    def stream(self, _stream):
+        return torch.npu.stream(_stream)
 
     def current_stream(self, device_index=None):
         return torch.npu.current_stream(device_index)
