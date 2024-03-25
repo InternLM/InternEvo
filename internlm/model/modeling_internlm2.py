@@ -40,7 +40,7 @@ from internlm.model.utils import (
 )
 from internlm.solver.activation_checkpoint import activation_checkpoint
 from internlm.solver.pipeline_utils import partition_uniform
-from internlm.utils.common import filter_kwargs
+from internlm.utils.common import filter_kwargs, get_current_device
 from internlm.utils.logger import get_logger
 from internlm.utils.registry import MODEL_INITIALIZER
 
@@ -1015,7 +1015,7 @@ def _build_generic_model_1d(num_layers, num_chunks, **kwargs):
         device (Optional[Union[str, torch.device]]): The device will be used. internlm_accelerator.device() by default.
 
     """
-    device = internlm_accelerator.device()
+    device = get_current_device()
     pipeline_size = gpc.get_world_size(ParallelMode.PIPELINE)
     pipeline_rank = gpc.get_local_rank(ParallelMode.PIPELINE)
 
