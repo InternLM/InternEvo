@@ -31,7 +31,7 @@ def get_tokenized_train_loader_items(data_cfg):
     """Get the training data loader for tokenized dataset."""
     if data_cfg.get("train_folder", None) is None:
         if data_cfg.get("is_multimodal", False):
-            train_ds = RandomDatasetMultimodal(num_samples=1000, max_len=data_cfg.seq_len)
+            train_ds = RandomDatasetMultimodal(num_samples=10000, max_len=data_cfg.seq_len)
             train_ds = PackedDatasetWithPadForMultimodal(
                 train_ds, max_length_per_sample=data_cfg.seq_len, packed_length=data_cfg.packed_length
             )
