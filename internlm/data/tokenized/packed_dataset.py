@@ -340,6 +340,22 @@ class PackedDatasetWithCut(PackedDataset):
         return pre_pos, pos
 
     def build_unpack(self, index):
+        """
+        max_length_per_sample = 3
+        packed_length = 6
+        micro_bsz = 2
+        [1, 2]
+        [3, 4]
+        [5, 6, 7]
+        [8, 9, 10, 11, 12, 13]
+        [14, 15, 16, 17]
+
+        --->
+        [1, 2, 3, 4, 0, 0]
+        [5, 6, 7, 8, 9, 10]
+        [14, 15, 16, 0, 0, 0]
+
+        """
 
         pre_pos, pos = self.cal_pos_unpack(index)
 
