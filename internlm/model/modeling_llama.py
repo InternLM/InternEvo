@@ -115,7 +115,6 @@ class MHA(nn.Module):
         self.rot_embed_HF_impl = rot_embed_HF_impl
         sequence_parallel = gpc.config.parallel.get("sequence_parallel", False)
 
-        print(f"device: {device}", flush=True)
         if self.rotary_emb_dim > 0:
             self.rotary_emb = RotaryEmbedding(
                 self.rotary_emb_dim, base=rope_base, scale_base=rotary_emb_scale_base, device=device
