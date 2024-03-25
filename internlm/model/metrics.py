@@ -1,16 +1,18 @@
 from typing import Callable, List, Optional
 
 import torch
-import torch.distributed as dist
 from torch import nn
 
-from internlm.accelerator import get_accelerator, internlm_accelerator
+from internlm.accelerator import AcceleratorType, internlm_accelerator
 from internlm.core.context import ParallelMode
 from internlm.core.context import global_context as gpc
-
-# from torch_scatter import scatter
 from internlm.utils.common import SchedulerHook, get_current_device
 from internlm.utils.megatron_timers import megatron_timer as timer
+
+try:
+    from torch_scatter import scatter as cuda_scatter
+except (ModuleNotFoundError, ImportError):
+    pass
 
 
 def broadcast(src: torch.Tensor, other: torch.Tensor, dim: int):
@@ -25,13 +27,13 @@ def broadcast(src: torch.Tensor, other: torch.Tensor, dim: int):
     return src
 
 
-def scatter_sum(
+def vanilla_scatter(
     src: torch.Tensor,
     index: torch.Tensor,
     dim: int = -1,
     out: Optional[torch.Tensor] = None,
     dim_size: Optional[int] = None,
-    reduce=None,
+    reduce=None,  # pylint: disable=W0613
 ) -> torch.Tensor:
     index = broadcast(index, src, dim)
     if out is None:
@@ -86,6 +88,11 @@ class AccPerplex:
 
         self.loss_with_type_id = LossWithTypeId(device, dp_pg, dataset_types)
 
+        if internlm_accelerator.get_accelerator_backend() == AcceleratorType.GPU:
+            self.scatter_sum = cuda_scatter
+        else:
+            self.scatter_sum = vanilla_scatter
+
     def set_current_type_ids(self, type_ids: torch.Tensor):
         self.batch_shift = 0
         self.type_ids = type_ids.to(get_current_device())
@@ -132,8 +139,8 @@ class AccPerplex:
             ).long()
             mask = shift_labels.ne(-100).long()
             if hasattr(self, "total_type_count"):
-                ds_acc = scatter_sum(corrects, type_ids, dim=0, reduce="sum")
-                token_num_type = scatter_sum(mask, type_ids, dim=0, reduce="sum")
+                ds_acc = self.scatter_sum(corrects, type_ids, dim=0, reduce="sum")
+                token_num_type = self.scatter_sum(mask, type_ids, dim=0, reduce="sum")
                 if len(ds_acc) < self.total_type_count:
                     ds_acc = torch.cat([ds_acc, ds_acc.new_zeros(self.total_type_count - len(ds_acc))])
                     token_num_type = torch.cat(
@@ -146,7 +153,8 @@ class AccPerplex:
 
             acc = corrects.sum()
             torch.distributed.all_reduce(acc, op=torch.distributed.ReduceOp.SUM, group=self.tp_pg)
-            torch.npu.synchronize()
+            # The synchronization here is to prevent unpredictable HANG when the NPU is running.
+            internlm_accelerator.synchronize()
             self.right += acc  # Masked_fill is not needed here because -100 is not available anyway
             self.total += mask.sum()
             # Subtract the maximum value.
@@ -262,6 +270,11 @@ class LossWithTypeId:
         else:
             self.loss_fn = nn.CrossEntropyLoss(reduction="none")
 
+        if internlm_accelerator.get_accelerator_backend() == AcceleratorType.GPU:
+            self.scatter_sum = cuda_scatter
+        else:
+            self.scatter_sum = vanilla_scatter
+
     def update(self, logits, labels, type_ids=None):
         with torch.no_grad():
             if isinstance(logits, (list, tuple)):
@@ -280,8 +293,8 @@ class LossWithTypeId:
                 type_ids = type_ids.contiguous().view(-1).to(self.device)
                 real_type_ids = type_ids[cond]
 
-                loss_list_type = scatter_sum(real_loss_list, real_type_ids, dim=0, reduce="sum")
-                token_num_type = scatter_sum(torch.ones_like(real_loss_list), real_type_ids, dim=0, reduce="sum")
+                loss_list_type = self.scatter_sum(real_loss_list, real_type_ids, dim=0, reduce="sum")
+                token_num_type = self.scatter_sum(torch.ones_like(real_loss_list), real_type_ids, dim=0, reduce="sum")
 
                 if len(loss_list_type) < self.total_type_count:
                     loss_list_type = torch.cat(

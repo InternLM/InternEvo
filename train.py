@@ -1,19 +1,14 @@
 #!/usr/bin/env python
 # -*- encoding: utf-8 -*-
 
-import os
-import pickle
 import socket
 import time
 import traceback
 from functools import partial
 
-import torch
 import torch.distributed as dist
-import torch_npu
 
 import internlm
-from internlm.accelerator import get_accelerator, internlm_accelerator
 from internlm.checkpoint import CheckpointManager
 from internlm.core.context import ParallelMode
 from internlm.core.context import global_context as gpc

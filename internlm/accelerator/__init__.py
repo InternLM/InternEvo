@@ -1,6 +1,6 @@
-from .abstract_accelerator import get_accelerator, AcceleratorType
+from .abstract_accelerator import AcceleratorType, get_accelerator
 
-get_accelerator()
+get_accelerator()  # noqa: E402  #pylint: disable=wrong-import-position
 from .abstract_accelerator import internlm_accelerator
 
 __all__ = [

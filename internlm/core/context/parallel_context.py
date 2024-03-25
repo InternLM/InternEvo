@@ -202,7 +202,7 @@ class ParallelContext(metaclass=SingletonMeta):
         hostname = socket.gethostname()
         hostname_list = [None for _ in range(self.get_world_size(ParallelMode.GLOBAL))]
 
-        if internlm_accelerator.get_accelerator_name() == AcceleratorType.NPU:
+        if internlm_accelerator.get_accelerator_backend() == AcceleratorType.NPU:
             if "A_K" in os.environ:
                 self.num_processes_on_current_node = 8
             elif "A_X" in os.environ:
@@ -403,7 +403,7 @@ class ParallelContext(metaclass=SingletonMeta):
         dist.init_process_group(
             rank=rank,
             world_size=world_size,
-            backend="hccl",
+            backend=backend,
             init_method=init_method,
             timeout=LLM_NCCL_TIMEOUT,
         )

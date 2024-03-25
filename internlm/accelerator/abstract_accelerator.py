@@ -1,8 +1,9 @@
 """
 Universal accelerator interface implementation, inspired by DeepSpeed.
 """
-import os
 import enum
+import os
+
 
 class AcceleratorType(enum.Enum):
     GPU = 1
@@ -15,13 +16,17 @@ internlm_accelerator = None
 
 
 class Accelerator:
+    """
+    Abstract base class for accelerator
+    """
+
     def __init__(self) -> None:
         pass
 
     def backend_name(self):
         raise NotImplementedError
 
-    def get_accelerator_name(self):
+    def get_accelerator_backend(self):
         raise NotImplementedError
 
     # Device APIs
@@ -55,29 +60,30 @@ def get_accelerator():
     accelerator_name = None
     # 1. Detect whether there is override of DeepSpeed accelerators from environment variable.
     intern_accelerator_LIST = ["cuda", "npu"]
-    if "INTERNLM_ACCELERATOR" in os.environ.keys():
+    if "INTERNLM_ACCELERATOR" in os.environ:
         accelerator_name = os.environ["INTERNLM_ACCELERATOR"]
         if accelerator_name == "npu":
             try:
-                import torch_npu  # noqa: F401 # type: ignore
-            except ImportError as e:
-                raise ValueError(f"NPU_Accelerator requires torch_npu, which is not installed on this system.")
+                import torch_npu  # noqa # pylint: disable=W0611
+            except (ImportError, ModuleNotFoundError):
+                raise ValueError("NPU_Accelerator requires torch_npu, which is not installed on this system.")
             pass
         else:
             raise ValueError(
-                f'internlm_accelerator must be one of {intern_accelerator_LIST}.  Value "{accelerator_name}" is not supported'
+                f'internlm_accelerator must be one of {intern_accelerator_LIST}.\
+Value "{accelerator_name}" is not supported'
             )
 
     # 2. If no override, detect which accelerator to use automatically
-    if accelerator_name == None:
-        if accelerator_name == None:
+    if accelerator_name is None:
+        if accelerator_name is None:
             try:
                 import torch_npu  # noqa: F401,F811 # type: ignore
 
                 accelerator_name = "npu"
-            except ImportError as e:
+            except (ImportError, ModuleNotFoundError):
                 pass
-        if accelerator_name == None:
+        if accelerator_name is None:
             accelerator_name = "cuda"
 
     # 3. Set internlm_accelerator accordingly

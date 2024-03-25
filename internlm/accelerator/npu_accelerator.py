@@ -7,20 +7,26 @@ except ImportError:
 
 
 class ASCEND_Accelerator(Accelerator):
+    """Accelerator for NPU device.
+
+    Args:
+        Accelerator (Accelerator): Repalce torch.npu
+    """
+
     def __init__(self) -> None:
         self._name_str = "npu"
         self._communication_backend_name = "hccl"
         self.amp = self.get_amp()
 
     def backend_name(self):
-        return self._name_str 
+        return self._name_str
 
-    def get_accelerator_name(self):
+    def get_accelerator_backend(self):
         return AcceleratorType.NPU
 
     # Device APIs
     def device_name(self, device_index=None):
-        if device_index == None:
+        if device_index is None:
             return "npu"
         return "npu:{}".format(device_index)
 
@@ -64,8 +70,8 @@ class ASCEND_Accelerator(Accelerator):
     def manual_seed_all(self, seed):
         return torch.npu.manual_seed_all(seed)
 
-    def initial_seed(self, seed):
-        return torch.npu.initial_seed(seed)
+    def initial_seed(self):
+        return torch.npu.initial_seed()
 
     def default_generator(self, device_index):
         return torch.npu.default_generators[device_index]
@@ -135,10 +141,7 @@ class ASCEND_Accelerator(Accelerator):
 
     def is_fp16_supported(self):
         major, _ = torch.npu.get_device_capability()
-        if major >= 7:
-            return True
-        else:
-            return False
+        return bool(major >= 7)
 
     # Misc
     def get_amp(self):
@@ -198,13 +201,10 @@ class ASCEND_Accelerator(Accelerator):
 
     def on_accelerator(self, tensor):
         device_str = str(tensor.device)
-        if device_str.startswith("npu:"):
-            return True
-        else:
-            return False
+        return bool(device_str.startswith("npu:"))
 
-    def set_allow_tf32(self, enable: bool):
-        print(f"Not support tf32 for NPU!")
+    def set_allow_tf32(self, enable: bool):  # pylint: disable=W0613
+        print("Not support tf32 for NPU!")
 
     def return_custom_bwd(self):
         return torch.npu.amp.custom_bwd

@@ -7,20 +7,26 @@ except ImportError:
 
 
 class CUDA_Accelerator(Accelerator):
+    """Accelerator for CUDA device.
+
+    Args:
+        Accelerator (Accelerator): _description_
+    """
+
     def __init__(self) -> None:
         self._name_str = "cuda"
         self._communication_backend_name = "nccl"
         self.amp = self.get_amp()
 
     def backend_name(self):
-        return self._name_str 
+        return self._name_str
 
-    def get_accelerator_name(self):
+    def get_accelerator_backend(self):
         return AcceleratorType.GPU
 
     # Device APIs
     def device_name(self, device_index=None):
-        if device_index == None:
+        if device_index is None:
             return "cuda"
         return "cuda:{}".format(device_index)
 
@@ -64,8 +70,8 @@ class CUDA_Accelerator(Accelerator):
     def manual_seed_all(self, seed):
         return torch.cuda.manual_seed_all(seed)
 
-    def initial_seed(self, seed):
-        return torch.cuda.initial_seed(seed)
+    def initial_seed(self):
+        return torch.cuda.initial_seed()
 
     def default_generator(self, device_index):
         return torch.cuda.default_generators[device_index]
@@ -135,10 +141,7 @@ class CUDA_Accelerator(Accelerator):
 
     def is_fp16_supported(self):
         major, _ = torch.cuda.get_device_capability()
-        if major >= 7:
-            return True
-        else:
-            return False
+        return bool(major >= 7)
 
     # Misc
     def get_amp(self):
@@ -198,10 +201,7 @@ class CUDA_Accelerator(Accelerator):
 
     def on_accelerator(self, tensor):
         device_str = str(tensor.device)
-        if device_str.startswith("cuda:"):
-            return True
-        else:
-            return False
+        return bool(device_str.startswith("cuda:"))
 
     def set_allow_tf32(self, enable: bool):
         torch.backends.cudnn.allow_tf32 = enable
