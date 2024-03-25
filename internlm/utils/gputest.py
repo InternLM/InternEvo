@@ -67,7 +67,7 @@ def benchmark_forward(
     """Use Pytorch Benchmark on the forward pass of an arbitrary function."""
 
     def amp_wrapper(*inputs, **kwinputs):
-        with torch.autocast(device_type="cuda", dtype=amp_dtype, enabled=amp):
+        with torch.autocast(device_type=internlm_accelerator.get_backend_name(), dtype=amp_dtype, enabled=amp):
             test_fn(*inputs, **kwinputs)
 
     bench_timer = benchmark.Timer(

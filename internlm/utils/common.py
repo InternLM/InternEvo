@@ -39,7 +39,7 @@ def get_master_node():
 
 
 def move_norm_to_cuda(norm: Union[float, torch.Tensor]) -> Union[float, torch.Tensor]:
-    if torch.is_tensor(norm) and norm.device.type != "cuda":
+    if torch.is_tensor(norm) and norm.device.type != internlm_accelerator.get_backend_name():
         norm = norm.to(get_current_device())
     return norm
 
