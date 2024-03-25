@@ -6,6 +6,7 @@ import torch
 from internlm.core.context import ParallelMode
 from internlm.core.context import global_context as gpc
 from internlm.core.context.parallel_context import Config
+from internlm.utils.common import get_current_device
 from tests.test_core.utils import (
     MlpModel,
     MyLoss,
@@ -93,7 +94,7 @@ def exam_pipeline_parallel(args):
 
     build_environment(rank, world_size, config)
 
-    device = torch.device(f"cuda:{rank}")
+    device = get_current_device()
     dtype = config.model["dtype"]
     seq_len = gpc.config.data.seq_len
 

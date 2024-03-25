@@ -7,13 +7,14 @@ import torch
 from torch import nn
 
 import internlm
-from internlm.accelerator import get_accelerator, internlm_accelerator
+from internlm.accelerator import internlm_accelerator
 from internlm.core.context import ParallelMode
 from internlm.core.context.parallel_context import Config
 from internlm.core.context.parallel_context import global_context as gpc
 from internlm.model.modeling_internlm import PackedFlashBaseLayer1D
 from internlm.model.ops.linear import RewardModelLinear, ScaleColumnParallelLinear
 from internlm.model.utils import gather_forward_split_backward
+from internlm.utils.common import get_current_device
 
 config = Config(
     dict(
@@ -90,7 +91,7 @@ def check_block(args):
     # init
     rank, world_size = args
     build_environment(rank, world_size)
-    device = torch.device("cuda")
+    device = get_current_device()
     rtol, atol = (1e-3, 5e-3)
 
     # fix seed
@@ -198,7 +199,7 @@ def check_block(args):
 def check_head(args):
     # init
     rank, world_size, is_reward = args
-    device = torch.device("cuda")
+    device = get_current_device()
     build_environment(rank, world_size)
     rtol, atol = (1e-3, 5e-3)
     hidden_size = 4
@@ -298,7 +299,7 @@ def check_gather_forward(args):
     rank, world_size, parallel_tensor = args
     assert parallel_tensor in [1, 2]
     config.parallel.tensor = parallel_tensor
-    device = torch.device("cuda")
+    device = get_current_device()
     build_environment(rank, world_size)
     rtol, atol = (1e-3, 5e-3)
 

@@ -4,13 +4,14 @@ import pytest
 import torch
 
 from internlm.model.modules.embedding import Embedding1D
+from internlm.utils.common import get_current_device
 from tests.test_model.test_model_internlm import build_environment, seed_all
 
 
 def check_embedding(args):
     # init
     rank, world_size = args
-    device = torch.device("cuda")
+    device = get_current_device()
     build_environment(rank, world_size)
     rtol, atol = (1e-3, 5e-3)
     vocab_size = 4

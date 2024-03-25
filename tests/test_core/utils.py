@@ -6,7 +6,7 @@ from torch import nn
 from torch.testing import assert_close
 
 import internlm
-from internlm.accelerator import get_accelerator, internlm_accelerator
+from internlm.accelerator import internlm_accelerator
 from internlm.core.context import ParallelMode
 from internlm.core.context import global_context as gpc
 from internlm.core.engine import Engine
@@ -19,6 +19,7 @@ from internlm.core.scheduler import (
 from internlm.model.metrics import SchedulerMetricHook
 from internlm.solver.pipeline_utils import partition_uniform
 from internlm.train import initialize_optimizer
+from internlm.utils.common import get_current_device
 
 
 class MlpModel(nn.Module):
@@ -197,7 +198,7 @@ def _build_generic_model_1d(num_layers, num_chunks, embedding=False):
 
     models = []
     for start, end in parts:
-        models.append(MlpModel(start, end, embedding=embedding).cuda())
+        models.append(MlpModel(start, end, embedding=embedding).to(get_current_device()))
     torch.distributed.barrier()
     if len(models) == 1:
         model = models[0]
