@@ -164,6 +164,9 @@ def args_sanity_check():
 
     data.diag_outlier_ratio = max(1, data.diag_outlier_ratio)
 
+    if "fixed_random_dataset_seqlen" not in data:
+        data._add_item("fixed_random_dataset_seqlen", False)
+
     if gpc.is_rank_for_log():
         logger.info("+" * 15 + " Data Info " + "+" * 15)  # pylint: disable=W1201
         logger.info(f"seq_len: {data.seq_len}")
