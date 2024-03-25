@@ -22,8 +22,8 @@ def packed_collate_fn(batch, packed_length):
         AssertionError: If the length of a sample is not equal to packed_length.
         AssertionError: If the shape of the padded "input_ids" tensor does not have the correct shape.
     """
-
-    xs, ys, cu_seqlens, indexes, ts = [], [], [], [], []
+    have_image = False
+    xs, ys, cu_seqlens, indexes, ts, images = [], [], [], [], [], []
     for b in batch:
         assert (
             len(b["tokens"]) == packed_length
@@ -37,6 +37,11 @@ def packed_collate_fn(batch, packed_length):
 
         tokens = [abs(w) for w in b["tokens"]]
         labels = [w if w > 0 else -100 for w in b["labels"]]
+
+        if b.get("images", None) is not None:
+            have_image = True
+            cur_images = torch.stack(b["images"])
+            images.append(cur_images)
 
         xs.append(torch.LongTensor(tokens))
         # The labels have been shifted here, so they are aligned with the output corresponding to the token
@@ -53,8 +58,10 @@ def packed_collate_fn(batch, packed_length):
         cu_seqlens = torch.stack(cu_seqlens, dim=0)
 
     assert xs.shape[1] == packed_length, (xs.shape[1], packed_length)
-
-    return {"input_ids": xs, "cu_seqlens": cu_seqlens, "indexes": indexes, "type_ids": ts}, ys
+    if have_image:
+        return {"input_ids": xs, "cu_seqlens": cu_seqlens, "indexes": indexes, "type_ids": ts, "images": images}, ys
+    else:
+        return {"input_ids": xs, "cu_seqlens": cu_seqlens, "indexes": indexes, "type_ids": ts}, ys
 
 
 def jsonl_ds_collate_fn(batch, max_length_per_sample):
@@ -71,12 +78,17 @@ def jsonl_ds_collate_fn(batch, max_length_per_sample):
         and the tensor of padded "labels".
 
     """
-    xs, ys = [], []
+    xs, ys, images = [], [], []
+    have_image = False
     for x in batch:
         x["tokens"] = x["tokens"][:max_length_per_sample]
         tokens = [abs(w) for w in x["tokens"]]
         labels = [w if w > 0 else -100 for w in x["tokens"]]
         labels = labels[1:] + [-100]
+        if x.get("images", None) is not None:
+            have_image = True
+            cur_images = torch.stack(x["images"])
+            images.append(cur_images)
         xs.append(torch.as_tensor(tokens))
         ys.append(torch.as_tensor(labels))  # y has been shifted
     xs = torch.nn.utils.rnn.pad_sequence(xs, batch_first=True)
@@ -84,5 +96,7 @@ def jsonl_ds_collate_fn(batch, max_length_per_sample):
 
     xs = torch.cat([xs, xs.new_zeros(len(xs), max_length_per_sample - len(xs[0]))], dim=-1)
     ys = torch.cat([ys, ys.new_full((len(ys), max_length_per_sample - len(ys[0])), fill_value=-100)], dim=-1)
-
-    return {"input_ids": xs}, ys
+    if have_image:
+        return {"input_ids": xs, "images": images}, ys
+    else:
+        return {"input_ids": xs}, ys

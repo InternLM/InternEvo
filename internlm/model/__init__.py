@@ -5,6 +5,7 @@ from .metrics import AccPerplex
 from .modeling_internlm import build_model_with_cfg
 from .modeling_internlm2 import build_model_with_cfg as build_model_with_cfg2
 from .modeling_llama import build_model_with_cfg as build_model_with_llama_cfg
+from .modeling_llava import build_model_with_cfg as build_model_with_llava_cfg
 from .modeling_moe import build_model_with_moe_cfg
 from .modules.embedding import Embedding1D, RotaryEmbedding
 from .modules.mlp import FeedForward
@@ -28,4 +29,5 @@ __all__ = [
     "build_model_with_cfg2",
     "build_model_with_moe_cfg",
     "build_model_with_llama_cfg",
+    "build_model_with_llava_cfg",
 ]

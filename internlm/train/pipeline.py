@@ -89,7 +89,7 @@ def set_fp32_attr_for_model(model: Union[nn.Module, nn.ModuleList]):
 
 
 def set_parallel_attr_for_param_groups(model: Union[nn.Module, nn.ModuleList]):
-    def _check_module(module):
+    def _check_module(name, module):
         # layer_norm
         if isinstance(module, (RMSNorm, nn.LayerNorm)):
             for param in module.parameters():
@@ -126,6 +126,14 @@ def set_parallel_attr_for_param_groups(model: Union[nn.Module, nn.ModuleList]):
                 elif not is_moe_param(param) and gpc.is_initialized(ParallelMode.WEIGHT) and is_using_isp():
                     setattr(param, IS_WEIGHT_ZERO_PARALLEL, True)
 
+        # for vit and vit project
+        if "vision_tower" in name.lower() or "vision_proj" in name.lower():
+            for param in module.parameters():
+                if gpc.is_initialized(ParallelMode.TENSOR) and is_using_isp():
+                    setattr(param, IS_TENSOR_DATA_PARALLEL, True)
+                elif gpc.is_initialized(ParallelMode.TENSOR) and not is_using_isp():
+                    setattr(param, IS_TENSOR_ZERO_PARALLEL, True)
+
     if not isinstance(model, nn.ModuleList):
         model = [model]
 
@@ -135,7 +143,7 @@ def set_parallel_attr_for_param_groups(model: Union[nn.Module, nn.ModuleList]):
 
         # set param parallel attribute
         for name, module in _chunk.named_modules():
-            _check_module(module)
+            _check_module(name, module)
 
         for name, param in _chunk.named_parameters():
             assert (

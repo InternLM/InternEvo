@@ -80,5 +80,9 @@ def split_params_into_different_groups_for_optimizer(
 
 
 def create_param_groups(model, weight_decay):
-    parameters = {"params": list(model.parameters()), "name": "default", "weight_decay": weight_decay}
+    parameters = {
+        "params": [param for param in model.parameters() if param.requires_grad],
+        "name": "default",
+        "weight_decay": weight_decay,
+    }
     return split_params_into_different_groups_for_optimizer(parameters)
