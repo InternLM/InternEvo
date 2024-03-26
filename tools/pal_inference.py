@@ -1,3 +1,19 @@
+import argparse
+import copy
+import json
+import os
+from dataclasses import asdict
+from typing import Any, Dict, List
+
+import torch
+import tqdm
+from datasets import load_dataset
+
+from internlm.accelerator import get_accelerator, internlm_accelerator
+from internlm.utils.timeout import Timeout
+from tools.interface import GenerationConfig, generate_interactive
+from transformers import AutoModelForCausalLM, AutoTokenizer
+
 # flake8: noqa
 
 # This file is modified from:
@@ -16,21 +32,6 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
-
-import argparse
-import copy
-import json
-import os
-from dataclasses import asdict
-from typing import Any, Dict, List
-
-import torch
-import tqdm
-from datasets import load_dataset
-from transformers import AutoModelForCausalLM, AutoTokenizer
-
-from internlm.utils.timeout import Timeout
-from tools.interface import GenerationConfig, generate_interactive
 
 
 def parse_args():
@@ -315,7 +316,7 @@ def main():
             f.flush()
 
     print(f"{args.model}: Accuracy - {sum(scores) / len(scores)}")
-    torch.cuda.empty_cache()
+    internlm_accelerator.empty_cache()
 
 
 if __name__ == "__main__":

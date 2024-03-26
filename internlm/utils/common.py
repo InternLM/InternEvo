@@ -14,6 +14,7 @@ import numpy as np
 import torch
 
 import internlm
+from internlm.accelerator import internlm_accelerator
 from internlm.utils.logger import get_logger
 
 CURRENT_TIME = None
@@ -38,15 +39,15 @@ def get_master_node():
 
 
 def move_norm_to_cuda(norm: Union[float, torch.Tensor]) -> Union[float, torch.Tensor]:
-    if torch.is_tensor(norm) and norm.device.type != "cuda":
-        norm = norm.to(torch.cuda.current_device())
+    if torch.is_tensor(norm) and norm.device.type != internlm_accelerator.get_backend_name():
+        norm = norm.to(get_current_device())
     return norm
 
 
 def _move_tensor(element):
     if not torch.is_tensor(element):
         # we expecte the data type if a list of dictionaries
-        for item in element:
+        for idx, item in enumerate(element):
             if isinstance(item, dict):
                 for key, value in item.items():
                     assert not value.is_cuda, "elements are already on devices."
@@ -57,7 +58,9 @@ def _move_tensor(element):
                     item[index] = value.to(get_current_device()).detach()
             elif torch.is_tensor(item):
                 if not item.is_cuda:
-                    item = item.to(get_current_device()).detach()
+                    element[idx] = item.to(get_current_device()).detach()
+            else:
+                assert False, f"{type(item)}, {item}"
     else:
         assert torch.is_tensor(element), f"element should be of type tensor, but got {type(element)}"
         if not element.is_cuda:
@@ -87,7 +90,7 @@ def get_tensor_norm(norm: Union[float, torch.Tensor], move_to_cuda) -> torch.Ten
     if isinstance(norm, float):
         norm = torch.Tensor([norm])
     if move_to_cuda:
-        norm = norm.to(torch.cuda.current_device())
+        norm = norm.to(get_current_device())
     return norm
 
 
@@ -96,8 +99,8 @@ def get_current_device() -> torch.device:
     Returns currently selected device (gpu/cpu).
     If cuda available, return gpu, otherwise return cpu.
     """
-    if torch.cuda.is_available():
-        return torch.device(f"cuda:{torch.cuda.current_device()}")
+    if internlm_accelerator.is_available():
+        return torch.device(f"{internlm_accelerator.current_device_name()}")
     else:
         return torch.device("cpu")
 
@@ -144,9 +147,9 @@ def set_random_seed(seed):
         random.seed(seed)
         np.random.seed(seed)
         torch.manual_seed(seed)
-        torch.cuda.manual_seed(seed)
+        internlm_accelerator.manual_seed(seed)
         # if you are using multi-GPU.
-        torch.cuda.manual_seed_all(seed)
+        internlm_accelerator.manual_seed_all(seed)
 
 
 @contextmanager
@@ -235,11 +238,11 @@ def get_megatron_flops(
 
 
 def enable_pytorch_expandable_segments():
-    if torch.__version__ >= "2.1.0":
+    if torch.__version__ >= "2.1.0" and "cuda" in internlm_accelerator.current_device_name():
         _alloc_setting = "expandable_segments:True"
         if os.getenv("PYTORCH_CUDA_ALLOC_CONF", None) is not None:
             _alloc_setting = os.getenv("PYTORCH_CUDA_ALLOC_CONF") + "," + _alloc_setting
-        torch.cuda.memory._set_allocator_settings(_alloc_setting)
+        internlm_accelerator.memory._set_allocator_settings(_alloc_setting)
     else:
         logger.warning("To support the 'expandable_segments' configuration, please upgrade torch to version 2.1.0.")
 

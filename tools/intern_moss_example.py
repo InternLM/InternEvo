@@ -3,6 +3,8 @@ from moss_002_sft import collate_fn, get_dataset
 from peft import LoraConfig, TaskType, get_peft_model
 from torch.utils.data import DataLoader
 from tqdm import tqdm
+
+from internlm.accelerator import get_accelerator, internlm_accelerator
 from transformers import (
     AutoModelForCausalLM,
     AutoTokenizer,
@@ -79,4 +81,4 @@ for epoch in tqdm(range(epochs), desc="Traning Epoch"):
                     fp.write(f"Prefix: {prefix}\nError: {e}" + "\n---------------------------------\n")
             fp.write("\n==============================\n")
             model.train()
-            torch.cuda.empty_cache()
+            internlm_accelerator.empty_cache()

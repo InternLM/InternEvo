@@ -28,7 +28,9 @@ logger = get_logger(__file__)
 def get_tokenized_train_loader_items(data_cfg):
     """Get the training data loader for tokenized dataset."""
     if data_cfg.get("train_folder", None) is None:
-        train_ds = RandomDataset(num_samples=1000000, max_len=data_cfg.seq_len)
+        train_ds = RandomDataset(
+            num_samples=1000000, max_len=data_cfg.seq_len, fixed_seqlen=data_cfg.fixed_random_dataset_seqlen
+        )
 
         if data_cfg.pack_sample_into_one:
             train_ds = PackedDatasetWithoutCuSeqlen(
@@ -67,7 +69,11 @@ def get_tokenized_train_loader_items(data_cfg):
 def get_tokenized_valid_loader_items(data_cfg):
     """Get the validation data loader for tokenized dataset."""
     if not data_cfg.valid_folder:
-        valid_ds = RandomDataset(num_samples=gpc.get_world_size(ParallelMode.DATA) * 500, max_len=data_cfg.seq_len)
+        valid_ds = RandomDataset(
+            num_samples=gpc.get_world_size(ParallelMode.DATA) * 500,
+            max_len=data_cfg.seq_len,
+            fixed_seqlen=data_cfg.fixed_random_dataset_seqlen,
+        )
     else:
         valid_ds = get_dataset_dict(folder=data_cfg.valid_folder, split="")
 

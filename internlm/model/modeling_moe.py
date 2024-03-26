@@ -7,6 +7,7 @@ from typing import Optional
 import torch
 from torch import nn
 
+from internlm.accelerator import internlm_accelerator
 from internlm.core.context import ParallelMode
 from internlm.core.context.parallel_context import global_context as gpc
 from internlm.core.naive_amp import set_fp32_attr_to_module
@@ -450,16 +451,17 @@ class PackedFlashInternLm1D(nn.Module):
         return hidden_states, moe_losses
 
 
-def _build_generic_model_1d(num_layers, num_chunks, device=torch.device("cuda"), **kwargs):
+def _build_generic_model_1d(num_layers, num_chunks, **kwargs):
     """
     build generic model 1d
 
     Args:
         num_layers (int): The number of layer.
         num_chunks (int): The number of partitions in pipeline parallel.
-        device (Optional[Union[str, torch.device]]): The device will be used. torch.device("cuda") by default.
+        device (Optional[Union[str, torch.device]]): The device will be used. internlm_accelerator.device() by default.
 
     """
+    device = internlm_accelerator.device()
     pipeline_size = gpc.get_world_size(ParallelMode.PIPELINE)
     pipeline_rank = gpc.get_local_rank(ParallelMode.PIPELINE)
 

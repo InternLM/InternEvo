@@ -4,6 +4,7 @@ import pytest
 import torch
 
 from internlm.model.utils import try_import_RMSNorm
+from internlm.utils.common import get_current_device
 from tests.test_model.test_model_internlm import build_environment, seed_all
 
 RMSNorm = try_import_RMSNorm()
@@ -12,7 +13,7 @@ RMSNorm = try_import_RMSNorm()
 def check_norm(args):
     # init
     rank, world_size = args
-    device = torch.device("cuda")
+    device = get_current_device()
     build_environment(rank, world_size)
     rtol, atol = (1e-3, 5e-3)
     hidden_size = 4

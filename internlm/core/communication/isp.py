@@ -9,6 +9,7 @@ import torch
 from torch import distributed as dist
 from torch import nn
 
+from internlm.accelerator import internlm_accelerator
 from internlm.core.context import global_context as gpc
 from internlm.core.naive_amp import NaiveAMPModel
 from internlm.model.ops.linear import ISPLinear
@@ -23,7 +24,7 @@ class ISPCommModelConfig:
     """
 
     dtype: torch.dtype = torch.half
-    device: torch.device = torch.device("cuda")
+    device: torch.device = internlm_accelerator.device()
     activation_checkpointing: float = 0.0
     module_shapes: Dict[str, torch.Size] = None
 

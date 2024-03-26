@@ -8,15 +8,17 @@ from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, Field
 from sse_starlette.sse import EventSourceResponse
+
+from internlm.accelerator import get_accelerator, internlm_accelerator
 from transformers import AutoModelForCausalLM, AutoTokenizer
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):  # collects GPU memory
     yield
-    if torch.cuda.is_available():
-        torch.cuda.empty_cache()
-        torch.cuda.ipc_collect()
+    if internlm_accelerator.is_available():
+        internlm_accelerator.empty_cache()
+        internlm_accelerator.ipc_collect()
 
 
 app = FastAPI(lifespan=lifespan)

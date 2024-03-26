@@ -8,6 +8,7 @@ from typing import Any, Callable, Iterable, List, Optional
 import torch
 import torch.distributed as dist
 
+from internlm.accelerator import internlm_accelerator
 from internlm.core.context import ParallelMode
 from internlm.core.context import global_context as gpc
 from internlm.core.engine import Engine
@@ -127,7 +128,9 @@ class NonPipelineScheduler(BaseScheduler):
                 moe_loss = (
                     sum(moe_losses) * gpc.config.loss.moe_loss_coeff
                     if hasattr(gpc.config.model, "num_experts") and gpc.config.model.num_experts > 1
-                    else torch.tensor(0.0, device=torch.cuda.current_device(), dtype=gpc.config.model.get("dtype"))
+                    else torch.tensor(
+                        0.0, device=internlm_accelerator.current_device(), dtype=gpc.config.model.get("dtype")
+                    )
                 )
                 # the moe_loss is computed among the "tensor" group if sequence parallel is enabled,
                 # so we need to do allreduce

@@ -8,6 +8,7 @@ from torch import nn
 from internlm.core.naive_amp import NaiveAMPModel, set_fp32_attr_to_module
 from internlm.model.modeling_internlm import PackedFlashBaseLayer1D
 from internlm.train.utils import create_param_groups
+from internlm.utils.common import get_current_device
 from tests.test_model.test_model_internlm import build_environment, seed_all
 
 
@@ -25,8 +26,8 @@ def _post_forward_hook_for_check(model, inputs, outputs):  # pylint: disable=W06
 def check_fused_precision(args):
     # init
     rank, world_size = args
-    device = torch.device("cuda")
     build_environment(rank, world_size)
+    device = get_current_device()
 
     # fix seed
     seed_all(1024)
@@ -75,8 +76,9 @@ class MlpModel(nn.Module):
 def check_split_fused_group(args):
     # init
     rank, world_size = args
-    device = torch.device("cuda")
     build_environment(rank, world_size)
+    device = get_current_device()
+
     rtol, atol = (1e-3, 5e-3)
 
     # fix seed

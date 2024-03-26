@@ -14,9 +14,6 @@ class Beta2Scheduler:
         self.init_beta2 = init_beta2
         self.c = c
         self.optimizer = optimizer
-        assert isinstance(
-            optimizer, (torch.optim.Adam, torch.optim.AdamW)
-        ), "should use Adam optimzier, which has beta2"
 
     def step(self, cur_iter=None):
         if cur_iter is None:
