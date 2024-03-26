@@ -15,7 +15,7 @@ from torch.distributed.fsdp.fully_sharded_data_parallel import (
 from torch.distributed.fsdp.wrap import transformer_auto_wrap_policy
 from torch.utils.data import DataLoader
 
-from internlm.accelerator import AcceleratorType, internlm_accelerator
+from internlm.accelerator import AcceleratorType, get_accelerator
 from internlm.core.communication.isp import (
     ISPCommModelConfig,
     ISPCommunicator,
@@ -298,7 +298,7 @@ def initialize_optimizer(model: Union[nn.Module, nn.ModuleList], isp_communicato
     adam_extra_kwargs = {}
     # set fused=True to avoid nan grad norm when model size is larger and use_fp32_norm=True
 
-    if internlm_accelerator == AcceleratorType.NPU:
+    if get_accelerator().get_accelerator_backend() == AcceleratorType.NPU:
         internlm_adamw = torch_npu.optim.NpuFusedAdamW
     else:
         internlm_adamw = torch.optim.AdamW
