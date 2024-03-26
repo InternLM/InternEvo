@@ -49,7 +49,7 @@ config = Config(
             embed_split_hidden=True,
             vocab_size=103168,
             embed_grad_scale=1,
-            parallel_output=True,
+            parallel_output=False,
             hidden_size=4096,
             num_layers=32,
             mlp_ratio=8 / 3,
@@ -165,7 +165,7 @@ def train_check_output(args):
     model = initialize_model()
 
     # initialize loss function
-    criterion = FlashGPTLMLoss(parallel_output=True, label_smoothing=gpc.config.loss.label_smoothing)
+    criterion = FlashGPTLMLoss(parallel_output=False, label_smoothing=gpc.config.loss.label_smoothing)
 
     optimizer, beta2_scheduler, lr_scheduler = initialize_optimizer(model=model)
 
@@ -233,7 +233,7 @@ def train_check_output(args):
             logger.info(
                 f"The relative error is {rtol}. Between {tensor1[index_max_diff]} and {tensor2[index_max_diff]}"
             )
-            assert rtol < 1e-5, f"The relative error is {rtol}"
+            assert False, f"The relative error is {rtol}"
 
 
 def test_output():
