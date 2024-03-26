@@ -10,7 +10,7 @@ import torch.distributed as dist
 from torch import Tensor
 from torch._utils import _flatten_dense_tensors, _unflatten_dense_tensors
 
-from internlm.accelerator import internlm_accelerator
+from internlm.accelerator import get_accelerator
 from internlm.core.context import ParallelMode
 from internlm.core.context import global_context as gpc
 from internlm.utils.common import get_current_device, get_tensor_norm, move_norm_to_cuda
@@ -25,6 +25,7 @@ from internlm.utils.parallel import (
 )
 
 logger = get_logger(__file__)
+internlm_accelerator = get_accelerator()
 
 try:
     import amp_C

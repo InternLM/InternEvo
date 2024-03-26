@@ -9,12 +9,14 @@ import torch
 from torch import distributed as dist
 from torch import nn
 
-from internlm.accelerator import internlm_accelerator
+from internlm.accelerator import get_accelerator
 from internlm.core.context import global_context as gpc
 from internlm.core.naive_amp import NaiveAMPModel
 from internlm.model.ops.linear import ISPLinear
 from internlm.model.utils import all_gather_raw, reduce_scatter_raw
 from internlm.utils.common import SchedulerHook
+
+internlm_accelerator = get_accelerator()
 
 
 @dataclass

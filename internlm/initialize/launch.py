@@ -34,6 +34,7 @@ else:
     get_numa = True
 
 logger = get_logger(__file__)
+internlm_accelerator = get_accelerator()
 
 
 def get_default_parser():

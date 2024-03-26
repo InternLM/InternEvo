@@ -7,7 +7,7 @@ import torch
 from torch import nn
 
 import internlm
-from internlm.accelerator import internlm_accelerator
+from internlm.accelerator import get_accelerator
 from internlm.core.context import ParallelMode
 from internlm.core.context.parallel_context import Config
 from internlm.core.context.parallel_context import global_context as gpc
@@ -15,6 +15,9 @@ from internlm.model.modeling_internlm import PackedFlashBaseLayer1D
 from internlm.model.ops.linear import RewardModelLinear, ScaleColumnParallelLinear
 from internlm.model.utils import gather_forward_split_backward
 from internlm.utils.common import get_current_device
+
+internlm_accelerator = get_accelerator()
+
 
 config = Config(
     dict(

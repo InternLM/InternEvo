@@ -8,8 +8,10 @@ from functools import partial
 import torch
 from torch.utils.tensorboard import SummaryWriter
 
-from internlm.accelerator import internlm_accelerator
+from internlm.accelerator import get_accelerator
 from internlm.core.context import global_context as gpc
+
+internlm_accelerator = get_accelerator()
 
 
 def tb_save_run_info(writer, config_lines, global_step=0):

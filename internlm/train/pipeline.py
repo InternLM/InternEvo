@@ -82,6 +82,7 @@ except (ImportError, ModuleNotFoundError):
 
 RMSNorm = try_import_RMSNorm()
 logger = get_logger(__file__)
+internlm_accelerator = get_accelerator()
 
 
 def set_fp32_attr_for_model(model: Union[nn.Module, nn.ModuleList]):
