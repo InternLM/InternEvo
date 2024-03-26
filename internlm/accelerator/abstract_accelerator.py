@@ -24,31 +24,58 @@ class Accelerator:
         pass
 
     def get_backend_name(self):
+        """
+        Return the name of the accelerator.
+        """
         raise NotImplementedError
 
     def get_accelerator_backend(self):
+        """
+        Return the name of the backend.
+        """
         raise NotImplementedError
 
     # Device APIs
     def device_name(self, device_index=None):
+        """
+        Return the name of the device.
+        """
         raise NotImplementedError
 
     def device(self, device_index=None):
+        """
+        Return the device object.
+        """
         raise NotImplementedError
 
     def set_device(self, device_index):
+        """
+        Bind the current process to a device.
+        """
         raise NotImplementedError
 
     def current_device(self):
+        """
+        Return the current device index.
+        """
         raise NotImplementedError
 
     def current_device_name(self):
+        """
+        Return the name of the current device.
+        """
         raise NotImplementedError
 
     def device_count(self):
+        """
+        Return the number of devices on the machine.
+        """
         raise NotImplementedError
 
     def synchronize(self, device_index=None):
+        """
+        Synchronize the current process.
+        """
         raise NotImplementedError
 
 
