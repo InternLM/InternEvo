@@ -9,12 +9,11 @@ import torch.nn.functional as F
 from torch import Tensor
 from torch.distributed import ProcessGroup
 
-from internlm.accelerator import get_accelerator, internlm_accelerator
+from internlm.accelerator import get_accelerator
 from internlm.core.context import global_context as gpc
 from internlm.utils.logger import get_logger
 
-if internlm_accelerator is None:
-    internlm_accelerator = get_accelerator()
+internlm_accelerator = get_accelerator()
 
 custom_bwd = internlm_accelerator.return_custom_bwd()
 custom_fwd = internlm_accelerator.return_custom_fwd()

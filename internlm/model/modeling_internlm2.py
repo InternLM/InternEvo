@@ -7,7 +7,7 @@ import torch.nn.functional as F
 from einops import rearrange
 from torch import nn
 
-from internlm.accelerator import internlm_accelerator
+from internlm.accelerator import get_accelerator
 from internlm.core.context import ParallelMode
 from internlm.core.context.parallel_context import global_context as gpc
 from internlm.initialize.initialize_tensor import (
@@ -48,6 +48,7 @@ MODEL_TYPE = "INTERNLM2_PUBLIC"
 
 logger = get_logger(__file__)
 RMSNorm = try_import_RMSNorm()
+internlm_accelerator = get_accelerator()
 
 
 class MHA(nn.Module):

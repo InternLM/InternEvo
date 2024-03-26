@@ -8,7 +8,7 @@ from typing import Any, Callable, Iterable, List, Optional
 import torch
 import torch.distributed as dist
 
-from internlm.accelerator import internlm_accelerator
+from internlm.accelerator import get_accelerator
 from internlm.core.context import ParallelMode
 from internlm.core.context import global_context as gpc
 from internlm.core.engine import Engine
@@ -19,6 +19,7 @@ from internlm.utils.timeout import llm_timeout
 from .base_scheduler import BaseScheduler
 
 logger = get_logger(__file__)
+internlm_accelerator = get_accelerator()
 
 
 class NonPipelineScheduler(BaseScheduler):

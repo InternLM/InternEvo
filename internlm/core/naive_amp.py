@@ -16,6 +16,8 @@ from internlm.accelerator import AcceleratorType, get_accelerator
 from internlm.core.context import ParallelMode
 from internlm.core.context.parallel_context import global_context as gpc
 
+internlm_accelerator = get_accelerator()
+
 
 def set_fp32_attr_to_module(module: nn.Module):
     setattr(module, "is_fp32_module", True)

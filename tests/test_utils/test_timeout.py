@@ -7,7 +7,7 @@ import pytest
 import torch
 import torch.distributed as dist
 
-from internlm.accelerator import get_accelerator, internlm_accelerator
+from internlm.accelerator import get_accelerator
 
 os.environ["INTERNLM_ENABLE_TIMEOUT"] = "1"  # noqa  # pylint: disable=wrong-import-position
 os.environ["NCCL_TIMEOUT"] = "5"
@@ -17,6 +17,7 @@ from tests.test_utils.common_fixture import (  # noqa # pylint: disable=unused-i
 )
 
 WORLD_SIZE = 2
+internlm_accelerator = get_accelerator()
 
 
 @llm_timeout(2, "fake_timeout_func")

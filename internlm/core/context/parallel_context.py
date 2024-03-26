@@ -17,7 +17,7 @@ import numpy as np
 import torch
 import torch.distributed as dist
 
-from internlm.accelerator import AcceleratorType, internlm_accelerator
+from internlm.accelerator import AcceleratorType, get_accelerator
 from internlm.utils.common import SingletonMeta
 from internlm.utils.logger import get_logger
 from internlm.utils.timeout import LLM_NCCL_TIMEOUT
@@ -35,6 +35,7 @@ IS_WEIGHT_ZERO_PARALLEL = "is_weight_zero_parallel"
 IS_TENSOR_EXPERT_DATA_PARALLEL = "is_tensor_expert_data_parallel"
 
 logger = get_logger(__file__)
+internlm_accelerator = get_accelerator()
 
 
 class Config(dict):

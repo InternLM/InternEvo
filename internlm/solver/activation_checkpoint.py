@@ -6,7 +6,7 @@ import weakref
 import torch
 from torch.utils.checkpoint import check_backward_validity, detach_variable
 
-from internlm.accelerator import internlm_accelerator
+from internlm.accelerator import get_accelerator
 from internlm.core.context.random import (
     get_current_mode,
     get_states,
@@ -16,6 +16,8 @@ from internlm.core.context.random import (
 )
 
 from ..utils.common import get_current_device
+
+internlm_accelerator = get_accelerator()
 
 
 def copy_to_device(obj, device):

@@ -6,7 +6,7 @@ from collections import defaultdict
 import torch
 from torch.distributed._shard.api import load_with_process_group
 
-from internlm.accelerator import internlm_accelerator
+from internlm.accelerator import get_accelerator
 from internlm.core.context import ParallelMode
 from internlm.core.context import global_context as gpc
 from internlm.core.trainer import TrainState
@@ -25,6 +25,7 @@ from .utils import (
 )
 
 logger = get_logger(__file__)
+internlm_accelerator = get_accelerator()
 
 
 def try_load_moe_checkpoint(folder, model, state_dict, tp_rank, pp_rank):

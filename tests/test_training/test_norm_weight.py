@@ -6,7 +6,7 @@ import pytest
 import torch
 
 import internlm
-from internlm.accelerator import get_accelerator, internlm_accelerator
+from internlm.accelerator import get_accelerator
 from internlm.core.context import ParallelMode
 from internlm.core.context import global_context as gpc
 from internlm.data import build_train_loader_with_data_type
@@ -29,6 +29,7 @@ from tests.common_fixture import (
 
 logger = get_logger(__file__)
 config = config_7B
+internlm_accelerator = get_accelerator()
 
 
 def compute_rotol(tensor1, tensor2):
