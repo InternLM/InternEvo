@@ -14,11 +14,12 @@ import numpy as np
 import torch
 
 import internlm
-from internlm.accelerator import internlm_accelerator
+from internlm.accelerator import get_accelerator
 from internlm.utils.logger import get_logger
 
 CURRENT_TIME = None
 logger = get_logger(__file__)
+internlm_accelerator = get_accelerator()
 
 
 def parse_args():

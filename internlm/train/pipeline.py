@@ -15,7 +15,7 @@ from torch.distributed.fsdp.fully_sharded_data_parallel import (
 from torch.distributed.fsdp.wrap import transformer_auto_wrap_policy
 from torch.utils.data import DataLoader
 
-from internlm.accelerator import AcceleratorType, internlm_accelerator
+from internlm.accelerator import AcceleratorType, get_accelerator
 from internlm.core.communication.isp import (
     ISPCommModelConfig,
     ISPCommunicator,
@@ -82,6 +82,7 @@ except (ImportError, ModuleNotFoundError):
 
 RMSNorm = try_import_RMSNorm()
 logger = get_logger(__file__)
+internlm_accelerator = get_accelerator()
 
 
 def set_fp32_attr_for_model(model: Union[nn.Module, nn.ModuleList]):

@@ -12,9 +12,11 @@ from torch import Tensor, nn
 from torch._utils import _flatten_dense_tensors, _unflatten_dense_tensors
 from torch.distributed import ReduceOp
 
-from internlm.accelerator import internlm_accelerator
+from internlm.accelerator import get_accelerator
 from internlm.core.context import ParallelMode
 from internlm.core.context.parallel_context import global_context as gpc
+
+internlm_accelerator = get_accelerator()
 
 
 def set_fp32_attr_to_module(module: nn.Module):

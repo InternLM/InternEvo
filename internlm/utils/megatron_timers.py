@@ -3,7 +3,10 @@
 
 import time
 
-from internlm.accelerator import internlm_accelerator
+from internlm.accelerator import get_accelerator
+
+
+internlm_accelerator = get_accelerator()
 
 
 class _Timer:

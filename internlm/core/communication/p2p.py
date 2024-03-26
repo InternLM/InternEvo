@@ -10,7 +10,7 @@ from typing import List, Tuple, Union
 import torch
 import torch.distributed as dist
 
-from internlm.accelerator import internlm_accelerator
+from internlm.accelerator import get_accelerator
 from internlm.core.context import ParallelMode
 from internlm.core.context import global_context as gpc
 from internlm.utils.common import get_current_device
@@ -18,6 +18,7 @@ from internlm.utils.common import get_current_device
 from .utils import gather_split_1d_tensor, split_tensor_into_1d_equal_chunks
 
 TensorShape = Union[torch.Size, List[int], Tuple[int]]
+internlm_accelerator = get_accelerator()
 
 
 def _get_tensor_shape(tensor_shape: TensorShape, chunk_tensor: bool = False) -> Tuple[TensorShape, bool]:

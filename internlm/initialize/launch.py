@@ -9,7 +9,7 @@ from typing import Dict, Union
 
 import torch
 
-from internlm.accelerator import internlm_accelerator
+from internlm.accelerator import get_accelerator
 from internlm.core.context import Config
 from internlm.core.context import global_context as gpc
 from internlm.core.context.process_group_initializer import ParallelMode
@@ -34,6 +34,7 @@ else:
     get_numa = True
 
 logger = get_logger(__file__)
+internlm_accelerator = get_accelerator()
 
 
 def get_default_parser():

@@ -12,9 +12,6 @@ class AcceleratorType(enum.Enum):
     OTHER = 4
 
 
-internlm_accelerator = None
-
-
 class Accelerator:
     """
     Abstract base class for accelerator
@@ -80,10 +77,7 @@ class Accelerator:
 
 
 def get_accelerator():
-    global internlm_accelerator
-    if internlm_accelerator is not None:
-        return internlm_accelerator
-
+    internlm_accelerator = None
     accelerator_name = None
     # 1. Detect whether there is override of DeepSpeed accelerators from environment variable.
     intern_accelerator_LIST = ["cuda", "npu"]
@@ -95,23 +89,22 @@ def get_accelerator():
             except (ImportError, ModuleNotFoundError):
                 raise ValueError("NPU_Accelerator requires torch_npu, which is not installed on this system.")
             pass
-        else:
+        elif accelerator_name != "cuda":
             raise ValueError(
-                f"internlm_accelerator must be one of {intern_accelerator_LIST}."
+                f"accelerator_name must be one of {intern_accelerator_LIST}."
                 + " Value '{accelerator_name}' is not supported"
             )
 
     # 2. If no override, detect which accelerator to use automatically
     if accelerator_name is None:
-        if accelerator_name is None:
-            try:
-                import torch_npu  # noqa: F401,F811 # type: ignore
+        try:
+            import torch_npu  # noqa: F401,F811 # type: ignore
 
-                accelerator_name = "npu"
-            except (ImportError, ModuleNotFoundError):
-                pass
-        if accelerator_name is None:
-            accelerator_name = "cuda"
+            accelerator_name = "npu"
+        except (ImportError, ModuleNotFoundError):
+            pass
+    if accelerator_name is None:
+        accelerator_name = "cuda"
 
     # 3. Set internlm_accelerator accordingly
     if accelerator_name == "cuda":

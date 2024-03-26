@@ -7,7 +7,7 @@ from typing import Optional
 import torch
 from torch import nn
 
-from internlm.accelerator import internlm_accelerator
+from internlm.accelerator import get_accelerator
 from internlm.core.context import ParallelMode
 from internlm.core.context.parallel_context import global_context as gpc
 from internlm.core.naive_amp import set_fp32_attr_to_module
@@ -32,6 +32,7 @@ MODEL_TYPE = "INTERNLM_MoE"
 
 logger = get_logger(__file__)
 RMSNorm = try_import_RMSNorm()
+internlm_accelerator = get_accelerator()
 
 
 class PackedFlashBaseLayer1D(nn.Module):
