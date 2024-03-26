@@ -68,17 +68,14 @@ def get_grad_accumulate_object(tensor):
 
 
 def split_half_float_double(tensor_list):
-    dtype_buckets = {
-        "internlm_accelerator.HalfTensor": [],
-        "internlm_accelerator.FloatTensor": [],
-        "internlm_accelerator.DoubleTensor": [],
-        "internlm_accelerator.BFloat16Tensor": [],
-    }
+    dtype_buckets = {}
 
     for t in tensor_list:
         dtype = t.type()
-        if dtype in dtype_buckets:
-            dtype_buckets[dtype].append(t)
+        if dtype not in dtype_buckets:
+            dtype_buckets[dtype] = []
+
+        dtype_buckets[dtype].append(t)
 
     buckets = [bucket for bucket in dtype_buckets.values() if bucket]
     return buckets
