@@ -1,5 +1,9 @@
 """
-attention operators
+A simple operator selector, used for compatibility with different platforms such as CUDA and Ascend,
+as well as whether to enable flash-attn operator optimization, may be replaced by a more comprehensive
+operator compatibility layer in the future.
+
+This file implements support for the attention operators.
 """
 
 import math

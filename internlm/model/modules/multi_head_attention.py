@@ -13,7 +13,7 @@ from torch import Tensor, nn
 from torch.nn import Module
 
 from internlm.core.context import global_context as gpc
-from internlm.model.modules.embedding import DynamicNTKScalingRotaryEmbedding, RotaryEmbedding
+from internlm.model.modules.embedding import new_rotary_embedding
 from internlm.model.modules.linear import new_linear
 from internlm.model.modules.utils import update_kv_cache
 from internlm.model.ops.attention import CrossAttention, SelfAttention
@@ -190,19 +190,17 @@ class MHA(nn.Module):
         assert self.embed_dim % num_heads == 0, "self.kdim must be divisible by num_heads"
 
         if self.rotary_emb_dim > 0:
-            if self.use_dynamic_ntk_rope:
-                self.rotary_emb = DynamicNTKScalingRotaryEmbedding(
-                    self.rotary_emb_dim,
-                    base=rope_base,
-                    scale_base=rotary_emb_scale_base,
-                    device=device,
-                    max_position_embeddings=max_position_embeddings,
-                    scaling_factor=1.0,  # Currently do not support dynamic scaling.
-                )
-            else:
-                self.rotary_emb = RotaryEmbedding(
-                    self.rotary_emb_dim, base=rope_base, scale_base=rotary_emb_scale_base, device=device
-                )
+            self.rotary_emb = new_rotary_embedding(
+                self.rotary_emb_dim,
+                base=rope_base,
+                scale_base=rotary_emb_scale_base,
+                device=device,
+                max_position_embeddings=max_position_embeddings,
+                scaling_factor=1.0,
+                rotary_type="dynamic_ntk" if self.use_dynamic_ntk_rope else "native",
+            )
+        else:
+            self.rotary_emb = None
 
         # bias=True is according to https://spaces.ac.cn/archives/9577
         self.Wqkv = new_linear("Wqkv", embed_dim, 3 * embed_dim, bias=True, **factory_kwargs)
@@ -229,8 +227,7 @@ class MHA(nn.Module):
         qkv = self.Wqkv(x)
         qkv = rearrange(qkv, "... (three h d) -> ... three h d", three=3, d=self.head_dim)
 
-        qkv = self.rotary_emb(qkv, **kwargs)
-        kwargs.pop("indexes", None)
+        bsz, *_ = qkv.shape  # 是否需要支持 data-packed
 
         if self.use_dynamic_ntk_rope:
             q = qkv[:, :, 0]
@@ -239,13 +236,19 @@ class MHA(nn.Module):
             if inference_params.sequence_len_offset != 0:
                 # q shape: [bsz, 1, nheads, head_dim]
                 # kv shape: [bsz, seqlen, 2, nheads, head_dim]
-                bsz, seq_len, _, nheads, head_dim = kv.shape
-                q = torch.cat([q.new_zeros(size=(bsz, seq_len - 1, nheads, head_dim)), q], dim=1).unsqueeze(2)
-                qkv = torch.cat([q, kv], dim=2)
+                # bsz, seq_len, _, nheads, head_dim = kv.shape
+                # q = torch.cat([q.new_zeros(size=(bsz, seq_len - 1, nheads, head_dim)), q], dim=1).unsqueeze(2)
+
+                # qkv = torch.cat([q, kv], dim=2)
                 if self.rotary_emb_dim > 0:
-                    qkv = self.rotary_emb(qkv)
-                q = qkv[:, [-1], 0]
-                kv = qkv[:, :, 1:]
+                    k = kv[:, :, 1].squeeze(2)
+                    q = self.rotary_emb(
+                        q.squeeze(2), offsets=inference_params.sequence_len_offset, cache_type="query"
+                    ).unsqueeze(2)
+                    self.rotary_emb(k, offsets=0, cache_type="key", in_place=True)  # in-place
+                    # qkv = self.rotary_emb(qkv)
+                # q = qkv[:, [-1], 0]
+                # kv = qkv[:, :, 1:]
             else:
                 if inference_params.sequence_len_offset > self.max_position_embeddings:
                     warnings.warn(
@@ -253,9 +256,12 @@ class MHA(nn.Module):
                         f"{self.max_position_embeddings}, which will cause deviations in dynamic ntk calculations."
                     )
                 if self.rotary_emb_dim > 0:
-                    kwargs["inference_params"] = inference_params
-                    qkv = self.rotary_emb(qkv, **kwargs)
-                    q = qkv[:, :, 0]
+                    # kwargs["inference_params"] = inference_params
+                    # qkv = self.rotary_emb(qkv, **kwargs)
+                    k = qkv[:, :, 1].squeeze(2)
+                    q = self.rotary_emb(q.squeeze(2), offsets=0, cache_type="query").unsqueeze(2)
+                    self.rotary_emb(k, offsets=0, cache_type="key", in_place=True)  # in-place
+                    # q = qkv[:, :, 0]
                     kv = qkv[:, :, 1:]
         else:
             assert self.layer_idx is not None, "Generation requires layer_idx in the constructor"
@@ -263,16 +269,16 @@ class MHA(nn.Module):
             kv = torch.stack([k, v], dim=2)
             assert self.rotary_emb_dim > 0, "You should use rotary_emb."
             cu_seqlens = kwargs.get("cu_seqlens", None)
-            max_seqlen = kwargs.get("max_seqlen", None)
+            # max_seqlen = kwargs.get("max_seqlen", None)
 
             if hasattr(inference_params, "attention_mask") and inference_params.attention_mask is not None:
                 empties = inference_params.attention_mask[..., -1].sum(dim=-1)
                 if inference_params.sequence_len_offset == 0:
-                    q = self.rotary_emb._single_eval_forward(
-                        q, seqlen_offset=0, left_padding_mask=inference_params.attention_mask
+                    q = self.rotary_emb(
+                        q, offsets=0, cache_type="query", left_padding_mask=inference_params.attention_mask
                     )
-                    k = self.rotary_emb._single_eval_forward(
-                        k, seqlen_offset=0, left_padding_mask=inference_params.attention_mask
+                    k = self.rotary_emb(
+                        k, offsets=0, cache_type="key", left_padding_mask=inference_params.attention_mask
                     )
                 else:
                     if inference_params.sequence_len_offset > self.max_position_embeddings:
@@ -282,27 +288,21 @@ class MHA(nn.Module):
                         )
                     q = q.squeeze(1)
                     k = k.squeeze(1)
-                    q = self.rotary_emb._single_forward(
+                    q = self.rotary_emb(
                         q,
                         inference_params.sequence_len_offset * torch.ones(q.size(0), dtype=torch.int, device=q.device)
                         - empties,
-                        cu_seqlens=cu_seqlens,
-                        max_seqlen=max_seqlen,
+                        cache_type="query",
                     ).unsqueeze(1)
-                    k = self.rotary_emb._single_forward(
+                    k = self.rotary_emb(
                         k,
                         inference_params.sequence_len_offset * torch.ones(k.size(0), dtype=torch.int, device=k.device)
                         - empties,
-                        cu_seqlens=cu_seqlens,
-                        max_seqlen=max_seqlen,
+                        cache_type="key",
                     ).unsqueeze(1)
             else:
-                q = self.rotary_emb._single_forward(
-                    q, inference_params.sequence_len_offset, cu_seqlens=cu_seqlens, max_seqlen=max_seqlen
-                )
-                k = self.rotary_emb._single_forward(
-                    k, inference_params.sequence_len_offset, cu_seqlens=cu_seqlens, max_seqlen=max_seqlen
-                )
+                q = self.rotary_emb(q, inference_params.sequence_len_offset, cache_type="query")
+                k = self.rotary_emb(k, inference_params.sequence_len_offset, cache_type="key")
 
             kv = torch.stack([k, v], dim=2)
             kv = update_kv_cache(kv, inference_params, self.layer_idx)
@@ -403,8 +403,11 @@ class MHA(nn.Module):
         qkv = self.Wqkv(x)
         qkv = rearrange(qkv, "... (three h d) -> ... three h d", three=3, d=self.head_dim)
 
-        qkv = self.rotary_emb(qkv, **kwargs)
-        kwargs.pop("indexes", None)
+        q = qkv[..., 0, :, :].squeeze(-3)
+        k = qkv[..., 1, :, :].squeeze(-3)
+        indexes = kwargs.pop("indexes", None)
+        self.rotary_emb(q, offsets=indexes, cache_type="query", in_place=True)
+        self.rotary_emb(k, offsets=indexes, cache_type="key", in_place=True)
         # if gpc.config.model.dtype is torch.float32 and gpc.config.model.use_flash_attn:
         #     with torch.cuda.amp.autocast(dtype=torch.bfloat16):
         #         if qkv.dtype not in [torch.float16, torch.bfloat16]:
@@ -499,7 +502,7 @@ class MHA2(nn.Module):
         embed_dim: int,
         num_heads: int,
         num_kv_heads: int,
-        process_group: Optional[torch.distributed.ProcessGroup],
+        # process_group: Optional[torch.distributed.ProcessGroup],
         sequence_process_group: Optional[torch.distributed.ProcessGroup],
         bias: bool = True,
         dropout: float = 0.0,
@@ -532,39 +535,22 @@ class MHA2(nn.Module):
         self.tp_mode = tp_mode
 
         self.rot_embed_HF_impl = rot_embed_HF_impl
-        sequence_parallel = gpc.config.parallel.get("sequence_parallel", False)
 
         if self.rotary_emb_dim > 0:
-            self.rotary_emb = RotaryEmbedding(
-                self.rotary_emb_dim, base=rope_base, scale_base=rotary_emb_scale_base, device=device
+            self.rotary_emb = new_rotary_embedding(
+                self.rotary_emb_dim,
+                base=rope_base,
+                scale_base=rotary_emb_scale_base,
+                device=device,
+                rotary_type="native",
             )
+        else:
+            self.rotary_emb = None
 
-        Wqkv_cls = get_linear_cls(self.tp_mode, "column")
         # notice here should change bias=True
-        self.wq = Wqkv_cls(
-            embed_dim,
-            embed_dim,
-            process_group,
-            bias=bias,
-            sequence_parallel=sequence_parallel,
-            **factory_kwargs,
-        )
-        self.wk = Wqkv_cls(
-            embed_dim,
-            self.kv_dim,
-            process_group,
-            bias=bias,
-            sequence_parallel=sequence_parallel,
-            **factory_kwargs,
-        )
-        self.wv = Wqkv_cls(
-            embed_dim,
-            self.kv_dim,
-            process_group,
-            bias=bias,
-            sequence_parallel=sequence_parallel,
-            **factory_kwargs,
-        )
+        self.wq = new_linear("wq", embed_dim, embed_dim, bias, **factory_kwargs)
+        self.wk = new_linear("wk", embed_dim, self.kv_dim, bias, **factory_kwargs)
+        self.wv = new_linear("wv", embed_dim, self.kv_dim, bias, **factory_kwargs)
 
         if use_flash_attn:
             from flash_attn import flash_attn_varlen_kvpacked_func
@@ -586,15 +572,7 @@ class MHA2(nn.Module):
             self.attn = DistributedAttention(self.attn, sequence_process_group=sequence_process_group)
 
         # output projection always have the bias (for now)
-        out_proj_cls = get_linear_cls(self.tp_mode, "row")
-        self.wo = out_proj_cls(
-            embed_dim,
-            embed_dim,
-            process_group,
-            bias=bias,
-            sequence_parallel=sequence_parallel,
-            **factory_kwargs,
-        )
+        self.wo = new_linear("wo", embed_dim, embed_dim, bias, **factory_kwargs)
 
     def forward(self, x, seqlen=None, inference_params=None, **kwargs):
         if kwargs.get("indexes", None) is not None:
@@ -626,8 +604,8 @@ class MHA2(nn.Module):
             k = torch.cat([k[..., ::2], k[..., 1::2]], dim=-1)
         if inference_params is None:
             if self.rotary_emb_dim > 0:
-                q = self.rotary_emb._single_eval_forward(q)
-                k = self.rotary_emb._single_eval_forward(k)
+                q = self.rotary_emb(q, offsets=0, cache_type="query")
+                k = self.rotary_emb(k, offsets=0, cache_type="key")
             kv = torch.concat([k.unsqueeze(2), v.unsqueeze(2)], dim=2)
             if self.dtype is torch.float32 and self.use_flash_attn:
                 if q.dtype not in [torch.float16, torch.bfloat16]:
@@ -643,38 +621,27 @@ class MHA2(nn.Module):
             assert self.rotary_emb_dim > 0
             if hasattr(inference_params, "attention_mask") and inference_params.attention_mask is not None:
                 empties = inference_params.attention_mask[..., -1].sum(dim=-1)
-                moved_q = q.clone()
-                moved_k = k.clone()
                 if inference_params.sequence_len_offset == 0:
-                    for i in range(len(empties)):
-                        if empties[i] != 0:
-                            moved_q[i][: -empties[i]] = q[i][empties[i] :]
-                            moved_k[i][: -empties[i]] = k[i][empties[i] :]
-                    moved_q = self.rotary_emb._single_eval_forward(
-                        moved_q, seqlen_offset=inference_params.sequence_len_offset
+                    q = self.rotary_emb(
+                        q, offsets=0, cache_type="query", left_padding_mask=inference_params.attention_mask
                     )
-                    moved_k = self.rotary_emb._single_eval_forward(
-                        moved_k, seqlen_offset=inference_params.sequence_len_offset
+                    k = self.rotary_emb(
+                        k, offsets=0, cache_type="key", left_padding_mask=inference_params.attention_mask
                     )
-                    for i in range(len(empties)):
-                        if empties[i] != 0:
-                            q[i][empties[i] :] = moved_q[i][: -empties[i]]
-                            k[i][empties[i] :] = moved_k[i][: -empties[i]]
-                        else:
-                            q[i] = moved_q[i]
-                            k[i] = moved_k[i]
                 else:
                     q = q.squeeze(1)
                     k = k.squeeze(1)
-                    q = self.rotary_emb._single_forward(
+                    q = self.rotary_emb(
                         q,
                         inference_params.sequence_len_offset * torch.ones(q.size(0), dtype=torch.int, device=q.device)
                         - empties,
+                        cache_type="query",
                     ).unsqueeze(1)
-                    k = self.rotary_emb._single_forward(
+                    k = self.rotary_emb(
                         k,
                         inference_params.sequence_len_offset * torch.ones(k.size(0), dtype=torch.int, device=k.device)
                         - empties,
+                        cache_type="key",
                     ).unsqueeze(1)
             else:
                 raise NotImplementedError(
@@ -697,13 +664,13 @@ class MHA2(nn.Module):
                     inference_params.real_sequence_len_offset = inference_params.sequence_len_offset
                     inference_params.sequence_len_offset = inference_params.window_size - 1
 
-                    kv = _update_kv_cache(kv, inference_params, self.layer_idx)
+                    kv = update_kv_cache(kv, inference_params, self.layer_idx)
 
                     inference_params.sequence_len_offset = inference_params.real_sequence_len_offset
                 else:
-                    kv = _update_kv_cache(kv, inference_params, self.layer_idx)
+                    kv = update_kv_cache(kv, inference_params, self.layer_idx)
             else:
-                kv = _update_kv_cache(kv, inference_params, self.layer_idx)
+                kv = update_kv_cache(kv, inference_params, self.layer_idx)
 
             # When using FP16, there is a high probability of NAN in the KV.
             # Since NAN cannot be removed by multiplying with and 0, it needs
@@ -840,8 +807,8 @@ class MHA2(nn.Module):
             k = torch.cat([k[..., ::2], k[..., 1::2]], dim=-1)
 
         indexes = kwargs.pop("indexes")
-        q = self.rotary_emb._single_forward(q, indexes=indexes)
-        k = self.rotary_emb._single_forward(k, indexes=indexes)
+        q = self.rotary_emb(q, offsets=indexes, cache_type="query")
+        k = self.rotary_emb(k, offsets=indexes, cache_type="key")
 
         if inference_params is None:
             kv = torch.concat([k.unsqueeze(1), v.unsqueeze(1)], dim=1)
@@ -917,7 +884,7 @@ class MHA3(nn.Module):
         embed_dim: int,
         num_heads: int,
         num_kv_heads: int,
-        process_group: Optional[torch.distributed.ProcessGroup],
+        # process_group: Optional[torch.distributed.ProcessGroup],
         sequence_process_group: Optional[torch.distributed.ProcessGroup],
         max_position_embeddings: int = 2048,
         bias: bool = False,
@@ -953,36 +920,25 @@ class MHA3(nn.Module):
         self.q_per_kv = num_heads // num_kv_heads
 
         self.rot_embed_HF_impl = rot_embed_HF_impl
-        sequence_parallel = gpc.config.parallel.get("sequence_parallel", False)
 
         self.max_position_embeddings = max_position_embeddings
         self.use_dynamic_ntk_rope = use_dynamic_ntk_rope
         self.tp_mode = tp_mode
 
         if self.rotary_emb_dim > 0:
-            if self.use_dynamic_ntk_rope:
-                self.rotary_emb = DynamicNTKScalingRotaryEmbedding(
-                    self.rotary_emb_dim,
-                    base=rope_base,
-                    scale_base=rotary_emb_scale_base,
-                    device=device,
-                    max_position_embeddings=max_position_embeddings,
-                    scaling_factor=1.0,  # Currently do not support dynamic scaling.
-                )
-            else:
-                self.rotary_emb = RotaryEmbedding(
-                    self.rotary_emb_dim, base=rope_base, scale_base=rotary_emb_scale_base, device=device
-                )
+            self.rotary_emb = new_rotary_embedding(
+                self.rotary_emb_dim,
+                base=rope_base,
+                scale_base=rotary_emb_scale_base,
+                device=device,
+                max_position_embeddings=max_position_embeddings,
+                scaling_factor=1.0,
+                rotary_type="dynamic_ntk" if self.use_dynamic_ntk_rope else "native",
+            )
+        else:
+            self.rotary_emb = None
 
-        Wqkv_cls = get_linear_cls(self.tp_mode, "column")
-        self.wqkv = Wqkv_cls(
-            embed_dim,
-            embed_dim + 2 * self.kv_dim,
-            process_group,
-            bias=bias,
-            sequence_parallel=sequence_parallel,
-            **factory_kwargs,
-        )
+        self.wqkv = new_linear("wqkv", embed_dim, embed_dim + 2 * self.kv_dim, bias, **factory_kwargs)
 
         if use_flash_attn:
             from flash_attn import flash_attn_varlen_kvpacked_func
@@ -1003,15 +959,7 @@ class MHA3(nn.Module):
         if self.tp_mode == "isp":
             self.attn = DistributedAttention(self.attn, sequence_process_group=sequence_process_group)
 
-        wo_cls = get_linear_cls(self.tp_mode, "row")
-        self.wo = wo_cls(
-            embed_dim,
-            embed_dim,
-            process_group,
-            bias=bias,
-            sequence_parallel=sequence_parallel,
-            **factory_kwargs,
-        )
+        self.wo = new_linear("wo", embed_dim, embed_dim, bias, **factory_kwargs)
 
     def forward(self, x, seqlen=None, inference_params=None, **kwargs):
         if kwargs.get("indexes", None) is not None:
@@ -1045,8 +993,8 @@ class MHA3(nn.Module):
 
         if inference_params is None:
             if self.rotary_emb_dim > 0:
-                q = self.rotary_emb._single_eval_forward(q)
-                k = self.rotary_emb._single_eval_forward(k)
+                q = self.rotary_emb(q, offsets=0, cache_type="query")
+                k = self.rotary_emb(k, offsets=0, cache_type="key")
             kv = torch.concat([k.unsqueeze(2), v.unsqueeze(2)], dim=2)
             if self.dtype is torch.float32 and self.use_flash_attn:
                 if q.dtype not in [torch.float16, torch.bfloat16]:
@@ -1062,38 +1010,27 @@ class MHA3(nn.Module):
             assert self.rotary_emb_dim > 0
             if hasattr(inference_params, "attention_mask") and inference_params.attention_mask is not None:
                 empties = inference_params.attention_mask[..., -1].sum(dim=-1)
-                moved_q = q.clone()
-                moved_k = k.clone()
                 if inference_params.sequence_len_offset == 0:
-                    for i in range(len(empties)):
-                        if empties[i] != 0:
-                            moved_q[i][: -empties[i]] = q[i][empties[i] :]
-                            moved_k[i][: -empties[i]] = k[i][empties[i] :]
-                    moved_q = self.rotary_emb._single_eval_forward(
-                        moved_q, seqlen_offset=inference_params.sequence_len_offset
+                    q = self.rotary_emb(
+                        q, offsets=0, cache_type="query", left_padding_mask=inference_params.attention_mask
                     )
-                    moved_k = self.rotary_emb._single_eval_forward(
-                        moved_k, seqlen_offset=inference_params.sequence_len_offset
+                    k = self.rotary_emb(
+                        k, offsets=0, cache_type="key", left_padding_mask=inference_params.attention_mask
                     )
-                    for i in range(len(empties)):
-                        if empties[i] != 0:
-                            q[i][empties[i] :] = moved_q[i][: -empties[i]]
-                            k[i][empties[i] :] = moved_k[i][: -empties[i]]
-                        else:
-                            q[i] = moved_q[i]
-                            k[i] = moved_k[i]
                 else:
                     q = q.squeeze(1)
                     k = k.squeeze(1)
-                    q = self.rotary_emb._single_forward(
+                    q = self.rotary_emb(
                         q,
                         inference_params.sequence_len_offset * torch.ones(q.size(0), dtype=torch.int, device=q.device)
                         - empties,
+                        cache_type="query",
                     ).unsqueeze(1)
-                    k = self.rotary_emb._single_forward(
+                    k = self.rotary_emb(
                         k,
                         inference_params.sequence_len_offset * torch.ones(k.size(0), dtype=torch.int, device=k.device)
                         - empties,
+                        cache_type="key",
                     ).unsqueeze(1)
             else:
                 raise NotImplementedError(
@@ -1116,13 +1053,13 @@ class MHA3(nn.Module):
                     inference_params.real_sequence_len_offset = inference_params.sequence_len_offset
                     inference_params.sequence_len_offset = inference_params.window_size - 1
 
-                    kv = _update_kv_cache(kv, inference_params, self.layer_idx)
+                    kv = update_kv_cache(kv, inference_params, self.layer_idx)
 
                     inference_params.sequence_len_offset = inference_params.real_sequence_len_offset
                 else:
-                    kv = _update_kv_cache(kv, inference_params, self.layer_idx)
+                    kv = update_kv_cache(kv, inference_params, self.layer_idx)
             else:
-                kv = _update_kv_cache(kv, inference_params, self.layer_idx)
+                kv = update_kv_cache(kv, inference_params, self.layer_idx)
 
             # When using FP16, there is a high probability of NAN in the KV.
             # Since NAN cannot be removed by multiplying with and 0, it needs
@@ -1258,8 +1195,8 @@ class MHA3(nn.Module):
             k = torch.cat([k[..., ::2], k[..., 1::2]], dim=-1)
 
         indexes = kwargs.pop("indexes")
-        q = self.rotary_emb._single_forward(q, indexes=indexes)
-        k = self.rotary_emb._single_forward(k, indexes=indexes)
+        q = self.rotary_emb(q, offsets=indexes, cache_type="query")
+        k = self.rotary_emb(k, offsets=indexes, cache_type="key")
 
         if inference_params is None:
             kv = torch.concat([k.unsqueeze(1), v.unsqueeze(1)], dim=1)
