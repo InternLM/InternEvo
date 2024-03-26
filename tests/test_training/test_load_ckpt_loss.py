@@ -1,5 +1,7 @@
 import multiprocessing as mp
 
+from internlm.accelerator import get_accelerator, internlm_accelerator
+
 backup_ForkingPickler = mp.reduction.ForkingPickler
 backup_dump = mp.reduction.dump
 import os  # noqa: E402  #pylint: disable=wrong-import-position
@@ -166,7 +168,7 @@ def build_environment(rank, world_size, free_port, config):
     os.environ["WORLD_SIZE"] = str(world_size)
     os.environ["MASTER_ADDR"] = "localhost"
     os.environ["MASTER_PORT"] = str(free_port)
-    torch.cuda.empty_cache()
+    internlm_accelerator.empty_cache()
     # launcher="torch"
     internlm.launch_from_torch(config=config, seed=1024)
     args_sanity_check()
@@ -176,9 +178,9 @@ def seed_all(seed, cuda_deterministic=False):
     random.seed(seed)
     np.random.seed(seed)
     torch.manual_seed(seed)
-    if torch.cuda.is_available():
-        torch.cuda.manual_seed(seed)
-        torch.cuda.manual_seed_all(seed)
+    if internlm_accelerator.is_available():
+        internlm_accelerator.manual_seed(seed)
+        internlm_accelerator.manual_seed_all(seed)
     if cuda_deterministic:  # slower, more reproducible
         torch.backends.cudnn.deterministic = True
         torch.backends.cudnn.benchmark = False
@@ -240,7 +242,7 @@ def train_model(args):
 
     # initialize metric for calculating accuracy and perplexity
     metric = AccPerplex(
-        device=torch.cuda.current_device(),
+        device=internlm_accelerator.current_device(),
         tp_pg=gpc.get_group(ParallelMode.TENSOR),
         dp_pg=gpc.get_group(ParallelMode.DATA),
         dataset_types=dataset_types,
@@ -308,7 +310,7 @@ def train_model(args):
         ckpt_manager.try_save_checkpoint(train_state)
 
     ckpt_manager.wait_async_upload_finish()
-    torch.cuda.empty_cache()
+    internlm_accelerator.empty_cache()
     dist.barrier()
 
     if gpc.is_rank_for_log():

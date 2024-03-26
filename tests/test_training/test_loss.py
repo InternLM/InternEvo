@@ -6,6 +6,7 @@ import torch
 import torch.distributed as dist
 
 import internlm
+from internlm.accelerator import get_accelerator, internlm_accelerator
 from internlm.checkpoint import CheckpointManager
 from internlm.core.context import ParallelMode
 from internlm.core.context import global_context as gpc
@@ -147,7 +148,7 @@ def train(
 
     # initialize metric for calculating accuracy and perplexity
     metric = AccPerplex(
-        device=torch.cuda.current_device(),
+        device=internlm_accelerator.current_device(),
         tp_pg=gpc.get_group(ParallelMode.TENSOR),
         dp_pg=gpc.get_group(ParallelMode.DATA),
         dataset_types=dataset_types,
@@ -400,4 +401,3 @@ def test_training_internlm2():
     CONFIG_FILE_PATH = "./configs/7B_internlm2.py"
 
     train(dp_size=8, model_type="INTERNLM2_PUBLIC")
-

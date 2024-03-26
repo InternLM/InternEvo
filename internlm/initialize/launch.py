@@ -9,6 +9,7 @@ from typing import Dict, Union
 
 import torch
 
+from internlm.accelerator import internlm_accelerator
 from internlm.core.context import Config
 from internlm.core.context import global_context as gpc
 from internlm.core.context.process_group_initializer import ParallelMode
@@ -473,13 +474,14 @@ def launch(
     gpc.init_parallel_groups()
 
     # set cuda device
-    if torch.cuda.is_available():
+    if internlm_accelerator.is_available():
         # if local rank is not given, calculate automatically
         gpc.set_device(local_rank)
 
     # set the number of processes running on the same node
     gpc.detect_num_processes_on_current_node()
 
+    internlm_accelerator.synchronize()
     gpc.set_seed(seed)
 
     warmup_process_group()
@@ -577,6 +579,7 @@ def initialize_distributed_env(
     master_port: int = 8888,
     seed: int = 1024,
     args_check=True,
+    backend: str = "nccl",
 ):
     """
     Initialize distributed environment for distributed training.
@@ -591,10 +594,8 @@ def initialize_distributed_env(
     # close automatic garbage collection
     gc.disable()
 
-    torch.cuda.empty_cache()
-
     if launcher == "torch":
-        launch_from_torch(config=config, seed=seed)
+        launch_from_torch(config=config, seed=seed, backend=backend)
     elif launcher == "slurm":
         launch_from_slurm(
             config=config,
@@ -653,7 +654,7 @@ def try_bind_numa(global_rank, world_size, local_rank=None):
             return
 
         if local_rank is None:
-            devices_per_node = torch.cuda.device_count()
+            devices_per_node = internlm_accelerator.device_count()
             local_rank = global_rank % devices_per_node
 
         # compute numa id for each locak rank

@@ -15,6 +15,7 @@ from torch.distributed.fsdp.fully_sharded_data_parallel import (
 from torch.distributed.fsdp.wrap import transformer_auto_wrap_policy
 from torch.utils.data import DataLoader
 
+from internlm.accelerator import AcceleratorType, internlm_accelerator
 from internlm.core.communication.isp import (
     ISPCommModelConfig,
     ISPCommunicator,
@@ -73,6 +74,11 @@ from internlm.utils.parallel import (
 )
 from internlm.utils.registry import MODEL_INITIALIZER
 from internlm.utils.timeout import llm_timeout
+
+try:
+    import torch_npu
+except (ImportError, ModuleNotFoundError):
+    pass
 
 RMSNorm = try_import_RMSNorm()
 logger = get_logger(__file__)
@@ -291,10 +297,15 @@ def initialize_optimizer(model: Union[nn.Module, nn.ModuleList], isp_communicato
     params = create_param_groups(model, adam_cfg.weight_decay)
     adam_extra_kwargs = {}
     # set fused=True to avoid nan grad norm when model size is larger and use_fp32_norm=True
-    if torch.__version__ >= "2.1.0":
-        adam_extra_kwargs["fused"] = True
 
-    naive_optimizer = torch.optim.AdamW(
+    if internlm_accelerator == AcceleratorType.NPU:
+        internlm_adamw = torch_npu.optim.NpuFusedAdamW
+    else:
+        internlm_adamw = torch.optim.AdamW
+        if torch.__version__ >= "2.1.0":
+            adam_extra_kwargs["fused"] = True
+
+    naive_optimizer = internlm_adamw(
         params=params,
         lr=adam_cfg.lr,
         betas=(adam_cfg.adam_beta1, adam_cfg.adam_beta2),

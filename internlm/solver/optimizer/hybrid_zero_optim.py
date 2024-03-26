@@ -10,6 +10,7 @@ import torch
 import torch.distributed as dist
 from torch.optim import Optimizer
 
+from internlm.accelerator import internlm_accelerator
 from internlm.core.communication.utils import ParamAsyncBcastHandler
 from internlm.core.context import Config, ParallelMode
 from internlm.core.context import global_context as gpc
@@ -117,7 +118,7 @@ class HybridZeroOptimizer(BaseOptimizer):
             hysteresis=hysteresis,
             max_scale=max_scale,
         )
-        self._found_overflow = torch.cuda.FloatTensor([0], device=get_current_device())
+        self._found_overflow = internlm_accelerator.FloatTensor([0], device=get_current_device())
 
         # gradient clipping
         self._clip_grad_norm = clip_grad_norm
@@ -199,7 +200,7 @@ class HybridZeroOptimizer(BaseOptimizer):
                     tensor_list = self._param_store.get_fp16_params_by_rank_group(rank, group_id)
                     with torch.no_grad():
                         flat_tensor = flatten(tensor_list)
-                    flat_tensor = flat_tensor.data.cuda()
+                    flat_tensor = flat_tensor.data.to(get_current_device())
                     self._param_store.add_flat_fp16_param_by_rank_group(rank, group_id, flat_tensor)
                     sync_param(flat_tensor=flat_tensor, tensor_list=tensor_list)
 
@@ -793,7 +794,7 @@ class HybridZeroOptimizer(BaseOptimizer):
                     )
                     fp32_param = self._fp32_flat_param_groups_of_current_rank[group_id]
                     fp16_param.data.copy_(fp32_param)
-        torch.cuda.synchronize()
+        internlm_accelerator.synchronize()
         self.broadcast_params()
 
         timer("step").stop()

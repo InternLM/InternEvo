@@ -11,10 +11,11 @@ from dataclasses import asdict
 
 import streamlit as st
 import torch
+
+from internlm.accelerator import internlm_accelerator
+from tools.interface import GenerationConfig, generate_interactive
 from transformers import AutoModelForCausalLM, AutoTokenizer
 from transformers.utils import logging
-
-from tools.interface import GenerationConfig, generate_interactive
 
 logger = logging.get_logger(__name__)
 
@@ -75,7 +76,7 @@ def combine_history(prompt):
 
 
 def main():
-    # torch.cuda.empty_cache()
+    # internlm_accelerator.empty_cache()
     print("load model begin.")
     model, tokenizer = load_model()
     print("load model end.")
@@ -121,7 +122,7 @@ def main():
         st.session_state.messages.append(
             {"role": "robot", "content": cur_response, "avatar": robot_avator}  # pylint: disable=W0631
         )
-        torch.cuda.empty_cache()
+        internlm_accelerator.empty_cache()
 
 
 if __name__ == "__main__":
