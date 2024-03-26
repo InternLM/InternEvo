@@ -174,6 +174,7 @@ def test_warmup(use_flash_atten_case, group_case, micro_bsz_case):
                 min_length=0,
                 total_steps=8,
                 num_worker=0,
+                fixed_random_dataset_seqlen=False,
             ),
             model=dict(
                 dtype=torch.bfloat16,
