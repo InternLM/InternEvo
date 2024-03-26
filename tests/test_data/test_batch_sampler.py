@@ -81,9 +81,9 @@ def do_warmup(args):
 
         tokens_num = np.prod(input_ids_shape)
 
-        # If not use fa, 'type_ids' is unpcaked when load_new_batch is calling.
-        # However, 'input_ids' is unpcaked in pp/nopp engine.
-        if not init_config.model.use_flash_attn:
+        # If not use packed data, 'type_ids' is unpacked when load_new_batch is calling.
+        # However, 'input_ids' is unpacked in pp/nopp engine.
+        if not init_config.data.use_packed_dataset:
             assert type_ids_shape == torch.Size(
                 [answer[i], micro_bsz, sql]
             ), f"iter:{i}, type_ids_shape: {type_ids_shape} != {torch.Size([answer[i], micro_bsz, sql])}"
@@ -104,6 +104,7 @@ def do_warmup(args):
                 f"micro_bsz:{micro_bsz}",
                 f"input shape: {batch[0]['type_ids'].shape}",
                 f"rampup_batch_size: {gpc.config.data.rampup_batch_size}",
+                f"use_packed_dataset:{gpc.config.data.use_packed_dataset}",
                 f"tokens_num: {tokens_num}",
                 flush=True,
             )
@@ -174,6 +175,7 @@ def test_warmup(use_flash_atten_case, group_case, micro_bsz_case):
                 min_length=0,
                 total_steps=8,
                 num_worker=0,
+                use_packed_dataset=True,
                 fixed_random_dataset_seqlen=False,
             ),
             model=dict(
@@ -188,6 +190,7 @@ def test_warmup(use_flash_atten_case, group_case, micro_bsz_case):
     config.data.seq_len = group_case[5]
     config.parallel.pipeline.size = group_case[4]
     config.model.use_flash_attn = use_flash_atten_case
+    config.data.use_packed_dataset = use_flash_atten_case
     config.data.micro_bsz = micro_bsz_case
     config.data.micro_num = group_case[0]
     config.data.gradient_accumulation = config.data.micro_num

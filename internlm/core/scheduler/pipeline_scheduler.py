@@ -36,7 +36,7 @@ def get_tensor_shape():
         return None
 
     if hasattr(gpc.config, "SEQ_LEN") and hasattr(gpc.config.data, "micro_bsz") and hasattr(gpc.config, "HIDDEN_SIZE"):
-        if gpc.config.model.use_flash_attn:
+        if gpc.config.data.use_packed_dataset:
             if gpc.config.parallel.sequence_parallel:
                 sequence_world_size = gpc.get_world_size(ParallelMode.TENSOR)
                 tensor_shape = (

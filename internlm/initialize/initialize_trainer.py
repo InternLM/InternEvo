@@ -79,7 +79,7 @@ def initialize_trainer(
 
     # initialize scheduler for trainer
     scheduler = None
-    if gpc.config.model.use_flash_attn:
+    if gpc.config.data.use_packed_dataset:
         data_fn = None
     else:
         data_fn = unpack_data
