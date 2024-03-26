@@ -136,7 +136,7 @@ def exam_pipeline_parallel(args):
         torch_ys = torch.tensor(y_list).to(device).to(torch.float32)
         torch_model = MlpModel(0, 32, "torch").to(device)
         adam_extra_kwargs = {}
-        if internlm_accelerator == AcceleratorType.NPU:
+        if internlm_accelerator.get_accelerator_backend() == AcceleratorType.NPU:
             import torch_npu
 
             internlm_adamw = torch_npu.optim.NpuFusedAdamW

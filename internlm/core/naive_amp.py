@@ -12,7 +12,7 @@ from torch import Tensor, nn
 from torch._utils import _flatten_dense_tensors, _unflatten_dense_tensors
 from torch.distributed import ReduceOp
 
-from internlm.accelerator import internlm_accelerator
+from internlm.accelerator import AcceleratorType, internlm_accelerator
 from internlm.core.context import ParallelMode
 from internlm.core.context.parallel_context import global_context as gpc
 
@@ -200,7 +200,7 @@ class NaiveAMPModel(nn.Module):
                 sub_module.register_forward_hook(partial(_post_forward_hook_for_fp32))
             if gpc.config.get("output_tf32", False) and module_is_output(sub_module):
                 sub_module.to(fp32_dtype)
-                if internlm_accelerator.get_backend_name() == "gpu":
+                if internlm_accelerator.get_accelerator_backend() == AcceleratorType.GPU:
                     torch.backends.cudnn.allow_tf32 = True
                     torch.backends.cuda.matmul.allow_tf32 = True
                 sub_module.register_forward_pre_hook(partial(_pre_forward_hook_for_fp32))

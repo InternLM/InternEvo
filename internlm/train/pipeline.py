@@ -298,7 +298,7 @@ def initialize_optimizer(model: Union[nn.Module, nn.ModuleList], isp_communicato
     adam_extra_kwargs = {}
     # set fused=True to avoid nan grad norm when model size is larger and use_fp32_norm=True
 
-    if internlm_accelerator == AcceleratorType.NPU:
+    if internlm_accelerator.get_accelerator_backend() == AcceleratorType.NPU:
         internlm_adamw = torch_npu.optim.NpuFusedAdamW
     else:
         internlm_adamw = torch.optim.AdamW

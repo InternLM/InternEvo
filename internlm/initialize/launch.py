@@ -328,7 +328,7 @@ def args_sanity_check():
 
     # for NPU accelerator supports: 1）FA-True + Packed-False 2) FA-False + Packed-False
     # for GPU accelerator supports: 1）FA-True + Packed-True 2) FA-False + Packed-False
-    if internlm_accelerator == AcceleratorType.NPU:
+    if internlm_accelerator.get_accelerator_backend() == AcceleratorType.NPU:
         assert gpc.config.data.use_packed_dataset is False, "packed data is not supported for NPU accelerator"
     else:
         assert (
