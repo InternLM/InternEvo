@@ -320,12 +320,7 @@ class FusedDenseFunc(torch.autograd.Function):
         x = x.contiguous()
         if process_group is not None and sequence_parallel:
             # We want to kick off the all_gather early, before weight dtype conversion
-            print(
-                f"Rank: {gpc.get_global_rank()} head fwd all_gather_raw : {x.shape}, gather_dim: {gather_dim}",
-                flush=True,
-            )
             total_x, handle_x = all_gather_raw(x, process_group, async_op=True, gather_dim=gather_dim)
-            print(f"Rank: {gpc.get_global_rank()} after fwd all_gather_raw : {total_x.shape}", flush=True)
         else:
             total_x = x
 
