@@ -9,7 +9,7 @@ from typing import Dict, Union
 
 import torch
 
-from internlm.accelerator import internlm_accelerator
+from internlm.accelerator import AcceleratorType, internlm_accelerator
 from internlm.core.context import Config
 from internlm.core.context import global_context as gpc
 from internlm.core.context.process_group_initializer import ParallelMode
@@ -320,11 +320,15 @@ def args_sanity_check():
     # process the model config
     if "use_flash_attn" not in gpc.config.model:
         gpc.config.model._add_item("use_flash_attn", True)
-    # TODO by ht: get accelerator type
-    # for GPU accelerator
-    assert (
-        gpc.config.model.use_flash_attn == gpc.config.data.use_packed_dataset
-    ), "use_packed_dataset should be set same value as use_flash_attn when accelerator type is GPU"
+
+    # for NPU accelerator supports: 1）FA-True + Packed-False 2) FA-False + Packed-False
+    # for GPU accelerator supports: 1）FA-True + Packed-True 2) FA-False + Packed-False
+    if internlm_accelerator == AcceleratorType.NPU:
+        assert gpc.config.data.use_packed_dataset is False, "packed data is not supported for NPU accelerator"
+    else:
+        assert (
+            gpc.config.model.use_flash_attn == gpc.config.data.use_packed_dataset
+        ), "use_packed_dataset should be set same value as use_flash_attn when accelerator type is GPU"
 
     if "MoE" in gpc.config.get("model_type", "INTERNLM"):
         if "num_experts" not in model:
