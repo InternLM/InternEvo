@@ -320,6 +320,11 @@ def args_sanity_check():
     # process the model config
     if "use_flash_attn" not in gpc.config.model:
         gpc.config.model._add_item("use_flash_attn", True)
+    # TODO by ht: get accelerator type
+    # for GPU accelerator
+    assert (
+        gpc.config.model.use_flash_attn == gpc.config.data.use_packed_dataset
+    ), "use_packed_dataset should be set same value as use_flash_attn when accelerator type is GPU"
 
     # for NPU accelerator supports: 1）FA-True + Packed-False 2) FA-False + Packed-False
     # for GPU accelerator supports: 1）FA-True + Packed-True 2) FA-False + Packed-False

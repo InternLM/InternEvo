@@ -60,18 +60,28 @@ class Embedding1D(nn.Module):
         return output
 
 
-def apply_rotary_torch(x1, x2, cos, sin, conj):
+def _torch_apply_rotary_func(
+    x1: torch.Tensor,
+    x2: torch.Tensor,
+    cos: torch.Tensor,
+    sin: torch.Tensor,
+    out1: torch.Tensor,
+    out2: torch.Tensor,
+    conj: bool = False,
+):
     assert x1.device == x2.device == cos.device == sin.device, "All inputs must be on the same device"
     assert x1.dtype == x2.dtype == cos.dtype == sin.dtype, "All inputs must have the same dtype"
     assert x1.size() == x2.size(), "Input x1 and x2 must have the same sizes"
     assert cos.size() == sin.size(), "Input cos and sin must have the same sizes"
 
+    x1, x2, cos, sin = x1.float(), x2.float(), cos.float(), sin.float()
+
     if conj:
-        out1 = x1 * cos + x2 * sin
-        out2 = -x1 * sin + x2 * cos
+        out1.copy_(x1 * cos + x2 * sin)
+        out2.copy_(-x1 * sin + x2 * cos)
     else:
-        out1 = x1 * cos - x2 * sin
-        out2 = x1 * sin + x2 * cos
+        out1.copy_(x1 * cos - x2 * sin)
+        out2.copy_(x1 * sin + x2 * cos)
 
     return out1, out2
 
@@ -109,8 +119,8 @@ class ApplyRotaryEmb(torch.autograd.Function):
                 x1, x2, rearrange(cos[:seqlen], "s d -> s 1 d"), rearrange(sin[:seqlen], "s d -> s 1 d"), o1, o2, False
             )
         else:
-            o1, o2 = apply_rotary_torch(
-                x1, x2, rearrange(cos[:seqlen], "s d -> s 1 d"), rearrange(sin[:seqlen], "s d -> s 1 d"), False
+            _torch_apply_rotary_func(
+                x1, x2, rearrange(cos[:seqlen], "s d -> s 1 d"), rearrange(sin[:seqlen], "s d -> s 1 d"), o1, o2, False
             )
         if rotary_dim < headdim:
             out[..., rotary_dim:].copy_(x[..., rotary_dim:])
@@ -142,8 +152,14 @@ class ApplyRotaryEmb(torch.autograd.Function):
                 True,
             )
         else:
-            dx1, dx2 = apply_rotary_torch(
-                do1, do2, rearrange(cos[:seqlen], "s d -> s 1 d"), rearrange(sin[:seqlen], "s d -> s 1 d"), True
+            _torch_apply_rotary_func(
+                do1,
+                do2,
+                rearrange(cos[:seqlen], "s d -> s 1 d"),
+                rearrange(sin[:seqlen], "s d -> s 1 d"),
+                dx1,
+                dx2,
+                True,
             )
         if rotary_dim < headdim:
             dx[..., rotary_dim:].copy_(do[..., rotary_dim:])
@@ -193,7 +209,7 @@ class ApplyRotaryEmbQKV_(torch.autograd.Function):
 
             rotary_emb.apply_rotary(q1, q2, re_cos, re_sin, q1, q2, False)
         else:
-            q1, q2 = apply_rotary_torch(q1, q2, re_cos, re_sin, False)
+            _torch_apply_rotary_func(q1, q2, re_cos, re_sin, q1, q2, False)
         k_ro = qkv[:, 1, :, :rotary_dim] if len(qkv.shape) == 4 else qkv[:, :, 1, :, :rotary_dim]
         k1, k2 = k_ro.chunk(2, dim=-1) if not interleaved else (k_ro[..., ::2], k_ro[..., 1::2])
         re_cos_k = (
@@ -205,7 +221,7 @@ class ApplyRotaryEmbQKV_(torch.autograd.Function):
         if gpc.config.model.use_flash_attn:
             rotary_emb.apply_rotary(k1, k2, re_cos_k, re_sin_k, k1, k2, False)
         else:
-            k1, k2 = apply_rotary_torch(k1, k2, re_cos_k, re_sin_k, False)
+            _torch_apply_rotary_func(k1, k2, re_cos_k, re_sin_k, k1, k2, False)
         ctx.save_for_backward(cos, sin, cos_k, sin_k)
         ctx.interleaved = interleaved
         return qkv
@@ -225,7 +241,7 @@ class ApplyRotaryEmbQKV_(torch.autograd.Function):
 
             rotary_emb.apply_rotary(dq1, dq2, re_cos, re_sin, dq1, dq2, True)
         else:
-            dq1, dq2 = apply_rotary_torch(dq1, dq2, re_cos, re_sin, True)
+            _torch_apply_rotary_func(dq1, dq2, re_cos, re_sin, dq1, dq2, True)
         dk_ro = dqkv[:, 1, :, :rotary_dim] if len(dqkv.shape) == 4 else dqkv[:, :, 1, :, :rotary_dim]
         dk1, dk2 = dk_ro.chunk(2, dim=-1) if not ctx.interleaved else (dk_ro[..., ::2], dk_ro[..., 1::2])
         re_cos_k = (
@@ -237,7 +253,7 @@ class ApplyRotaryEmbQKV_(torch.autograd.Function):
         if gpc.config.model.use_flash_attn:
             rotary_emb.apply_rotary(dk1, dk2, re_cos_k, re_sin_k, dk1, dk2, True)
         else:
-            dk1, dk2 = apply_rotary_torch(dk1, dk2, re_cos_k, re_sin_k, True)
+            _torch_apply_rotary_func(dk1, dk2, re_cos_k, re_sin_k, dk1, dk2, True)
         return dqkv, None, None, None, None, None
 
 

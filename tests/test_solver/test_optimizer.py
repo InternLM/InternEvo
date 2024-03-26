@@ -49,6 +49,7 @@ config = Config(
         ),
         model=dict(
             dtype=torch.bfloat16,
+            use_flash_attn=True,
         ),
         resume_tb_folder="",
         tensorboard_folder="",
