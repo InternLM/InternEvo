@@ -8,7 +8,7 @@ from .modeling_llama import build_model_with_cfg as build_model_with_llama_cfg
 from .modeling_moe import build_model_with_moe_cfg
 from .modules.embedding import Embedding1D, RotaryEmbedding
 from .modules.mlp import FeedForward
-from .modules.multi_head_attention import MHA, DistributedAttention
+from .modules.mha import QKVPackedMHA, DistributedAttention
 from .moe.moe import MoE
 from .ops.linear import RewardModelLinear, ScaleColumnParallelLinear
 
@@ -20,7 +20,7 @@ __all__ = [
     "RewardModelLinear",
     "ScaleColumnParallelLinear",
     "AccPerplex",
-    "MHA",
+    "QKVPackedMHA",
     "DistributedAttention",
     "build_model_with_cfg",
     "build_model_with_cfg2",

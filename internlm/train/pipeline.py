@@ -49,7 +49,7 @@ from internlm.model.modules.linear import (
     ScaleColumnParallelLinear,
 )
 from internlm.model.modules.mlp import FeedForward
-from internlm.model.modules.multi_head_attention import MHA
+from internlm.model.modules.mha import QKVPackedMHA
 from internlm.model.modules.utils import is_moe_param, try_import_RMSNorm
 from internlm.model.moe import MoE
 from internlm.model.moe.megablock.mlp import (
@@ -224,7 +224,7 @@ def wrap_FSDP_model(model: Union[nn.Module, nn.ModuleList]):
             transformer_layer_cls={
                 Embedding1D,
                 ParallelGPT2Embeddings,
-                MHA,
+                QKVPackedMHA,
                 RMSNorm,
                 FeedForward,
                 RewardModelLinear,

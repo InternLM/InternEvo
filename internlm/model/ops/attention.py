@@ -7,26 +7,64 @@ This file implements support for the attention operators.
 """
 
 import math
-from functools import singledispatch
+from functools import partial, singledispatch
+from typing import Callable, Tuple
 
 import torch
 from einops import rearrange, repeat
 from torch import nn
 
 from internlm.core.context import global_context as gpc
-
+from internlm.core.parallel.comm.isp import auto_wrap_distributed_attention
 
 try:
-    from flash_attn.flash_attn_interface import flash_attn_varlen_qkvpacked_func as __flash_varlen_qkvpacked_attn
-    from flash_attn.flash_attn_interface import flash_attn_qkvpacked_func as __flash_fixedlen_qkvpacked_attn
-    from flash_attn.flash_attn_interface import flash_attn_varlen_kvpacked_func as __flash_varlen_kvpacked_attn
-    from flash_attn.flash_attn_interface import flash_attn_kvpacked_func as __flash_fixedlen_kvpacked_attn
-    from flash_attn.flash_attn_interface import flash_attn_varlen_func as __flash_varlen_qkvsplited_attn
-    from flash_attn.flash_attn_interface import flash_attn_func as __flash_fixedlen_qkvsplited_attn
+    from flash_attn.flash_attn_interface import \
+        flash_attn_func as __flash_fixedlen_qkvsplited_func
+    from flash_attn.flash_attn_interface import \
+        flash_attn_kvpacked_func as __flash_fixedlen_kvpacked_func
+    from flash_attn.flash_attn_interface import \
+        flash_attn_qkvpacked_func as __flash_fixedlen_qkvpacked_func
+    from flash_attn.flash_attn_interface import \
+        flash_attn_varlen_func as __flash_varlen_qkvsplited_func
+    from flash_attn.flash_attn_interface import \
+        flash_attn_varlen_kvpacked_func as __flash_varlen_kvpacked_func
+    from flash_attn.flash_attn_interface import \
+        flash_attn_varlen_qkvpacked_func as __flash_varlen_qkvpacked_func
 
     flash_attn_impl = True
 except (ModuleNotFoundError, ImportError):
     flash_attn_impl = False
+
+
+def __flash_float32_compatibility_wrapper(input_idxs: Tuple, flash_func: Callable, *args, **kwargs):
+    if gpc.config.model.dtype is torch.float32:
+        inputs = (args[idx] for idx in input_idxs)
+        input_dtype = inputs[0].dtype
+        other_args = [args[idx] for idx in range(len(inputs), len(args))]
+
+        with torch.cuda.amp.autocast(dtype=torch.bfloat16):
+            for idx in input_idxs:
+                if inputs[idx].dtype is torch.float32:
+                    inputs[idx] = inputs[idx].to(torch.bfloat16)
+            return flash_func(*inputs, *other_args, **kwargs).to(input_dtype)
+
+    return flash_func(*args, **kwargs)
+
+
+# input_idxs: 0: qkv
+__flash_varlen_qkvpacked_attn = partial(__flash_float32_compatibility_wrapper, (0), __flash_varlen_qkvpacked_func)
+__flash_fixedlen_qkvpacked_attn = partial(__flash_float32_compatibility_wrapper, (0), __flash_fixedlen_qkvpacked_func)
+# input_idxs: 0: q, 1: kv
+__flash_varlen_kvpacked_attn = partial(__flash_float32_compatibility_wrapper, (0, 1), __flash_varlen_kvpacked_func)
+__flash_fixedlen_kvpacked_attn = partial(__flash_float32_compatibility_wrapper, (0, 1), __flash_fixedlen_kvpacked_func)
+# input_idxs: 0: q, 1: k, 2: v
+__flash_varlen_qkvsplited_attn = partial(
+    __flash_float32_compatibility_wrapper, (0, 1, 2), __flash_varlen_qkvsplited_func
+)
+__flash_fixedlen_qkvsplited_attn = partial(
+    __flash_float32_compatibility_wrapper, (0, 1, 2), __flash_fixedlen_qkvsplited_func
+)
+
 
 # adpated from https://github.com/Dao-AILab/flash-attention/blob/v2.2.1/flash_attn/modules/mha.py
 def __torch_fixedlen_qkvpacked_attn(qkv, dropout, softmax_scale=None, causal=False, key_padding_mask=None):
@@ -54,6 +92,7 @@ def __torch_fixedlen_qkvpacked_attn(qkv, dropout, softmax_scale=None, causal=Fal
     output = torch.einsum("bhts,bshd->bthd", attention_drop, v)
 
     return output
+
 
 # adpated from https://github.com/Dao-AILab/flash-attention/blob/v2.2.1/flash_attn/modules/mha.py
 def __torch_fixedlen_kvpacked_attn(q, kv, dropout, softmax_scale=None, causal=False, key_padding_mask=None):
@@ -91,6 +130,7 @@ def __torch_nyi_attn(*args, **kwargs):
     assert False, "Not yet implemented"
 
 
+@auto_wrap_distributed_attention
 class SelfAttention(nn.Module):
     """Implement the scaled dot product attention with softmax.
     Arguments
@@ -108,6 +148,7 @@ class SelfAttention(nn.Module):
         self.softmax_scale = softmax_scale
         self.dropout = nn.Dropout(attention_dropout)
 
+    # FIXME: 单分派不能满足我们的要求，自定一个分派函数
     @singledispatch
     def forward(self, obj: object):
         """Implements the multihead softmax attention.
@@ -263,6 +304,7 @@ class SelfAttention(nn.Module):
             )
 
 
+@auto_wrap_distributed_attention
 class CrossAttention(nn.Module):
     """Implement the scaled dot product attention with softmax.
     Arguments
@@ -280,6 +322,7 @@ class CrossAttention(nn.Module):
         self.softmax_scale = softmax_scale
         self.drop = nn.Dropout(attention_dropout)
 
+    # FIXME: 单分派不能满足我们的要求，自定一个分派函数
     @singledispatch
     def forward(self, obj: object):
         """Implements the multihead softmax attention.

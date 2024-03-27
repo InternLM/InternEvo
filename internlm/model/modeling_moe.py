@@ -10,15 +10,14 @@ from torch import nn
 from internlm.core.context import ParallelMode
 from internlm.core.context.parallel_context import global_context as gpc
 from internlm.core.naive_amp import set_fp32_attr_to_module
-from internlm.initialize.initialize_tensor import normal_, scaled_init_method_normal
+from internlm.initialize.initialize_tensor import (normal_,
+                                                   scaled_init_method_normal)
 from internlm.model.modules.embedding import Embedding1D
 from internlm.model.modules.linear import new_linear
+from internlm.model.modules.mha import QKVPackedMHA
 from internlm.model.modules.mlp import new_fead_forward
-from internlm.model.modules.multi_head_attention import MHA
-from internlm.model.modules.utils import (
-    split_forward_gather_backward,
-    try_import_RMSNorm,
-)
+from internlm.model.modules.utils import (split_forward_gather_backward,
+                                          try_import_RMSNorm)
 from internlm.model.moe import MoE
 from internlm.solver.activation_checkpoint import activation_checkpoint
 from internlm.solver.pipeline_utils import partition_uniform
@@ -75,25 +74,25 @@ class PackedFlashBaseLayer1D(nn.Module):
         dropout_selective_checkpoint: bool = True,
         use_scaled_init: bool = True,
         use_swiglu: bool = True,
-        use_flash_attn: bool = True,
+        # use_flash_attn: bool = True,
         num_experts: int = 1,
-        tp_mode: str = "mtp",
+        # tp_mode: str = "mtp",
     ):
         super().__init__()
         self.checkpoint = checkpoint
         # dropout selective checkpoint can only be enabled when checkpoint is disabled.
         self.dropout_selective_checkpoint = dropout_selective_checkpoint is True and checkpoint is False
         self.layer_idx = layer_idx
-        self.use_flash_attn = use_flash_attn
+        # self.use_flash_attn = use_flash_attn
 
         head_dim = hidden_size // num_attention_heads
-        self.tp_mode = tp_mode
-        parallel_mode = ParallelMode.WEIGHT if self.tp_mode == "isp" else ParallelMode.TENSOR
-        self.mixer = MHA(
+        # self.tp_mode = tp_mode
+        # parallel_mode = ParallelMode.WEIGHT if self.tp_mode == "isp" else ParallelMode.TENSOR
+        self.mixer = QKVPackedMHA(
             embed_dim=hidden_size,
             num_heads=num_attention_heads,
-            process_group=gpc.get_group(parallel_mode),
-            sequence_process_group=gpc.get_group(ParallelMode.TENSOR),
+            # process_group=gpc.get_group(parallel_mode),
+            # sequence_process_group=gpc.get_group(ParallelMode.TENSOR),
             dropout=attn_drop_rate,
             max_position_embeddings=max_position_embeddings,
             softmax_scale=1 / math.sqrt(head_dim),
@@ -102,10 +101,10 @@ class PackedFlashBaseLayer1D(nn.Module):
             use_dynamic_ntk_rope=use_dynamic_ntk_rope,
             rotary_emb_dim=head_dim,
             rotary_emb_scale_base=0,
-            use_flash_attn=use_flash_attn,
+            # use_flash_attn=use_flash_attn,
             device=device,
             dtype=dtype,
-            tp_mode=self.tp_mode,
+            # tp_mode=self.tp_mode,
         )
 
         self.dropout1 = nn.Dropout(drop_rate)
@@ -231,9 +230,9 @@ class PackedFlashBaseLayer1D(nn.Module):
             residual = residual.to(torch.float32)
 
         # MLP.
-        moe_loss = torch.tensor(0.0, device=hidden_states.device, dtype=hidden_states.dtype)
         if self.num_experts <= 1:  # dense mlp output
             hidden_states = self.mlp(hidden_states)
+            moe_loss = torch.tensor(0.0, device=hidden_states.device, dtype=hidden_states.dtype)
         else:  # MoE output
             hidden_states, moe_loss, _ = self.mlp(hidden_states)
 
@@ -300,32 +299,32 @@ class PackedFlashInternLm1D(nn.Module):
         dropout_selective_checkpoint: bool = True,
         use_scaled_init: bool = True,
         use_swiglu: bool = True,
-        use_flash_attn: bool = True,
+        # use_flash_attn: bool = True,
         num_experts: bool = 1,
     ):
         super().__init__()
 
         checkpoint_layer_num = int(num_layers * checkpoint)
-        self.tp_mode = "mtp"
-        if isinstance(gpc.config.parallel["tensor"], dict):
-            self.tp_mode = gpc.config.parallel["tensor"].get("mode", "mtp")
+        # self.tp_mode = "mtp"
+        # if isinstance(gpc.config.parallel["tensor"], dict):
+        #     self.tp_mode = gpc.config.parallel["tensor"].get("mode", "mtp")
 
         if first:
-            if embed_split_hidden or not use_flash_attn:
-                self.embedding = Embedding1D(num_embeddings=vocab_size, embedding_dim=hidden_size)
-            else:
-                from flash_attn.modules.embedding import ParallelGPT2Embeddings
+            # if embed_split_hidden or not use_flash_attn:
+            self.embedding = Embedding1D(num_embeddings=vocab_size, embedding_dim=hidden_size)
+            # else:
+            #     from flash_attn.modules.embedding import ParallelGPT2Embeddings
 
-                self.embedding = ParallelGPT2Embeddings(
-                    embed_dim=hidden_size,
-                    vocab_size=vocab_size,
-                    max_position_embeddings=-1,
-                    process_group=gpc.get_group(ParallelMode.TENSOR),
-                    padding_idx=None,
-                    sequence_parallel=gpc.config.parallel.sequence_parallel,
-                    device=device,
-                    dtype=dtype,
-                )
+            #     self.embedding = ParallelGPT2Embeddings(
+            #         embed_dim=hidden_size,
+            #         vocab_size=vocab_size,
+            #         max_position_embeddings=-1,
+            #         process_group=gpc.get_group(ParallelMode.TENSOR),
+            #         padding_idx=None,
+            #         sequence_parallel=gpc.config.parallel.sequence_parallel,
+            #         device=device,
+            #         dtype=dtype,
+            #     )
             for _, param in self.embedding.named_parameters():
                 normal_(std=0.0052)(param)
         self.embed_grad_scale = embed_grad_scale
@@ -349,9 +348,9 @@ class PackedFlashInternLm1D(nn.Module):
                     dropout_selective_checkpoint=dropout_selective_checkpoint,
                     use_scaled_init=use_scaled_init,
                     use_swiglu=use_swiglu,
-                    use_flash_attn=use_flash_attn,
+                    # use_flash_attn=use_flash_attn,
                     num_experts=num_experts,
-                    tp_mode=self.tp_mode,
+                    # tp_mode=self.tp_mode,
                 )
                 for lid in range(num_layers)
             ]
@@ -399,6 +398,7 @@ class PackedFlashInternLm1D(nn.Module):
             # The indexes are used to indicate the actual position IDs of each token in the packed input.
             indexes = indexes[0]
             # if the sequence parallel mode is 'isp', the indexes should also be split in sequence dimension.
+            # TODO：从模型中移除
             if gpc.config.parallel.sequence_parallel and self.tp_mode == "isp":
                 indexes = split_forward_gather_backward(indexes, ParallelMode.TENSOR, dim=0)
 
@@ -419,6 +419,7 @@ class PackedFlashInternLm1D(nn.Module):
             hidden_states = self.norm(hidden_states.float())
         if hasattr(self, "head"):
             # Evaluation
+            # TODO: 统一并去掉维度
             if hidden_states.ndim == 3:
                 hidden_states = self.head(hidden_states, gather_dim=1, tp_mode=self.tp_mode)
             else:  # Training

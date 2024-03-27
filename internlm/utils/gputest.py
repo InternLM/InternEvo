@@ -9,7 +9,7 @@ import torch
 import torch.distributed as dist
 from torch.utils import benchmark
 
-from internlm.model.modules.multi_head_attention import SelfAttention
+from internlm.model.modules.mha import SelfAttention
 from internlm.monitor import send_alert_message
 from internlm.utils.logger import get_logger
 from internlm.utils.megatron_timers import megatron_timer as timer

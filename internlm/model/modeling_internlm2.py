@@ -7,20 +7,16 @@ from torch import nn
 
 from internlm.core.context import ParallelMode
 from internlm.core.context.parallel_context import global_context as gpc
-from internlm.initialize.initialize_tensor import (
-    normal_,
-    scaled_init_method_normal,
-    scaled_init_method_uniform,
-    uniform_,
-)
+from internlm.initialize.initialize_tensor import (normal_,
+                                                   scaled_init_method_normal,
+                                                   scaled_init_method_uniform,
+                                                   uniform_)
 from internlm.model.modules.embedding import Embedding1D
 from internlm.model.modules.linear import new_linear
+from internlm.model.modules.mha import QKVPackedGQA
 from internlm.model.modules.mlp import new_fead_forward
-from internlm.model.modules.multi_head_attention import MHA3
-from internlm.model.modules.utils import (
-    split_forward_gather_backward,
-    try_import_RMSNorm,
-)
+from internlm.model.modules.utils import (split_forward_gather_backward,
+                                          try_import_RMSNorm)
 from internlm.solver.activation_checkpoint import activation_checkpoint
 from internlm.solver.pipeline_utils import partition_uniform
 from internlm.utils.common import filter_kwargs
@@ -88,8 +84,8 @@ class PackedFlashLlamaLayer1D(nn.Module):
         dropout_selective_checkpoint: bool = True,
         use_scaled_init: bool = True,
         use_swiglu: bool = True,
-        use_flash_attn: bool = True,
-        tp_mode: str = "mtp",
+        # use_flash_attn: bool = True,
+        # tp_mode: str = "mtp",
         attn_wqkv_init_std: float = 0.02,
         attn_other_init_std: float = 0.02,
         ffn_uplayer_init_std: float = 0.02,
@@ -102,7 +98,7 @@ class PackedFlashLlamaLayer1D(nn.Module):
         # dropout selective checkpoint can only be enabled when checkpoint is disabled.
         self.dropout_selective_checkpoint = dropout_selective_checkpoint is True and checkpoint is False
         self.layer_idx = layer_idx
-        self.use_flash_attn = use_flash_attn
+        # self.use_flash_attn = use_flash_attn
         self.prenorm = not apply_post_layer_norm
         assert not fused_dropout_add_ln, "dropout_add_layer_norm can not be used here"
         self.fused_dropout_add_ln = fused_dropout_add_ln
@@ -113,16 +109,14 @@ class PackedFlashLlamaLayer1D(nn.Module):
 
         self.max_position_embeddings = max_position_embeddings
         self.use_dynamic_ntk_rope = use_dynamic_ntk_rope
-        self.tp_mode = tp_mode
-        parallel_mode = ParallelMode.WEIGHT if self.tp_mode == "isp" else ParallelMode.TENSOR
+        # self.tp_mode = tp_mode
+        # parallel_mode = ParallelMode.WEIGHT if self.tp_mode == "isp" else ParallelMode.TENSOR
 
         head_dim = hidden_size // num_attention_heads
-        self.attention = MHA3(
+        self.attention = QKVPackedGQA(
             embed_dim=hidden_size,
             num_heads=num_attention_heads,
             num_kv_heads=num_kv_attention_heads,
-            process_group=gpc.get_group(parallel_mode),
-            sequence_process_group=gpc.get_group(ParallelMode.TENSOR),
             dropout=attn_drop_rate,
             max_position_embeddings=max_position_embeddings,
             softmax_scale=1 / math.sqrt(head_dim),
@@ -131,13 +125,11 @@ class PackedFlashLlamaLayer1D(nn.Module):
             use_dynamic_ntk_rope=use_dynamic_ntk_rope,
             rotary_emb_dim=head_dim,
             rotary_emb_scale_base=0,
-            use_flash_attn=use_flash_attn,
             device=device,
             dtype=dtype,
             rot_embed_HF_impl=adapt_hf,
             bias=not no_bias,
             rope_base=rope_base,
-            tp_mode=self.tp_mode,
         )
 
         self.dropout1 = nn.Dropout(drop_rate)
@@ -147,11 +139,11 @@ class PackedFlashLlamaLayer1D(nn.Module):
         else:
             self.attention_norm = nn.LayerNorm(hidden_size, eps=layer_norm_epsilon)
             self.ffn_norm = nn.LayerNorm(hidden_size, eps=layer_norm_epsilon)
-        if self.fused_dropout_add_ln and self.use_flash_attn:
-            from flash_attn.ops.layer_norm import dropout_add_layer_norm
+        # if self.fused_dropout_add_ln and self.use_flash_attn:
+        #     from flash_attn.ops.layer_norm import dropout_add_layer_norm
 
-            assert dropout_add_layer_norm is not None, "dropout_add_ln is not installed"
-            assert isinstance(self.attention_norm, nn.LayerNorm) and isinstance(self.dropout1, nn.Dropout)
+        #     assert dropout_add_layer_norm is not None, "dropout_add_ln is not installed"
+        #     assert isinstance(self.attention_norm, nn.LayerNorm) and isinstance(self.dropout1, nn.Dropout)
 
         if use_swiglu:
             self.feed_forward = new_fead_forward(
@@ -376,7 +368,7 @@ class PackedFlashLlama1D(nn.Module):
         dropout_selective_checkpoint: bool = True,
         use_scaled_init: bool = True,
         use_swiglu: bool = True,
-        use_flash_attn: bool = True,
+        # use_flash_attn: bool = True,
         embedding_init_std: float = 0.02,
         attn_wqkv_init_std: float = 0.02,
         attn_other_init_std: float = 0.02,
@@ -386,11 +378,11 @@ class PackedFlashLlama1D(nn.Module):
         init_type: str = "normal",
         rope_base: int = 10000,
         norm_head: bool = False,
-        tp_mode: str = "mtp",
+        # tp_mode: str = "mtp",
     ):
         super().__init__()
 
-        self.use_flash_attn = use_flash_attn
+        # self.use_flash_attn = use_flash_attn
 
         if checkpoint_fraction <= 0:
             checkpoint = False
@@ -398,28 +390,28 @@ class PackedFlashLlama1D(nn.Module):
             checkpoint_fraction = 0
         checkpoint_layer_num = num_layers * checkpoint_fraction
 
-        self.tp_mode = tp_mode
-        if isinstance(gpc.config.parallel["tensor"], dict):
-            self.tp_mode = gpc.config.parallel["tensor"].get("mode", "mtp")
+        # self.tp_mode = tp_mode
+        # if isinstance(gpc.config.parallel["tensor"], dict):
+        #     self.tp_mode = gpc.config.parallel["tensor"].get("mode", "mtp")
 
-        sequence_parallel = gpc.config.parallel.get("sequence_parallel", False)
+        # sequence_parallel = gpc.config.parallel.get("sequence_parallel", False)
 
         if first:
-            if embed_split_hidden or not gpc.config.model.use_flash_attn:
-                self.tok_embeddings = Embedding1D(num_embeddings=vocab_size, embedding_dim=hidden_size)
-            else:
-                from flash_attn.modules.embedding import ParallelGPT2Embeddings
+            # if embed_split_hidden or not gpc.config.model.use_flash_attn:
+            self.tok_embeddings = Embedding1D(num_embeddings=vocab_size, embedding_dim=hidden_size)
+            # else:
+            #     from flash_attn.modules.embedding import ParallelGPT2Embeddings
 
-                self.tok_embeddings = ParallelGPT2Embeddings(
-                    embed_dim=hidden_size,
-                    vocab_size=vocab_size,
-                    max_position_embeddings=-1,
-                    process_group=gpc.get_group(ParallelMode.TENSOR),
-                    padding_idx=None,
-                    sequence_parallel=sequence_parallel,
-                    device=device,
-                    dtype=dtype,
-                )
+            #     self.tok_embeddings = ParallelGPT2Embeddings(
+            #         embed_dim=hidden_size,
+            #         vocab_size=vocab_size,
+            #         max_position_embeddings=-1,
+            #         process_group=gpc.get_group(ParallelMode.TENSOR),
+            #         padding_idx=None,
+            #         sequence_parallel=sequence_parallel,
+            #         device=device,
+            #         dtype=dtype,
+            #     )
             for _, param in self.tok_embeddings.named_parameters():
                 if init_type == "normal":
                     normal_(std=embedding_init_std)(param)
@@ -452,14 +444,14 @@ class PackedFlashLlama1D(nn.Module):
                     dropout_selective_checkpoint=dropout_selective_checkpoint,
                     use_scaled_init=use_scaled_init,
                     use_swiglu=use_swiglu,
-                    use_flash_attn=use_flash_attn,
+                    # use_flash_attn=use_flash_attn,
                     adapt_hf=adapt_hf,
                     attn_wqkv_init_std=attn_wqkv_init_std,
                     attn_other_init_std=attn_other_init_std,
                     ffn_uplayer_init_std=ffn_uplayer_init_std,
                     ffn_other_init_std=ffn_other_init_std,
                     init_type=init_type,
-                    tp_mode=self.tp_mode,
+                    # tp_mode=self.tp_mode,
                     rope_base=rope_base,
                 )
                 for lid in range(num_layers)
@@ -514,6 +506,7 @@ class PackedFlashLlama1D(nn.Module):
             # The indexes are used to indicate the actual position IDs of each token in the packed input.
             indexes = indexes[0]
             # if the sequence parallel mode is 'isp', the indexes should also be split in sequence dimension.
+            # TODO：从模型中移除
             if gpc.config.parallel.sequence_parallel and self.tp_mode == "isp":
                 indexes = split_forward_gather_backward(indexes, ParallelMode.TENSOR, dim=0)
 
@@ -533,6 +526,7 @@ class PackedFlashLlama1D(nn.Module):
             hidden_states = self.norm(hidden_states.float())
         if hasattr(self, "output"):
             # Evaluation
+            # TODO: 统一并去掉维度
             if gpc.is_evaluating is True:
                 hidden_states = self.output(hidden_states, gather_dim=1, tp_mode=self.tp_mode)
             else:  # Training

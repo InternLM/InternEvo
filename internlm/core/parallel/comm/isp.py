@@ -5,21 +5,19 @@ communication for isp parallel.
 """
 
 from dataclasses import dataclass
-from functools import partial
+from functools import partial, singledispatch
 from typing import Any, Callable, Dict, List, Tuple, Union
 
 import torch
 from torch import distributed as dist
 from torch import nn
 
+from internlm.core.context import ParallelMode
 from internlm.core.context import global_context as gpc
 from internlm.core.naive_amp import NaiveAMPModel
-from internlm.core.parallel.comm.utils import (
-    DUMMY_HANDLE_CONST,
-    AsyncCommHandle,
-    all_gather_raw,
-    reduce_scatter_raw,
-)
+from internlm.core.parallel.comm.utils import (DUMMY_HANDLE_CONST,
+                                               AsyncCommHandle, all_gather_raw,
+                                               reduce_scatter_raw)
 from internlm.model.modules.linear import ParallelLinearWithCommExt
 from internlm.utils.common import SchedulerHook
 
@@ -573,3 +571,163 @@ class ISPCommunicatorSchedulerHook(SchedulerHook):
 
     def post_helper_func(self, scheduler, outputs, label) -> None:
         pass
+
+
+# adpated from https://github.com/microsoft/DeepSpeed/blob/master/deepspeed/sequence/layer.py
+class _SeqAllToAll(torch.autograd.Function):
+    "sequence alltoall function"
+
+    @staticmethod
+    def forward(ctx, group: dist.ProcessGroup, input_: torch.Tensor, scatter_idx: int, gather_idx: int) -> torch.Tensor:
+        ctx.group = group
+        ctx.scatter_idx = scatter_idx
+        ctx.gather_idx = gather_idx
+
+        if dist.get_world_size(group) <= 1:
+            return input_
+
+        seq_world_size = dist.get_world_size(group)
+
+        input_list = [t.contiguous() for t in torch.tensor_split(input_, seq_world_size, scatter_idx)]
+        output_list = [torch.empty_like(input_list[0]) for _ in range(seq_world_size)]
+        # TODO: use all_to_all_single instead
+        dist.all_to_all(output_list, input_list, group=group)
+        return torch.cat(output_list, dim=gather_idx).contiguous()
+
+    @staticmethod
+    def backward(ctx, *grad_output: torch.Tensor) -> Tuple[None, torch.Tensor, None, None]:
+        if dist.get_world_size(ctx.group) <= 1:
+            return (None, *grad_output, None, None)
+
+        return (None, _SeqAllToAll.apply(ctx.group, *grad_output, ctx.gather_idx, ctx.scatter_idx), None, None)
+
+
+# adpated from https://github.com/microsoft/DeepSpeed/blob/master/deepspeed/sequence/layer.py
+class DistributedAttention(nn.Module):
+    """Initialization.
+
+    Arguments:
+        local_attention (Module): local attention with q,k,v
+        sequence_process_group (ProcessGroup): sequence parallel process group
+        first_scatter_idx (int): scatter_idx for the first all2all comm
+        first_gather_idx (int): gather_idx for the first all2all comm
+        second_scatter_idx (int): scatter_idx for the second all2all comm
+        second_gather_idx (int): gather_idx for the second all2all comm
+    """
+
+    def __init__(
+        self,
+        local_attention: nn.Module,
+        sequence_process_group: dist.ProcessGroup,
+    ) -> None:
+        super().__init__()
+        self.local_attn = local_attention
+        self.spg = sequence_process_group
+
+    # FIXME: 单分派不能满足我们的要求，自定一个分派函数
+    @singledispatch
+    def forward(self, obj: object) -> torch.Tensor:
+        # 使用倒数的方式避免处理 data-packed 和 data-unpacked的区别
+        assert False, "Should never arrive"
+
+    @forward.register
+    def _(self, qkv: torch.Tensor, **kwargs) -> torch.Tensor:
+        """forward
+
+        Arguments:
+            qkv (Tensor): packed qkv input to the layer
+            kwargs: other args
+
+        Returns:
+            * output (Tensor): context output
+        """
+        # qkv shape: [packlen, 3, n_head, head_dim] or [batch, seqlen, 3, n_head, head_dim]
+        # scatter in n_head and gather in seqlen(packlen)
+        qkv = _SeqAllToAll.apply(self.spg, qkv, scatter_idx=-2, gather_idx=-4)
+
+        context = self.local_attn(qkv, **kwargs)
+
+        # context shape: [packlen, n_head, head_dim] or [batch, seqlen, n_head, head_dim]
+        # scatter in seqlen(packlen) and gather in n_head
+        context = _SeqAllToAll.apply(self.spg, context, scatter_idx=-3, gather_idx=-2)
+
+        return context
+
+    @forward.register
+    def _(self, q: torch.Tensor, kv: torch.Tensor, **kwargs) -> torch.Tensor:
+        """forward
+
+        Arguments:
+            q (Tensor): q input to the layer
+            kv (Tensor): packed kv input to the layer
+            kwargs: other args
+
+        Returns:
+            output (Tensor): context output
+        """
+        # q shpae: [packlen, n_head, head_dim] or [batch, seqlen, n_head, head_dim]
+        # scatter in n_head and gather in seqlen(packlen)
+        q = _SeqAllToAll.apply(self.spg, q, scatter_idx=-2, gather_idx=-3)
+        # kv shape: [packlen, 2, n_head, head_dim] or [batch, seqlen, 2, n_head, head_dim]
+        # scatter in n_head and gather in seqlen(packlen)
+        kv = _SeqAllToAll.apply(self.spg, kv, scatter_idx=-2, gather_idx=-4)
+
+        context = self.local_attn(q, kv, **kwargs)
+
+        # context shape: [packlen, n_head, head_dim] or [batch, seqlen, n_head, head_dim]
+        # scatter in seqlen(packlen) and gather in n_head
+        context = _SeqAllToAll.apply(self.spg, context, scatter_idx=-3, gather_idx=-2)
+
+        return context
+
+    @forward.register
+    def _(self, q: torch.Tensor, k: torch.Tensor, v: torch.Tensor, **kwargs) -> torch.Tensor:
+        """forward
+
+        Arguments:
+            q (Tensor): q input to the layer
+            k (Tensor): k input to the layer
+            v (Tensor): v input to the layer
+            kwargs: other args
+
+        Returns:
+            * output (Tensor): context output
+        """
+        # self._scatter_gather_idx["q"] = [1, 0]  # q/k/v shape: [sequence, head, head_dim]
+        # q shpae: [packlen, n_head, head_dim] or [batch, seqlen, n_head, head_dim]
+        # scatter in n_head and gather in seqlen(packlen)
+        q = _SeqAllToAll.apply(self.spg, q, scatter_idx=-2, gather_idx=-3)
+        # k shpae: [packlen, n_head, head_dim] or [batch, seqlen, n_head, head_dim]
+        # scatter in n_head and gather in seqlen(packlen)
+        k = _SeqAllToAll.apply(self.spg, k, scatter_idx=-2, gather_idx=-3)
+        # v shpae: [packlen, n_head, head_dim] or [batch, seqlen, n_head, head_dim]
+        # scatter in n_head and gather in seqlen(packlen)
+        v = _SeqAllToAll.apply(self.spg, v, scatter_idx=-2, gather_idx=-3)
+
+        context = self.local_attn(q, k, v, **kwargs)
+
+        # context shape: [packlen, n_head, head_dim] or [batch, seqlen, n_head, head_dim]
+        # scatter in seqlen(packlen) and gather in n_head
+        context = _SeqAllToAll.apply(self.spg, context, scatter_idx=-3, gather_idx=-2)
+
+        return context
+
+
+def auto_wrap_distributed_attention(cls: nn.Module) -> Callable:
+    """
+    Wrap a local attention module to a distributed one, which will be used in the ISP parallelism.
+    """
+    # should we impl distributed attention as a metaclass?
+    def _attetion_constructor(
+        local_attn_cls: type, causal=False, softmax_scale=None, attention_dropout=0.0
+    ) -> nn.Module:
+        return DistributedAttention(
+            local_attention=local_attn_cls(causal, softmax_scale, attention_dropout),
+            sequence_process_group=gpc.get_group(ParallelMode.TENSOR),
+        )
+
+    if gpc.config.parallel["tensor"].get("mode", "mtp") != "isp":
+        return cls
+    else:
+
+        return partial(_attetion_constructor, local_attn_cls=cls)
