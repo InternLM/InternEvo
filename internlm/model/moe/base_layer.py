@@ -7,6 +7,7 @@ from torch.nn import Module, ModuleList
 from internlm.accelerator import get_accelerator
 from internlm.core.context import global_context as gpc
 from internlm.model.moe.experts import Experts
+from internlm.utils.common import get_current_device
 
 internlm_accelerator = get_accelerator()
 
@@ -34,7 +35,5 @@ class BaseMoELayer(Base):
         self.ep_group = ep_group
         self.ep_size = ep_size
         self.num_local_experts = num_local_experts
-        self.l_aux = torch.tensor(
-            0.0, device=internlm_accelerator.current_device(), dtype=gpc.config.model.get("dtype")
-        )
+        self.l_aux = torch.tensor(0.0, device=get_current_device(), dtype=gpc.config.model.get("dtype"))
         self.exp_counts = None

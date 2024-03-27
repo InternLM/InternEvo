@@ -17,6 +17,7 @@ from internlm.initialize.launch import args_sanity_check
 from internlm.model.losses import FlashGPTLMLoss
 from internlm.model.metrics import AccPerplex, SchedulerMetricHook
 from internlm.train import initialize_model, initialize_optimizer
+from internlm.utils.common import get_current_device
 from internlm.utils.logger import get_logger
 
 logger = get_logger(__file__)
@@ -173,7 +174,7 @@ def train_check_output(args):
     train_dl, dataset_types = build_train_loader_with_data_type()
 
     metric = AccPerplex(
-        device=internlm_accelerator.current_device(),
+        device=get_current_device(),
         tp_pg=gpc.get_group(ParallelMode.TENSOR),
         dp_pg=gpc.get_group(ParallelMode.DATA),
         dataset_types=dataset_types,

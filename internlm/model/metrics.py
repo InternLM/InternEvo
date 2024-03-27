@@ -156,7 +156,8 @@ class AccPerplex:
             acc = corrects.sum()
             torch.distributed.all_reduce(acc, op=torch.distributed.ReduceOp.SUM, group=self.tp_pg)
             # The synchronization here is to prevent unpredictable HANG when the NPU is running.
-            # internlm_accelerator.synchronize()
+            if internlm_accelerator.get_accelerator_backend() == AcceleratorType.NPU:
+                internlm_accelerator.current_stream().synchronize()
             self.right += acc  # Masked_fill is not needed here because -100 is not available anyway
             self.total += mask.sum()
             # Subtract the maximum value.

@@ -2,7 +2,6 @@ import math
 import os
 
 import pytest
-import torch
 import torch.distributed as dist
 
 import internlm
@@ -22,7 +21,7 @@ from internlm.train import (
     initialize_optimizer,
     load_new_batch,
 )
-from internlm.utils.common import BatchSkipper, launch_time
+from internlm.utils.common import BatchSkipper, get_current_device, launch_time
 from internlm.utils.gputest import empty_cache_and_diag
 from internlm.utils.megatron_timers import megatron_timer as timer
 
@@ -149,7 +148,7 @@ def train(
 
     # initialize metric for calculating accuracy and perplexity
     metric = AccPerplex(
-        device=internlm_accelerator.current_device(),
+        device=get_current_device(),
         tp_pg=gpc.get_group(ParallelMode.TENSOR),
         dp_pg=gpc.get_group(ParallelMode.DATA),
         dataset_types=dataset_types,
