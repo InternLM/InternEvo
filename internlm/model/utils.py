@@ -11,6 +11,7 @@ from torch.distributed import ProcessGroup
 
 from internlm.accelerator import get_accelerator
 from internlm.core.context import global_context as gpc
+from internlm.utils.common import get_current_device
 from internlm.utils.logger import get_logger
 
 internlm_accelerator = get_accelerator()
@@ -586,7 +587,7 @@ def fused_dense_func(
     dtype_eligible = x.dtype in [torch.float16, torch.bfloat16] or (
         x.dtype == torch.float32 and torch.is_autocast_enabled()
     )
-    is_using_cuda = x.is_cuda and weight.is_cuda and (bias is None or bias.is_cuda) and dtype_eligible
+    is_using_cuda = (get_current_device().type == "cuda") and dtype_eligible
     return FusedDenseFunc.apply(
         x,
         weight,
@@ -611,7 +612,7 @@ def megatron_fused_dense_func(
     dtype_eligible = x.dtype in [torch.float16, torch.bfloat16] or (
         x.dtype == torch.float32 and torch.is_autocast_enabled()
     )
-    is_using_cuda = x.is_cuda and weight.is_cuda and (bias is None or bias.is_cuda) and dtype_eligible
+    is_using_cuda = (get_current_device().type == "cuda") and dtype_eligible
     return MegatronFusedDenseFunc.apply(
         x,
         weight,
@@ -635,7 +636,7 @@ def isp_fused_dense_func(
     dtype_eligible = x.dtype in [torch.float16, torch.bfloat16] or (
         x.dtype == torch.float32 and torch.is_autocast_enabled()
     )
-    is_using_cuda = x.is_cuda and weight.is_cuda and (bias is None or bias.is_cuda) and dtype_eligible
+    is_using_cuda = (get_current_device().type == "cuda") and dtype_eligible
     return ISPFusedDenseFunc.apply(
         x,
         weight,
