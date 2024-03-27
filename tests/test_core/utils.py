@@ -6,7 +6,7 @@ from torch import nn
 from torch.testing import assert_close
 
 import internlm
-from internlm.accelerator import internlm_accelerator
+from internlm.accelerator import get_accelerator
 from internlm.core.context import ParallelMode
 from internlm.core.context import global_context as gpc
 from internlm.core.engine import Engine
@@ -20,6 +20,8 @@ from internlm.model.metrics import SchedulerMetricHook
 from internlm.solver.pipeline_utils import partition_uniform
 from internlm.train import initialize_optimizer
 from internlm.utils.common import get_current_device
+
+internlm_accelerator = get_accelerator()
 
 
 class MlpModel(nn.Module):

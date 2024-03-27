@@ -8,7 +8,7 @@ import pytest
 import torch
 
 import internlm
-from internlm.accelerator import get_accelerator, internlm_accelerator
+from internlm.accelerator import get_accelerator
 from internlm.core.context import ParallelMode
 from internlm.core.context import global_context as gpc
 from internlm.core.context.parallel_context import Config
@@ -20,6 +20,7 @@ from internlm.train import initialize_model, initialize_optimizer
 from internlm.utils.logger import get_logger
 
 logger = get_logger(__file__)
+internlm_accelerator = get_accelerator()
 
 TOTAL_STEPS = 1
 config = Config(

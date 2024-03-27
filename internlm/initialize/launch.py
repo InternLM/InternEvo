@@ -9,7 +9,7 @@ from typing import Dict, Union
 
 import torch
 
-from internlm.accelerator import internlm_accelerator
+from internlm.accelerator import AcceleratorType, get_accelerator
 from internlm.core.context import Config
 from internlm.core.context import global_context as gpc
 from internlm.core.context.process_group_initializer import ParallelMode
@@ -34,6 +34,7 @@ else:
     get_numa = True
 
 logger = get_logger(__file__)
+internlm_accelerator = get_accelerator()
 
 
 def get_default_parser():
@@ -326,6 +327,15 @@ def args_sanity_check():
         gpc.config.model.use_flash_attn == gpc.config.data.use_packed_dataset
     ), "use_packed_dataset should be set same value as use_flash_attn when accelerator type is GPU"
 
+    # for NPU accelerator supports: 1）FA-True + Packed-False 2) FA-False + Packed-False
+    # for GPU accelerator supports: 1）FA-True + Packed-True 2) FA-False + Packed-False
+    if get_accelerator().get_accelerator_backend() == AcceleratorType.NPU:
+        assert gpc.config.data.use_packed_dataset is False, "packed data is not supported for NPU accelerator"
+    else:
+        assert (
+            gpc.config.model.use_flash_attn == gpc.config.data.use_packed_dataset
+        ), "use_packed_dataset should be set same value as use_flash_attn when accelerator type is GPU"
+
     if "MoE" in gpc.config.get("model_type", "INTERNLM"):
         if "num_experts" not in model:
             model._add_item("num_experts", 1)
@@ -485,14 +495,10 @@ def launch(
     gpc.init_parallel_groups()
 
     # set cuda device
-    if internlm_accelerator.is_available():
+    if get_accelerator().is_available():
         # if local rank is not given, calculate automatically
         gpc.set_device(local_rank)
 
-    # set the number of processes running on the same node
-    gpc.detect_num_processes_on_current_node()
-
-    internlm_accelerator.synchronize()
     gpc.set_seed(seed)
 
     warmup_process_group()
@@ -666,7 +672,7 @@ def try_bind_numa(global_rank, world_size, local_rank=None):
             return
 
         if local_rank is None:
-            devices_per_node = internlm_accelerator.device_count()
+            devices_per_node = get_accelerator().device_count()
             local_rank = global_rank % devices_per_node
 
         # compute numa id for each locak rank

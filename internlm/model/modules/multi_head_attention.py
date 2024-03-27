@@ -12,13 +12,15 @@ from einops import rearrange, repeat
 from torch import Tensor, nn
 from torch.nn import Module
 
-from internlm.accelerator import internlm_accelerator
+from internlm.accelerator import get_accelerator
 from internlm.core.context import global_context as gpc
 from internlm.model.modules.embedding import (
     DynamicNTKScalingRotaryEmbedding,
     RotaryEmbedding,
 )
 from internlm.model.ops.linear import get_linear_cls
+
+internlm_accelerator = get_accelerator()
 
 
 # adpated from https://github.com/microsoft/DeepSpeed/blob/master/deepspeed/sequence/layer.py

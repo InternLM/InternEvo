@@ -1,6 +1,6 @@
 import multiprocessing as mp
 
-from internlm.accelerator import get_accelerator, internlm_accelerator
+from internlm.accelerator import get_accelerator
 
 backup_ForkingPickler = mp.reduction.ForkingPickler
 backup_dump = mp.reduction.dump
@@ -56,6 +56,7 @@ from internlm.utils.logger import (  # noqa: E402  #pylint: disable=wrong-import
 )
 
 logger = get_logger(__file__)
+internlm_accelerator = get_accelerator()
 
 TOTAL_STEPS = 10
 temp_folder = "temp_ckpt_for_check_loss"

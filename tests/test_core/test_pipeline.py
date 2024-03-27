@@ -3,7 +3,7 @@ import multiprocessing as mp
 import pytest
 import torch
 
-from internlm.accelerator import AcceleratorType, internlm_accelerator
+from internlm.accelerator import AcceleratorType, get_accelerator
 from internlm.core.context import ParallelMode
 from internlm.core.context import global_context as gpc
 from internlm.core.context.parallel_context import Config
@@ -136,7 +136,7 @@ def exam_pipeline_parallel(args):
         torch_ys = torch.tensor(y_list).to(device).to(torch.float32)
         torch_model = MlpModel(0, 32, "torch").to(device)
         adam_extra_kwargs = {}
-        if internlm_accelerator == AcceleratorType.NPU:
+        if get_accelerator().get_accelerator_backend() == AcceleratorType.NPU:
             import torch_npu
 
             internlm_adamw = torch_npu.optim.NpuFusedAdamW

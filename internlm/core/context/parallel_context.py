@@ -4,11 +4,9 @@
 # adopted from https://github.com/hpcaitech/ColossalAI/blob/main/colossalai/context
 
 import inspect
-import os
 import random
 import socket
 import sys
-from collections import Counter
 from importlib.machinery import SourceFileLoader
 from pathlib import Path
 from typing import Union
@@ -17,7 +15,7 @@ import numpy as np
 import torch
 import torch.distributed as dist
 
-from internlm.accelerator import AcceleratorType, internlm_accelerator
+from internlm.accelerator import get_accelerator
 from internlm.utils.common import SingletonMeta
 from internlm.utils.logger import get_logger
 from internlm.utils.timeout import LLM_NCCL_TIMEOUT
@@ -35,6 +33,7 @@ IS_WEIGHT_ZERO_PARALLEL = "is_weight_zero_parallel"
 IS_TENSOR_EXPERT_DATA_PARALLEL = "is_tensor_expert_data_parallel"
 
 logger = get_logger(__file__)
+internlm_accelerator = get_accelerator()
 
 
 class Config(dict):
@@ -197,23 +196,6 @@ class ParallelContext(metaclass=SingletonMeta):
             self._config = Config(config)
         else:
             raise TypeError("Invalid type for config, only dictionary or string is supported")
-
-    def detect_num_processes_on_current_node(self):
-        hostname = socket.gethostname()
-        hostname_list = [None for _ in range(self.get_world_size(ParallelMode.GLOBAL))]
-
-        if internlm_accelerator.get_accelerator_backend() == AcceleratorType.NPU:
-            if "A_K" in os.environ:
-                self.num_processes_on_current_node = 8
-            elif "A_X" in os.environ:
-                self.num_processes_on_current_node = 16
-            else:
-                self.num_processes_on_current_node = 8
-            logger.warning(f"'try set 'num_processes_on_current_node' as {self.num_processes_on_current_node}")
-        else:
-            dist.all_gather_object(hostname_list, hostname, group=self.get_group(ParallelMode.GLOBAL))
-            counter = Counter(hostname_list)
-            self.num_processes_on_current_node = counter[hostname]
 
     @staticmethod
     def _check_parallel_mode(parallel_mode: ParallelMode):

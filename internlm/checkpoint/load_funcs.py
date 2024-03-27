@@ -3,13 +3,14 @@ import os
 
 import torch
 
-from internlm.accelerator import internlm_accelerator
+from internlm.accelerator import get_accelerator
 from internlm.core.context import ParallelMode
 from internlm.core.context import global_context as gpc
 from internlm.utils.logger import get_logger
 from internlm.utils.storage_manager import get_fns, llm_load
 
 logger = get_logger(__file__)
+internlm_accelerator = get_accelerator()
 
 
 def load_llama_pretrained_weights(folder, model):

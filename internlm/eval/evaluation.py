@@ -4,10 +4,12 @@ import torch
 import torch.distributed as dist
 from tqdm import tqdm
 
-from internlm.accelerator import internlm_accelerator
+from internlm.accelerator import get_accelerator
 from internlm.core.context import ParallelMode
 from internlm.core.context import global_context as gpc
 from internlm.model.metrics import AccPerplex, SchedulerMetricHook
+
+internlm_accelerator = get_accelerator()
 
 
 @contextmanager

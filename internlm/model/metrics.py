@@ -3,7 +3,7 @@ from typing import Callable, List, Optional
 import torch
 from torch import nn
 
-from internlm.accelerator import AcceleratorType, internlm_accelerator
+from internlm.accelerator import AcceleratorType, get_accelerator
 from internlm.core.context import ParallelMode
 from internlm.core.context import global_context as gpc
 from internlm.utils.common import SchedulerHook, get_current_device
@@ -13,6 +13,8 @@ try:
     from torch_scatter import scatter as cuda_scatter
 except (ModuleNotFoundError, ImportError):
     pass
+
+internlm_accelerator = get_accelerator()
 
 
 def broadcast(src: torch.Tensor, other: torch.Tensor, dim: int):
@@ -153,7 +155,7 @@ class AccPerplex:
 
             acc = corrects.sum()
             torch.distributed.all_reduce(acc, op=torch.distributed.ReduceOp.SUM, group=self.tp_pg)
-            torch.npu.synchronize()
+            internlm_accelerator.synchronize()
             # The synchronization here is to prevent unpredictable HANG when the NPU is running.
             # internlm_accelerator.synchronize()
             self.right += acc  # Masked_fill is not needed here because -100 is not available anyway

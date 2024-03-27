@@ -6,11 +6,13 @@ import numpy as np
 import torch
 
 import internlm
-from internlm.accelerator import get_accelerator, internlm_accelerator
+from internlm.accelerator import get_accelerator
 from internlm.core.context import global_context as gpc
 from internlm.core.context.parallel_context import Config
 from internlm.data.utils import unpack_data
 from internlm.initialize.launch import args_sanity_check
+
+internlm_accelerator = get_accelerator()
 
 config_7B = Config(
     dict(

@@ -12,8 +12,9 @@ from functools import partial
 import torch
 import torch.distributed as dist
 
-from internlm.accelerator import get_accelerator, internlm_accelerator
+from internlm.accelerator import get_accelerator
 
+internlm_accelerator = get_accelerator()
 script_dir = os.path.dirname(os.path.abspath(__file__))
 project_root = os.path.abspath(os.path.join(script_dir, "../../"))
 sys.path.append(project_root)

@@ -2,13 +2,15 @@ import sys
 
 import torch
 
-from internlm.accelerator import internlm_accelerator
+from internlm.accelerator import get_accelerator
 from internlm.model.utils import Silu
 
 try:
     import stk
 except ImportError:
     pass
+
+internlm_accelerator = get_accelerator()
 
 
 class TensorParallelBmm(torch.autograd.Function):
