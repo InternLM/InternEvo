@@ -51,20 +51,20 @@ def _move_tensor(element):
         for idx, item in enumerate(element):
             if isinstance(item, dict):
                 for key, value in item.items():
-                    assert get_current_device().type != "cuda", "elements are already on devices."
+                    assert value.device.type == "cpu"
                     item[key] = value.to(get_current_device()).detach()
             elif isinstance(item, list):
                 for index, value in enumerate(item):
-                    assert get_current_device().type != "cuda", "elements are already on devices."
+                    assert value.device.type == "cpu"
                     item[index] = value.to(get_current_device()).detach()
             elif torch.is_tensor(item):
-                if get_current_device().type != "cuda":
+                if item.device.type == "cpu":
                     element[idx] = item.to(get_current_device()).detach()
             else:
                 assert False, f"{type(item)}, {item}"
     else:
         assert torch.is_tensor(element), f"element should be of type tensor, but got {type(element)}"
-        if get_current_device().type != "cuda":
+        if element.device.type == "cpu":
             element = element.to(get_current_device()).detach()
     return element
 
