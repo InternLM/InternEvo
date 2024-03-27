@@ -18,6 +18,7 @@ from internlm.train import (
     initialize_model,
     initialize_optimizer,
 )
+from internlm.utils.common import get_current_device
 from internlm.utils.logger import get_logger
 from tests.common_fixture import (
     build_environment,
@@ -83,7 +84,7 @@ def train_check_norm_weight(args):
     train_dl, dataset_types = build_train_loader_with_data_type()
 
     metric = AccPerplex(
-        device=internlm_accelerator.current_device(),
+        device=get_current_device(),
         tp_pg=gpc.get_group(ParallelMode.TENSOR),
         dp_pg=gpc.get_group(ParallelMode.DATA),
         dataset_types=dataset_types,

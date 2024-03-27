@@ -23,6 +23,7 @@ from internlm.initialize.launch import args_sanity_check
 from internlm.model.losses import FlashGPTLMLoss
 from internlm.model.metrics import AccPerplex, SchedulerMetricHook
 from internlm.train import initialize_model, initialize_optimizer
+from internlm.utils.common import get_current_device
 from internlm.utils.logger import get_logger
 
 logger = get_logger(__file__)
@@ -164,7 +165,7 @@ def evaluate_on_val_dls(
             continue
 
         val_metric = AccPerplex(
-            device=internlm_accelerator.current_device(),
+            device=get_current_device(),
             tp_pg=gpc.get_group(ParallelMode.TENSOR),
             dp_pg=gpc.get_group(ParallelMode.DATA),
         )
@@ -282,7 +283,7 @@ def exam_loss(args):
 
     # initialize metric for calculating accuracy and perplexity
     metric = AccPerplex(
-        device=internlm_accelerator.current_device(),
+        device=get_current_device(),
         tp_pg=gpc.get_group(ParallelMode.TENSOR),
         dp_pg=gpc.get_group(ParallelMode.DATA),
         dataset_types=dataset_types,
