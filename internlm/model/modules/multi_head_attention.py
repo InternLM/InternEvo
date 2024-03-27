@@ -12,7 +12,7 @@ from einops import rearrange, repeat
 from torch import Tensor, nn
 from torch.nn import Module
 
-from internlm.accelerator import get_accelerator
+from internlm.accelerator import AcceleratorType, get_accelerator
 from internlm.core.context import global_context as gpc
 from internlm.model.modules.embedding import (
     DynamicNTKScalingRotaryEmbedding,
@@ -646,9 +646,8 @@ class MHA(nn.Module):
         qkv = self.rotary_emb(qkv, **kwargs)
         kwargs.pop("indexes")
 
-        # If cu_seqlens is passed in, it indicated a packed state,
-        # the batch dimension with a size of 1 should be directly squeezed off.
-        if kwargs["cu_seqlens"] is not None:
+        # for packed data, batch dimension with a size of 1 should be directly squeezed off.
+        if internlm_accelerator.get_accelerator_backend() == AcceleratorType.GPU:
             qkv = qkv.squeeze(0)
         if inference_params is None:
             if gpc.config.model.dtype is torch.float32 and gpc.config.model.use_flash_attn:
@@ -664,7 +663,8 @@ class MHA(nn.Module):
 
         context = rearrange(context, "b h d -> b (h d)")  # recover the shape
         # restore bsz dimension
-        context = context.unsqueeze(0)
+        if internlm_accelerator.get_accelerator_backend() == AcceleratorType.GPU:
+            context = context.unsqueeze(0)
 
         out = self.out_proj(context)
 
