@@ -499,10 +499,6 @@ def launch(
         # if local rank is not given, calculate automatically
         gpc.set_device(local_rank)
 
-    # set the number of processes running on the same node
-    gpc.detect_num_processes_on_current_node()
-
-    get_accelerator().synchronize()
     gpc.set_seed(seed)
 
     warmup_process_group()
