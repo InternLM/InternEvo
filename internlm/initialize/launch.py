@@ -353,10 +353,6 @@ def args_sanity_check():
     # process the parallel config
     if "sequence_parallel" not in gpc.config.parallel:
         gpc.config.parallel._add_item("sequence_parallel", False)
-    else:
-        assert not (
-            gpc.config.parallel.sequence_parallel is True and gpc.config.model.use_flash_attn is False
-        ), "sequence parallel does not support use_flash_attn=False"
 
     # set default value for tensor parallel
     if isinstance(gpc.config.parallel["tensor"], int):

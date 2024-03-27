@@ -438,9 +438,6 @@ def initialize_llm_profile(profiling: bool = False, start_time: str = None):
     )
 
 
-loss_list = []
-
-
 @llm_timeout(func_name="record_current_batch_training_metrics")
 def record_current_batch_training_metrics(
     get_tflops_func,
@@ -613,7 +610,3 @@ def record_current_batch_training_metrics(
             step_count=batch_count,
             cur_step_loss=loss.item(),
         )
-
-        loss_list.append(loss.item())
-        if batch_count == gpc.config.data.total_steps - 1:
-            print(loss_list)

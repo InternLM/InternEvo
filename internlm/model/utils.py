@@ -220,7 +220,7 @@ def reduce_scatter_raw(
 def linear_bias_wgrad_torch(my_input, grad_output, has_d_bias):
     assert my_input.dtype == grad_output.dtype
     grad_weight = torch.matmul(grad_output.t(), my_input)
-    grad_bias = grad_output.sum(dim=1) if has_d_bias else None
+    grad_bias = grad_output.sum(dim=0) if has_d_bias else None
     return grad_weight, grad_bias
 
 
