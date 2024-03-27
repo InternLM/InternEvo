@@ -3,10 +3,8 @@ import multiprocessing as mp
 import pytest
 import torch
 
-from internlm.model.modules.utils import try_import_RMSNorm
+from internlm.model.modules.norm import new_layer_norm
 from tests.test_model.test_model_internlm import build_environment, seed_all
-
-RMSNorm = try_import_RMSNorm()
 
 
 def check_norm(args):
@@ -22,7 +20,7 @@ def check_norm(args):
     seed_all(1024)
 
     # define norm
-    norm = RMSNorm(hidden_size, eps=layer_norm_epsilon)
+    norm = new_layer_norm(norm_type="rmsnorm", normalized_shape=hidden_size, eps=layer_norm_epsilon)
     norm = norm.to(device)
 
     # create input

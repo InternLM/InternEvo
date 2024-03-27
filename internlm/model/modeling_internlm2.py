@@ -15,8 +15,8 @@ from internlm.model.modules.embedding import Embedding1D
 from internlm.model.modules.linear import new_linear
 from internlm.model.modules.mha import QKVPackedGQA
 from internlm.model.modules.mlp import new_fead_forward
-from internlm.model.modules.utils import (split_forward_gather_backward,
-                                          try_import_RMSNorm)
+from internlm.model.modules.norm import new_layer_norm
+from internlm.model.modules.utils import split_forward_gather_backward
 from internlm.solver.activation_checkpoint import activation_checkpoint
 from internlm.solver.pipeline_utils import partition_uniform
 from internlm.utils.common import filter_kwargs
@@ -26,7 +26,6 @@ from internlm.utils.registry import MODEL_INITIALIZER
 MODEL_TYPE = "INTERNLM2_PUBLIC"
 
 logger = get_logger(__file__)
-RMSNorm = try_import_RMSNorm()
 
 
 class PackedFlashLlamaLayer1D(nn.Module):
@@ -133,12 +132,9 @@ class PackedFlashLlamaLayer1D(nn.Module):
         )
 
         self.dropout1 = nn.Dropout(drop_rate)
-        if norm_type == "rmsnorm":
-            self.attention_norm = RMSNorm(hidden_size, eps=layer_norm_epsilon)
-            self.ffn_norm = RMSNorm(hidden_size, eps=layer_norm_epsilon)
-        else:
-            self.attention_norm = nn.LayerNorm(hidden_size, eps=layer_norm_epsilon)
-            self.ffn_norm = nn.LayerNorm(hidden_size, eps=layer_norm_epsilon)
+        self.dropout2 = nn.Dropout(drop_rate)
+        self.attention_norm = new_layer_norm(norm_type, hidden_size, eps=layer_norm_epsilon)
+        self.ffn_norm = new_layer_norm(norm_type, hidden_size, eps=layer_norm_epsilon)
         # if self.fused_dropout_add_ln and self.use_flash_attn:
         #     from flash_attn.ops.layer_norm import dropout_add_layer_norm
 
@@ -158,7 +154,6 @@ class PackedFlashLlamaLayer1D(nn.Module):
             # TODO: support gelu and so on.
             raise ValueError("NYI")
 
-        self.dropout2 = nn.Dropout(drop_rate)
         self.use_swiglu = use_swiglu
         self.use_scaled_init = use_scaled_init
         self.residual_in_fp32 = residual_in_fp32  # only make sense when using prenorm
@@ -460,10 +455,7 @@ class PackedFlashLlama1D(nn.Module):
 
         if last:
             if not apply_post_layer_norm:
-                if norm_type == "rmsnorm":
-                    self.norm = RMSNorm(hidden_size, eps=layer_norm_epsilon)
-                else:
-                    self.norm = nn.LayerNorm(hidden_size, eps=layer_norm_epsilon)
+                self.norm = new_layer_norm(norm_type, hidden_size, eps=layer_norm_epsilon)
 
             self.output = new_linear(
                 name="output",

@@ -9,22 +9,6 @@ from internlm.utils.logger import get_logger
 logger = get_logger(__file__)
 
 
-def try_import_RMSNorm():
-    """
-    Try import MixFusedRMSNorm from apex, if failed, return our RMSNorm
-
-    """
-    try:
-        from apex.normalization.fused_layer_norm import MixedFusedRMSNorm as RMSNorm
-
-        return RMSNorm
-    except ModuleNotFoundError:
-        logger.warning("The torch implementation for MixFusedRMSNorm is slower than apex. Please note this!")
-        from internlm.model.norm import RMSNormTorch as RMSNorm
-
-        return RMSNorm
-
-
 def is_moe_param(param: torch.Tensor) -> bool:
     if hasattr(param, "is_expert") and param.is_expert:
         return True
@@ -67,8 +51,12 @@ def update_kv_cache(kv, inference_params, layer_idx):
     batch_end = batch_start + kv.shape[0]
     sequence_start = inference_params.sequence_len_offset
     sequence_end = sequence_start + kv.shape[1]
-    assert batch_end <= (kv_cache.shape[0] if kv_cache is not None else v_cache.shape[0])
-    assert sequence_end <= (kv_cache.shape[1] if kv_cache is not None else v_cache.shape[2])
+    assert batch_end <= (
+        kv_cache.shape[0] if kv_cache is not None else v_cache.shape[0]
+    )
+    assert sequence_end <= (
+        kv_cache.shape[1] if kv_cache is not None else v_cache.shape[2]
+    )
     # Copy key and values.
     if not inference_params.fused_ft_kernel:
         assert kv_cache is not None
@@ -83,7 +71,9 @@ def update_kv_cache(kv, inference_params, layer_idx):
         if kv_cache is not None:
             kv_cache[batch_start:batch_end, sequence_start:sequence_end, ...] = kv
             k_cache = rearrange(
-                kv_cache[:, :, 0], "b s h (d packsize) -> b h d s packsize", packsize=packsize
+                kv_cache[:, :, 0],
+                "b s h (d packsize) -> b h d s packsize",
+                packsize=packsize,
             ).contiguous()
             v_cache = rearrange(kv_cache[:, :, 1], "b s h d -> b h s d").contiguous()
             inference_params.key_value_memory_dict[layer_idx] = (k_cache, v_cache)
@@ -91,5 +81,7 @@ def update_kv_cache(kv, inference_params, layer_idx):
             k_cache[batch_start:batch_end, :, :, :sequence_end, :] = rearrange(
                 kv[:, :, 0], "b s h (d packsize) -> b h d s packsize", packsize=packsize
             )
-            v_cache[batch_start:batch_end, :, :sequence_end, :] = rearrange(kv[:, :, 1], "b s h d -> b h s d")
+            v_cache[batch_start:batch_end, :, :sequence_end, :] = rearrange(
+                kv[:, :, 1], "b s h d -> b h s d"
+            )
         return kv

@@ -3,18 +3,12 @@
 
 import torch.distributed as dist
 
-from internlm.core.context import (
-    IS_REPLICA_ZERO_PARALLEL,
-    IS_TENSOR_DATA_PARALLEL,
-    IS_TENSOR_EXPERT_DATA_PARALLEL,
-    IS_TENSOR_ZERO_PARALLEL,
-    IS_WEIGHT_ZERO_PARALLEL,
-    ParallelMode,
-)
+from internlm.core.context import (IS_REPLICA_ZERO_PARALLEL,
+                                   IS_TENSOR_DATA_PARALLEL,
+                                   IS_TENSOR_EXPERT_DATA_PARALLEL,
+                                   IS_TENSOR_ZERO_PARALLEL,
+                                   IS_WEIGHT_ZERO_PARALLEL, ParallelMode)
 from internlm.core.context import global_context as gpc
-from internlm.model.modules.utils import try_import_RMSNorm
-
-RMSNorm = try_import_RMSNorm()
 
 
 def is_using_sequence_parallel():

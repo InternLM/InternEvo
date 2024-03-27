@@ -16,8 +16,8 @@ from internlm.model.modules.embedding import Embedding1D
 from internlm.model.modules.linear import new_linear
 from internlm.model.modules.mha import QKVPackedMHA
 from internlm.model.modules.mlp import new_fead_forward
-from internlm.model.modules.utils import (split_forward_gather_backward,
-                                          try_import_RMSNorm)
+from internlm.model.modules.norm import new_layer_norm
+from internlm.model.modules.utils import split_forward_gather_backward
 from internlm.model.moe import MoE
 from internlm.solver.activation_checkpoint import activation_checkpoint
 from internlm.solver.pipeline_utils import partition_uniform
@@ -28,7 +28,6 @@ from internlm.utils.registry import MODEL_INITIALIZER
 MODEL_TYPE = "INTERNLM_MoE"
 
 logger = get_logger(__file__)
-RMSNorm = try_import_RMSNorm()
 
 
 class PackedFlashBaseLayer1D(nn.Module):
@@ -108,12 +107,10 @@ class PackedFlashBaseLayer1D(nn.Module):
         )
 
         self.dropout1 = nn.Dropout(drop_rate)
-        if norm_type == "rmsnorm":
-            self.norm1 = RMSNorm(hidden_size, eps=layer_norm_epsilon)
-            self.norm2 = RMSNorm(hidden_size, eps=layer_norm_epsilon)
-        else:
-            self.norm1 = nn.LayerNorm(hidden_size, eps=layer_norm_epsilon)
-            self.norm2 = nn.LayerNorm(hidden_size, eps=layer_norm_epsilon)
+        self.dropout2 = nn.Dropout(drop_rate)
+
+        self.norm1 = new_layer_norm(norm_type, hidden_size, eps=layer_norm_epsilon)
+        self.norm2 = new_layer_norm(norm_type, hidden_size, eps=layer_norm_epsilon)
 
         self.num_experts = num_experts
         ep_size = gpc.get_world_size(ParallelMode.EXPERT)
@@ -142,7 +139,6 @@ class PackedFlashBaseLayer1D(nn.Module):
             )
             set_fp32_attr_to_module(self.mlp.moe_layer.gate)
 
-        self.dropout2 = nn.Dropout(drop_rate)
         self.use_swiglu = use_swiglu
         self.use_scaled_init = use_scaled_init
         self.residual_in_fp32 = residual_in_fp32  # only make sense when using prenorm
@@ -356,10 +352,7 @@ class PackedFlashInternLm1D(nn.Module):
             ]
         )
         if last:
-            if norm_type == "rmsnorm":
-                self.norm = RMSNorm(hidden_size, eps=layer_norm_epsilon)
-            else:
-                self.norm = nn.LayerNorm(hidden_size, eps=layer_norm_epsilon)
+            self.norm = new_layer_norm(norm_type, hidden_size, eps=layer_norm_epsilon)
             self.head = new_linear(
                 name="head",
                 in_features=hidden_size,
