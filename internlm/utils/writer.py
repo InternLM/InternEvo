@@ -82,7 +82,7 @@ please make sure this folder is located at local file system."
     writer.add_text(
         tag=f"mapping_{tb_log_file_name}",
         text_string=f"file_path={tb_logdir} hostname={socket.gethostname()} \
-                    device={internlm_accelerator.current_device()}",
+                    device={internlm_accelerator.get_device_id()}",
         global_step=step_count,
     )
     writer.add_scaler = partial(writer.add_scalar, new_style=True)
