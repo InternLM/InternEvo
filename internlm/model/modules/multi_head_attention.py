@@ -639,10 +639,17 @@ class MHA(nn.Module):
                 split x during sequence parallel, we split the batch * seqlen dimension
                 (in case batch is small).
         """
-        qkv = self.Wqkv(x)  # total x hsz'
-        qkv = rearrange(qkv, "t (three h d) -> t three h d", three=3, d=self.head_dim)  # total x 3 x n_head x d
+        qkv = self.Wqkv(x)  # bsz x total x hsz
+        qkv = rearrange(
+            qkv, "b t (three h d) -> b t three h d", three=3, d=self.head_dim
+        )  # bsz x total x 3 x n_head x d
         qkv = self.rotary_emb(qkv, **kwargs)
         kwargs.pop("indexes")
+
+        # If cu_seqlens is passed in, it indicated a packed state,
+        # the batch dimension with a size of 1 should be directly squeezed off.
+        if kwargs["cu_seqlens"] is not None:
+            qkv = qkv.squeeze(0)
         if inference_params is None:
             if gpc.config.model.dtype is torch.float32 and gpc.config.model.use_flash_attn:
                 with internlm_accelerator.amp.autocast(dtype=torch.bfloat16):
@@ -656,6 +663,9 @@ class MHA(nn.Module):
             raise RuntimeError("Not support this right now")
 
         context = rearrange(context, "b h d -> b (h d)")  # recover the shape
+        # restore bsz dimension
+        context = context.unsqueeze(0)
+
         out = self.out_proj(context)
 
         return out

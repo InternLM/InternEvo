@@ -299,7 +299,7 @@ def initialize_optimizer(model: Union[nn.Module, nn.ModuleList], isp_communicato
     adam_extra_kwargs = {}
     # set fused=True to avoid nan grad norm when model size is larger and use_fp32_norm=True
 
-    if get_accelerator().get_accelerator_backend() == AcceleratorType.NPU:
+    if internlm_accelerator.get_accelerator_backend() == AcceleratorType.NPU:
         internlm_adamw = torch_npu.optim.NpuFusedAdamW
     else:
         internlm_adamw = torch.optim.AdamW
@@ -436,6 +436,9 @@ def initialize_llm_profile(profiling: bool = False, start_time: str = None):
         with_modules=True,
         profile_memory=True,
     )
+
+
+loss_list = []
 
 
 @llm_timeout(func_name="record_current_batch_training_metrics")
@@ -610,3 +613,7 @@ def record_current_batch_training_metrics(
             step_count=batch_count,
             cur_step_loss=loss.item(),
         )
+
+        loss_list.append(loss.item())
+        if batch_count == gpc.config.data.total_steps - 1:
+            print(loss_list)
