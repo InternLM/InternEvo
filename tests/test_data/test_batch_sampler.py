@@ -10,12 +10,15 @@ from internlm.core.context import global_context as gpc
 # from internlm.core.context import ParallelMode
 from internlm.core.context.parallel_context import Config
 from internlm.core.trainer import TrainState
-from internlm.data import build_train_loader_with_data_type, build_valid_loader_with_data_type
-from internlm.train import load_new_batch
+from internlm.data import (
+    build_train_loader_with_data_type,
+    build_valid_loader_with_data_type,
+)
 from internlm.eval.evaluation import (
     switch_evaluation_mode,
     switch_evaluation_pipeline_scheduler,
 )
+from internlm.train import load_new_batch
 
 # from internlm.core.context.parallel_context import global_context as gpc
 from tests.test_core.utils import build_environment, init_model_and_optim
@@ -172,6 +175,7 @@ def test_warmup(use_flash_atten_case, group_case, micro_bsz_case):
             adam=dict(lr=1e-4),
             resume_tb_folder=None,
             tensorboard_folder=None,
+            use_cuda_flash_attn=True,
         )
     )
 

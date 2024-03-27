@@ -23,7 +23,7 @@ class FlashGPTLMLoss(nn.Module):
             label_smoothing = 0
         self.label_smoothing = label_smoothing
 
-        if gpc.config.model.use_flash_attn and parallel_output:
+        if gpc.config.use_cuda_flash_attn and parallel_output:
             from flash_attn.losses.cross_entropy import (
                 CrossEntropyLoss as FlashCrossEntropyLoss,
             )

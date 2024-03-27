@@ -120,7 +120,7 @@ class PackedFlashBaseLayer1D(nn.Module):
         self.num_experts = num_experts
         ep_size = gpc.get_world_size(ParallelMode.EXPERT)
         if num_experts <= 1:  # dense, not MoE
-            if use_swiglu or not use_flash_attn:
+            if use_swiglu or not gpc.config.use_cuda_flash_attn:
                 mlp_cls = get_mlp_cls(self.tp_mode)
                 self.mlp = mlp_cls(
                     hidden_size,
@@ -333,7 +333,7 @@ class PackedFlashInternLm1D(nn.Module):
             head_cls = ScaleColumnParallelLinear
 
         if first:
-            if embed_split_hidden or not use_flash_attn:
+            if embed_split_hidden or not gpc.config.use_cuda_flash_attn:
                 self.embedding = Embedding1D(num_embeddings=vocab_size, embedding_dim=hidden_size)
             else:
                 from flash_attn.modules.embedding import ParallelGPT2Embeddings

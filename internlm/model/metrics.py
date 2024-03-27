@@ -262,7 +262,7 @@ class LossWithTypeId:
             self.ds_loss = torch.zeros(self.total_type_count, dtype=torch.float, device=device)
             self.ds_token_num = torch.zeros(self.total_type_count, dtype=torch.float, device=device)
 
-        if gpc.config.model.use_flash_attn:
+        if gpc.config.use_cuda_flash_attn:
             from flash_attn.losses.cross_entropy import (
                 CrossEntropyLoss as FlashCrossEntropyLoss,
             )

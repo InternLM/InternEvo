@@ -321,11 +321,10 @@ def args_sanity_check():
     # process the model config
     if "use_flash_attn" not in gpc.config.model:
         gpc.config.model._add_item("use_flash_attn", True)
-    # TODO by ht: get accelerator type
-    # for GPU accelerator
-    assert (
-        gpc.config.model.use_flash_attn == gpc.config.data.use_packed_dataset
-    ), "use_packed_dataset should be set same value as use_flash_attn when accelerator type is GPU"
+
+    gpc.config["use_cuda_flash_attn"] = False
+    if gpc.config.model.use_flash_attn and internlm_accelerator.get_accelerator_backend() == AcceleratorType.GPU:
+        gpc.config["use_cuda_flash_attn"] = True
 
     # for NPU accelerator supports: 1）FA-True + Packed-False 2) FA-False + Packed-False
     # for GPU accelerator supports: 1）FA-True + Packed-True 2) FA-False + Packed-False
@@ -333,8 +332,19 @@ def args_sanity_check():
         assert gpc.config.data.use_packed_dataset is False, "packed data is not supported for NPU accelerator"
     else:
         assert (
-            gpc.config.model.use_flash_attn == gpc.config.data.use_packed_dataset
+            gpc.config.use_cuda_flash_attn == gpc.config.data.use_packed_dataset
         ), "use_packed_dataset should be set same value as use_flash_attn when accelerator type is GPU"
+
+    old_parallel_output = gpc.config.model.get("parallel_output", None)
+    # Try to change user setting
+    if not gpc.config.use_cuda_flash_attn:
+        gpc.config.model.update({"parallel_output": False})
+        if old_parallel_output is True and gpc.is_rank_for_log():
+            logger.warning(
+                "'parallel_output' is converted from 'True' to 'False'."
+                "Because 'parallel_output' only support by FlashCrossEntropyLoss."
+                "Please make sure you are using flash attention in cuda device."
+            )
 
     if "MoE" in gpc.config.get("model_type", "INTERNLM"):
         if "num_experts" not in model:
