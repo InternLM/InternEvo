@@ -45,6 +45,7 @@ from internlm.train import (  # noqa: E402
 )
 from internlm.utils.common import (  # noqa: E402
     BatchSkipper,
+    get_current_device,
     get_megatron_flops,
     launch_time,
     parse_args,
@@ -175,7 +176,7 @@ def main(args):
 
     # initialize metric for calculating accuracy and perplexity
     metric = AccPerplex(
-        device=internlm_accelerator.current_device(),
+        device=get_current_device(),
         tp_pg=gpc.get_group(ParallelMode.TENSOR),
         dp_pg=gpc.get_group(ParallelMode.DATA),
         dataset_types=dataset_types,

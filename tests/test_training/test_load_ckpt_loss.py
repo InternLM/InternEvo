@@ -49,6 +49,7 @@ from internlm.train import (  # noqa: E402  #pylint: disable=wrong-import-positi
     load_new_batch,
 )
 from internlm.utils.common import (  # noqa: E402  #pylint: disable=wrong-import-position
+    get_current_device,
     launch_time,
 )
 from internlm.utils.logger import (  # noqa: E402  #pylint: disable=wrong-import-position
@@ -243,7 +244,7 @@ def train_model(args):
 
     # initialize metric for calculating accuracy and perplexity
     metric = AccPerplex(
-        device=internlm_accelerator.current_device(),
+        device=get_current_device(),
         tp_pg=gpc.get_group(ParallelMode.TENSOR),
         dp_pg=gpc.get_group(ParallelMode.DATA),
         dataset_types=dataset_types,
