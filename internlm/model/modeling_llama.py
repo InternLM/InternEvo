@@ -410,9 +410,9 @@ class MHA(nn.Module):
         """
         assert self.use_flash_attn is True
         q, k, v = self.wq(x), self.wk(x), self.wv(x)
-        q = rearrange(q, "t (h d) -> t h d", d=self.head_dim)
-        k = rearrange(k, "t (h d) -> t h d", d=self.head_dim)
-        v = rearrange(v, "t (h d) -> t h d", d=self.head_dim)
+        q = rearrange(q, "b t (h d) -> b t h d", d=self.head_dim)
+        k = rearrange(k, "b t (h d) -> b t h d", d=self.head_dim)
+        v = rearrange(v, "b t (h d) -> b t h d", d=self.head_dim)
 
         # qkv shift
         # the rotary embedding in flash attention module in performed by separating the front and back parts, while
@@ -426,7 +426,7 @@ class MHA(nn.Module):
         k = self.rotary_emb._single_forward(k, indexes=indexes)
 
         if inference_params is None:
-            kv = torch.concat([k.unsqueeze(1), v.unsqueeze(1)], dim=1)
+            kv = torch.concat([k.unsqueeze(2), v.unsqueeze(2)], dim=2)
             # for packed data, batch dimension with a size of 1 should be directly squeezed off.
             if internlm_accelerator.get_accelerator_backend() == AcceleratorType.GPU:
                 q = q.squeeze(0)

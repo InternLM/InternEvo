@@ -413,11 +413,11 @@ class MHA(nn.Module):
 
         qkv = self.wqkv(x)
 
-        qkv = rearrange(qkv, "t (h gs d) -> t h gs d", gs=self.q_per_kv + 2, d=self.head_dim)
+        qkv = rearrange(qkv, "b t (h gs d) -> b t h gs d", gs=self.q_per_kv + 2, d=self.head_dim)
 
         q, k, v = (qkv[..., : self.q_per_kv, :], qkv[..., -2, :], qkv[..., -1, :])
 
-        q = rearrange(q, "t h gs d -> t (h gs) d")
+        q = rearrange(q, "b t h gs d -> b t (h gs) d")
 
         # qkv shift
         # the rotary embedding in flash attention module in performed by separating the front and back parts, while
@@ -431,7 +431,7 @@ class MHA(nn.Module):
         k = self.rotary_emb._single_forward(k, indexes=indexes)
 
         if inference_params is None:
-            kv = torch.concat([k.unsqueeze(1), v.unsqueeze(1)], dim=1)
+            kv = torch.concat([k.unsqueeze(2), v.unsqueeze(2)], dim=2)
             # for packed data, batch dimension with a size of 1 should be directly squeezed off.
             if internlm_accelerator.get_accelerator_backend() == AcceleratorType.GPU:
                 q = q.squeeze(0)
