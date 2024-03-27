@@ -9,7 +9,7 @@ import torch.nn.functional as F
 from torch import Tensor
 from torch.distributed import ProcessGroup
 
-from internlm.accelerator import get_accelerator
+from internlm.accelerator import AcceleratorType, get_accelerator
 from internlm.core.context import global_context as gpc
 from internlm.utils.logger import get_logger
 
@@ -235,7 +235,7 @@ class FusedDenseFunc(torch.autograd.Function):
         process_group=None,
         sequence_parallel=True,
         gather_dim=0,
-        is_using_cuda: bool = True,
+        is_using_cuda_or_npu: bool = True,
     ):
         """
         If process_group is not None and sequence_parallel=True, we're doing Tensor Parallel
@@ -246,7 +246,7 @@ class FusedDenseFunc(torch.autograd.Function):
         ctx.process_group = process_group
         ctx.sequence_parallel = sequence_parallel
         ctx.gather_dim = gather_dim
-        ctx.is_using_cuda = is_using_cuda
+        ctx.is_using_cuda_or_npu = is_using_cuda_or_npu
 
         if torch.is_autocast_enabled():
             x = x.to(dtype=torch.get_autocast_gpu_dtype())
@@ -289,7 +289,7 @@ class FusedDenseFunc(torch.autograd.Function):
         if gpc.config.model.use_flash_attn:
             import fused_dense_lib as fused_dense_cuda
 
-        if gpc.config.model.use_flash_attn and ctx.is_using_cuda:
+        if gpc.config.model.use_flash_attn and ctx.is_using_cuda_or_npu:
             backward_func = fused_dense_cuda.linear_bias_wgrad
         else:
             backward_func = linear_bias_wgrad_torch
@@ -356,7 +356,7 @@ class MegatronFusedDenseFunc(torch.autograd.Function):
         process_group=None,
         sequence_parallel=True,
         gather_dim=0,
-        is_using_cuda: bool = True,
+        is_using_cuda_or_npu: bool = True,
     ):
         """
         If process_group is not None and sequence_parallel=True, we're doing Tensor Parallel
@@ -366,7 +366,7 @@ class MegatronFusedDenseFunc(torch.autograd.Function):
         ctx.return_residual = return_residual
         ctx.process_group = process_group
         ctx.sequence_parallel = sequence_parallel
-        ctx.is_using_cuda = is_using_cuda
+        ctx.is_using_cuda_or_npu = is_using_cuda_or_npu
 
         if torch.is_autocast_enabled():
             x = x.to(dtype=torch.get_autocast_gpu_dtype())
@@ -408,7 +408,7 @@ class MegatronFusedDenseFunc(torch.autograd.Function):
         if gpc.config.model.use_flash_attn:
             import fused_dense_lib as fused_dense_cuda
 
-        if gpc.config.model.use_flash_attn and ctx.is_using_cuda:
+        if gpc.config.model.use_flash_attn and ctx.is_using_cuda_or_npu:
             backward_func = fused_dense_cuda.linear_bias_wgrad
         else:
             backward_func = linear_bias_wgrad_torch
@@ -464,13 +464,13 @@ class ISPFusedDenseFunc(torch.autograd.Function):
         module,
         communicator,
         return_residual=False,
-        is_using_cuda: bool = True,
+        is_using_cuda_or_npu: bool = True,
     ):
         ctx.compute_weight_gradient = weight.requires_grad
         ctx.return_residual = return_residual
         ctx.module = module
         ctx.communicator = communicator
-        ctx.is_using_cuda = is_using_cuda
+        ctx.is_using_cuda_or_npu = is_using_cuda_or_npu
 
         if torch.is_autocast_enabled():
             x = x.to(dtype=torch.get_autocast_gpu_dtype())
@@ -511,7 +511,7 @@ class ISPFusedDenseFunc(torch.autograd.Function):
         if gpc.config.model.use_flash_attn:
             import fused_dense_lib as fused_dense_cuda
 
-        if gpc.config.model.use_flash_attn and ctx.is_using_cuda:
+        if gpc.config.model.use_flash_attn and ctx.is_using_cuda_or_npu:
             backward_func = fused_dense_cuda.linear_bias_wgrad
         else:
             backward_func = linear_bias_wgrad_torch
@@ -586,7 +586,12 @@ def fused_dense_func(
     dtype_eligible = x.dtype in [torch.float16, torch.bfloat16] or (
         x.dtype == torch.float32 and torch.is_autocast_enabled()
     )
-    is_using_cuda = x.is_cuda and weight.is_cuda and (bias is None or bias.is_cuda) and dtype_eligible
+
+    is_using_cuda_or_npu = None
+    if internlm_accelerator.get_accelerator_backend() == AcceleratorType.NPU:
+        is_using_cuda_or_npu = x.on_npu and weight.on_npu and (bias is None or bias.on_npu) and dtype_eligible
+    else:
+        is_using_cuda_or_npu = x.is_cuda and weight.is_cuda and (bias is None or bias.is_cuda) and dtype_eligible
     return FusedDenseFunc.apply(
         x,
         weight,
@@ -595,7 +600,7 @@ def fused_dense_func(
         process_group,
         sequence_parallel,
         gather_dim,
-        is_using_cuda,
+        is_using_cuda_or_npu,
     )
 
 
@@ -611,7 +616,11 @@ def megatron_fused_dense_func(
     dtype_eligible = x.dtype in [torch.float16, torch.bfloat16] or (
         x.dtype == torch.float32 and torch.is_autocast_enabled()
     )
-    is_using_cuda = x.is_cuda and weight.is_cuda and (bias is None or bias.is_cuda) and dtype_eligible
+    is_using_cuda_or_npu = None
+    if internlm_accelerator.get_accelerator_backend() == AcceleratorType.NPU:
+        is_using_cuda_or_npu = x.on_npu and weight.on_npu and (bias is None or bias.on_npu) and dtype_eligible
+    else:
+        is_using_cuda_or_npu = x.is_cuda and weight.is_cuda and (bias is None or bias.is_cuda) and dtype_eligible
     return MegatronFusedDenseFunc.apply(
         x,
         weight,
@@ -620,7 +629,7 @@ def megatron_fused_dense_func(
         process_group,
         sequence_parallel,
         gather_dim,
-        is_using_cuda,
+        is_using_cuda_or_npu,
     )
 
 
@@ -635,7 +644,11 @@ def isp_fused_dense_func(
     dtype_eligible = x.dtype in [torch.float16, torch.bfloat16] or (
         x.dtype == torch.float32 and torch.is_autocast_enabled()
     )
-    is_using_cuda = x.is_cuda and weight.is_cuda and (bias is None or bias.is_cuda) and dtype_eligible
+    is_using_cuda_or_npu = None
+    if internlm_accelerator.get_accelerator_backend() == AcceleratorType.NPU:
+        is_using_cuda_or_npu = x.on_npu and weight.on_npu and (bias is None or bias.on_npu) and dtype_eligible
+    else:
+        is_using_cuda_or_npu = x.is_cuda and weight.is_cuda and (bias is None or bias.is_cuda) and dtype_eligible
     return ISPFusedDenseFunc.apply(
         x,
         weight,
@@ -643,7 +656,7 @@ def isp_fused_dense_func(
         module,
         communicator,
         return_residual,
-        is_using_cuda,
+        is_using_cuda_or_npu,
     )
 
 

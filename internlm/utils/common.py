@@ -14,7 +14,7 @@ import numpy as np
 import torch
 
 import internlm
-from internlm.accelerator import get_accelerator
+from internlm.accelerator import AcceleratorType, get_accelerator
 from internlm.utils.logger import get_logger
 
 CURRENT_TIME = None
@@ -46,25 +46,32 @@ def move_norm_to_cuda(norm: Union[float, torch.Tensor]) -> Union[float, torch.Te
 
 
 def _move_tensor(element):
+    is_npu = internlm_accelerator.get_accelerator_backend() == AcceleratorType.NPU
     if not torch.is_tensor(element):
         # we expecte the data type if a list of dictionaries
         for idx, item in enumerate(element):
             if isinstance(item, dict):
                 for key, value in item.items():
-                    assert not value.is_cuda, "elements are already on devices."
+                    if is_npu:
+                        assert not value.on_npu, "elements are already on devices."
+                    else:
+                        assert not value.is_cuda, "elements are already on devices."
                     item[key] = value.to(get_current_device()).detach()
             elif isinstance(item, list):
                 for index, value in enumerate(item):
-                    assert not value.is_cuda, "elements are already on devices."
+                    if is_npu:
+                        assert not value.on_npu, "elements are already on devices."
+                    else:
+                        assert not value.is_cuda, "elements are already on devices."
                     item[index] = value.to(get_current_device()).detach()
             elif torch.is_tensor(item):
-                if not item.is_cuda:
+                if (is_npu and not item.on_npu) or (not is_npu and not item.is_cuda):
                     element[idx] = item.to(get_current_device()).detach()
             else:
                 assert False, f"{type(item)}, {item}"
     else:
         assert torch.is_tensor(element), f"element should be of type tensor, but got {type(element)}"
-        if not element.is_cuda:
+        if (is_npu and not element.on_npu) or (not is_npu and not element.is_cuda):
             element = element.to(get_current_device()).detach()
     return element
 
