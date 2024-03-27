@@ -45,7 +45,7 @@ VALID_FOLDER = None  # "/path/to/dataset"
 data = dict(
     seq_len=SEQ_LEN,
     # micro_num means the number of micro_batch contained in one gradient update
-    micro_num=4,
+    micro_num=2,
     # packed_length = micro_bsz * SEQ_LEN
     micro_bsz=1,
     # defaults to the value of micro_num
@@ -172,10 +172,10 @@ weight parallel (dict):
     3. memory_pool: bool, enable/disable memory pool, defaults to False.
 """
 parallel = dict(
-    zero1=dict(size=-1),
-    tensor=dict(size=1, mode="mtp"),
+    zero1=dict(size=4),
+    tensor=dict(size=1, mode="isp"),
     pipeline=dict(size=1, interleaved_overlap=True),
-    weight=dict(size=1, overlap=True, memory_pool=True),
+    weight=dict(size=2, overlap=True, memory_pool=True),
 )
 
 cudnn_deterministic = False

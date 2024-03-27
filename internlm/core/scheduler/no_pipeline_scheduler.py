@@ -197,10 +197,10 @@ class NonPipelineScheduler(BaseScheduler):
 
         for _current_accum_step in range(self._grad_accum_size):
             if engine.optimizer is not None:
-                if _current_accum_step == self._grad_accum_size - 1:
-                    engine.optimizer.skip_grad_reduce = False
-                else:
-                    engine.optimizer.skip_grad_reduce = True
+                # if _current_accum_step == self._grad_accum_size - 1:
+                engine.optimizer.skip_grad_reduce = False
+                # else:
+                #     engine.optimizer.skip_grad_reduce = True
 
             _data, _label = self._load_accum_batch(data, label)
 
