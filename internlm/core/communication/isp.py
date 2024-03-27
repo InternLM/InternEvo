@@ -14,7 +14,7 @@ from internlm.core.context import global_context as gpc
 from internlm.core.naive_amp import NaiveAMPModel
 from internlm.model.ops.linear import ISPLinear
 from internlm.model.utils import all_gather_raw, reduce_scatter_raw
-from internlm.utils.common import SchedulerHook
+from internlm.utils.common import SchedulerHook, get_current_device
 
 internlm_accelerator = get_accelerator()
 
@@ -26,7 +26,7 @@ class ISPCommModelConfig:
     """
 
     dtype: torch.dtype = torch.half
-    device: torch.device = internlm_accelerator.device()
+    device: torch.device = get_current_device()
     activation_checkpointing: float = 0.0
     module_shapes: Dict[str, torch.Size] = None
 

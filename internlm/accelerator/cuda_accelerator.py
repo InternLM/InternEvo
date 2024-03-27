@@ -40,19 +40,13 @@ class CUDA_Accelerator(Accelerator):
             return "cuda"
         return "cuda:{}".format(device_index)
 
-    def device(self, device_index=None):
-        """
-        Return the device object.
-        """
-        return torch.cuda.device(device_index)
-
     def set_device(self, device_index):
         """
         Bind the current process to a device.
         """
         torch.cuda.set_device(device_index)
 
-    def current_device(self):
+    def get_device_id(self):
         """
         Return the current device index.
         """

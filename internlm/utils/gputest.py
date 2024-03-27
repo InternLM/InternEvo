@@ -90,7 +90,7 @@ def flops(batch, seqlen, headdim, nheads, time_f):
 def get_gpu_temperature():
     """Get current GPU temperature."""
     try:
-        gpu_id = internlm_accelerator.current_device()
+        gpu_id = internlm_accelerator.get_device_id()
     except AssertionError:
         gpu_id = -1
 
