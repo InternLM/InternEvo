@@ -96,7 +96,7 @@ def main(args):
     current_time = launch_time()
     objs = [current_time]
     dist.broadcast_object_list(objs, src=0)
-    current_time = objs[0]
+    current_time = objs[0].replace(":", ".")
 
     # initialize customed llm logger
     uniscale_logger = initialize_llm_logger(start_time=current_time)
