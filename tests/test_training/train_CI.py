@@ -17,11 +17,12 @@ project_root = os.path.abspath(os.path.join(script_dir, "../../"))
 sys.path.append(project_root)
 
 import internlm  # noqa: E402
-from internlm.checkpoint import CheckpointManager
+from internlm.accelerator import get_accelerator  # noqa: E402
+from internlm.checkpoint import CheckpointManager  # noqa: E402
 from internlm.core.context import ParallelMode  # noqa: E402
 from internlm.core.context import global_context as gpc  # noqa: E402
 from internlm.core.trainer import TrainState  # noqa: E402
-from internlm.data import (
+from internlm.data import (  # noqa: E402
     build_train_loader_with_data_type,
     build_valid_loader_with_data_type,
 )
@@ -57,6 +58,8 @@ from internlm.utils.writer import Writer  # noqa: E402
 # global llm logger
 logger = get_logger(__file__)
 
+internlm_accelerator = get_accelerator()
+
 
 def initialize_llm_logger(start_time: str):
     """
@@ -81,6 +84,10 @@ def initialize_llm_logger(start_time: str):
 def check_model_weights(model, ckpt_path, total_equal=False):
     model1_dict = torch.load(ckpt_path, map_location="cuda")
     model2_dict = model.state_dict()
+
+    for key in model2_dict.keys():
+        if key not in model1_dict:
+            assert False, f"Error: The key {key} for current model dose not exist in standard ckpt!"
 
     for key in model1_dict.keys():
         if key in model2_dict:
@@ -225,9 +232,11 @@ def main(args):
     # check model init weights
     if hasattr(gpc.config, "CHECK_INIT") and gpc.config.CHECK_INIT == 1:
         ckpt_name = (
-            f"model_tp{gpc.get_local_rank(ParallelMode.TENSOR)}_pp{gpc.get_local_rank(ParallelMode.PIPELINE)}.pt"
+            f"model_dp{gpc.get_local_rank(ParallelMode.DATA)}"
+            f"_tp{gpc.get_local_rank(ParallelMode.TENSOR)}"
+            f"_pp{gpc.get_local_rank(ParallelMode.PIPELINE)}.pt"
         )
-        ckpt_path = os.path.join(os.environ["share_path"], "quailty_assurance/7B_init_8_tp=4_pp=2_ckpt", ckpt_name)
+        ckpt_path = os.path.join(os.environ["share_path"], "quailty_assurance/7B_init_dp=2_tp=2_pp=2_ckpt", ckpt_name)
         check_model_weights(model, ckpt_path, total_equal=True)
 
     with initialize_llm_profile(profiling=args.profiling, start_time=current_time) as prof:
@@ -337,7 +346,7 @@ def main(args):
                 )
 
             # check model weights
-            if batch_count > 0 and batch_count % 100 == 0:
+            if gpc.is_rank_for_log() and batch_count > 0 and batch_count % 100 == 0:
                 ckpt_path = os.path.join(
                     os.environ["share_path"],
                     "quailty_assurance/7B_model_weights_ckpt",

@@ -93,7 +93,7 @@ grad_scaler = dict(
 hybrid_zero_optimizer = dict(
     # Enable low_level_optimzer overlap_communication
     overlap_sync_grad=True,
-    overlap_sync_param=True,
+    overlap_sync_param=False,
     # bucket size for nccl communication params
     reduce_bucket_size=512 * 1024 * 1024,
     # grad clipping
@@ -157,10 +157,10 @@ pipeline parallel (dict):
 tensor parallel: tensor parallel size, usually the number of GPUs per node.
 """
 parallel = dict(
-    zero1=dict(size=1, fsdp=False),
-    tensor=4,
+    zero1=dict(size=-1),
+    tensor=dict(size=2, mode="mtp"),
     pipeline=dict(size=2, interleaved_overlap=True),
-    sequence_parallel=False,
+    weight=dict(size=1, overlap=True, memory_pool=True),
 )
 
 cudnn_deterministic = False

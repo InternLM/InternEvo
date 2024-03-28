@@ -1,3 +1,5 @@
+import os
+
 JOB_NAME = "7b_train"
 DO_ALERT = False
 
@@ -8,7 +10,7 @@ MLP_RATIO = 8 / 3
 NUM_LAYER = 32
 VOCAB_SIZE = 103168
 
-MODEL_ONLY_FOLDER = "/mnt/petrelfs/share/quailty_assurance/7B_model_weights_ckpt/init"
+MODEL_ONLY_FOLDER = os.path.join(os.environ["share_path"], "quailty_assurance/7B_model_weights_ckpt/init")
 # Ckpt folder format:
 # fs: 'local:/mnt/nfs/XXX'
 # SAVE_CKPT_FOLDER = "local:llm_ckpts_0925_9"
@@ -30,7 +32,7 @@ ckpt = dict(
     # # 1. the 'path' indicate ckpt path,
     # # 2. the 'content‘ means what states will be loaded, support: "model", "sampler", "optimizer", "scheduler", "all"
     # # 3. the ’ckpt_type‘ means the type of checkpoint to be loaded, now only 'normal' type is supported.
-    load_ckpt_info=dict(path=MODEL_ONLY_FOLDER, content=("model",), ckpt_type="internlm"),
+    load_ckpt_info=dict(path=MODEL_ONLY_FOLDER, content=("model",), ckpt_type="internevo"),
     # checkpoint_every=CHECKPOINT_EVERY,
     # async_upload=True,  # async ckpt upload. (only work for boto3 ckpt)
     # async_upload_tmp_folder="/dev/shm/internlm_tmp_ckpt/",  # path for temporarily files during asynchronous upload.
@@ -84,7 +86,7 @@ grad_scaler = dict(
 hybrid_zero_optimizer = dict(
     # Enable low_level_optimzer overlap_communication
     overlap_sync_grad=True,
-    overlap_sync_param=True,
+    overlap_sync_param=False,
     # bucket size for nccl communication params
     reduce_bucket_size=512 * 1024 * 1024,
     # grad clipping
@@ -148,10 +150,10 @@ pipeline parallel (dict):
 tensor parallel: tensor parallel size, usually the number of GPUs per node.
 """
 parallel = dict(
-    zero1=dict(size=8, fsdp=False),
-    tensor=1,
+    zero1=dict(size=8),
+    tensor=dict(size=1, mode="mtp"),
     pipeline=dict(size=1, interleaved_overlap=True),
-    sequence_parallel=False,
+    weight=dict(size=1, overlap=True, memory_pool=True),
 )
 
 cudnn_deterministic = False
