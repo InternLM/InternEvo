@@ -1,5 +1,5 @@
 JOB_NAME = "7b_internlm2_train"
-model_type="INTERNLM2_PUTLIC"
+model_type="INTERNLM2_PUBLIC"
 DO_ALERT = False
 
 VOCAB_SIZE = 92544
