@@ -1,3 +1,5 @@
+import os
+
 JOB_NAME = "7b_train"
 DO_ALERT = False
 
@@ -8,7 +10,7 @@ MLP_RATIO = 8 / 3
 NUM_LAYER = 32
 VOCAB_SIZE = 103168
 
-MODEL_ONLY_FOLDER = "/mnt/petrelfs/share/quailty_assurance/7B_model_weights_ckpt/init"
+MODEL_ONLY_FOLDER = os.path.join(os.environ["share_path"], "quailty_assurance/7B_model_weights_ckpt/init")
 # Ckpt folder format:
 # fs: 'local:/mnt/nfs/XXX'
 # SAVE_CKPT_FOLDER = "local:llm_ckpts_0925_9"
