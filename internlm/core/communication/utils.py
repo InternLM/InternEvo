@@ -7,6 +7,7 @@ import torch
 import torch.distributed as dist
 from torch import nn
 
+from internlm.accelerator import get_accelerator
 from internlm.core.communication.isp import ISPCommunicator
 from internlm.core.context import ParallelMode
 from internlm.core.context import global_context as gpc
@@ -14,6 +15,9 @@ from internlm.core.naive_amp import NaiveAMPModel
 from internlm.model.modules.embedding import Embedding1D
 from internlm.model.ops.linear import BaseScaleColumnParallelLinear
 from internlm.utils.common import get_current_device
+
+internlm_accelerator = get_accelerator()
+
 
 TensorShape = Union[torch.Size, List[int], Tuple[int]]
 
@@ -218,7 +222,7 @@ class ParamAsyncBcastHandler:
             # so everything is fine.
 
             embedding_head_cls = (Embedding1D, BaseScaleColumnParallelLinear)
-            if gpc.config.model.use_flash_attn:
+            if gpc.config.use_cuda_flash_attn:
                 from flash_attn.modules.embedding import ParallelGPT2Embeddings
 
                 embedding_head_cls = (Embedding1D, ParallelGPT2Embeddings, BaseScaleColumnParallelLinear)

@@ -107,11 +107,11 @@ def set_parallel_attr_for_param_groups(model: Union[nn.Module, nn.ModuleList]):
                 setattr(param, IS_REPLICA_ZERO_PARALLEL, True)
 
         # embedding and head
-        if gpc.config.model.use_flash_attn:
+        if gpc.config.use_cuda_flash_attn:
             from flash_attn.modules.embedding import ParallelGPT2Embeddings
 
         if isinstance(module, (Embedding1D, BaseScaleColumnParallelLinear)) or (
-            gpc.config.model.use_flash_attn and isinstance(module, ParallelGPT2Embeddings)
+            gpc.config.use_cuda_flash_attn and isinstance(module, ParallelGPT2Embeddings)
         ):
             for param in module.parameters():
                 if gpc.is_initialized(ParallelMode.TENSOR) and is_using_isp():

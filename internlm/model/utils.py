@@ -13,6 +13,11 @@ from internlm.accelerator import AcceleratorType, get_accelerator
 from internlm.core.context import global_context as gpc
 from internlm.utils.logger import get_logger
 
+try:
+    import fused_dense_lib as fused_dense_cuda
+except (ModuleNotFoundError, ImportError):
+    print("Import fused_dense_lib failed!")
+
 internlm_accelerator = get_accelerator()
 
 custom_bwd = internlm_accelerator.return_custom_bwd()
@@ -290,10 +295,8 @@ class FusedDenseFunc(torch.autograd.Function):
         sequence_parallel = ctx.sequence_parallel
         gather_dim = ctx.gather_dim
 
-        if gpc.config.model.use_flash_attn:
-            import fused_dense_lib as fused_dense_cuda
-
-        if gpc.config.model.use_flash_attn and ctx.is_using_cuda:
+        if gpc.config.use_cuda_flash_attn:
+            assert ctx.is_using_cuda, "CUDA Flash Attention only support GPU device"
             backward_func = fused_dense_cuda.linear_bias_wgrad
         else:
             backward_func = linear_bias_wgrad_torch
@@ -413,10 +416,8 @@ class MegatronFusedDenseFunc(torch.autograd.Function):
         process_group = ctx.process_group
         sequence_parallel = ctx.sequence_parallel
 
-        if gpc.config.model.use_flash_attn:
-            import fused_dense_lib as fused_dense_cuda
-
-        if gpc.config.model.use_flash_attn and ctx.is_using_cuda:
+        if gpc.config.use_cuda_flash_attn:
+            assert ctx.is_using_cuda, "CUDA Flash Attention only support GPU device"
             backward_func = fused_dense_cuda.linear_bias_wgrad
         else:
             backward_func = linear_bias_wgrad_torch
@@ -520,10 +521,8 @@ class ISPFusedDenseFunc(torch.autograd.Function):
         module = ctx.module
         communicator = ctx.communicator
 
-        if gpc.config.model.use_flash_attn:
-            import fused_dense_lib as fused_dense_cuda
-
-        if gpc.config.model.use_flash_attn and ctx.is_using_cuda:
+        if gpc.config.use_cuda_flash_attn:
+            assert ctx.is_using_cuda, "CUDA Flash Attention only support GPU device"
             backward_func = fused_dense_cuda.linear_bias_wgrad
         else:
             backward_func = linear_bias_wgrad_torch

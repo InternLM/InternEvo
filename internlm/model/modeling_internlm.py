@@ -127,6 +127,7 @@ class PackedFlashBaseLayer1D(nn.Module):
                 dtype=dtype,
             )
         else:
+            assert gpc.config.use_cuda_flash_attn is True
             from flash_attn.modules.mlp import ParallelFusedMLP
 
             self.mlp = ParallelFusedMLP(
@@ -309,7 +310,7 @@ class PackedFlashInternLm1D(nn.Module):
         else:
             head_cls = ScaleColumnParallelLinear
         if first:
-            if embed_split_hidden or not use_flash_attn:
+            if embed_split_hidden or not gpc.config.use_cuda_flash_attn:
                 self.embedding = Embedding1D(num_embeddings=vocab_size, embedding_dim=hidden_size)
             else:
                 from flash_attn.modules.embedding import ParallelGPT2Embeddings

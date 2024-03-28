@@ -1,5 +1,5 @@
 JOB_NAME = "7b_llama2_train"
-model_type="LLAMA2"
+model_type = "LLAMA2"
 DO_ALERT = False
 
 VOCAB_SIZE = 32000
@@ -197,4 +197,3 @@ monitor = dict(
 # metric_dtype can be "fp32" or other string
 # only when set to "fp32" will use fp32 to calc in metrics
 # metric_dtype = "fp32"
-

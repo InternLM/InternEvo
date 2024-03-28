@@ -8,10 +8,18 @@ import torch.nn.functional as F
 from einops import rearrange
 from torch import Tensor, nn
 
+from internlm.accelerator import get_accelerator
 from internlm.core.context import ParallelMode
 from internlm.core.context import global_context as gpc
 
 from ..utils import gather_forward_split_backward, split_forward_gather_backward
+
+try:
+    import rotary_emb
+except (ModuleNotFoundError, ImportError):
+    pass
+
+internlm_accelerator = get_accelerator()
 
 
 class Embedding1D(nn.Module):
@@ -86,6 +94,13 @@ def _torch_apply_rotary_func(
     return out1, out2
 
 
+def get_rotary_func():
+    if gpc.config.use_cuda_flash_attn:
+        return rotary_emb.apply_rotary
+    else:
+        return _torch_apply_rotary_func
+
+
 class ApplyRotaryEmb(torch.autograd.Function):
     """
     ApplyRotaryEmb
@@ -112,16 +127,17 @@ class ApplyRotaryEmb(torch.autograd.Function):
         out = torch.empty_like(x)
         out_ro = out[..., :rotary_dim]
         o1, o2 = out_ro.chunk(2, dim=-1) if not interleaved else (out_ro[..., ::2], out_ro[..., 1::2])
-        if gpc.config.model.use_flash_attn:
-            import rotary_emb
 
-            rotary_emb.apply_rotary(
-                x1, x2, rearrange(cos[:seqlen], "s d -> s 1 d"), rearrange(sin[:seqlen], "s d -> s 1 d"), o1, o2, False
-            )
-        else:
-            _torch_apply_rotary_func(
-                x1, x2, rearrange(cos[:seqlen], "s d -> s 1 d"), rearrange(sin[:seqlen], "s d -> s 1 d"), o1, o2, False
-            )
+        get_rotary_func()(
+            x1,
+            x2,
+            rearrange(cos[:seqlen], "s d -> s 1 d"),
+            rearrange(sin[:seqlen], "s d -> s 1 d"),
+            o1,
+            o2,
+            False,
+        )
+
         if rotary_dim < headdim:
             out[..., rotary_dim:].copy_(x[..., rotary_dim:])
         ctx.save_for_backward(cos, sin)
@@ -139,28 +155,16 @@ class ApplyRotaryEmb(torch.autograd.Function):
         dx = torch.empty_like(do)
         dx_ro = dx[..., :rotary_dim]
         dx1, dx2 = dx_ro.chunk(2, dim=-1) if not ctx.interleaved else (dx_ro[..., ::2], dx_ro[..., 1::2])
-        if gpc.config.model.use_flash_attn:
-            import rotary_emb
 
-            rotary_emb.apply_rotary(
-                do1,
-                do2,
-                rearrange(cos[:seqlen], "s d -> s 1 d"),
-                rearrange(sin[:seqlen], "s d -> s 1 d"),
-                dx1,
-                dx2,
-                True,
-            )
-        else:
-            _torch_apply_rotary_func(
-                do1,
-                do2,
-                rearrange(cos[:seqlen], "s d -> s 1 d"),
-                rearrange(sin[:seqlen], "s d -> s 1 d"),
-                dx1,
-                dx2,
-                True,
-            )
+        get_rotary_func()(
+            do1,
+            do2,
+            rearrange(cos[:seqlen], "s d -> s 1 d"),
+            rearrange(sin[:seqlen], "s d -> s 1 d"),
+            dx1,
+            dx2,
+            True,
+        )
         if rotary_dim < headdim:
             dx[..., rotary_dim:].copy_(do[..., rotary_dim:])
         return dx, None, None, None, None
@@ -204,12 +208,9 @@ class ApplyRotaryEmbQKV_(torch.autograd.Function):
         q1, q2 = q_ro.chunk(2, dim=-1) if not interleaved else (q_ro[..., ::2], q_ro[..., 1::2])
         re_cos = rearrange(cos, "s d -> s 1 d") if len(qkv.shape) == 4 else rearrange(cos[:seqlen], "s d -> s 1 d")
         re_sin = rearrange(sin, "s d -> s 1 d") if len(qkv.shape) == 4 else rearrange(sin[:seqlen], "s d -> s 1 d")
-        if gpc.config.model.use_flash_attn:
-            import rotary_emb
 
-            rotary_emb.apply_rotary(q1, q2, re_cos, re_sin, q1, q2, False)
-        else:
-            _torch_apply_rotary_func(q1, q2, re_cos, re_sin, q1, q2, False)
+        get_rotary_func()(q1, q2, re_cos, re_sin, q1, q2, False)
+
         k_ro = qkv[:, 1, :, :rotary_dim] if len(qkv.shape) == 4 else qkv[:, :, 1, :, :rotary_dim]
         k1, k2 = k_ro.chunk(2, dim=-1) if not interleaved else (k_ro[..., ::2], k_ro[..., 1::2])
         re_cos_k = (
@@ -218,10 +219,9 @@ class ApplyRotaryEmbQKV_(torch.autograd.Function):
         re_sin_k = (
             rearrange(sin_k, "s d -> s 1 d") if len(qkv.shape) == 4 else rearrange(sin_k[:seqlen], "s d -> s 1 d")
         )
-        if gpc.config.model.use_flash_attn:
-            rotary_emb.apply_rotary(k1, k2, re_cos_k, re_sin_k, k1, k2, False)
-        else:
-            _torch_apply_rotary_func(k1, k2, re_cos_k, re_sin_k, k1, k2, False)
+
+        get_rotary_func()(k1, k2, re_cos_k, re_sin_k, k1, k2, False)
+
         ctx.save_for_backward(cos, sin, cos_k, sin_k)
         ctx.interleaved = interleaved
         return qkv
@@ -236,12 +236,9 @@ class ApplyRotaryEmbQKV_(torch.autograd.Function):
         dq1, dq2 = dq_ro.chunk(2, dim=-1) if not ctx.interleaved else (dq_ro[..., ::2], dq_ro[..., 1::2])
         re_cos = rearrange(cos, "s d -> s 1 d") if len(dqkv.shape) == 4 else rearrange(cos[:seqlen], "s d -> s 1 d")
         re_sin = rearrange(sin, "s d -> s 1 d") if len(dqkv.shape) == 4 else rearrange(sin[:seqlen], "s d -> s 1 d")
-        if gpc.config.model.use_flash_attn:
-            import rotary_emb
 
-            rotary_emb.apply_rotary(dq1, dq2, re_cos, re_sin, dq1, dq2, True)
-        else:
-            _torch_apply_rotary_func(dq1, dq2, re_cos, re_sin, dq1, dq2, True)
+        get_rotary_func()(dq1, dq2, re_cos, re_sin, dq1, dq2, True)
+
         dk_ro = dqkv[:, 1, :, :rotary_dim] if len(dqkv.shape) == 4 else dqkv[:, :, 1, :, :rotary_dim]
         dk1, dk2 = dk_ro.chunk(2, dim=-1) if not ctx.interleaved else (dk_ro[..., ::2], dk_ro[..., 1::2])
         re_cos_k = (
@@ -250,10 +247,9 @@ class ApplyRotaryEmbQKV_(torch.autograd.Function):
         re_sin_k = (
             rearrange(sin_k, "s d -> s 1 d") if len(dqkv.shape) == 4 else rearrange(sin_k[:seqlen], "s d -> s 1 d")
         )
-        if gpc.config.model.use_flash_attn:
-            rotary_emb.apply_rotary(dk1, dk2, re_cos_k, re_sin_k, dk1, dk2, True)
-        else:
-            _torch_apply_rotary_func(dk1, dk2, re_cos_k, re_sin_k, dk1, dk2, True)
+
+        get_rotary_func()(dk1, dk2, re_cos_k, re_sin_k, dk1, dk2, True)
+
         return dqkv, None, None, None, None, None
 
 

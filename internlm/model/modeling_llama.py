@@ -19,10 +19,8 @@ from internlm.initialize.initialize_tensor import (
 from internlm.model.modules.embedding import Embedding1D, RotaryEmbedding
 from internlm.model.modules.mlp import get_mlp_cls
 from internlm.model.modules.multi_head_attention import (
-    CrossAttention,
-    DistributedAttention,
-    SelfAttention,
     _update_kv_cache,
+    get_gqa_attn_cls,
 )
 from internlm.model.ops.linear import (
     RewardModelLinear,
@@ -148,24 +146,12 @@ class MHA(nn.Module):
             **factory_kwargs,
         )
 
-        if use_flash_attn:
-            from flash_attn import flash_attn_varlen_kvpacked_func
-            from flash_attn.modules.mha import FlashCrossAttention, FlashSelfAttention
-
-        inner_attn_cls = FlashSelfAttention if use_flash_attn else SelfAttention
-        inner_cross_attn_cls = FlashCrossAttention if use_flash_attn else CrossAttention
-        self.inner_attn = inner_attn_cls(causal=causal, softmax_scale=softmax_scale, attention_dropout=dropout)
-        self.inner_cross_attn = inner_cross_attn_cls(
-            causal=causal, softmax_scale=softmax_scale, attention_dropout=dropout
+        self.inner_attn, self.inner_cross_attn = get_gqa_attn_cls(
+            use_flash_attn, self.tp_mode, causal, softmax_scale, dropout, sequence_process_group
         )
-
         self.inner_cross_attn_causal = causal
         self.inner_cross_attn_softmax_scale = softmax_scale
         self.inner_cross_attn_dropout = dropout
-
-        self.attn = flash_attn_varlen_kvpacked_func if use_flash_attn else SelfAttention
-        if self.tp_mode == "isp":
-            self.attn = DistributedAttention(self.attn, sequence_process_group=sequence_process_group)
 
         # output projection always have the bias (for now)
         out_proj_cls = get_linear_cls(self.tp_mode, "row")
@@ -217,9 +203,9 @@ class MHA(nn.Module):
                 if kv.dtype not in [torch.float16, torch.bfloat16]:
                     kv = kv.to(torch.bfloat16)
                 with internlm_accelerator.amp.autocast(dtype=torch.bfloat16):
-                    context = self.inner_cross_attn(q, kv).to(self.dtype)
+                    context = self.inner_cross_attn(q=q, kv=kv).to(self.dtype)
             else:
-                context = self.inner_cross_attn(q, kv)
+                context = self.inner_cross_attn(q=q, kv=kv)
 
         else:
             assert self.rotary_emb_dim > 0
@@ -293,7 +279,7 @@ class MHA(nn.Module):
             kv = torch.where(torch.isnan(kv), 0, kv)
 
             if hasattr(inference_params, "attention_mask") and inference_params.attention_mask is not None:
-                assert self.use_flash_attn is True
+                assert gpc.config.use_cuda_flash_attn is True
                 from flash_attn.flash_attn_interface import FlashAttnVarlenKVPackedFunc
 
                 if inference_params.sequence_len_offset == 0:  # First entrance, attnmask (bs*seqlen*seqlen)
@@ -388,9 +374,9 @@ class MHA(nn.Module):
                     if kv.dtype not in [torch.float16, torch.bfloat16]:
                         kv = kv.to(torch.bfloat16)
                     with internlm_accelerator.amp.autocast(dtype=torch.bfloat16):
-                        context = self.inner_cross_attn(q, kv, causal=True).to(self.dtype)
+                        context = self.inner_cross_attn(q=q, kv=kv, causal=True).to(self.dtype)
                 else:
-                    context = self.inner_cross_attn(q, kv, causal=True)
+                    context = self.inner_cross_attn(q=q, kv=kv, causal=True)
         if seqlen is None:
             context = rearrange(context, "b s h d -> b s (h d)")
         else:
@@ -438,7 +424,7 @@ class MHA(nn.Module):
                 if kv.dtype not in [torch.float16, torch.bfloat16]:
                     kv = kv.to(torch.bfloat16)
                 with internlm_accelerator.amp.autocast(dtype=torch.bfloat16):
-                    context = self.attn(
+                    context = self.inner_attn(
                         q=q,
                         kv=kv,
                         cu_seqlens_q=kwargs["cu_seqlens"],
@@ -450,7 +436,7 @@ class MHA(nn.Module):
                         causal=self.inner_cross_attn_causal,
                     ).to(self.dtype)
             else:
-                context = self.attn(
+                context = self.inner_attn(
                     q=q,
                     kv=kv,
                     cu_seqlens_q=kwargs["cu_seqlens"],
@@ -579,14 +565,14 @@ class PackedFlashLlamaLayer1D(nn.Module):
         else:
             self.attention_norm = nn.LayerNorm(hidden_size, eps=layer_norm_epsilon)
             self.ffn_norm = nn.LayerNorm(hidden_size, eps=layer_norm_epsilon)
-        if self.fused_dropout_add_ln and self.use_flash_attn:
+        if self.fused_dropout_add_ln and gpc.config.use_cuda_flash_attn:
             from flash_attn.ops.layer_norm import dropout_add_layer_norm
 
             assert dropout_add_layer_norm is not None, "dropout_add_ln is not installed"
             assert isinstance(self.attention_norm, nn.LayerNorm) and isinstance(self.dropout1, nn.Dropout)
 
         sequence_parallel = gpc.config.parallel.get("sequence_parallel", False)
-        if use_swiglu or not gpc.config.model.use_flash_attn:
+        if use_swiglu or not gpc.config.use_cuda_flash_attn:
             mlp_cls = get_mlp_cls(self.tp_mode)
             self.feed_forward = mlp_cls(
                 hidden_size,
@@ -847,7 +833,7 @@ class PackedFlashLlama1D(nn.Module):
             head_cls = ScaleColumnParallelLinear
 
         if first:
-            if embed_split_hidden or not gpc.config.model.use_flash_attn:
+            if embed_split_hidden or not gpc.config.use_cuda_flash_attn:
                 self.tok_embeddings = Embedding1D(num_embeddings=vocab_size, embedding_dim=hidden_size)
             else:
                 from flash_attn.modules.embedding import ParallelGPT2Embeddings

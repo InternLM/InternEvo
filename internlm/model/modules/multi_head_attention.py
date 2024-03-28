@@ -22,6 +22,173 @@ from internlm.model.ops.linear import get_linear_cls
 
 internlm_accelerator = get_accelerator()
 
+try:
+    import torch_npu
+except (ImportError, ModuleNotFoundError):
+    pass
+
+
+def get_gqa_attn_cls(use_flash_attn, tp_mode, causal, softmax_scale, dropout, sequence_process_group):
+    if use_flash_attn:
+        device_backend = internlm_accelerator.get_accelerator_backend()
+        if device_backend == AcceleratorType.GPU:
+            from flash_attn import flash_attn_varlen_kvpacked_func
+            from flash_attn.modules.mha import FlashCrossAttention
+
+            inner_attn, inner_cross_attn_cls = flash_attn_varlen_kvpacked_func, FlashCrossAttention
+        elif device_backend == AcceleratorType.NPU:
+            from internlm.model.modules.multi_head_attention import (
+                AscendFlashSelfAttention,
+            )
+
+            inner_attn_cls, inner_cross_attn_cls = AscendFlashSelfAttention, AscendFlashSelfAttention
+            inner_attn = inner_attn_cls(causal=causal, softmax_scale=softmax_scale, attention_dropout=dropout)
+        else:
+            raise NotImplementedError(f"Unsupport device type: {device_backend} for flash attention")
+    else:
+        inner_attn_cls, inner_cross_attn_cls = SelfAttention, CrossAttention
+        inner_attn = inner_attn_cls(causal=causal, softmax_scale=softmax_scale, attention_dropout=dropout)
+
+    inner_cross_attn = inner_cross_attn_cls(causal=causal, softmax_scale=softmax_scale, attention_dropout=dropout)
+
+    if tp_mode == "isp":
+        inner_attn = DistributedAttention(inner_attn, sequence_process_group=sequence_process_group)
+
+    return inner_attn, inner_cross_attn
+
+
+class AscendFlashSelfAttention(torch.nn.Module):
+    """Implement the scaled dot product attention with softmax.
+    Arguments
+    ---------
+        softmax_scale: The temperature to use for the softmax attention.
+                      (default: 1/sqrt(d_keys) where d_keys is computed at
+                      runtime)
+        attention_dropout: The dropout rate to apply to the attention
+                           (default: 0.0)
+    """
+
+    def __init__(
+        self,
+        causal: bool = True,
+        softmax_scale: float = None,
+        attention_dropout: float = 0.0,
+    ):
+        super().__init__()
+        assert rearrange is not None, "Please install einops first, e.g., with pip install einops"
+        self.causal = causal
+        self.softmax_scale = softmax_scale
+        self.shape_order = "BSND"
+        self.dropout_p = attention_dropout
+
+        if self.causal:
+            self.sparse_mode = 0
+            self.next_tockens = 0
+        else:
+            assert False, "Ascend flash attention unsupport causal=False now!"
+
+    def forward(
+        self,
+        qkv=None,
+        q=None,
+        k=None,
+        v=None,
+        kv=None,
+        cu_seqlens_q=None,  # pylint: disable=W0613
+        cu_seqlens_k=None,  # pylint: disable=W0613
+        max_seqlen_q=None,  # pylint: disable=W0613
+        max_seqlen_k=None,  # pylint: disable=W0613
+        dropout_p=0.0,
+        softmax_scale=None,
+        causal=False,
+        window_size=(-1, -1),  # pylint: disable=W0613
+        alibi_slopes=None,  # pylint: disable=W0613
+        deterministic=False,
+        return_attn_probs=False,  # pylint: disable=W0613
+        attention_mask=None,
+    ):
+        if qkv is not None:
+            assert (q, k, v, kv) == (None, None, None, None)
+            q = qkv[:, :, 0]
+            k = qkv[:, :, 1]
+            v = qkv[:, :, 2]
+        else:
+            assert q is not None
+            if kv is not None:
+                assert (k, v) == (None, None)
+                k = kv[:, :, 0]
+                v = kv[:, :, 1]
+            else:
+                assert k is not None and v is not None
+
+        if causal:
+            assert causal == self.causal
+        if dropout_p:
+            assert dropout_p == self.dropout_p
+        if softmax_scale:
+            assert softmax_scale == self.softmax_scale
+
+        return self._forward(q, k, v, deterministic=deterministic, attention_mask=attention_mask)
+
+    def _forward(
+        self,
+        q,
+        k,
+        v,
+        deterministic: bool = False,
+        attention_mask: Tensor = None,
+        actual_seq_qlen: Tensor = None,  # pylint: disable=W0613
+        actual_seq_kvlen: Tensor = None,  # pylint: disable=W0613
+    ):
+        """Implements the multihead softmax attention.
+        Arguments
+        ---------
+            q, k, v: The tensor containing the query, key, and value. (B, S, H, D)
+        """
+        assert q.dtype in (torch.bfloat16, torch.float16)
+
+        if len(q.shape) == 5:
+            q = q.squeeze(dim=2)
+            k = k.squeeze(dim=2)
+            v = v.squeeze(dim=2)
+
+        B, S, N, D = q.shape[0], q.shape[1], q.shape[2], q.shape[3]  # noqa: F841  # pylint: disable=W0612
+
+        if self.shape_order == "BSH":
+            q, k, v = [rearrange(x, "b s h d -> b s (h d)") for x in [q, k, v]]
+        elif self.shape_order == "SBH":
+            q, k, v = [rearrange(x, "b s h d -> s b (h d)") for x in [q, k, v]]
+        elif self.shape_order != "BSND":
+            raise ValueError("Invalid shape-order: {}, shape-order must be SBH or BSH or BSND".format(self.shape_order))
+
+        if attention_mask is None:
+            attention_mask = torch.tril(torch.ones((B, S, S), device=q.device)).view(B, 1, S, S) < 0.5
+
+        output = torch_npu.npu_fusion_attention(
+            query=q,
+            key=k,
+            value=v,
+            head_num=N,
+            input_layout="BSND",
+            pse=None,
+            atten_mask=attention_mask,
+            scale=self.softmax_scale,
+            sparse_mode=self.sparse_mode,
+            pre_tockens=k.shape[1],  # Used for sparse calculations, representing the left boundary of the slides window
+            next_tockens=self.next_tockens,
+            keep_prob=1 - self.dropout_p,
+            inner_precise=0 if not deterministic else 2,
+        )[0]
+
+        if self.shape_order == "BSH":
+            output = rearrange(output, "b s (h d) -> b s h d", h=N)
+        elif self.shape_order == "SBH":
+            output = rearrange(output, "s b (h d) -> b s h d", h=N)
+        elif self.shape_order != "BSND":
+            raise ValueError("Invalid shape-order: {}, shape-order must be SBH or BSH or BSND".format(self.shape_order))
+
+        return output
+
 
 # adpated from https://github.com/microsoft/DeepSpeed/blob/master/deepspeed/sequence/layer.py
 class _SeqAllToAll(torch.autograd.Function):
@@ -379,13 +546,20 @@ class MHA(nn.Module):
         )  # according to https://spaces.ac.cn/archives/9577
 
         if gpc.config.model.use_flash_attn:
-            from flash_attn.modules.mha import FlashCrossAttention, FlashSelfAttention
+            if internlm_accelerator.get_accelerator_backend() == AcceleratorType.GPU:
+                from flash_attn.modules.mha import (
+                    FlashCrossAttention,
+                    FlashSelfAttention,
+                )
+            elif internlm_accelerator.get_accelerator_backend() == AcceleratorType.NPU:
+                FlashCrossAttention, FlashSelfAttention = AscendFlashSelfAttention, AscendFlashSelfAttention
 
             inner_attn_cls = FlashSelfAttention
             inner_cross_attn_cls = FlashCrossAttention
         else:
             inner_attn_cls = SelfAttention
             inner_cross_attn_cls = CrossAttention
+
         self.inner_attn = inner_attn_cls(causal=causal, softmax_scale=softmax_scale, attention_dropout=dropout)
         self.inner_cross_attn = inner_cross_attn_cls(
             causal=causal, softmax_scale=softmax_scale, attention_dropout=dropout
@@ -435,9 +609,9 @@ class MHA(nn.Module):
                 with internlm_accelerator.amp.autocast(dtype=torch.bfloat16):
                     if qkv.dtype not in [torch.float16, torch.bfloat16]:
                         qkv = qkv.to(torch.bfloat16)
-                    context = self.inner_attn(qkv).to(x.dtype)
+                    context = self.inner_attn(qkv=qkv).to(x.dtype)
             else:
-                context = self.inner_attn(qkv)
+                context = self.inner_attn(qkv=qkv)
 
         else:
             if self.use_dynamic_ntk_rope:
@@ -563,7 +737,7 @@ class MHA(nn.Module):
                             if total_kv.dtype not in [torch.float16, torch.bfloat16]:
                                 total_kv = total_kv.to(torch.bfloat16)
 
-                    if gpc.config.model.use_flash_attn:
+                    if gpc.config.use_cuda_flash_attn:
                         try:
                             from flash_attn.flash_attn_interface import (
                                 flash_attn_unpadded_func,
@@ -654,9 +828,9 @@ class MHA(nn.Module):
                 with internlm_accelerator.amp.autocast(dtype=torch.bfloat16):
                     if qkv.dtype not in [torch.float16, torch.bfloat16]:
                         qkv = qkv.to(torch.bfloat16)
-                    context = self.inner_attn(qkv, **kwargs).to(x.dtype)
+                    context = self.inner_attn(qkv=qkv, **kwargs).to(x.dtype)
             else:
-                context = self.inner_attn(qkv, **kwargs)
+                context = self.inner_attn(qkv=qkv, **kwargs)
 
         else:
             raise RuntimeError("Not support this right now")

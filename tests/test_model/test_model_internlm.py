@@ -51,12 +51,13 @@ config = Config(
             dtype=torch.bfloat16,
             norm_type="rmsnorm",
             layer_norm_epsilon=1e-5,
-            use_flash_attn=True,
+            use_flash_attn=True,  # TODO: add nofa test case.
             num_chunks=1,
         ),
         resume_tb_folder="",
         tensorboard_folder="",
         alert_address=None,
+        use_cuda_flash_attn=True,
         monitor=dict(alert=dict(enable_feishu_alert=False, feishu_alert_address=None, light_monitor_address=None)),
     )
 )
