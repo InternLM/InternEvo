@@ -126,16 +126,7 @@ def do_warmup(args):
                     total_val_bsz = len(batch[1])
                     batch[0]["input_ids"] = batch[0]["input_ids"].to(torch.bfloat16)
                     assert total_val_bsz % micro_bsz == 0
-                    num_microbatches = total_val_bsz // micro_bsz
-                    tensor_shape = torch.Size(
-                        [micro_bsz, batch[0]["input_ids"].shape[1]]
-                    )  # toy model hidden size is 8.
-                    with switch_evaluation_pipeline_scheduler(
-                        trainer=trainer,
-                        num_microbatches=num_microbatches,
-                        tensor_shape=tensor_shape,
-                        metric_hook_list=[],
-                    ):
+                    with switch_evaluation_pipeline_scheduler(trainer=trainer):
                         scheduler.forward_backward_step(
                             engine, batch, forward_only=True, return_loss=False, return_output_label=False
                         )
