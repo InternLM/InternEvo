@@ -44,6 +44,7 @@ config = Config(
             valid_every=300,
             rampup_batch_size=None,
             diag_outlier_ratio=1.1,
+            use_packed_dataset=False,
         ),
         model=dict(
             checkpoint=True,
