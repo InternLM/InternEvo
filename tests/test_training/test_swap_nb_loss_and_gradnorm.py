@@ -18,7 +18,7 @@ from internlm.data import (
     build_train_loader_with_data_type,
     build_valid_loader_with_data_type,
 )
-from internlm.eval.evaluation import switch_evaluation_no_pipeline_scheduler
+from internlm.eval.evaluation import switch_evaluation_mode
 from internlm.initialize.launch import args_sanity_check
 from internlm.model.losses import FlashGPTLMLoss
 from internlm.model.metrics import AccPerplex, SchedulerMetricHook
@@ -184,12 +184,7 @@ def evaluate_on_val_dls(
             with torch.inference_mode():
                 total_val_bsz = len(batch[1])
                 assert total_val_bsz % data_cfg.micro_bsz == 0
-                grad_accum_size = total_val_bsz // data_cfg.micro_bsz
-                with switch_evaluation_no_pipeline_scheduler(
-                    trainer=trainer,
-                    grad_accum_size=grad_accum_size,
-                    metric_hook_list=[val_sche_metric_hook],
-                ):
+                with switch_evaluation_mode(trainer=trainer, metric_hook_list=[val_sche_metric_hook]):
                     _, _, loss = trainer.execute_schedule(
                         batch, forward_only=True, return_loss=True, return_output_label=False
                     )
