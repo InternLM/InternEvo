@@ -25,15 +25,15 @@ def ckpt_info_sanity_check(ckpt_config):
             load_ckpt_folder is None
         ), "Detect 'load_ckpt_folder' and 'load_model_only_folder' set at the same time, \
 # and 'load_given_ckpt' is True, so internlm will load from 'load_ckpt_folder'"
-        return dict(path=load_model_only_folder, content=("model",), ckpt_type="internlm")
+        return dict(path=load_model_only_folder, content=("model",), ckpt_type="internevo")
     else:
         load_optimizer = get_config_value(ckpt_config, "load_optimizer", True)
 
         if isinstance(load_ckpt_folder, str):
             if load_optimizer:
-                return dict(path=load_ckpt_folder, content=("model", "sampler", "optimizer"), ckpt_type="internlm")
+                return dict(path=load_ckpt_folder, content=("model", "sampler", "optimizer"), ckpt_type="internevo")
             else:
-                return dict(path=load_ckpt_folder, content=("model", "sampler"), ckpt_type="internlm")
+                return dict(path=load_ckpt_folder, content=("model", "sampler"), ckpt_type="internevo")
         elif load_ckpt_folder is None:
             return None
         else:
