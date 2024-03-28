@@ -12,7 +12,7 @@ from einops import rearrange, repeat
 from torch import Tensor, nn
 from torch.nn import Module
 
-from internlm.accelerator import get_accelerator
+from internlm.accelerator import AcceleratorType, get_accelerator
 from internlm.core.context import global_context as gpc
 from internlm.model.modules.embedding import (
     DynamicNTKScalingRotaryEmbedding,
@@ -86,7 +86,7 @@ class DistributedAttention(torch.nn.Module):
     def forward(
         self, qkv: Tensor = None, kv: Tensor = None, q: Tensor = None, k: Tensor = None, v: Tensor = None, **kwargs: Any
     ) -> Tensor:
-        if gpc.is_evaluating is True:
+        if gpc.is_evaluating is True or gpc.config.data.use_packed_dataset is False:
             # when conducting evaluation, the scatter and gather index should add 1.
             eval_scatter_gather_idx = {key: [x + 1 for x in value] for key, value in self._scatter_gather_idx.items()}
             return self._forward(qkv=qkv, kv=kv, q=q, k=k, v=v, scatter_gather=eval_scatter_gather_idx, **kwargs)
@@ -639,10 +639,16 @@ class MHA(nn.Module):
                 split x during sequence parallel, we split the batch * seqlen dimension
                 (in case batch is small).
         """
-        qkv = self.Wqkv(x)  # total x hsz'
-        qkv = rearrange(qkv, "t (three h d) -> t three h d", three=3, d=self.head_dim)  # total x 3 x n_head x d
+        qkv = self.Wqkv(x)  # bsz x total x hsz
+        qkv = rearrange(
+            qkv, "b t (three h d) -> b t three h d", three=3, d=self.head_dim
+        )  # bsz x total x 3 x n_head x d
         qkv = self.rotary_emb(qkv, **kwargs)
         kwargs.pop("indexes")
+
+        # for packed data, batch dimension with a size of 1 should be directly squeezed off.
+        if internlm_accelerator.get_accelerator_backend() == AcceleratorType.GPU:
+            qkv = qkv.squeeze(0)
         if inference_params is None:
             if gpc.config.model.dtype is torch.float32 and gpc.config.model.use_flash_attn:
                 with internlm_accelerator.amp.autocast(dtype=torch.bfloat16):
@@ -656,6 +662,10 @@ class MHA(nn.Module):
             raise RuntimeError("Not support this right now")
 
         context = rearrange(context, "b h d -> b (h d)")  # recover the shape
+        # restore bsz dimension
+        if internlm_accelerator.get_accelerator_backend() == AcceleratorType.GPU:
+            context = context.unsqueeze(0)
+
         out = self.out_proj(context)
 
         return out

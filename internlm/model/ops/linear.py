@@ -62,7 +62,7 @@ class ScaleColumnParallelLinear(BaseScaleColumnParallelLinear):
     ScaleColumnParallelLinear in flash implementation.
     """
 
-    def forward(self, input, gather_dim=0, tp_mode: str = "mtp"):  # pylint: disable=W0622
+    def forward(self, input, gather_dim=1, tp_mode: str = "mtp"):  # pylint: disable=W0622
         # If self.sequence_parallel is True, we're doing Tensor Parallel with sequence parallelism:
         # we do an all_gather of x before doing the matmul.
         # If not, then the input is already gathered.
@@ -121,7 +121,7 @@ class ScaleColumnParallelLinearWithNormHead(BaseScaleColumnParallelLinear):
         self.first_eval_flag = True
         self.tmp_weight = None
 
-    def forward(self, input, gather_dim=0, tp_mode: str = "mtp"):  # pylint: disable=W0622
+    def forward(self, input, gather_dim=1, tp_mode: str = "mtp"):  # pylint: disable=W0622
         if self.weight_scale != 1:
             weight = self.weight * self.weight_scale + (1 - self.weight_scale) * self.weight.detach()
         else:
@@ -243,7 +243,7 @@ class ColumnParallelLinearTorch(nn.Linear):
         self.process_group = process_group
         self.sequence_parallel = sequence_parallel
 
-    def forward(self, x, gather_dim=0):
+    def forward(self, x, gather_dim=1):
         # If self.sequence_parallel is True, we're doing Tensor Parallel with sequence parallelism:
         # we do an all_gather of x before doing the matmul.
         # If not, then the input is already gathered.
@@ -262,7 +262,7 @@ class MegatronColumnParallelLinearTorch(ColumnParallelLinearTorch):
     MegatronColumnParallelLinearTorch
     """
 
-    def forward(self, x, gather_dim=0):
+    def forward(self, x, gather_dim=1):
         # If self.sequence_parallel is True, we're doing Tensor Parallel with sequence parallelism:
         # we do an all_gather of x before doing the matmul.
         # If not, then the input is already gathered.
@@ -325,14 +325,16 @@ class RowParallelLinearTorch(nn.Linear):
         self.process_group = process_group
         self.sequence_parallel = sequence_parallel
 
-    def forward(self, x):
+    def forward(self, x, reduce_dim=1):
         """
         We're doing Tensor Parallel with sequence parallelism: we do the matmul and then
         a reduce_scatter of the result.
         """
         out = fused_dense_func(x, self.weight, self.bias)
-        reduce_fn = reduce_scatter if self.sequence_parallel else all_reduce
-        return reduce_fn(out, self.process_group)
+        if self.sequence_parallel:
+            return reduce_scatter(out, self.process_group, reduce_dim)
+        else:
+            return all_reduce(out, self.process_group)
 
 
 class MegatronRowParallelLinearTorch(RowParallelLinearTorch):
@@ -340,14 +342,16 @@ class MegatronRowParallelLinearTorch(RowParallelLinearTorch):
     MegatronRowParallelLinearTorch.
     """
 
-    def forward(self, x):
+    def forward(self, x, reduce_dim=1):
         """
         We're doing Tensor Parallel with sequence parallelism: we do the matmul and then
         a reduce_scatter of the result.
         """
         out = megatron_fused_dense_func(x, self.weight, self.bias)
-        reduce_fn = reduce_scatter if self.sequence_parallel else all_reduce
-        return reduce_fn(out, self.process_group)
+        if self.sequence_parallel:
+            return reduce_scatter(out, self.process_group, reduce_dim)
+        else:
+            return all_reduce(out, self.process_group)
 
 
 class ISPLinear(ColumnParallelLinearTorch):

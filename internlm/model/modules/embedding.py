@@ -367,8 +367,7 @@ class RotaryEmbedding(torch.nn.Module):
     def _single_forward(self, x, indexes=0):
         assert self.scale is None
         self._update_cos_sin_cache(x, indexes)
-        x = x[None, ...]
-        ret = apply_rotary_emb(x, self._cos_cached[indexes], self._sin_cached[indexes]).squeeze(0)
+        ret = apply_rotary_emb(x, self._cos_cached[indexes], self._sin_cached[indexes])
         return ret
 
     def _single_eval_forward(self, x, seqlen_offset=0):

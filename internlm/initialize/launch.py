@@ -329,7 +329,7 @@ def args_sanity_check():
 
     # for NPU accelerator supports: 1）FA-True + Packed-False 2) FA-False + Packed-False
     # for GPU accelerator supports: 1）FA-True + Packed-True 2) FA-False + Packed-False
-    if get_accelerator().get_accelerator_backend() == AcceleratorType.NPU:
+    if internlm_accelerator.get_accelerator_backend() == AcceleratorType.NPU:
         assert gpc.config.data.use_packed_dataset is False, "packed data is not supported for NPU accelerator"
     else:
         assert (
@@ -353,10 +353,6 @@ def args_sanity_check():
     # process the parallel config
     if "sequence_parallel" not in gpc.config.parallel:
         gpc.config.parallel._add_item("sequence_parallel", False)
-    else:
-        assert not (
-            gpc.config.parallel.sequence_parallel is True and gpc.config.model.use_flash_attn is False
-        ), "sequence parallel does not support use_flash_attn=False"
 
     # set default value for tensor parallel
     if isinstance(gpc.config.parallel["tensor"], int):
@@ -495,7 +491,7 @@ def launch(
     gpc.init_parallel_groups()
 
     # set cuda device
-    if get_accelerator().is_available():
+    if internlm_accelerator.is_available():
         # if local rank is not given, calculate automatically
         gpc.set_device(local_rank)
 
@@ -672,7 +668,7 @@ def try_bind_numa(global_rank, world_size, local_rank=None):
             return
 
         if local_rank is None:
-            devices_per_node = get_accelerator().device_count()
+            devices_per_node = internlm_accelerator.device_count()
             local_rank = global_rank % devices_per_node
 
         # compute numa id for each locak rank

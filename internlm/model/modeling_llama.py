@@ -6,7 +6,7 @@ import torch.nn.functional as F
 from einops import rearrange
 from torch import nn
 
-from internlm.accelerator import get_accelerator
+from internlm.accelerator import AcceleratorType, get_accelerator
 from internlm.core.context import ParallelMode
 from internlm.core.context.parallel_context import global_context as gpc
 from internlm.core.naive_amp import set_output_attr_to_module
@@ -410,9 +410,9 @@ class MHA(nn.Module):
         """
         assert self.use_flash_attn is True
         q, k, v = self.wq(x), self.wk(x), self.wv(x)
-        q = rearrange(q, "t (h d) -> t h d", d=self.head_dim)
-        k = rearrange(k, "t (h d) -> t h d", d=self.head_dim)
-        v = rearrange(v, "t (h d) -> t h d", d=self.head_dim)
+        q = rearrange(q, "b t (h d) -> b t h d", d=self.head_dim)
+        k = rearrange(k, "b t (h d) -> b t h d", d=self.head_dim)
+        v = rearrange(v, "b t (h d) -> b t h d", d=self.head_dim)
 
         # qkv shift
         # the rotary embedding in flash attention module in performed by separating the front and back parts, while
@@ -426,7 +426,12 @@ class MHA(nn.Module):
         k = self.rotary_emb._single_forward(k, indexes=indexes)
 
         if inference_params is None:
-            kv = torch.concat([k.unsqueeze(1), v.unsqueeze(1)], dim=1)
+            kv = torch.concat([k.unsqueeze(2), v.unsqueeze(2)], dim=2)
+            # for packed data, batch dimension with a size of 1 should be directly squeezed off.
+            if internlm_accelerator.get_accelerator_backend() == AcceleratorType.GPU:
+                q = q.squeeze(0)
+                kv = kv.squeeze(0)
+
             if self.dtype is torch.float32:
                 if q.dtype not in [torch.float16, torch.bfloat16]:
                     q = q.to(torch.bfloat16)
@@ -458,7 +463,12 @@ class MHA(nn.Module):
                 )
         else:
             raise RuntimeError("Not support this right now")
+
         context = rearrange(context, "b h d -> b (h d)")  # recover shape
+        # restore bsz dimension
+        if internlm_accelerator.get_accelerator_backend() == AcceleratorType.GPU:
+            context = context.unsqueeze(0)
+
         out = self.wo(context)
         return out
 
@@ -934,8 +944,6 @@ class PackedFlashLlama1D(nn.Module):
 
         if cu_seqlens is not None:
             cu_seqlens = cu_seqlens.squeeze(0)
-            hidden_states = hidden_states.squeeze(0)  # If cu_seqlens is passed in，it indicated a packed state，
-            # the batch dimension with a size of 1 should be directly squeezed off.
 
         if indexes is not None:
             assert len(indexes) == 1
@@ -961,11 +969,7 @@ class PackedFlashLlama1D(nn.Module):
             hidden_states = self.norm(hidden_states.float())
 
         if hasattr(self, "output"):
-            # Evaluation
-            if gpc.is_evaluating is True:
-                hidden_states = self.output(hidden_states, gather_dim=1, tp_mode=self.tp_mode)
-            else:  # Training
-                hidden_states = self.output(hidden_states, gather_dim=0, tp_mode=self.tp_mode)
+            hidden_states = self.output(hidden_states, gather_dim=1, tp_mode=self.tp_mode)
 
         if not self.parallel_output and gpc.is_pipeline_last_stage():
             hidden_states = gather_forward_split_backward(hidden_states, ParallelMode.TENSOR, dim=-1)

@@ -36,24 +36,34 @@ def get_tensor_shape():
         return None
 
     if hasattr(gpc.config, "SEQ_LEN") and hasattr(gpc.config.data, "micro_bsz") and hasattr(gpc.config, "HIDDEN_SIZE"):
-        if gpc.config.data.use_packed_dataset:
+        if gpc.config.data.use_packed_dataset and gpc.is_evaluating is False:
             if gpc.config.parallel.sequence_parallel:
                 sequence_world_size = gpc.get_world_size(ParallelMode.TENSOR)
                 tensor_shape = (
+                    1,
                     gpc.config.data["seq_len"] * gpc.config.data["micro_bsz"] // sequence_world_size,
                     gpc.config.model["hidden_size"],
                 )
             else:
                 tensor_shape = (
+                    1,
                     gpc.config.data["seq_len"] * gpc.config.data["micro_bsz"],
                     gpc.config.model["hidden_size"],
                 )
         else:
-            tensor_shape = (
-                gpc.config.data["micro_bsz"],
-                gpc.config.data["seq_len"],
-                gpc.config.model["hidden_size"],
-            )
+            if gpc.config.parallel.sequence_parallel:
+                sequence_world_size = gpc.get_world_size(ParallelMode.TENSOR)
+                tensor_shape = (
+                    gpc.config.data["micro_bsz"],
+                    gpc.config.data["seq_len"] // sequence_world_size,
+                    gpc.config.model["hidden_size"],
+                )
+            else:
+                tensor_shape = (
+                    gpc.config.data["micro_bsz"],
+                    gpc.config.data["seq_len"],
+                    gpc.config.model["hidden_size"],
+                )
         return tensor_shape
     else:
         return None
