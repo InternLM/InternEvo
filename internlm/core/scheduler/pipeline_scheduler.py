@@ -64,7 +64,7 @@ def get_tensor_shape():
                     gpc.config.data["seq_len"],
                     gpc.config.model["hidden_size"],
                 )
-        return tensor_shape
+        return torch.Size(tensor_shape)
     else:
         return None
 

@@ -192,7 +192,7 @@ def calc_l2_norm(grads):
     norm = 0.0
     if len(grads) > 0:
         if APEX_AVAILABLE:
-            dummy_overflow_buf = internlm_accelerator.IntTensor([0])
+            dummy_overflow_buf = torch.tensor([0], device=get_current_device(), dtype=torch.int32)
             norm, _ = multi_tensor_applier(
                 amp_C.multi_tensor_l2norm,
                 dummy_overflow_buf,
@@ -282,7 +282,7 @@ def compute_norm(gradients, parameters, norm_type=2, zero_mode=ParallelMode.ZERO
     # Calculate norm.
     if norm_type == inf:
         total_norm = max(g.data.abs().max() for g in gradients)
-        total_norm_cuda = torch.FloatTensor([float(total_norm)], device=gradients[0].device)
+        total_norm_cuda = torch.tensor([float(total_norm)], device=gradients[0].device, dtype=torch.float32)
 
         # Take max across all model-parallel GPUs.
         if is_tensor_data_parallel_parameter(parameters[0]):
@@ -387,7 +387,7 @@ class BaseGradScaler(ABC):
 
     def __init__(self, initial_scale: float):
         assert initial_scale > 0
-        self._scale = internlm_accelerator.FloatTensor([initial_scale])
+        self._scale = torch.tensor([initial_scale], device=get_current_device(), dtype=torch.float32)
 
     @property
     def scale(self) -> Tensor:
@@ -453,12 +453,12 @@ class DynamicGradScaler(BaseGradScaler):
     ):
         super().__init__(initial_scale)
         if min_scale:
-            self._min_scale = internlm_accelerator.FloatTensor([min_scale])
+            self._min_scale = torch.tensor([min_scale], device=get_current_device(), dtype=torch.float32)
         else:
             self._min_scale = None
 
         if max_scale:
-            self._max_scale = internlm_accelerator.FloatTensor([max_scale])
+            self._max_scale = torch.tensor([max_scale], device=get_current_device(), dtype=torch.float32)
         else:
             self._max_scale = None
 

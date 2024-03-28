@@ -13,7 +13,7 @@ from internlm.core.trainer import TrainState
 from internlm.data import build_train_loader_with_data_type, build_valid_loader_with_data_type
 from internlm.train import load_new_batch
 from internlm.eval.evaluation import (
-    switch_evaluation_no_pipeline_scheduler,
+    switch_evaluation_mode,
     switch_evaluation_pipeline_scheduler,
 )
 
@@ -119,33 +119,21 @@ def do_warmup(args):
         ), f"{tokens_num} == {answer[i] * gpc.config.data.seq_len * micro_bsz}"
 
     # test no-packed datasets.
-    for _, val_dl in val_dls.items():
-        for _, batch in enumerate(val_dl):
-            if gpc.is_using_parallel_mode(ParallelMode.PIPELINE):
-                total_val_bsz = len(batch[1])
-                batch[0]["input_ids"] = batch[0]["input_ids"].to(torch.bfloat16)
-                assert total_val_bsz % micro_bsz == 0
-                num_microbatches = total_val_bsz // micro_bsz
-                tensor_shape = torch.Size([micro_bsz, batch[0]["input_ids"].shape[1]])  # toy model hidden size is 8.
-                with switch_evaluation_pipeline_scheduler(
-                    trainer=trainer,
-                    num_microbatches=num_microbatches,
-                    tensor_shape=tensor_shape,
-                    metric_hook_list=[],
-                ):
-                    scheduler.forward_backward_step(
-                        engine, batch, forward_only=True, return_loss=False, return_output_label=False
-                    )
-            else:
-                total_val_bsz = len(batch[1])
-                batch[0]["input_ids"] = batch[0]["input_ids"].to(torch.bfloat16)
-                assert total_val_bsz % micro_bsz == 0
-                grad_accum_size = total_val_bsz // micro_bsz
-                with switch_evaluation_no_pipeline_scheduler(
-                    trainer=trainer,
-                    grad_accum_size=grad_accum_size,
-                    metric_hook_list=[],
-                ):
+    with switch_evaluation_mode(trainer=trainer, metric_hook_list=[]):
+        for _, val_dl in val_dls.items():
+            for _, batch in enumerate(val_dl):
+                if gpc.is_using_parallel_mode(ParallelMode.PIPELINE):
+                    total_val_bsz = len(batch[1])
+                    batch[0]["input_ids"] = batch[0]["input_ids"].to(torch.bfloat16)
+                    assert total_val_bsz % micro_bsz == 0
+                    with switch_evaluation_pipeline_scheduler(trainer=trainer):
+                        scheduler.forward_backward_step(
+                            engine, batch, forward_only=True, return_loss=False, return_output_label=False
+                        )
+                else:
+                    total_val_bsz = len(batch[1])
+                    batch[0]["input_ids"] = batch[0]["input_ids"].to(torch.bfloat16)
+                    assert total_val_bsz % micro_bsz == 0
                     scheduler.forward_backward_step(
                         engine, batch, forward_only=True, return_loss=False, return_output_label=False
                     )

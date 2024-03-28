@@ -119,7 +119,7 @@ class HybridZeroOptimizer(BaseOptimizer):
             hysteresis=hysteresis,
             max_scale=max_scale,
         )
-        self._found_overflow = internlm_accelerator.FloatTensor([0], device=get_current_device())
+        self._found_overflow = torch.tensor([0], device=get_current_device(), dtype=torch.float32)
 
         # gradient clipping
         self._clip_grad_norm = clip_grad_norm

@@ -7,6 +7,7 @@ from tqdm import tqdm
 from internlm.accelerator import get_accelerator
 from internlm.core.context import ParallelMode
 from internlm.core.context import global_context as gpc
+from internlm.core.scheduler.pipeline_scheduler import get_tensor_shape
 from internlm.model.metrics import AccPerplex, SchedulerMetricHook
 from internlm.utils.common import get_current_device
 
@@ -14,60 +15,31 @@ internlm_accelerator = get_accelerator()
 
 
 @contextmanager
-def switch_evaluation_no_pipeline_scheduler(trainer, grad_accum_size, metric_hook_list):
-    if not gpc.is_using_parallel_mode(ParallelMode.PIPELINE):
-        prev_data_process_func = trainer.schedule.data_process_func
-        prev_grad_accum_size = trainer.schedule._grad_accum_size
-        prev_metric_hooks = trainer.schedule._hooks
-        try:
-            trainer.schedule.data_process_func = None
-            trainer.schedule._grad_accum_size = grad_accum_size
-            trainer.schedule._hooks = metric_hook_list
-            yield
-        finally:
-            trainer.schedule.data_process_func = prev_data_process_func
-            trainer.schedule._grad_accum_size = prev_grad_accum_size
-            trainer.schedule._hooks = prev_metric_hooks
-
-
-@contextmanager
-def switch_evaluation_pipeline_scheduler(trainer, num_microbatches, tensor_shape, metric_hook_list):
+def switch_evaluation_pipeline_scheduler(trainer):
     if gpc.is_using_parallel_mode(ParallelMode.PIPELINE):
-        pre_data_process_func = trainer.schedule.data_process_func
-        prev_num_microbatches = trainer.schedule.num_microbatches
         prev_tensor_shape = trainer.schedule.tensor_shape
-        prev_metric_hooks = trainer.schedule._hooks
         try:
-            trainer.schedule.data_process_func = None
-            trainer.schedule.num_microbatches = num_microbatches
-            trainer.schedule.tensor_shape = tensor_shape
-            trainer.schedule._hooks = metric_hook_list
+            trainer.schedule.tensor_shape = get_tensor_shape()
             yield
         finally:
-            trainer.schedule.data_process_func = pre_data_process_func
-            trainer.schedule.num_microbatches = prev_num_microbatches
             trainer.schedule.tensor_shape = prev_tensor_shape
-            trainer.schedule._hooks = prev_metric_hooks
 
 
 @contextmanager
-def switch_evaluation_mode():
-    prev_seq = gpc.config.parallel.sequence_parallel
+def switch_evaluation_mode(trainer, metric_hook_list):
     prev_eval = gpc.is_evaluating
+    pre_data_process_func = trainer.schedule.data_process_func
+    prev_metric_hooks = trainer.schedule._hooks
     try:
         gpc.is_evaluating = True
-
-        # when training x.shape is torch.Size([1024, 4096]), linear all gather in dim=0(sequence dim)
-        # but evaluation x.shape is torch.Size([1, 1024, 4096]), gather in dim=0 is error.
-        if gpc.config.parallel["tensor"]["mode"] == "isp":
-            gpc.config.parallel.sequence_parallel = True
-        else:
-            gpc.config.parallel.sequence_parallel = False
+        trainer.schedule.data_process_func = None
+        trainer.schedule._hooks = metric_hook_list
 
         yield
     finally:
-        gpc.config.parallel.sequence_parallel = prev_seq
         gpc.is_evaluating = prev_eval
+        trainer.schedule.data_process_func = pre_data_process_func
+        trainer.schedule._hooks = prev_metric_hooks
 
 
 def evaluate_on_val_dls(
@@ -79,7 +51,14 @@ def evaluate_on_val_dls(
     update_panel: bool = False,
     streaming: bool = False,
 ):
-    with switch_evaluation_mode():
+    val_metric = AccPerplex(
+        device=get_current_device(),
+        tp_pg=gpc.get_group(ParallelMode.TENSOR),
+        dp_pg=gpc.get_group(ParallelMode.DATA),
+    )
+    val_sche_metric_hook = SchedulerMetricHook(metric=val_metric)
+
+    with switch_evaluation_mode(trainer, metric_hook_list=[val_sche_metric_hook]):
         internlm_accelerator.empty_cache()
         trainer.eval()
         verbose = gpc.is_rank_for_log()
@@ -89,13 +68,6 @@ def evaluate_on_val_dls(
             if not streaming and len(val_dl) == 0 and verbose:
                 logger.info(f"Validation dataset: {val_name} is empty")
                 continue
-
-            val_metric = AccPerplex(
-                device=get_current_device(),
-                tp_pg=gpc.get_group(ParallelMode.TENSOR),
-                dp_pg=gpc.get_group(ParallelMode.DATA),
-            )
-            val_sche_metric_hook = SchedulerMetricHook(metric=val_metric)
 
             val_loss = 0
             val_idx = -1
@@ -109,30 +81,11 @@ def evaluate_on_val_dls(
             ):
                 moe_loss = None
                 with torch.inference_mode():
-                    if gpc.is_using_parallel_mode(ParallelMode.PIPELINE):
-                        total_val_bsz = len(batch[1])
-                        assert total_val_bsz % data_cfg.micro_bsz == 0
-                        num_microbatches = total_val_bsz // data_cfg.micro_bsz
-                        if gpc.config.parallel.sequence_parallel:
-                            sequence_world_size = gpc.get_world_size(ParallelMode.TENSOR)
-                            tensor_shape = torch.Size(
-                                [
-                                    data_cfg.micro_bsz,
-                                    batch[0]["input_ids"].shape[1] // sequence_world_size,
-                                    gpc.config.HIDDEN_SIZE,
-                                ]
-                            )
-                        else:
-                            tensor_shape = torch.Size(
-                                [data_cfg.micro_bsz, batch[0]["input_ids"].shape[1], gpc.config.HIDDEN_SIZE]
-                            )
+                    total_val_bsz = len(batch[1])
+                    assert total_val_bsz % data_cfg.micro_bsz == 0
 
-                        with switch_evaluation_pipeline_scheduler(
-                            trainer=trainer,
-                            num_microbatches=num_microbatches,
-                            tensor_shape=tensor_shape,
-                            metric_hook_list=[val_sche_metric_hook],
-                        ):
+                    if gpc.is_using_parallel_mode(ParallelMode.PIPELINE):
+                        with switch_evaluation_pipeline_scheduler(trainer=trainer):
                             # Compatible for non-moe
                             if hasattr(gpc.config.model, "num_experts"):
                                 _, _, loss, moe_loss = trainer.execute_schedule(
@@ -143,22 +96,14 @@ def evaluate_on_val_dls(
                                     batch, forward_only=True, return_loss=True, return_output_label=False
                                 )
                     else:
-                        total_val_bsz = len(batch[1])
-                        assert total_val_bsz % data_cfg.micro_bsz == 0
-                        grad_accum_size = total_val_bsz // data_cfg.micro_bsz
-                        with switch_evaluation_no_pipeline_scheduler(
-                            trainer=trainer,
-                            grad_accum_size=grad_accum_size,
-                            metric_hook_list=[val_sche_metric_hook],
-                        ):
-                            if hasattr(gpc.config.model, "num_experts"):
-                                _, _, loss, moe_loss = trainer.execute_schedule(
-                                    batch, forward_only=True, return_loss=True, return_output_label=False
-                                )
-                            else:
-                                _, _, loss = trainer.execute_schedule(
-                                    batch, forward_only=True, return_loss=True, return_output_label=False
-                                )
+                        if hasattr(gpc.config.model, "num_experts"):
+                            _, _, loss, moe_loss = trainer.execute_schedule(
+                                batch, forward_only=True, return_loss=True, return_output_label=False
+                            )
+                        else:
+                            _, _, loss = trainer.execute_schedule(
+                                batch, forward_only=True, return_loss=True, return_output_label=False
+                            )
                 if verbose:
                     val_loss += loss.item() - moe_loss.item() if moe_loss is not None else loss.item()
 
