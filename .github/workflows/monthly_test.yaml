@@ -22,7 +22,10 @@ jobs:
     - name: training_tp_norm_layer_msp
       run: |
         source activate ${evo_env_torch21_flash2}
-        srun -p ${SLURM_PARTITION} --kill-on-bad-exit=1 --job-name=monthly-test-${GITHUB_RUN_ID}-${GITHUB_JOB} -N 1 -n 8 --gres=gpu:8 pytest -s -v --color=yes -m "check_norm_msp" ./tests/test_training/test_norm_weight.py
+        jobname=${GITHUB_RUN_ID}-${GITHUB_JOB}-${GITHUB_RUN_ATTEMPT}
+        srun -p ${SLURM_PARTITION} --kill-on-bad-exit=1 --job-name=$jobname -N 1 -n 8 --gres=gpu:8 pytest -s -v --color=yes -m "check_norm_msp" ./tests/test_training/test_norm_weight.py
+        exit_code=$?
+        sh ./ci_scripts/common/check_slurm_cancled.sh $exit_code $jobname
 
   training_tp_norm_layer_fsp:
     runs-on: [t_cluster]
@@ -38,7 +41,10 @@ jobs:
     - name: training_tp_norm_layer_fsp
       run: |
         source activate ${evo_env_torch21_flash2}
-        srun -p ${SLURM_PARTITION} --kill-on-bad-exit=1 --job-name=monthly-test-${GITHUB_RUN_ID}-${GITHUB_JOB} -N 1 -n 8 --gres=gpu:8 pytest -s -v --color=yes -m "check_norm_fsp" ./tests/test_training/test_norm_weight.py
+        jobname=${GITHUB_RUN_ID}-${GITHUB_JOB}-${GITHUB_RUN_ATTEMPT}
+        srun -p ${SLURM_PARTITION} --kill-on-bad-exit=1 --job-name=$jobname -N 1 -n 8 --gres=gpu:8 pytest -s -v --color=yes -m "check_norm_fsp" ./tests/test_training/test_norm_weight.py
+        exit_code=$?
+        sh ./ci_scripts/common/check_slurm_cancled.sh $exit_code $jobname
 
   training_tp_norm_layer_isp:
     runs-on: [t_cluster]
@@ -54,7 +60,10 @@ jobs:
     - name: training_tp_norm_layer_isp
       run: |
         source activate ${evo_env_torch21_flash2}
-        srun -p ${SLURM_PARTITION} --kill-on-bad-exit=1 --job-name=monthly-test-${GITHUB_RUN_ID}-${GITHUB_JOB} -N 1 -n 8 --gres=gpu:8 pytest -s -v --color=yes -m "check_norm_isp" ./tests/test_training/test_norm_weight.py
+        jobname=${GITHUB_RUN_ID}-${GITHUB_JOB}-${GITHUB_RUN_ATTEMPT}
+        srun -p ${SLURM_PARTITION} --kill-on-bad-exit=1 --job-name=$jobname -N 1 -n 8 --gres=gpu:8 pytest -s -v --color=yes -m "check_norm_isp" ./tests/test_training/test_norm_weight.py
+        exit_code=$?
+        sh ./ci_scripts/common/check_slurm_cancled.sh $exit_code $jobname
 
   notify_to_feishu:
     if: ${{ always() && !cancelled() && contains(needs.*.result, 'failure') && (github.ref_name == 'develop' || github.ref_name == 'main') }}
