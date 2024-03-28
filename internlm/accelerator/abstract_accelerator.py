@@ -42,19 +42,13 @@ class Accelerator:
         """
         raise NotImplementedError
 
-    def device(self, device_index=None):
-        """
-        Return the device object.
-        """
-        raise NotImplementedError
-
     def set_device(self, device_index):
         """
         Bind the current process to a device.
         """
         raise NotImplementedError
 
-    def current_device(self):
+    def get_device_id(self):
         """
         Return the current device index.
         """

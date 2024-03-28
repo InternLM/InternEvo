@@ -202,7 +202,7 @@ class NaiveAMPModel(nn.Module):
                 sub_module.register_forward_hook(partial(_post_forward_hook_for_fp32))
             if gpc.config.get("output_tf32", False) and module_is_output(sub_module):
                 sub_module.to(fp32_dtype)
-                if get_accelerator().get_accelerator_backend() == AcceleratorType.GPU:
+                if internlm_accelerator.get_accelerator_backend() == AcceleratorType.GPU:
                     torch.backends.cudnn.allow_tf32 = True
                     torch.backends.cuda.matmul.allow_tf32 = True
                 sub_module.register_forward_pre_hook(partial(_pre_forward_hook_for_fp32))

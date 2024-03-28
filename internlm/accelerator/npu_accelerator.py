@@ -39,19 +39,13 @@ class ASCEND_Accelerator(Accelerator):
             return "npu"
         return "npu:{}".format(device_index)
 
-    def device(self, device_index=None):
-        """
-        Return the device object.
-        """
-        return torch.npu.device(device_index)
-
     def set_device(self, device_index):
         """
         Bind the current process to a device.
         """
         torch.npu.set_device(device_index)
 
-    def current_device(self):
+    def get_device_id(self):
         """
         Return the current device index.
         """
