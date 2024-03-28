@@ -236,7 +236,7 @@ def main(args):
             f"_tp{gpc.get_local_rank(ParallelMode.TENSOR)}"
             f"_pp{gpc.get_local_rank(ParallelMode.PIPELINE)}.pt"
         )
-        ckpt_path = os.path.join(os.environ["share_path"], "quailty_assurance/7B_init_8_tp=4_pp=2_ckpt", ckpt_name)
+        ckpt_path = os.path.join(os.environ["share_path"], "quailty_assurance/7B_init_dp=2_tp=2_pp=2_ckpt", ckpt_name)
         check_model_weights(model, ckpt_path, total_equal=True)
 
     with initialize_llm_profile(profiling=args.profiling, start_time=current_time) as prof:
