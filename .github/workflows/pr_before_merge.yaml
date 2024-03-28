@@ -26,4 +26,7 @@ jobs:
       run: |
         source activate ${evo_env_torch21_flash2}
         export PYTHONPATH=$PWD:$PYTHONPATH
-        srun -p ${SLURM_PARTITION} --kill-on-bad-exit=1 --job-name=internlm-${GITHUB_RUN_ID}-${GITHUB_JOB} -N 1 -n 8 --ntasks-per-node=8 --gpus-per-task=1 python ./tests/test_training/train_CI.py --config ./tests/test_training/7B_check_init.py --seed=1024
+        jobname=internlm-${GITHUB_RUN_ID}-${GITHUB_JOB}-${GITHUB_RUN_ATTEMPT}
+        srun -p ${SLURM_PARTITION} --kill-on-bad-exit=1 --job-name=$jobname -N 1 -n 8 --ntasks-per-node=8 --gpus-per-task=1 python ./tests/test_training/train_CI.py --config ./tests/test_training/7B_check_init.py --seed=1024
+        exit_code=$?
+        sh ./ci_scripts/common/check_slurm_cancled.sh $exit_code $jobname

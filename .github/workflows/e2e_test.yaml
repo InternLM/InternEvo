@@ -24,7 +24,10 @@ jobs:
     - name: training_4GPU
       run: |
         source activate ${evo_env_torch21_flash2}
-        srun -p ${SLURM_PARTITION} --exclusive --kill-on-bad-exit=1 --job-name=${GITHUB_RUN_ID}-${GITHUB_JOB} -n4 --ntasks-per-node=4 --cpus-per-task=4 --gpus-per-task=1 pytest -s -v --color=yes -m "training_4GPU" ./tests/test_training/test_loss.py
+        jobname=${GITHUB_RUN_ID}-${GITHUB_JOB}-${GITHUB_RUN_ATTEMPT}
+        srun -p ${SLURM_PARTITION} --exclusive --kill-on-bad-exit=1 --job-name=$jobname -n4 --ntasks-per-node=4 --cpus-per-task=4 --gpus-per-task=1 pytest -s -v --color=yes -m "training_4GPU" ./tests/test_training/test_loss.py
+        exit_code=$?
+        sh ./ci_scripts/common/check_slurm_cancled.sh $exit_code $jobname
 
   training_8GPU_ISP:
     runs-on: [t_cluster]
@@ -39,7 +42,10 @@ jobs:
     - name: training_8GPU_ISP
       run: |
         source activate ${evo_env_torch21_flash2}
-        srun -p ${SLURM_PARTITION} --kill-on-bad-exit=1 --job-name=${GITHUB_RUN_ID}-${GITHUB_JOB} -n8 --ntasks-per-node=8 --cpus-per-task=4 --gpus-per-task=1 pytest -s -v --color=yes -m "training_8GPU_ISP" ./tests/test_training/test_loss.py
+        jobname=ISP-${GITHUB_RUN_ID}-${GITHUB_JOB}-${GITHUB_RUN_ATTEMPT}
+        srun -p ${SLURM_PARTITION} --kill-on-bad-exit=1 --job-name=$jobname -n8 --ntasks-per-node=8 --cpus-per-task=4 --gpus-per-task=1 pytest -s -v --color=yes -m "training_8GPU_ISP" ./tests/test_training/test_loss.py
+        exit_code=$?
+        sh ./ci_scripts/common/check_slurm_cancled.sh $exit_code $jobname
 
   training_8GPU_ISP_CKPT:
     runs-on: [t_cluster]
@@ -54,8 +60,10 @@ jobs:
     - name: training_8GPU_ISP_CKPT
       run: |
         source activate ${evo_env_torch21_flash2}
-        srun -p ${SLURM_PARTITION} --kill-on-bad-exit=1 --job-name=${GITHUB_RUN_ID}-${GITHUB_JOB} -n8 --ntasks-per-node=8 --cpus-per-task=4 --gpus-per-task=1 pytest -s -v --color=yes -m "training_8GPU_ISP_SAVE_CKPT" ./tests/test_training/test_loss.py
-        srun -p ${SLURM_PARTITION} --kill-on-bad-exit=1 --job-name=${GITHUB_RUN_ID}-${GITHUB_JOB} -n8 --ntasks-per-node=8 --cpus-per-task=4 --gpus-per-task=1 pytest -s -v --color=yes -m "training_8GPU_ISP_LOAD_CKPT" ./tests/test_training/test_loss.py
+        jobname=ISP_CKPT-${GITHUB_RUN_ID}-${GITHUB_JOB}-${GITHUB_RUN_ATTEMPT}
+        srun -p ${SLURM_PARTITION} --kill-on-bad-exit=1 --job-name=$jobname -n8 --ntasks-per-node=8 --cpus-per-task=4 --gpus-per-task=1 pytest -s -v --color=yes -m "training_8GPU_ISP_SAVE_CKPT or training_8GPU_ISP_LOAD_CKPT" ./tests/test_training/test_loss.py
+        exit_code=$?
+        sh ./ci_scripts/common/check_slurm_cancled.sh $exit_code $jobname
 
   training_llama2:
     runs-on: [t_cluster]
@@ -70,7 +78,10 @@ jobs:
     - name: training_llama2
       run: |
         source activate ${evo_env_torch21_flash2}
-        srun -p ${SLURM_PARTITION} --kill-on-bad-exit=1 --job-name=${GITHUB_RUN_ID}-${GITHUB_JOB} -n8 --ntasks-per-node=8 --cpus-per-task=4 --gpus-per-task=1 pytest -s -v --color=yes -m "training_llama2" ./tests/test_training/test_loss.py
+        jobname=${GITHUB_RUN_ID}-${GITHUB_JOB}-${GITHUB_RUN_ATTEMPT}
+        srun -p ${SLURM_PARTITION} --kill-on-bad-exit=1 --job-name=$jobname -n8 --ntasks-per-node=8 --cpus-per-task=4 --gpus-per-task=1 pytest -s -v --color=yes -m "training_llama2" ./tests/test_training/test_loss.py
+        exit_code=$?
+        sh ./ci_scripts/common/check_slurm_cancled.sh $exit_code $jobname
 
   training_internlm2:
     runs-on: [t_cluster]
@@ -85,4 +96,7 @@ jobs:
     - name: training_internlm2
       run: |
         source activate ${evo_env_torch21_flash2}
-        srun -p ${SLURM_PARTITION} --kill-on-bad-exit=1 --job-name=${GITHUB_RUN_ID}-${GITHUB_JOB} -n8 --ntasks-per-node=8 --cpus-per-task=4 --gpus-per-task=1 pytest -s -v --color=yes -m "training_internlm2" ./tests/test_training/test_loss.py
+        jobname=${GITHUB_RUN_ID}-${GITHUB_JOB}-${GITHUB_RUN_ATTEMPT}
+        srun -p ${SLURM_PARTITION} --kill-on-bad-exit=1 --job-name=$jobname -n8 --ntasks-per-node=8 --cpus-per-task=4 --gpus-per-task=1 pytest -s -v --color=yes -m "training_internlm2" ./tests/test_training/test_loss.py
+        exit_code=$?
+        sh ./ci_scripts/common/check_slurm_cancled.sh $exit_code $jobname

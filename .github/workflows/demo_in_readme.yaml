@@ -83,6 +83,9 @@ jobs:
         export PYTHONPATH=$PWD:$PYTHONPATH
         sh ./ci_scripts/model/convert_to_hf.sh
         cd ./hf_ckpt
-        srun -p ${SLURM_PARTITION} --kill-on-bad-exit=1 --job-name=${GITHUB_RUN_ID}-${GITHUB_JOB} --gpus-per-task=2 python ../ci_scripts/model/loaded_as_transformer.py
+        jobname=${GITHUB_RUN_ID}-${GITHUB_JOB}-${GITHUB_RUN_ATTEMPT}
+        srun -p ${SLURM_PARTITION} --kill-on-bad-exit=1 --job-name=$jobname --gpus-per-task=2 python ../ci_scripts/model/loaded_as_transformer.py
+        exit_code=$?
         cd ..
         rsync -av --remove-source-files $GITHUB_WORKSPACE/hf_ckpt ${{env.WORKSPACE_PREFIX}}/ci_clean_bak
+        sh ./ci_scripts/common/check_slurm_cancled.sh $exit_code $jobname

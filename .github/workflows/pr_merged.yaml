@@ -26,7 +26,10 @@ jobs:
       run: |
         source activate ${evo_env_torch21_flash2}
         export PYTHONPATH=$PWD:$PYTHONPATH
-        srun -p ${SLURM_PARTITION} --kill-on-bad-exit=1 --job-name=internlm-acc-test-${GITHUB_RUN_ID}-${GITHUB_JOB} -N 1 -n 8 --ntasks-per-node=8 --gpus-per-task=1  python ./tests/test_training/train_CI.py --config ./tests/test_training/7B_check_acc.py
+        jobname=${GITHUB_RUN_ID}-${GITHUB_JOB}-${GITHUB_RUN_ATTEMPT}
+        srun -p ${SLURM_PARTITION} --kill-on-bad-exit=1 --job-name=$jobname -N 1 -n 8 --ntasks-per-node=8 --gpus-per-task=1  python ./tests/test_training/train_CI.py --config ./tests/test_training/7B_check_acc.py
+        exit_code=$?
+        sh ./ci_scripts/common/check_slurm_cancled.sh $exit_code $jobname
 
   check_loss_when_swapping_micro_num_and_micro_bsz:
     runs-on: [t_cluster]
@@ -42,7 +45,10 @@ jobs:
       run: |
         source activate ${evo_env_torch21_flash2}
         export PYTHONPATH=$PWD:$PYTHONPATH
-        srun -p ${SLURM_PARTITION} --kill-on-bad-exit=1 --job-name=internlm-loss-test-${GITHUB_RUN_ID}-${GITHUB_JOB} -N 1 -n 1 --gres=gpu:8 python -m pytest -s ./tests/test_training/test_swap_nb_loss_and_gradnorm.py
+        jobname=${GITHUB_RUN_ID}-${GITHUB_JOB}-${GITHUB_RUN_ATTEMPT}
+        srun -p ${SLURM_PARTITION} --kill-on-bad-exit=1 --job-name=$jobname -N 1 -n 1 --gres=gpu:8 python -m pytest -s ./tests/test_training/test_swap_nb_loss_and_gradnorm.py
+        exit_code=$?
+        sh ./ci_scripts/common/check_slurm_cancled.sh $exit_code $jobname
 
   notify_to_feishu:
     if: ${{ always() && !cancelled() && contains(needs.*.result, 'failure') && (github.ref_name == 'develop' || github.ref_name == 'main') }}
