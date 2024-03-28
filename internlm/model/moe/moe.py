@@ -4,7 +4,7 @@ import internlm.moe  # noqa # pylint: disable=W0611
 from internlm.core.context import global_context as gpc
 from internlm.model.modules.mlp import new_fead_forward
 from internlm.utils.logger import get_logger
-from internlm.utils.registry import MODEL_INITIALIZER
+from internlm.core.model import create_model
 
 # global llm logger
 logger = get_logger(__file__)
@@ -47,7 +47,8 @@ class MoE(torch.nn.Module):
         if not hasattr(gpc.config, "moe"):
             gpc.config.moe = dict()
 
-        self.moe_layer = MODEL_INITIALIZER.get_module(module_name=gpc.config.model.moe_type)(
+        self.moe_layer = create_model(
+            model_type=gpc.config.model.moe_type,
             hidden_size=hidden_size,
             num_experts=num_experts,
             ep_group=ep_group,

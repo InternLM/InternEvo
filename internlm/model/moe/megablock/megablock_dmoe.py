@@ -11,7 +11,7 @@ from internlm.model.moe.base_layer import BaseMoELayer
 from internlm.model.moe.megablock.megablock_moe import MegaBlockMoE
 from internlm.model.moe.megablock.mlp import MegaBlockGroupedFeedForward
 from internlm.model.moe.megablock.utils import promote_scalar
-from internlm.utils.registry import MODEL_INITIALIZER
+from internlm.core.model import MODEL_INITIALIZER
 
 
 @MODEL_INITIALIZER.register_module(module_name="MegaBlock-D")

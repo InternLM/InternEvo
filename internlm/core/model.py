@@ -1,6 +1,14 @@
 #!/usr/bin/env python
 # -*- encoding: utf-8 -*-
 
+from typing import Union, List
+
+from torch import nn
+
+from internlm.core.context import ParallelMode
+from internlm.core.context import global_context as gpc
+from internlm.core.parallel.shard import pipeline_parallel_sharding_wrapper
+
 
 class Registry:
     """This is a registry class used to register classes and modules so that a universal
@@ -68,4 +76,16 @@ class Registry:
         return found_flag
 
 
+# TODO: change to inner var
 MODEL_INITIALIZER = Registry("model_initializer")
+
+
+def create_model(model_type, *args, **kwargs) -> Union[nn.Module, List[nn.Module]]:
+    num_chunks = kwargs.pop("num_chunks", 1)
+    model_buidler = MODEL_INITIALIZER.get_module(module_name=model_type)
+
+    if not gpc.is_using_parallel_mode(ParallelMode.PIPELINE):
+        model_buidler(*args, **kwargs)
+
+    num_layers = kwargs.pop("num_layers")
+    return pipeline_parallel_sharding_wrapper(num_layers, num_chunks, model_buidler, *args, **kwargs)

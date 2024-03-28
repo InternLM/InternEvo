@@ -18,7 +18,7 @@ from internlm.core.context import global_context as gpc
 from internlm.model.modules.mlp import new_fead_forward
 from internlm.utils.logger import get_logger
 from internlm.utils.megatron_timers import megatron_timer as timer
-from internlm.utils.registry import MODEL_INITIALIZER
+from internlm.core.model import MODEL_INITIALIZER
 
 from .base_layer import BaseMoELayer
 from .utils import all_to_all

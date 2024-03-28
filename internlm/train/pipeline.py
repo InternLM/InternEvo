@@ -63,7 +63,7 @@ from internlm.utils.parallel import (is_replica_zero_parallel_parameter,
                                      is_weight_zero_parallel_parameter,
                                      sync_model_param,
                                      sync_model_replica_param_group)
-from internlm.utils.registry import MODEL_INITIALIZER
+from internlm.core.model import create_model
 from internlm.utils.timeout import llm_timeout
 
 logger = get_logger(__file__)
@@ -150,7 +150,9 @@ def initialize_model(pre_process_func: Optional[Callable] = None, post_process_f
     """
     if pre_process_func:
         pre_process_output = pre_process_func()
-    model = MODEL_INITIALIZER.get_module(module_name=gpc.config.model_type)(**(gpc.config.model))
+
+    model = create_model(model_type=gpc.config.model_type, **(gpc.config.model))
+
     if post_process_func:
         post_process_func(pre_process_output)
 

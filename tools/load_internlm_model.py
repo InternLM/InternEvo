@@ -11,7 +11,7 @@ from internlm.core.context import ParallelMode
 from internlm.core.context import global_context as gpc
 from internlm.initialize.launch import launch_from_torch
 from internlm.train import initialize_model
-from internlm.utils.registry import MODEL_INITIALIZER
+from internlm.core.model import MODEL_INITIALIZER
 from internlm.utils.storage_manager import get_fns, init_storage_manager, llm_load
 from tools.interface import GenerationConfig
 
@@ -172,6 +172,7 @@ def initialize_internlm_model(
 
     model_config["dtype"] = param_dtype
     model_config["parallel_output"] = False
+    # FIXME: fix it.
     match_fn_signature(MODEL_INITIALIZER.get_module(model_type), model_config)
     if gpc.is_rank_for_log():
         logger.info(f"model_config: {model_config}.")

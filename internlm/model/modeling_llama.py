@@ -18,10 +18,8 @@ from internlm.model.modules.mlp import new_fead_forward
 from internlm.model.modules.norm import new_layer_norm
 from internlm.model.modules.utils import split_forward_gather_backward
 from internlm.solver.activation_checkpoint import activation_checkpoint
-from internlm.solver.pipeline_utils import partition_uniform
-from internlm.utils.common import filter_kwargs
 from internlm.utils.logger import get_logger
-from internlm.utils.registry import MODEL_INITIALIZER
+from internlm.core.model import MODEL_INITIALIZER
 
 MODEL_TYPE = "LLAMA2"
 
@@ -509,51 +507,9 @@ class PackedFlashLlama1D(nn.Module):
         return hidden_states
 
 
-def _build_generic_model_1d(num_layers, num_chunks, device=torch.device("cuda"), **kwargs):
-    """
-    build generic model 1d
-
-    Args:
-        num_layers (int): The number of layer.
-        num_chunks (int): The number of partitions in pipeline parallel.
-        device (Optional[Union[str, torch.device]]): The device will be used. torch.device("cuda") by default.
-
-    """
-    pipeline_size = gpc.get_world_size(ParallelMode.PIPELINE)
-    pipeline_rank = gpc.get_local_rank(ParallelMode.PIPELINE)
-
-    all_parts = partition_uniform(num_layers, pipeline_size, num_chunks)
-    parts = all_parts[pipeline_rank]
-    if gpc.is_rank_for_log():
-        logger.info(f"The layer sharding is {all_parts}.")
-
-    models = []
-    kwargs["checkpoint_fraction"] = float(kwargs.get("checkpoint", False))
-    start_idx, end_idx = 0, 0
-    for start, end in parts:
-        start_idx, end_idx = start, end
-        kwargs["num_layers"] = end - start
-        kwargs["first"] = start == 0
-        # If there is no content in the final layer, assign the last layer.
-        kwargs["last"] = end == num_layers and len(all_parts[-1]) != 0
-        kwargs["device"] = device
-        kwargs["start_layer_idx"] = start
-        chunk = PackedFlashLlama1D(**filter_kwargs(PackedFlashLlama1D.__init__, kwargs)).to(device)
-
-        models.append(chunk)
-    torch.distributed.barrier()
-    if len(models) == 1:
-        model = models[0]
-    else:
-        model = nn.ModuleList(models)
-    setattr(model, "first_layer", start_idx)
-    setattr(model, "last_layer", end_idx)
-    return model
-
-
 @MODEL_INITIALIZER.register_module(module_name=MODEL_TYPE)
 def build_model_with_cfg(
-    num_chunks=1,
+    # num_chunks=1,
     checkpoint=False,
     dtype=torch.float,
     embed_split_hidden=False,
@@ -578,7 +534,7 @@ def build_model_with_cfg(
     dropout_selective_checkpoint=True,
     use_scaled_init: bool = True,
     use_swiglu: bool = True,
-    use_flash_attn: bool = True,
+    # use_flash_attn: bool = True,
     embedding_init_std: float = 0.02,
     attn_wqkv_init_std: float = 0.02,
     attn_other_init_std: float = 0.02,
@@ -631,6 +587,7 @@ def build_model_with_cfg(
         raise AssertionError("deepnorm will not be supported in future versions." "Use early versions if necessary.")
 
     cfg = dict(
+        num_layers=num_layers,
         hidden_size=hidden_size,
         num_attention_heads=num_attention_heads,
         num_kv_attention_heads=num_kv_attention_heads if num_kv_attention_heads else num_attention_heads,
@@ -653,7 +610,7 @@ def build_model_with_cfg(
         dropout_selective_checkpoint=dropout_selective_checkpoint,
         use_scaled_init=use_scaled_init,
         use_swiglu=use_swiglu,
-        use_flash_attn=use_flash_attn,
+        # use_flash_attn=use_flash_attn,
         embedding_init_std=embedding_init_std,
         attn_wqkv_init_std=attn_wqkv_init_std,
         attn_other_init_std=attn_other_init_std,
@@ -664,4 +621,4 @@ def build_model_with_cfg(
         rope_base=rope_base,
     )
 
-    return _build_generic_model_1d(num_layers=num_layers, num_chunks=num_chunks, **cfg)
+    return PackedFlashLlama1D(**cfg)

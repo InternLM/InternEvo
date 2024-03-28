@@ -10,7 +10,7 @@ from internlm.core.context import global_context as gpc
 from internlm.model.moe.base_layer import BaseMoELayer
 from internlm.model.moe.megablock.mlp import MegaBlockFeedForward
 from internlm.model.moe.utils import all_to_all
-from internlm.utils.registry import MODEL_INITIALIZER
+from internlm.core.model import MODEL_INITIALIZER
 
 
 @MODEL_INITIALIZER.register_module(module_name="MegaBlock")
