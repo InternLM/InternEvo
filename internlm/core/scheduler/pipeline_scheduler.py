@@ -224,7 +224,9 @@ class PipelineScheduler(BaseScheduler):
             micro_batch_data["input_ids"] = self.data_process_func(
                 micro_batch_data["input_ids"], micro_batch_data["cu_seqlens"]
             )
-            micro_batch_label = self.data_process_func(micro_batch_label, micro_batch_data["cu_seqlens"], -100)
+            micro_batch_label = self.data_process_func(
+                micro_batch_label, micro_batch_data["cu_seqlens"], padding_v=-100
+            )
 
             micro_batch_data.pop("cu_seqlens")
             micro_batch_data.pop("indexes")

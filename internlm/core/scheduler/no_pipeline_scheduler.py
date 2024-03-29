@@ -86,7 +86,7 @@ class NonPipelineScheduler(BaseScheduler):
 
         if self.data_process_func:
             _data["input_ids"] = self.data_process_func(_data["input_ids"], _data["cu_seqlens"])
-            _label = self.data_process_func(_label, _data["cu_seqlens"], -100)
+            _label = self.data_process_func(_label, _data["cu_seqlens"], padding_v=-100)
             _data.pop("cu_seqlens")
             _data.pop("indexes")
 
