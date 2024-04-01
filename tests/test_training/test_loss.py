@@ -91,6 +91,7 @@ def train(
 
     # init setting
     gpc.config.data.total_steps = TOTAL_STEPS
+    gpc.config.data.fixed_random_dataset_seqlen = False
     gpc.config.lr_scheduler.total_steps = TOTAL_STEPS
     gpc.config.model_type = model_type
     total_steps = gpc.config.data.total_steps
