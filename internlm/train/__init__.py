@@ -8,7 +8,6 @@ from .pipeline import (
     record_current_batch_training_metrics,
     set_fp32_attr_for_model,
     set_parallel_attr_for_param_groups,
-    wrap_FSDP_model,
 )
 
 __all__ = [
@@ -18,7 +17,6 @@ __all__ = [
     "initialize_optimizer",
     "load_new_batch",
     "record_current_batch_training_metrics",
-    "wrap_FSDP_model",
     "get_scheduler_hooks",
     "set_parallel_attr_for_param_groups",
     "set_fp32_attr_for_model",
