@@ -5,18 +5,20 @@
 - Linux OS
 
 ### pip方式安装
-将项目`InternEvo`及其依赖子模块，从 github 仓库中 clone 下来，命令如下：
-```bash
-git clone git@github.com:InternLM/InternEvo.git --recurse-submodules
-```
-
-推荐使用 conda 构建一个 Python-3.10 的虚拟环境， 并基于`requirements/`文件安装项目所需的依赖包：
+推荐使用 conda 构建一个 Python-3.10 的虚拟环境，命令如下：
 ```bash
 conda create --name internevo-env python=3.10 -y
 conda activate internevo-env
-cd InternEvo
-pip install -r requirements/torch.txt
-pip install -r requirements/runtime.txt
+```
+
+首先，安装指定版本的torch, torchvision, torchaudio以及torch-scatter:
+```bash
+pip install --extra-index-url https://download.pytorch.org/whl/cu118 torch==2.1.0+cu118 torchvision==0.16.0+cu118 torchaudio==2.1.0+cu118
+pip install torch-scatter -f https://data.pyg.org/whl/torch-2.1.0+cu118.html
+```
+
+安装InternEvo:
+```bash
 pip install InternEvo
 ```
 
@@ -26,12 +28,7 @@ pip install flash-attn==2.2.1
 ```
 
 安装 Apex (version 23.05)：
-apex为非必须安装包，如果安装，需要先按照下述源码方式安装配置环境，安装相关依赖包，安装命令如下：
-```bash
-cd ./third_party/apex
-pip install -v --disable-pip-version-check --no-cache-dir --global-option="--cpp_ext" --global-option="--cuda_ext" ./
-cd ../../
-```
+apex为非必须安装包，如果安装，参考下述源码方式安装。
 
 ### 源码方式安装
 #### 依赖包

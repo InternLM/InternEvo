@@ -137,7 +137,7 @@ class CustomBdistWheel(bdist_wheel):
 
 setup(
     name="xentropy",
-    version="0.1.1",
+    version="0.1.2",
     description="Cross-entropy loss",
     ext_modules=ext_modules,
     cmdclass={

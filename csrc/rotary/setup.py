@@ -122,7 +122,7 @@ class CustomBdistWheel(bdist_wheel):
 
 setup(
     name="rotary_emb",
-    version="0.5.1",
+    version="0.5.2",
     ext_modules=ext_modules,
     cmdclass={
         "build_ext": BuildExtension,
