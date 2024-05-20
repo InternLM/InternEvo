@@ -16,8 +16,8 @@ LOAD_CKPT_FOLDER = "local:llm_ckpts/49"
 
 LongSP=True
 ring_use_zigzag=True
-ring_2d_ud=8
-ring_2d_rd=1
+ring_2d_ud=4
+ring_2d_rd=2
 
 # boto3 Ckpt folder format:
 # import os
