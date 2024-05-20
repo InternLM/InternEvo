@@ -19,17 +19,6 @@ def zigzag_ring_flash_attn_forward(
     assert causal == True, "zigzag ring is meaningless for causal=False"
     comm = RingComm(process_group)
 
-    batch_size, seqlen,nheads, d = k.shape
-    
-    q_right_tensor,k_right_tensor,v_right_tensor=torch.split(q,int(seqlen/2),dim=1),torch.split(k,int(seqlen/2),dim=1),torch.split(v,int(seqlen/2),dim=1)
-    zigzagcomm=ZigZagComm(process_group)
-    q_recv_tensor=zigzagcomm.send_recv(q_right_tensor[1].contiguous())
-    k_recv_tensor=zigzagcomm.send_recv(k_right_tensor[1].contiguous())
-    v_recv_tensor=zigzagcomm.send_recv(v_right_tensor[1].contiguous())
-
-    zigzagcomm.commit()
-    zigzagcomm.wait()
-
     block_seq_len = q.shape[1] // 2
     q1 = q[:, block_seq_len:]
 
@@ -80,7 +69,6 @@ def zigzag_ring_flash_attn_forward(
             comm.wait()
             k = next_k
             v = next_v
-
     out = out.to(q.dtype)
     lse = lse.squeeze(dim=-1).transpose(1, 2)
     return out, lse

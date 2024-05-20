@@ -115,7 +115,7 @@ class MHA(nn.Module):
             self.wk = new_linear("wk", embed_dim, self.kv_dim, bias, **factory_kwargs)
             self.wv = new_linear("wv", embed_dim, self.kv_dim, bias, **factory_kwargs)
 
-        if gpc.config.LongSP:
+        if gpc.config.use_ring:
             if gpc.config.ring_2d_rd>1:
                 self.inner_attn = SP2DFalshAttention(causal=causal, softmax_scale=softmax_scale, attention_dropout=dropout)
             else:

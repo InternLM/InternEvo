@@ -302,7 +302,7 @@ if __name__ == "__main__":
     if gpc.config.ring_2d_rd>1:
         from internlm.model.globals import set_seq_parallel_pg
 
-        set_seq_parallel_pg(gpc.config.ring_2d_ud,gpc.config.ring_2d_rd,gpc.get_global_rank(),8)
+        set_seq_parallel_pg(gpc.config.ring_2d_ud,gpc.config.ring_2d_rd,gpc.get_global_rank(),gpc.get_world_size(ParallelMode.TENSOR))
 
 
     # initialize monitor manager context

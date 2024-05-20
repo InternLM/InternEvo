@@ -100,19 +100,11 @@ class SP2DFalshAttention(nn.Module):
 
 
     def forward(self, qkv, causal=None, cu_seqlens=None, max_seqlen=None):
-        # torch.Size([16384, 3, 32, 128])
-        if dist.get_rank()==0:
-            print(f'BE::::::::::rank_id:{torch.distributed.get_rank()},qkv_shape:{qkv.shape},ring num:{self.r_pg},u num:{self.u_pg}',flush=True)
         
-        qkv=MySeqAllToAll.apply(self.u_pg,qkv,3,1) #  torch.Size([32768, 3, 16, 128])
+        qkv=MySeqAllToAll.apply(self.u_pg,qkv,3,1) 
      
-        if dist.get_rank()==0:
-            print(f'After:::::::rank_id:{torch.distributed.get_rank()},qkv_shape:{qkv.shape}',flush=True)
-
-        # torch.Size([1, 32768, 16, 128])
         causal=True
 
-        # import pdb;pdb.set_trace()
         out= zigzag_ring_flash_attn_qkvpacked_func(qkv, self.drop.p if self.training else 0.0,
                                             softmax_scale=self.softmax_scale, causal=causal, group=self.r_pg)
         
@@ -144,13 +136,8 @@ class RingFlashSelfAttention(nn.Module):
         ring_use_zigzag=gpc.config.ring_use_zigzag
 
         unpadded=False
-        use2d=False
 
         if ring_use_zigzag:
-            
-            # qkv = qkv.unsqueeze(0)
-
-            # (Pdb) torch.Size([1, 512, 3, 32, 128])
             return zigzag_ring_flash_attn_qkvpacked_func(qkv, self.drop.p if self.training else 0.0,
                                             softmax_scale=self.softmax_scale, causal=causal, group=self.group)
 
@@ -159,7 +146,6 @@ class RingFlashSelfAttention(nn.Module):
             rank = gpc.get_local_rank(ParallelMode.TENSOR)
             world_size = gpc.get_world_size(ParallelMode.TENSOR)
             cu_seqlens, max_seqlen = split_seqlens(cu_seqlens,world_size, seqlen, return_idx=rank)
-            # logger.info(f"cuda memory profiling: max_allocated {torch.cuda.max_memory_allocated()}, allocated {torch.cuda.memory_allocated()}")
             assert cu_seqlens.dtype == torch.int32
             assert max_seqlen is not None
             assert isinstance(max_seqlen, int)
@@ -170,10 +156,6 @@ class RingFlashSelfAttention(nn.Module):
                     softmax_scale=self.softmax_scale, causal=causal, group=self.group, window_size=(-1, -1), alibi_slopes=None,
                     deterministic=False,
                     return_attn_probs=False)
-                # qkv = qkv.unsqueeze(0)
-                # return zigzag_ring_flash_attn_qkvpacked_func(qkv, self.drop.p if self.training else 0.0,
-                #                             softmax_scale=self.softmax_scale, causal=causal, group=self.group)
-                
             else:
           
                 return ring_flash_attn_varlen_qkvpacked_func(
@@ -183,11 +165,9 @@ class RingFlashSelfAttention(nn.Module):
 
         else:
             if gpc.config.data.pack_sample_into_one:
-                # qkv = qkv.unsqueeze(0)
                 return zigzag_ring_flash_attn_qkvpacked_func(qkv, self.drop.p if self.training else 0.0,
                                             softmax_scale=self.softmax_scale, causal=causal, group=self.group)
             else:
-                # qkv = qkv.unsqueeze(0)
                 return ring_flash_attn_qkvpacked_func(qkv, self.drop.p if self.training else 0.0,
                                             softmax_scale=self.softmax_scale, causal=causal, group=self.group)
 

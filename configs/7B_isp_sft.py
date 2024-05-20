@@ -1,7 +1,7 @@
 JOB_NAME = "7b_train"
 DO_ALERT = False
 
-SEQ_LEN = 8192
+SEQ_LEN = 131072
 HIDDEN_SIZE = 4096
 NUM_ATTENTION_HEAD = 32
 MLP_RATIO = 8 / 3
@@ -14,10 +14,10 @@ MODEL_ONLY_FOLDER = "local:llm_ckpts/xxxx"
 SAVE_CKPT_FOLDER = "local:llm_ckpts"
 LOAD_CKPT_FOLDER = "local:llm_ckpts/49"
 
-LongSP=True
+use_ring=False
 ring_use_zigzag=True
-ring_2d_ud=4
-ring_2d_rd=2
+ring_2d_ud=816
+ring_2d_rd=1
 
 # boto3 Ckpt folder format:
 # import os
@@ -136,7 +136,7 @@ beta2_scheduler = dict(
 
 use_fp32_norm = False
 model = dict(
-    checkpoint=False,  # The proportion of layers for activation aheckpointing, the optional value are True/False/[0-1]
+    checkpoint=True,  # The proportion of layers for activation aheckpointing, the optional value are True/False/[0-1]
     num_attention_heads=NUM_ATTENTION_HEAD,
     embed_split_hidden=True,
     vocab_size=VOCAB_SIZE,
@@ -187,7 +187,7 @@ weight parallel (dict):
 """
 parallel = dict(
     zero1=dict(size=-1),
-    tensor=dict(size=8, mode="isp"),
+    tensor=dict(size=32, mode="fsp"),
     pipeline=dict(size=1, interleaved_overlap=True),
     weight=dict(size=1, overlap=False, memory_pool=False),
 )
