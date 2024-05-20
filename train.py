@@ -90,6 +90,7 @@ def main(args):
     # initialize isp communicator
     isp_communicator = initialize_parallel_communicator(model)
 
+
     with open(args.config, "r") as f:
         config_lines = f.readlines()
 

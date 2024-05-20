@@ -260,6 +260,11 @@ def initialize_parallel_communicator(model: Union[nn.Module, nn.ModuleList]):
         RowParallelLinear.register_cls_communicator(None)
         _head_communicator = HeadSequenceParallelCommunicator(ParallelMode.TENSOR, _retain_out_sharded)
         _embedding_communicator = EmbbedingSequenceParallelCommunicator(ParallelMode.TENSOR)
+        if gpc.config.ring_2d_rd>1:
+            from internlm.model.globals import set_seq_parallel_pg
+
+            set_seq_parallel_pg(gpc.config.ring_2d_ud,gpc.config.ring_2d_rd,torch.distributed.get_rank(),8)
+
 
     # register communictor for mtp/msp/fsp linear.
 
@@ -453,7 +458,7 @@ def load_new_batch(train_dl: DataLoader, train_iter: Iterable, train_state: Trai
 def initialize_llm_profile(profiling: bool = False, start_time: str = None):
     """Initialize and return the profiler context manager instance."""
 
-    if profiling and gpc.get_local_rank(ParallelMode.DATA) == 0 and gpc.get_local_rank(ParallelMode.TENSOR) == 0:
+    if profiling :
         schedule_config = {"wait": 1, "warmup": 1, "active": 1, "repeat": 1, "skip_first": 3}
         trace_path = (
             f"RUN/{gpc.config.JOB_NAME}/{start_time}/traces/rank{gpc.get_global_rank()}_"

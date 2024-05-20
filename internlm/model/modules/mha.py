@@ -12,6 +12,11 @@ from internlm.model.modules.embedding import new_rotary_embedding
 from internlm.model.modules.linear import new_linear
 from internlm.model.modules.utils import update_kv_cache
 from internlm.model.ops.attention import CrossAttention, SelfAttention
+
+from internlm.model.ring_attention import RingFlashCrossAttention, RingFlashSelfAttention,SP2DFalshAttention
+
+from internlm.core.context.parallel_context import global_context as gpc
+
 from internlm.utils.logger import get_logger
 
 logger = get_logger(__file__)
@@ -110,7 +115,14 @@ class MHA(nn.Module):
             self.wk = new_linear("wk", embed_dim, self.kv_dim, bias, **factory_kwargs)
             self.wv = new_linear("wv", embed_dim, self.kv_dim, bias, **factory_kwargs)
 
-        self.inner_attn = SelfAttention(causal=causal, softmax_scale=softmax_scale, attention_dropout=dropout)
+        if gpc.config.LongSP:
+            if gpc.config.ring_2d_rd>1:
+                self.inner_attn = SP2DFalshAttention(causal=causal, softmax_scale=softmax_scale, attention_dropout=dropout)
+            else:
+                self.inner_attn = RingFlashSelfAttention(causal=causal, softmax_scale=softmax_scale, attention_dropout=dropout)
+
+        else:
+            self.inner_attn = SelfAttention(causal=causal, softmax_scale=softmax_scale, attention_dropout=dropout)
         self.inner_cross_attn = CrossAttention(causal=causal, softmax_scale=softmax_scale, attention_dropout=dropout)
 
         # output projection always have the bias (for now)
@@ -162,8 +174,8 @@ class MHA(nn.Module):
 
         # self attention
         kwargs = _convert_cu_seqlens_for_qksplited(kwargs)
-        context = self.inner_attn(q, k, v, **kwargs)
 
+        context = self.inner_attn(qkv)
         # wo
         return self.out_proj(rearrange(context, "b s h d -> b s (h d)"))
 
