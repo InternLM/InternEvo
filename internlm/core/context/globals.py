@@ -34,9 +34,7 @@ def set_seq_parallel_pg(
     ), f"world_size {world_size} % sp_degree {sp_ulysses_degree} == 0"
 
     num_ulysses_pgs = sp_ring_degree  # world_size // sp_ulysses_degree
-    num_ring_pgs = sp_ulysses_degree  # world_size // sp_ring_degree
-
-    print(f'::num_ulysses_pgs:{num_ulysses_pgs}:::num_ring_pgs{num_ring_pgs}:::::::::::::')
+    num_ring_pgs = sp_ulysses_degree  # 
 
     if use_ulysses_low:
         for dp_rank in range(dp_degree):

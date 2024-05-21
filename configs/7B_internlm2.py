@@ -6,10 +6,13 @@ VOCAB_SIZE = 92544
 SEQ_LEN = 2048
 HIDDEN_SIZE = 4096
 NUM_ATTENTION_HEAD = 32
-NUM_KV_ATTENTION_HEAD = 8
+NUM_KV_ATTENTION_HEAD = 2
 MLP_RATIO = 3.5
-NUM_LAYER = 32
+NUM_LAYER = 2
 
+
+uly_sp=4
+ring_sp=2
 
 MODEL_ONLY_FOLDER = "local:llm_ckpts/xxxx"
 # Ckpt folder format:
@@ -52,7 +55,7 @@ data = dict(
     valid_micro_num=4,
     # defaults to 0, means disable evaluate
     valid_every=0,
-    pack_sample_into_one=False,
+    pack_sample_into_one=True,
     total_steps=20,
     skip_batches="",
     # rampup_batch_size (str): A string with three space-separated integers representing the
@@ -67,6 +70,7 @@ data = dict(
     valid_folder=VALID_FOLDER,
     empty_cache_and_diag_interval=200,
     diag_outlier_ratio=1.1,
+    use_packed_dataset=False,
 )
 
 grad_scaler = dict(
@@ -180,8 +184,8 @@ weight parallel (dict):
     3. memory_pool: bool, enable/disable memory pool, defaults to False.
 """
 parallel = dict(
-    zero1=dict(size=8),
-    tensor=dict(size=1, mode="mtp"),
+    zero1=dict(size=-1),
+    tensor=dict(size=8, mode="isp"),
     pipeline=dict(size=1, interleaved_overlap=True),
     weight=dict(size=1, overlap=True, memory_pool=True),
 )

@@ -722,6 +722,7 @@ class DistributedAttention(nn.Module):
         if gpc.config.uly_sp !=dist.get_world_size(self.spg):
             uly_pg=PROCESS_GROUP.ULYSSES_PG
             self.spg=uly_pg
+            self.sp_size = dist.get_world_size(self.spg)
 
         q = _SeqAllToAll.apply(self.spg, q, 2, 1)
         # kv shape: [1, packlen, 2, n_head, head_dim] or [batch, seqlen, 2, n_head, head_dim]
