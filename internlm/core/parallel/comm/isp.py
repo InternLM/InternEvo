@@ -721,7 +721,6 @@ class DistributedAttention(nn.Module):
             uly_pg=PROCESS_GROUP.ULYSSES_PG
             self.spg=uly_pg
 
-
         q = _SeqAllToAll.apply(self.spg, q, 2, 1)
         # kv shape: [1, packlen, 2, n_head, head_dim] or [batch, seqlen, 2, n_head, head_dim]
         # scatter in n_head and gather in seqlen(packlen)
