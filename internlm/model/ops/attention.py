@@ -66,6 +66,9 @@ try:
 except (ModuleNotFoundError, ImportError):
     gpu_flash_attn_impl = False
 
+from internlm.model.ops.ring_flash_attn import zigzag_ring_flash_attn_qkvpacked_func, zigzag_ring_flash_attn_varlen_qkvpacked_func, zigzag_ring_flash_attn_kvpacked_func, zigzag_ring_flash_attn_varlen_kvpacked_func , ring_flash_attn_kvpacked_func, ring_flash_attn_qkvpacked_func, ring_flash_attn_varlen_kvpacked_func, ring_flash_attn_varlen_qkvpacked_func
+from internlm.core.context.globals import PROCESS_GROUP
+
 internlm_accelerator = get_accelerator()
 device_backend = internlm_accelerator.get_accelerator_backend()
 
@@ -147,9 +150,18 @@ def _flash_varlen_kvpacked_attn(
 
 def _flash_fixedlen_kvpacked_attn(q: torch.Tensor, kv: torch.Tensor, dropout_p=0.0, softmax_scale=None, causal=False):
     # input_idxs: 0: q, 1: kv
+    if gpc.get_global_rank() == 0:
+        print("flash gpu fixedlen kvpaced", flush=True)
     return _flash_float32_compatibility_wrapper(
         (0, 1), _flash_fixedlen_kvpacked_func, q, kv, dropout_p, softmax_scale, causal
     )
+
+
+def _ring_fixedlen_kvpacked_attn(q: torch.Tensor, kv: torch.Tensor, dropout_p=0.0, softmax_scale=None, causal=False):
+    # input_idxs: 0: q, 1: kv
+    ring_pg=PROCESS_GROUP.RING_PG
+    return zigzag_ring_flash_attn_kvpacked_func(q, kv, 
+                                            causal=causal, softmax_scale=softmax_scale, group=ring_pg)
 
 
 def _flash_varlen_qkvsplited_attn(
@@ -478,7 +490,11 @@ class SelfAttention(nn.Module):
 
         if gpc.config.model.get("use_flash_attn", False):
             if device_backend == AcceleratorType.GPU and gpu_flash_attn_impl:
-                return _flash_fixedlen_kvpacked_attn(q, kv, self.dropout.p, softmax_scale, causal)
+                if gpc.config.ring_sp > 1:
+           
+                    return _ring_fixedlen_kvpacked_attn(q, kv, self.dropout.p, softmax_scale, causal)
+                else:
+                    return _flash_fixedlen_kvpacked_attn(q, kv, self.dropout.p, softmax_scale, causal)
             elif device_backend == AcceleratorType.NPU and is_torch_npu:
                 return _npu_fixedlen_kvpacked_attn(q, kv, self.dropout.p, softmax_scale, causal)
             elif device_backend == AcceleratorType.DIPU and deeplink_flash_attn_impl:

@@ -43,7 +43,7 @@ def get_tokenized_train_loader_items(data_cfg):
             )
         else:
             train_ds = RandomDataset(
-                num_samples=1000000, max_len=data_cfg.seq_len, fixed_seqlen=data_cfg.fixed_random_dataset_seqlen
+                num_samples=1000, max_len=data_cfg.seq_len, fixed_seqlen=data_cfg.fixed_random_dataset_seqlen
             )
 
             if data_cfg.pack_sample_into_one:

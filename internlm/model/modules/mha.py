@@ -8,6 +8,7 @@ from einops import rearrange
 from torch import nn
 from torch.nn import functional as F
 
+from internlm.core.context import global_context as gpc
 from internlm.model.modules.embedding import new_rotary_embedding
 from internlm.model.modules.linear import new_linear
 from internlm.model.modules.utils import update_kv_cache
@@ -161,8 +162,9 @@ class MHA(nn.Module):
         )
 
         # self attention
-        kwargs = _convert_cu_seqlens_for_qksplited(kwargs)
-        context = self.inner_attn(q, k, v, **kwargs)
+        # kwargs = _convert_cu_seqlens_for_qksplited(kwargs)
+        kv = torch.concat([k.unsqueeze(2), v.unsqueeze(2)], dim=2)
+        context = self.inner_attn(q, kv, **kwargs)
 
         # wo
         return self.out_proj(rearrange(context, "b s h d -> b s (h d)"))
