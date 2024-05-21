@@ -6,6 +6,7 @@ on:
     branches:
       - "main"
       - "develop"
+      - "feat/loong-train"
 
 jobs:
   # lint check can be auto-executed by the workflow

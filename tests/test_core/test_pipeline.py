@@ -6,7 +6,7 @@ import torch
 from internlm.core.context import ParallelMode
 from internlm.core.context import global_context as gpc
 from internlm.core.context.parallel_context import Config
-from internlm.model.ops.fusion_ops_import_helper import try_import_FusedAdamW
+from internlm.solver.optimizer.compatible_adamw import new_compatible_adamw
 from internlm.utils.common import get_current_device
 from tests.test_core.utils import (
     MlpModel,
@@ -135,14 +135,12 @@ def exam_pipeline_parallel(args):
         torch_xs = torch.tensor(x_list).to(device).to(torch.float32)
         torch_ys = torch.tensor(y_list).to(device).to(torch.float32)
         torch_model = MlpModel(0, 32, "torch").to(device)
-        adam_extra_kwargs, internlm_adamw = try_import_FusedAdamW()
 
-        torch_optimizer = internlm_adamw(
+        torch_optimizer = new_compatible_adamw(
             params=[{"params": torch_model.parameters(), "weight_decay": config.adam.weight_decay}],
             lr=config.adam.lr,
             betas=(config.adam.adam_beta1, config.adam.adam_beta2),
             eps=config.adam.adam_eps,
-            **adam_extra_kwargs,
         )
 
         # check only forward logits

@@ -19,6 +19,7 @@ from internlm.core.parallel.comm.utils import (
     DUMMY_HANDLE_CONST,
     AsyncCommHandle,
     all_gather_raw,
+    expandKVPacked,
     reduce_scatter_raw,
 )
 from internlm.model.modules.linear import ParallelLinearWithCommExt
@@ -671,6 +672,7 @@ class DistributedAttention(nn.Module):
         super().__init__()
         self.local_attn = local_attention
         self.spg = sequence_process_group
+        self.sp_size = gpc.config.parallel["tensor"].get("size")
 
     @params_dispatch_with_condition(condition=check_attention_argument)
     def forward(self) -> torch.Tensor:
@@ -724,6 +726,12 @@ class DistributedAttention(nn.Module):
         q = _SeqAllToAll.apply(self.spg, q, 2, 1)
         # kv shape: [1, packlen, 2, n_head, head_dim] or [batch, seqlen, 2, n_head, head_dim]
         # scatter in n_head and gather in seqlen(packlen)
+        num_head_kv = kv.shape[3]
+        # if the num head of kv is not enough to be splitted by sp
+        # then we could copy the kv head
+        if self.sp_size > num_head_kv:
+            assert self.sp_size % num_head_kv == 0, "the num_head_kv should be divided by sp size."
+            kv = expandKVPacked(kv, self.sp_size // num_head_kv, 3)
         kv = _SeqAllToAll.apply(self.spg, kv, 3, 1)
 
         context = self.local_attn(q, kv, **kwargs)

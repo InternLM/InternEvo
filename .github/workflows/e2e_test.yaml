@@ -3,6 +3,7 @@ on:
   pull_request:
     branches:
       - "develop"
+      - "feat/loong-train"
     paths-ignore:
       - "doc/**"
       - "**.md"

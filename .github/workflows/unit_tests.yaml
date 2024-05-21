@@ -4,6 +4,7 @@ on:
     branches:
       - "develop"
       - "main"
+      - "feat/loong-train"
     paths-ignore:
       - "cmds/**"
       - "**.md"
@@ -11,6 +12,7 @@ on:
     branches:
       - "develop"
       - "main"
+      - "feat/loong-train"
     paths-ignore:
       - "cmds/**"
       - "**.md"
