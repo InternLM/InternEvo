@@ -298,10 +298,8 @@ if __name__ == "__main__":
     initialize_distributed_env(config=args.config, launcher=args.launcher, master_port=args.port, seed=args.seed)
     assert hasattr(gpc, "config") and gpc.config is not None
 
-    if gpc.config.ring_sp>1:
-        from internlm.core.context.globals import set_seq_parallel_pg
-        set_seq_parallel_pg(gpc.config.uly_sp,gpc.config.ring_sp,gpc.get_global_rank(),gpc.get_world_size(ParallelMode.TENSOR))
-
+    from internlm.core.context.globals import set_seq_parallel_pg
+    set_seq_parallel_pg(gpc.config.uly_sp,gpc.config.ring_sp,gpc.get_global_rank(),gpc.get_world_size(ParallelMode.TENSOR))
 
     # initialize monitor manager context
     with initialize_monitor_manager(

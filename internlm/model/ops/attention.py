@@ -160,6 +160,9 @@ def _flash_fixedlen_kvpacked_attn(q: torch.Tensor, kv: torch.Tensor, dropout_p=0
 def _ring_fixedlen_kvpacked_attn(q: torch.Tensor, kv: torch.Tensor, dropout_p=0.0, softmax_scale=None, causal=False):
     # input_idxs: 0: q, 1: kv
     ring_pg=PROCESS_GROUP.RING_PG
+    
+    print(f'ring size:{torch.distributed.get_world_size(ring_pg)}')
+
     return zigzag_ring_flash_attn_kvpacked_func(q, kv, 
                                             causal=causal, softmax_scale=softmax_scale, group=ring_pg)
 
@@ -490,11 +493,8 @@ class SelfAttention(nn.Module):
 
         if gpc.config.model.get("use_flash_attn", False):
             if device_backend == AcceleratorType.GPU and gpu_flash_attn_impl:
-                if gpc.config.ring_sp > 1:
-           
-                    return _ring_fixedlen_kvpacked_attn(q, kv, self.dropout.p, softmax_scale, causal)
-                else:
-                    return _flash_fixedlen_kvpacked_attn(q, kv, self.dropout.p, softmax_scale, causal)
+                return _ring_fixedlen_kvpacked_attn(q, kv, self.dropout.p, softmax_scale, causal)
+               
             elif device_backend == AcceleratorType.NPU and is_torch_npu:
                 return _npu_fixedlen_kvpacked_attn(q, kv, self.dropout.p, softmax_scale, causal)
             elif device_backend == AcceleratorType.DIPU and deeplink_flash_attn_impl:
