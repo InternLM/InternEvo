@@ -1,6 +1,6 @@
 import torch
-import torch.distributed as dist
-from flash_attn.flash_attn_interface import _flash_attn_forward, _flash_attn_backward
+from flash_attn.flash_attn_interface import _flash_attn_backward, _flash_attn_forward
+
 from .utils import RingComm, update_out_and_lse
 
 
@@ -16,9 +16,7 @@ def stripe_flash_attn_forward(
     alibi_slopes=None,
     deterministic=False,
 ):
-    assert (
-        causal
-    ), "stripe flash attn only supports causal attention, if not causal, use ring flash attn instead"
+    assert causal, "stripe flash attn only supports causal attention, if not causal, use ring flash attn instead"
     comm = RingComm(process_group)
 
     out = None
@@ -57,9 +55,7 @@ def stripe_flash_attn_forward(
                 alibi_slopes=alibi_slopes,
                 return_softmax=True and dropout_p > 0,
             )
-            out, lse = update_out_and_lse(
-                out, lse, block_out, block_lse, slice_=(slice(None), slice(1, None))
-            )
+            out, lse = update_out_and_lse(out, lse, block_out, block_lse, slice_=(slice(None), slice(1, None)))
 
         if step + 1 != comm.world_size:
             comm.wait()
@@ -86,9 +82,7 @@ def stripe_flash_attn_backward(
     alibi_slopes=None,
     deterministic=False,
 ):
-    assert (
-        causal
-    ), "stripe flash attn only supports causal attention, if not causal, ring flash attn instead"
+    assert causal, "stripe flash attn only supports causal attention, if not causal, ring flash attn instead"
     kv_comm = RingComm(process_group)
     d_kv_comm = RingComm(process_group)
     dq, dk, dv = None, None, None

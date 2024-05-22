@@ -1,6 +1,7 @@
 import torch
 import torch.distributed as dist
-from flash_attn.flash_attn_interface import _flash_attn_forward, _flash_attn_backward
+from flash_attn.flash_attn_interface import _flash_attn_backward, _flash_attn_forward
+
 from .utils import RingComm, update_out_and_lse
 
 
@@ -12,13 +13,12 @@ def ring_flash_attn_forward(
     softmax_scale,
     dropout_p=0,
     causal=True,
-    window_size=(-1, -1),
-    alibi_slopes=None,
-    deterministic=False,
+    # window_size=(-1, -1),
+    # alibi_slopes=None,
+    # deterministic=False,
 ):
     comm = RingComm(process_group)
     # import pdb;pdb.set_trace()
-    
 
     out = None
     lse = None
@@ -27,12 +27,12 @@ def ring_flash_attn_forward(
 
     for step in range(comm.world_size):
         if step + 1 != comm.world_size:
-            
+
             next_k: torch.Tensor = comm.send_recv(k)
             next_v: torch.Tensor = comm.send_recv(v)
             comm.commit()
-        
-        print(f'rankid : {dist.get_rank()}, step:{step}, world size : {comm.world_size}')
+
+        print(f"rankid : {dist.get_rank()}, step:{step}, world size : {comm.world_size}")
         if not causal or step <= comm.rank:
             block_out, _, _, _, _, block_lse, _, _ = _flash_attn_forward(
                 q,
@@ -41,14 +41,13 @@ def ring_flash_attn_forward(
                 dropout_p,
                 softmax_scale,
                 causal=causal and step == 0,
-        
                 return_softmax=True and dropout_p > 0,
             )
             out, lse = update_out_and_lse(out, lse, block_out, block_lse)
 
         if step + 1 != comm.world_size:
             comm.wait()
-          
+
             k = next_k
             v = next_v
 
@@ -68,9 +67,9 @@ def ring_flash_attn_backward(
     softmax_scale,
     dropout_p=0,
     causal=True,
-    window_size=(-1, -1),
-    alibi_slopes=None,
-    deterministic=False,
+    # window_size=(-1, -1),
+    # alibi_slopes=None,
+    # deterministic=False,
 ):
     kv_comm = RingComm(process_group)
     d_kv_comm = RingComm(process_group)
@@ -104,7 +103,6 @@ def ring_flash_attn_backward(
                 dropout_p,
                 softmax_scale,
                 bwd_causal,
-             
             )
 
             if dq is None:

@@ -66,17 +66,8 @@ try:
 except (ModuleNotFoundError, ImportError):
     gpu_flash_attn_impl = False
 
-from internlm.model.ops.ring_flash_attn import (
-    zigzag_ring_flash_attn_qkvpacked_func,
-    zigzag_ring_flash_attn_varlen_qkvpacked_func,
-    zigzag_ring_flash_attn_kvpacked_func,
-    zigzag_ring_flash_attn_varlen_kvpacked_func,
-    ring_flash_attn_kvpacked_func,
-    ring_flash_attn_qkvpacked_func,
-    ring_flash_attn_varlen_kvpacked_func,
-    ring_flash_attn_varlen_qkvpacked_func,
-)
 from internlm.core.context.globals import PROCESS_GROUP
+from internlm.model.ops.ring_flash_attn import zigzag_ring_flash_attn_kvpacked_func
 
 internlm_accelerator = get_accelerator()
 device_backend = internlm_accelerator.get_accelerator_backend()
@@ -167,7 +158,12 @@ def _flash_fixedlen_kvpacked_attn(q: torch.Tensor, kv: torch.Tensor, dropout_p=0
 
 
 def _ring_fixedlen_kvpacked_attn(
-    q: torch.Tensor, kv: torch.Tensor, dropout_p=0.0, softmax_scale=None, causal=False, layer_idx=0
+    q: torch.Tensor,
+    kv: torch.Tensor,
+    dropout_p=0.0,  # pylint: disable=W0613
+    softmax_scale=None,
+    causal=False,
+    layer_idx=0,
 ):
     # input_idxs: 0: q, 1: kv
     ring_pg = PROCESS_GROUP.RING_PG

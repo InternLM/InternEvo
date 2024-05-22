@@ -1,24 +1,15 @@
 import torch
-import torch.distributed as dist
 from flash_attn.flash_attn_interface import (
-    _flash_attn_varlen_forward,
     _flash_attn_varlen_backward,
-)
-from .utils import (
-    RingComm,
-    update_out_and_lse,
+    _flash_attn_varlen_forward,
 )
 
+from .utils import RingComm, update_out_and_lse
+
 try:
-    from .triton_utils import (
-        flatten_varlen_lse,
-        unflatten_varlen_lse,
-    )
-except:
-    from .utils import (
-        flatten_varlen_lse,
-        unflatten_varlen_lse,
-    )
+    from .triton_utils import flatten_varlen_lse, unflatten_varlen_lse
+except ImportError:
+    from .utils import flatten_varlen_lse, unflatten_varlen_lse
 
 
 def ring_flash_attn_varlen_forward(
@@ -31,9 +22,9 @@ def ring_flash_attn_varlen_forward(
     softmax_scale,
     dropout_p=0,
     causal=True,
-    window_size=(-1, -1),
-    alibi_slopes=None,
-    deterministic=False,
+    # window_size=(-1, -1),
+    # alibi_slopes=None,
+    # deterministic=False,
 ):
     comm = RingComm(process_group)
 
@@ -89,9 +80,9 @@ def ring_flash_attn_varlen_backward(
     softmax_scale,
     dropout_p=0,
     causal=True,
-    window_size=(-1, -1),
-    alibi_slopes=None,
-    deterministic=False,
+    # window_size=(-1, -1),
+    # alibi_slopes=None,
+    # deterministic=False,
 ):
     kv_comm = RingComm(process_group)
     d_kv_comm = RingComm(process_group)
@@ -178,7 +169,7 @@ class RingFlashAttnVarlenFunc(torch.autograd.Function):
     ):
         if softmax_scale is None:
             softmax_scale = q.shape[-1] ** (-0.5)
-        import pdb;pdb.set_trace()
+
         assert alibi_slopes is None
         k = k.contiguous()
         v = v.contiguous()

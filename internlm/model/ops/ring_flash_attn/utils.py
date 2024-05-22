@@ -38,9 +38,7 @@ def update_out_and_lse(
         lse = block_lse.transpose(-2, -1).unsqueeze(dim=-1)
     elif slice_ is not None:
         slice_out, slice_lse = out[slice_], lse[slice_]
-        slice_out, slice_lse = _update_out_and_lse(
-            slice_out, slice_lse, block_out, block_lse
-        )
+        slice_out, slice_lse = _update_out_and_lse(slice_out, slice_lse, block_out, block_lse)
         out[slice_], lse[slice_] = slice_out, slice_lse
     else:
         out, lse = _update_out_and_lse(out, lse, block_out, block_lse)
@@ -60,9 +58,7 @@ def flatten_varlen_lse(lse, cu_seqlens):
 def unflatten_varlen_lse(lse, cu_seqlens, max_seqlen: int):
     num_seq = len(cu_seqlens) - 1
     num_head = lse.shape[-2]
-    new_lse = torch.empty(
-        (num_seq, max_seqlen, num_head, 1), dtype=torch.float32, device=lse.device
-    )
+    new_lse = torch.empty((num_seq, max_seqlen, num_head, 1), dtype=torch.float32, device=lse.device)
     for i in range(num_seq):
         start, end = cu_seqlens[i], cu_seqlens[i + 1]
         new_lse[i, : end - start] = lse[start:end]
@@ -79,28 +75,22 @@ class RingComm:
 
         self.send_rank = (self.rank + 1) % self.world_size
         self.recv_rank = (self.rank - 1) % self.world_size
-        
 
         if process_group is not None:
             self.send_rank = dist.get_global_rank(self._process_group, self.send_rank)
             self.recv_rank = dist.get_global_rank(self._process_group, self.recv_rank)
             # print(f'rank:{self.rank},send_rank:{self.send_rank},recv_rank:{self.recv_rank}')
 
-    def send_recv(
-        self, to_send: torch.Tensor, recv_tensor: Optional[torch.Tensor] = None
-    ) -> torch.Tensor:
+    def send_recv(self, to_send: torch.Tensor, recv_tensor: Optional[torch.Tensor] = None) -> torch.Tensor:
         if recv_tensor is None:
             res = torch.empty_like(to_send)
         else:
             res = recv_tensor
         # print(f':rankid:{dist.get_rank()}:::::to_send:{to_send.device}::res:{res.device}::self.send_rank{self.send_rank}::self.recv_rank:{self.recv_rank}::')
-      
+
         # print(f':rankid:{dist.get_rank()}:::to_send:{to_send.device}::send_rank:{self.send_rank}::res:{res.device}:recv_rank:{self.recv_rank}::::')
-        
-        
-        send_op = dist.P2POp(
-            dist.isend, to_send, self.send_rank, group=self._process_group
-        )
+
+        send_op = dist.P2POp(dist.isend, to_send, self.send_rank, group=self._process_group)
         recv_op = dist.P2POp(dist.irecv, res, self.recv_rank, group=self._process_group)
         self._ops.append(send_op)
         self._ops.append(recv_op)
@@ -118,6 +108,7 @@ class RingComm:
             req.wait()
         self._reqs = None
         self._ops = []
+
 
 class ZigZagComm:
     def __init__(self, process_group: dist.ProcessGroup):
@@ -127,32 +118,29 @@ class ZigZagComm:
         self.world_size = dist.get_world_size(self._process_group)
         self._reqs = None
 
-        self.partner=self.world_size-self.rank-1
-        
+        self.partner = self.world_size - self.rank - 1
 
         self.send_rank = self.rank
         self.recv_rank = self.partner
-        
 
         if process_group is not None:
             self.send_rank = dist.get_global_rank(self._process_group, self.send_rank)
             self.recv_rank = dist.get_global_rank(self._process_group, self.recv_rank)
             # print(f'rank{dist.get_rank()}: send_rank:{self.send_rank},recv_rank:{self.recv_rank}', flush=True)
 
-
-    def send_recv(
-        self, to_send: torch.Tensor, recv_tensor: Optional[torch.Tensor] = None
-    ) -> torch.Tensor:
+    def send_recv(self, to_send: torch.Tensor, recv_tensor: Optional[torch.Tensor] = None) -> torch.Tensor:
         if recv_tensor is None:
             res = torch.empty_like(to_send)
         else:
             res = recv_tensor
-        # print(f':rankid:{dist.get_rank()}:::::to_send:{to_send.shape},{to_send.dtype}::res:{res.shape}, {res.dtype}::self.send_rank{self.send_rank}::self.recv_rank:{self.recv_rank}::', flush=True)
-        
+        # print(
+        #     f":rankid:{dist.get_rank()}:::::to_send:{to_send.shape},{to_send.dtype}::res:{res.shape},"
+        #     f"{res.dtype}::self.send_rank{self.send_rank}::self.recv_rank:{self.recv_rank}::",
+        #     flush=True,
+        # )
+
         # to_send:6,send_rank:6,res:6,recv_rank:0
-        send_op = dist.P2POp(
-            dist.isend, to_send, self.recv_rank, group=self._process_group
-        )
+        send_op = dist.P2POp(dist.isend, to_send, self.recv_rank, group=self._process_group)
         recv_op = dist.P2POp(dist.irecv, res, self.recv_rank, group=self._process_group)
 
         self._ops.append(send_op)
@@ -169,7 +157,6 @@ class ZigZagComm:
             raise RuntimeError("wait called before commit")
         for req in self._reqs:
             req.wait()
-
 
         self._reqs = None
         self._ops = []

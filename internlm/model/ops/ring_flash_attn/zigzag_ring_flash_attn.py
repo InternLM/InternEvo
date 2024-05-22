@@ -1,7 +1,8 @@
 import torch
-from flash_attn.flash_attn_interface import _flash_attn_forward, _flash_attn_backward
+from flash_attn.flash_attn_interface import _flash_attn_backward, _flash_attn_forward
 
 from internlm.core.context.parallel_context import global_context as gpc
+
 from .utils import RingComm, update_out_and_lse
 
 fa_output_mapping = {}
@@ -19,7 +20,7 @@ def zigzag_ring_flash_attn_forward(
     alibi_slopes=None,
     deterministic=False,
 ):
-    assert causal == True, "zigzag ring is meaningless for causal=False"
+    assert causal is True, "zigzag ring is meaningless for causal=False"
     comm = RingComm(process_group)
 
     block_seq_len = q.shape[1] // 2
@@ -87,11 +88,11 @@ def zigzag_ring_flash_attn_backward(
     softmax_scale,
     dropout_p=0,
     causal=True,
-    window_size=(-1, -1),
-    alibi_slopes=None,
-    deterministic=False,
+    # window_size=(-1, -1),
+    # alibi_slopes=None,
+    # deterministic=False,
 ):
-    assert causal == True, "zigzag ring is meaningless for causal=False"
+    assert causal is True, "zigzag ring is meaningless for causal=False"
     kv_comm = RingComm(process_group)
     d_kv_comm = RingComm(process_group)
     dq, dk, dv = None, None, None

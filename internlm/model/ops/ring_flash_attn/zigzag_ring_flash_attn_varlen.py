@@ -1,23 +1,15 @@
 import torch
 from flash_attn.flash_attn_interface import (
-    _flash_attn_varlen_forward,
     _flash_attn_varlen_backward,
-)
-from .utils import (
-    RingComm,
-    update_out_and_lse,
+    _flash_attn_varlen_forward,
 )
 
+from .utils import RingComm, update_out_and_lse
+
 try:
-    from .triton_utils import (
-        flatten_varlen_lse,
-        unflatten_varlen_lse,
-    )
-except:
-    from .utils import (
-        flatten_varlen_lse,
-        unflatten_varlen_lse,
-    )
+    from .triton_utils import flatten_varlen_lse, unflatten_varlen_lse
+except ImportError:
+    from .utils import flatten_varlen_lse, unflatten_varlen_lse
 
 
 def get_half_index(cu_seqlens, *, front: bool):
@@ -67,14 +59,13 @@ def zigzag_ring_flash_attn_varlen_forward(
     softmax_scale,
     dropout_p=0,
     causal=True,
-    window_size=(-1, -1),
-    alibi_slopes=None,
-    deterministic=False,
+    # window_size=(-1, -1),
+    # alibi_slopes=None,
+    # deterministic=False,
 ):
-    assert causal == True, "zigzag ring is meaningless for causal=False"
+    assert causal is True, "zigzag ring is meaningless for causal=False"
     comm = RingComm(process_group)
- 
-    
+
     block_seq_len = q.shape[0] // 2
 
     q1 = q[half_index1]
@@ -104,7 +95,7 @@ def zigzag_ring_flash_attn_varlen_forward(
             dropout_p,
             softmax_scale,
             causal=causal,
-            return_softmax=True and dropout_p > 0
+            return_softmax=True and dropout_p > 0,
         )
         return block_out, block_lse
 
@@ -132,7 +123,7 @@ def zigzag_ring_flash_attn_varlen_forward(
             )
             out, lse = update_out_and_lse(out, lse, block_out, block_lse)
         else:
-   
+
             # print(f'ranks::::::{torch.distributed.get_rank()}::::::myStep:::::::::::::::{mystep}::')
             # import pdb;pdb.set_trace()
             block_out, block_lse = forward(q1, k, v, causal=False)
@@ -169,11 +160,11 @@ def zigzag_ring_flash_attn_varlen_backward(
     softmax_scale,
     dropout_p=0,
     causal=True,
-    window_size=(-1, -1),
-    alibi_slopes=None,
-    deterministic=False,
+    # window_size=(-1, -1),
+    # alibi_slopes=None,
+    # deterministic=False,
 ):
-    assert causal == True, "zigzag ring is meaningless for causal=False"
+    assert causal is True, "zigzag ring is meaningless for causal=False"
     kv_comm = RingComm(process_group)
     d_kv_comm = RingComm(process_group)
     dq, dk, dv = None, None, None
@@ -196,7 +187,7 @@ def zigzag_ring_flash_attn_varlen_backward(
     dv_buffer = torch.empty(v.shape, dtype=v.dtype, device=v.device)
 
     def backward(dout, q, k, v, out, softmax_lse, causal):
-     
+
         seqlen_q = q.shape[0]
         seqlen_kv = k.shape[0]
         cu_seqlens_q = half_cu_seqlens if seqlen_q == block_seq_len else cu_seqlens
@@ -241,7 +232,6 @@ def zigzag_ring_flash_attn_varlen_backward(
                 backward(dout, q, k0, v0, out, softmax_lse, causal=False)
                 dq += dq_buffer
             else:
-                import pdb;pdb.set_trace()
                 backward(dout1, q1, k, v, out1, softmax_lse1, causal=False)
                 dq[half_index1] += dq_buffer[:block_seq_len]
 
@@ -317,9 +307,7 @@ class ZigZagRingFlashAttnVarlenFunc(torch.autograd.Function):
         is_half_index_tensor = isinstance(half_index0, torch.Tensor)
         ctx.is_half_index_tensor = is_half_index_tensor
         if is_half_index_tensor:
-            ctx.save_for_backward(
-                q, k, v, out, softmax_lse, cu_seqlens, half_index0, half_index1
-            )
+            ctx.save_for_backward(q, k, v, out, softmax_lse, cu_seqlens, half_index0, half_index1)
         else:
             ctx.save_for_backward(q, k, v, out, softmax_lse, cu_seqlens)
             ctx.half_index0 = half_index0
@@ -337,9 +325,7 @@ class ZigZagRingFlashAttnVarlenFunc(torch.autograd.Function):
     @staticmethod
     def backward(ctx, dout, *args):
         if ctx.is_half_index_tensor:
-            (q, k, v, out, softmax_lse, cu_seqlens, half_index0, half_index1) = (
-                ctx.saved_tensors
-            )
+            (q, k, v, out, softmax_lse, cu_seqlens, half_index0, half_index1) = ctx.saved_tensors
         else:
             q, k, v, out, softmax_lse, cu_seqlens = ctx.saved_tensors
             half_index0 = ctx.half_index0
