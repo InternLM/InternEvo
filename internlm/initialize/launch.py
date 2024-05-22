@@ -448,6 +448,9 @@ def args_sanity_check():
     if "moe_loss_coeff" not in gpc.config.loss:
         gpc.config.loss._add_item("moe_loss_coeff", 1.0)
 
+    if "selective_checkpoint" not in gpc.config:
+        gpc.config._add_item("selective_checkpoint", False)
+
     # moe not support overlap and zero1.5 for now
     if gpc.config.model.get("num_experts", 1) > 1:
         assert not gpc.config.parallel.zero1.fsdp, "FSDP does not support num_experts > 1"
