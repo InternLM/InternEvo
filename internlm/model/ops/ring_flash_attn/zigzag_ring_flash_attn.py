@@ -88,9 +88,9 @@ def zigzag_ring_flash_attn_backward(
     softmax_scale,
     dropout_p=0,
     causal=True,
-    # window_size=(-1, -1),
-    # alibi_slopes=None,
-    # deterministic=False,
+    window_size=(-1, -1),
+    alibi_slopes=None,
+    deterministic=False,
 ):
     assert causal is True, "zigzag ring is meaningless for causal=False"
     kv_comm = RingComm(process_group)
