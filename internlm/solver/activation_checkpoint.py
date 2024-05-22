@@ -7,6 +7,7 @@ import torch
 from torch.utils.checkpoint import check_backward_validity, detach_variable
 
 from internlm.accelerator import get_accelerator
+from internlm.core.context.parallel_context import global_context as gpc
 from internlm.core.context.random import (
     get_current_mode,
     get_states,
@@ -48,6 +49,7 @@ class CheckpointFunction(torch.autograd.Function):
         ctx.run_function = run_function
         ctx.activation_offload = activation_offload
         ctx.device = get_current_device()
+        gpc.is_forward = True
 
         # preserve rng states
         ctx.fwd_cpu_rng_state = torch.get_rng_state()
@@ -99,6 +101,7 @@ class CheckpointFunction(torch.autograd.Function):
         # Copy the list to avoid modifying original list.
         inputs = list(ctx.inputs)
         tensor_indices = ctx.tensor_indices
+        gpc.is_forward = False
 
         if ctx.activation_offload:
             tensors = ctx.tensor_inputs

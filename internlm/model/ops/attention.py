@@ -66,7 +66,16 @@ try:
 except (ModuleNotFoundError, ImportError):
     gpu_flash_attn_impl = False
 
-from internlm.model.ops.ring_flash_attn import zigzag_ring_flash_attn_qkvpacked_func, zigzag_ring_flash_attn_varlen_qkvpacked_func, zigzag_ring_flash_attn_kvpacked_func, zigzag_ring_flash_attn_varlen_kvpacked_func , ring_flash_attn_kvpacked_func, ring_flash_attn_qkvpacked_func, ring_flash_attn_varlen_kvpacked_func, ring_flash_attn_varlen_qkvpacked_func
+from internlm.model.ops.ring_flash_attn import (
+    zigzag_ring_flash_attn_qkvpacked_func,
+    zigzag_ring_flash_attn_varlen_qkvpacked_func,
+    zigzag_ring_flash_attn_kvpacked_func,
+    zigzag_ring_flash_attn_varlen_kvpacked_func,
+    ring_flash_attn_kvpacked_func,
+    ring_flash_attn_qkvpacked_func,
+    ring_flash_attn_varlen_kvpacked_func,
+    ring_flash_attn_varlen_qkvpacked_func,
+)
 from internlm.core.context.globals import PROCESS_GROUP
 
 internlm_accelerator = get_accelerator()
@@ -157,14 +166,14 @@ def _flash_fixedlen_kvpacked_attn(q: torch.Tensor, kv: torch.Tensor, dropout_p=0
     )
 
 
-def _ring_fixedlen_kvpacked_attn(q: torch.Tensor, kv: torch.Tensor, dropout_p=0.0, softmax_scale=None, causal=False):
+def _ring_fixedlen_kvpacked_attn(
+    q: torch.Tensor, kv: torch.Tensor, dropout_p=0.0, softmax_scale=None, causal=False, layer_idx=0
+):
     # input_idxs: 0: q, 1: kv
-    ring_pg=PROCESS_GROUP.RING_PG
-    
-    print(f'ring size:{torch.distributed.get_world_size(ring_pg)}')
-
-    return zigzag_ring_flash_attn_kvpacked_func(q, kv, 
-                                            causal=causal, softmax_scale=softmax_scale, group=ring_pg)
+    ring_pg = PROCESS_GROUP.RING_PG
+    return zigzag_ring_flash_attn_kvpacked_func(
+        q, kv, causal=causal, softmax_scale=softmax_scale, group=ring_pg, layer_idx=layer_idx
+    )
 
 
 def _flash_varlen_qkvsplited_attn(
@@ -448,11 +457,12 @@ class SelfAttention(nn.Module):
         attention_dropout (float): Dropout rate for attention scores. Defaults to 0.0.
     """
 
-    def __init__(self, causal=False, softmax_scale=None, attention_dropout=0.0):
+    def __init__(self, causal=False, softmax_scale=None, attention_dropout=0.0, layer_idx=0):
         super().__init__()
         self.causal = causal
         self.softmax_scale = softmax_scale
         self.dropout = nn.Dropout(attention_dropout)
+        self.layer_idx = layer_idx
 
         if device_backend == AcceleratorType.NPU:
             assert self.causal, "Ascend flash attention does not spport causal=False yet!"
@@ -493,8 +503,8 @@ class SelfAttention(nn.Module):
 
         if gpc.config.model.get("use_flash_attn", False):
             if device_backend == AcceleratorType.GPU and gpu_flash_attn_impl:
-                return _ring_fixedlen_kvpacked_attn(q, kv, self.dropout.p, softmax_scale, causal)
-               
+                return _ring_fixedlen_kvpacked_attn(q, kv, self.dropout.p, softmax_scale, causal, self.layer_idx)
+
             elif device_backend == AcceleratorType.NPU and is_torch_npu:
                 return _npu_fixedlen_kvpacked_attn(q, kv, self.dropout.p, softmax_scale, causal)
             elif device_backend == AcceleratorType.DIPU and deeplink_flash_attn_impl:
@@ -688,11 +698,12 @@ class CrossAttention(nn.Module):
             support non-causal attention yet.
     """
 
-    def __init__(self, causal=False, softmax_scale=None, attention_dropout=0.0):
+    def __init__(self, causal=False, softmax_scale=None, attention_dropout=0.0, layer_idx=0):
         super().__init__()
         self.causal = causal
         self.softmax_scale = softmax_scale
         self.dropout = nn.Dropout(attention_dropout)
+        self.layer_idx = layer_idx
 
         if device_backend == AcceleratorType.NPU:
             assert self.causal, "Ascend flash attention does not support causal=False yet!"

@@ -19,22 +19,18 @@ class ProcessGroupSingleton(Singleton):
 PROCESS_GROUP = ProcessGroupSingleton()
 
 
-def set_seq_parallel_pg(
-    sp_ulysses_degree, sp_ring_degree, rank, world_size, use_ulysses_low=True
-):
+def set_seq_parallel_pg(sp_ulysses_degree, sp_ring_degree, rank, world_size, use_ulysses_low=True):
     """
     sp_ulysses_degree x sp_ring_degree = seq_parallel_degree
     (ulysses_degree, dp_degree)
     """
     sp_degree = sp_ring_degree * sp_ulysses_degree
     dp_degree = world_size // sp_degree
-   
-    assert (
-        world_size % sp_degree == 0
-    ), f"world_size {world_size} % sp_degree {sp_ulysses_degree} == 0"
+
+    assert world_size % sp_degree == 0, f"world_size {world_size} % sp_degree {sp_ulysses_degree} == 0"
 
     num_ulysses_pgs = sp_ring_degree  # world_size // sp_ulysses_degree
-    num_ring_pgs = sp_ulysses_degree  # 
+    num_ring_pgs = sp_ulysses_degree  #
 
     if use_ulysses_low:
         for dp_rank in range(dp_degree):
@@ -46,14 +42,14 @@ def set_seq_parallel_pg(
                         (i + 1) * sp_ulysses_degree + offset,
                     )
                 )
-                print(f'ulysses_ranks:{ulysses_ranks}')
+                # print(f'ulysses_ranks:{ulysses_ranks}')
                 group = torch.distributed.new_group(ulysses_ranks)
                 if rank in ulysses_ranks:
                     ulyssess_pg = group
 
             for i in range(num_ring_pgs):
                 ring_ranks = list(range(i + offset, sp_degree + offset, num_ring_pgs))
-                print(f'ring_ranks:{ring_ranks}')
+                # print(f'ring_ranks:{ring_ranks}')
                 group = torch.distributed.new_group(ring_ranks)
                 if rank in ring_ranks:
                     ring_pg = group
@@ -62,19 +58,13 @@ def set_seq_parallel_pg(
         for dp_rank in range(dp_degree):
             offset = dp_rank * sp_degree
             for i in range(num_ring_pgs):
-                ring_ranks = list(
-                    range(
-                        i * sp_ring_degree + offset, (i + 1) * sp_ring_degree + offset
-                    )
-                )
+                ring_ranks = list(range(i * sp_ring_degree + offset, (i + 1) * sp_ring_degree + offset))
                 group = torch.distributed.new_group(ring_ranks)
                 if rank in ring_ranks:
                     ring_pg = group
 
             for i in range(num_ulysses_pgs):
-                ulysses_ranks = list(
-                    range(i + offset, sp_degree + offset, num_ulysses_pgs)
-                )
+                ulysses_ranks = list(range(i + offset, sp_degree + offset, num_ulysses_pgs))
                 group = torch.distributed.new_group(ulysses_ranks)
                 if rank in ulysses_ranks:
                     ulyssess_pg = group
