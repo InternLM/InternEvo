@@ -2,17 +2,19 @@ JOB_NAME = "7b_internlm2_train"
 model_type="INTERNLM2_PUBLIC"
 DO_ALERT = False
 
-VOCAB_SIZE = 92544
-SEQ_LEN = 2048
+VOCAB_SIZE = 103168
+SEQ_LEN = 32768
 HIDDEN_SIZE = 4096
 NUM_ATTENTION_HEAD = 32
-NUM_KV_ATTENTION_HEAD = 2
+NUM_KV_ATTENTION_HEAD = 32
 MLP_RATIO = 3.5
 NUM_LAYER = 2
 
 
-uly_sp=4
-ring_sp=2
+uly_sp=1
+ring_sp=8
+use_ring_attn="zigzag"  # none, basic, zigzag, full_kv_zigzag
+full_kv_zigzag_with_full_dkv=True
 
 MODEL_ONLY_FOLDER = "local:llm_ckpts/xxxx"
 # Ckpt folder format:
@@ -94,7 +96,7 @@ grad_scaler = dict(
 
 hybrid_zero_optimizer = dict(
     # Enable low_level_optimzer overlap_communication
-    overlap_sync_grad=True,
+    overlap_sync_grad=False,
     overlap_sync_param=False,
     # bucket size for nccl communication params
     reduce_bucket_size=512 * 1024 * 1024,
@@ -131,7 +133,7 @@ beta2_scheduler = dict(
 
 use_fp32_norm = False
 model = dict(
-    checkpoint=False,
+    checkpoint=True,
     num_chunks=1,
     num_attention_heads=NUM_ATTENTION_HEAD,
     embed_split_hidden=True,
@@ -187,7 +189,7 @@ parallel = dict(
     zero1=dict(size=-1),
     tensor=dict(size=8, mode="isp"),
     pipeline=dict(size=1, interleaved_overlap=True),
-    weight=dict(size=1, overlap=True, memory_pool=True),
+    weight=dict(size=8, overlap=False, memory_pool=False),
 )
 
 cudnn_deterministic = False

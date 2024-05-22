@@ -7,6 +7,7 @@ This file implements support for the attention operators.
 """
 
 import math
+from enum import Enum
 from typing import Callable, Tuple
 
 import torch
@@ -15,7 +16,25 @@ from torch import nn
 
 from internlm.accelerator import AcceleratorType, get_accelerator
 from internlm.core.context import global_context as gpc
+from internlm.core.context.globals import PROCESS_GROUP
 from internlm.core.parallel.comm.isp import auto_wrap_distributed_attention
+from internlm.model.ops.ring_flash_attn import (
+    ring_flash_attn_func,
+    ring_flash_attn_kvpacked_func,
+    ring_flash_attn_qkvpacked_func,
+    ring_flash_attn_varlen_func,
+    ring_flash_attn_varlen_kvpacked_func,
+    ring_flash_attn_varlen_qkvpacked_func,
+    zigzag_ring_flash_attn_func,
+    zigzag_ring_flash_attn_func_with_full_kv,
+    zigzag_ring_flash_attn_kvpacked_func,
+    zigzag_ring_flash_attn_kvpacked_func_with_full_kv,
+    zigzag_ring_flash_attn_qkvpacked_func,
+    zigzag_ring_flash_attn_qkvpacked_func_with_full_kv,
+    zigzag_ring_flash_attn_varlen_func,
+    zigzag_ring_flash_attn_varlen_kvpacked_func,
+    zigzag_ring_flash_attn_varlen_qkvpacked_func,
+)
 from internlm.model.ops.utils import pack_output_after_attn, unpack_qkv_before_attn
 from internlm.utils.common import get_current_device
 from internlm.utils.utils import (
@@ -66,18 +85,38 @@ try:
 except (ModuleNotFoundError, ImportError):
     gpu_flash_attn_impl = False
 
-from internlm.core.context.globals import PROCESS_GROUP
-from internlm.model.ops.ring_flash_attn import zigzag_ring_flash_attn_kvpacked_func
-
 internlm_accelerator = get_accelerator()
 device_backend = internlm_accelerator.get_accelerator_backend()
 
 
+class AttnType(Enum):
+    """Attention Backend Type"""
+
+    Torch = "torch"
+    # GPU Flash Attention
+    Flash = "flash-attn"
+    RingFlash = "ring-flash-attn"
+    ZigZagFlash = "zigzag-ring-flash-attn"
+    FullKVZigZagFlash = "zigzag-ring-flash-attn-with-full-kv"
+    # NPU Flash Attention
+    NPUFlash = "npu-flash-attn"
+    # DeepLink Flash Attention
+    DeepLinkFlash = "deeplink-flash-attn"
+
+
+class AttnOpType(Enum):
+    """Attention Opreation Type"""
+
+    VarLenQKVPacked = "varlen-qkvpacked"
+    VarLenKVPacked = "varlen-kvpacked"
+    VarLenQKVSplited = "varlen-qkvsplited"
+    FixedLenQKVPacked = "fixedlen-qkvpacked"
+    FixedLenKVPacked = "fixedlen-kvpacked"
+    FixedLenQKVSplited = "fixedlen-qkvsplited"
+
+
 def _nyi_attn(func_name, *args, **kwargs):  # pylint: disable=W0613
     assert False, f"{func_name} is not yet implemented"
-
-
-# gpu flash attention operators
 
 
 def _flash_float32_compatibility_wrapper(input_idxs: Tuple, flash_func: Callable, *args, **kwargs):
@@ -93,6 +132,11 @@ def _flash_float32_compatibility_wrapper(input_idxs: Tuple, flash_func: Callable
             return flash_func(*inputs, *other_args, **kwargs).to(input_dtype)
 
     return flash_func(*args, **kwargs)
+
+
+###############################
+# gpu flash attention operators
+###############################
 
 
 def _flash_varlen_qkvpacked_attn(
@@ -150,25 +194,8 @@ def _flash_varlen_kvpacked_attn(
 
 def _flash_fixedlen_kvpacked_attn(q: torch.Tensor, kv: torch.Tensor, dropout_p=0.0, softmax_scale=None, causal=False):
     # input_idxs: 0: q, 1: kv
-    if gpc.get_global_rank() == 0:
-        print("flash gpu fixedlen kvpaced", flush=True)
     return _flash_float32_compatibility_wrapper(
         (0, 1), _flash_fixedlen_kvpacked_func, q, kv, dropout_p, softmax_scale, causal
-    )
-
-
-def _ring_fixedlen_kvpacked_attn(
-    q: torch.Tensor,
-    kv: torch.Tensor,
-    dropout_p=0.0,  # pylint: disable=W0613
-    softmax_scale=None,
-    causal=False,
-    layer_idx=0,
-):
-    # input_idxs: 0: q, 1: kv
-    ring_pg = PROCESS_GROUP.RING_PG
-    return zigzag_ring_flash_attn_kvpacked_func(
-        q, kv, causal=causal, softmax_scale=softmax_scale, group=ring_pg, layer_idx=layer_idx
     )
 
 
@@ -213,8 +240,183 @@ def _flash_fixedlen_qkvsplited_attn(q, k, v, dropout_p=0.0, softmax_scale=None, 
     )
 
 
+###############################
+# basic ring attention
+###############################
+
+
+def _ring_flash_varlen_qkvpacked_attn(
+    qkv: torch.Tensor, cu_seqlens, max_seqlen, dropout_p, softmax_scale=None, causal=False
+):
+    return ring_flash_attn_varlen_qkvpacked_func(
+        qkv, cu_seqlens, max_seqlen, dropout_p, softmax_scale, causal, group=PROCESS_GROUP.RING_PG
+    )
+
+
+def _ring_flash_fixedlen_qkvpacked_attn(qkv: torch.Tensor, dropout_p=0.0, softmax_scale=None, causal=False):
+    return ring_flash_attn_qkvpacked_func(qkv, dropout_p, softmax_scale, causal, group=PROCESS_GROUP.RING_PG)
+
+
+def _ring_flash_varlen_kvpacked_attn(
+    q: torch.Tensor,
+    kv: torch.Tensor,
+    cu_seqlens_q: torch.Tensor,
+    cu_seqlens_k: torch.Tensor,
+    max_seqlen_q,
+    max_seqlen_k,  # pylint: disable=W0613
+    dropout_p=0.0,
+    softmax_scale=None,
+    causal=False,
+):
+    assert cu_seqlens_q.equal(cu_seqlens_k), "ring_flash_attn_varlen_kvpacked_func only support same q/k cu_seqlens"
+
+    return ring_flash_attn_varlen_kvpacked_func(
+        q, kv, cu_seqlens_q, max_seqlen_q, dropout_p, softmax_scale, causal, group=PROCESS_GROUP.RING_PG
+    )
+
+
+def _ring_flash_fixedlen_kvpacked_attn(
+    q: torch.Tensor, kv: torch.Tensor, dropout_p=0.0, softmax_scale=None, causal=False
+):
+    return ring_flash_attn_kvpacked_func(q, kv, dropout_p, softmax_scale, causal, group=PROCESS_GROUP.RING_PG)
+
+
+def _ring_flash_varlen_qkvsplited_attn(
+    q: torch.Tensor,
+    k: torch.Tensor,
+    v: torch.Tensor,
+    cu_seqlens_q,
+    cu_seqlens_k,
+    max_seqlen_q,
+    max_seqlen_k,  # pylint: disable=W0613
+    dropout_p=0.0,
+    softmax_scale=None,
+    causal=False,
+):
+    assert cu_seqlens_q.equal(cu_seqlens_k), "ring_flash_attn_varlen_kvpacked_func only support same q/k cu_seqlens"
+
+    return ring_flash_attn_varlen_func(
+        q, k, v, cu_seqlens_q, max_seqlen_q, dropout_p, softmax_scale, causal, group=PROCESS_GROUP.RING_PG
+    )
+
+
+def _ring_flash_fixedlen_qkvsplited_attn(q, k, v, dropout_p=0.0, softmax_scale=None, causal=False):
+    return ring_flash_attn_func(q, k, v, dropout_p, softmax_scale, causal, group=PROCESS_GROUP.RING_PG)
+
+
+###############################
+# zigzag ring attention
+###############################
+
+
+def _zigzag_ring_flash_varlen_qkvpacked_attn(
+    qkv: torch.Tensor, cu_seqlens, max_seqlen, dropout_p, softmax_scale=None, causal=False
+):
+    return zigzag_ring_flash_attn_varlen_qkvpacked_func(
+        qkv, cu_seqlens, max_seqlen, dropout_p, softmax_scale, causal, group=PROCESS_GROUP.RING_PG
+    )
+
+
+def _zigzag_ring_flash_fixedlen_qkvpacked_attn(qkv: torch.Tensor, dropout_p=0.0, softmax_scale=None, causal=False):
+    return zigzag_ring_flash_attn_qkvpacked_func(qkv, dropout_p, softmax_scale, causal, group=PROCESS_GROUP.RING_PG)
+
+
+def _zigzag_ring_flash_varlen_kvpacked_attn(
+    q: torch.Tensor,
+    kv: torch.Tensor,
+    cu_seqlens_q,
+    cu_seqlens_k,
+    max_seqlen_q,
+    max_seqlen_k,  # pylint: disable=W0613
+    dropout_p=0.0,
+    softmax_scale=None,
+    causal=False,
+):
+    assert cu_seqlens_q.equal(cu_seqlens_k), "ring_flash_attn_varlen_kvpacked_func only support same q/k cu_seqlens"
+
+    return zigzag_ring_flash_attn_varlen_kvpacked_func(
+        q, kv, cu_seqlens_q, max_seqlen_q, dropout_p, softmax_scale, causal, group=PROCESS_GROUP.RING_PG
+    )
+
+
+def _zigzag_ring_flash_fixedlen_kvpacked_attn(
+    q: torch.Tensor, kv: torch.Tensor, dropout_p=0.0, softmax_scale=None, causal=False
+):
+    return zigzag_ring_flash_attn_kvpacked_func(q, kv, dropout_p, softmax_scale, causal, group=PROCESS_GROUP.RING_PG)
+
+
+def _zigzag_ring_flash_varlen_qkvsplited_attn(
+    q: torch.Tensor,
+    k: torch.Tensor,
+    v: torch.Tensor,
+    cu_seqlens_q,
+    cu_seqlens_k,
+    max_seqlen_q,
+    max_seqlen_k,  # pylint: disable=W0613
+    dropout_p=0.0,
+    softmax_scale=None,
+    causal=False,
+):
+    assert cu_seqlens_q.equal(cu_seqlens_k), "ring_flash_attn_varlen_kvpacked_func only support same q/k cu_seqlens"
+
+    return zigzag_ring_flash_attn_varlen_func(
+        q, k, v, cu_seqlens_q, max_seqlen_q, dropout_p, softmax_scale, causal, group=PROCESS_GROUP.RING_PG
+    )
+
+
+def _zigzag_ring_flash_fixedlen_qkvsplited_attn(q, k, v, dropout_p=0.0, softmax_scale=None, causal=False):
+    return zigzag_ring_flash_attn_func(q, k, v, dropout_p, softmax_scale, causal, group=PROCESS_GROUP.RING_PG)
+
+
+###############################
+# full kv zigzag ring attention
+###############################
+
+
+def _fullkv_zigzag_ring_flash_varlen_qkvpacked_attn(*args, **kwargs):
+    # TODO: support varlen version zigzag flash attention
+    _nyi_attn("_fullkv_zigzag_ring_flash_varlen_qkvpacked_attn", *args, **kwargs)
+
+
+def _fullkv_zigzag_ring_flash_fixedlen_qkvpacked_attn(
+    qkv: torch.Tensor, dropout_p=0.0, softmax_scale=None, causal=False
+):
+    return zigzag_ring_flash_attn_qkvpacked_func_with_full_kv(
+        qkv, dropout_p, softmax_scale, causal, group=PROCESS_GROUP.RING_PG
+    )
+
+
+def _fullkv_zigzag_ring_flash_varlen_kvpacked_attn(*args, **kwargs):
+    # TODO: support varlen version zigzag flash attention
+    _nyi_attn("_fullkv_zigzag_ring_flash_varlen_kvpacked_attn", *args, **kwargs)
+
+
+def _fullkv_zigzag_ring_flash_fixedlen_kvpacked_attn(
+    q: torch.Tensor, kv: torch.Tensor, dropout_p=0.0, softmax_scale=None, causal=False
+):
+    return zigzag_ring_flash_attn_kvpacked_func_with_full_kv(
+        q, kv, dropout_p, softmax_scale, causal, group=PROCESS_GROUP.RING_PG
+    )
+
+
+def _fullkv_zigzag_ring_flash_varlen_qkvsplited_attn(
+    *args,
+    **kwargs,
+):
+    # TODO: support varlen version zigzag flash attention
+    _nyi_attn("_fullkv_zigzag_ring_flash_varlen_qkvsplited_attn", *args, **kwargs)
+
+
+def _fullkv_zigzag_ring_flash_fixedlen_qkvsplited_attn(q, k, v, dropout_p=0.0, softmax_scale=None, causal=False):
+    return zigzag_ring_flash_attn_func_with_full_kv(
+        q, k, v, dropout_p, softmax_scale, causal, group=PROCESS_GROUP.RING_PG
+    )
+
+
+###############################
 # npu flash attention operators
 # TODO: should we add _flash_float32_compatibility_wrapper support for npu.
+###############################
 
 
 def _npu_varlen_qkvsplited_attn(
@@ -321,7 +523,9 @@ def _npu_fixedlen_kvpacked_attn(q: torch.Tensor, kv: torch.Tensor, dropout_p: fl
     return _npu_fixedlen_qkvsplited_attn(q, k, v, dropout_p, softmax_scale, causal)
 
 
+####################################
 # deeplink flash attention operators
+####################################
 
 
 def _deeplink_varlen_qkvpacked_attn(*args, **kwargs):
@@ -329,7 +533,7 @@ def _deeplink_varlen_qkvpacked_attn(*args, **kwargs):
     _nyi_attn("_deeplink_varlen_qkvpacked_attn", *args, **kwargs)
 
 
-def _deeplink_fixedlne_qkvpacked_attn(*args, **kwargs):
+def _deeplink_fixedlen_qkvpacked_attn(*args, **kwargs):
     # TODO: support deeplink version flash attention
     _nyi_attn("_deeplink_fixedlne_qkvpacked_attn", *args, **kwargs)
 
@@ -354,7 +558,9 @@ def _deeplink_fixedlen_qkvsplited_attn(*args, **kwargs):
     _nyi_attn("_deeplink_fixedlen_qkvsplited_attn", *args, **kwargs)
 
 
+###############################
 # torch attention operators
+###############################
 
 
 def _torch_varlen_qkvpacked_attn(*args, **kwargs):
@@ -438,6 +644,109 @@ def _torch_fixedlen_qkvsplited_attn(
     return _torch_fixedlen_kvpacked_attn(q, kv, dropout, softmax_scale, causal, key_padding_mask)
 
 
+###############################
+# static ops bindings
+###############################
+
+
+_attn_ops_bindings = {
+    AttnType.Torch: {
+        AttnOpType.VarLenQKVPacked: _torch_varlen_qkvpacked_attn,
+        AttnOpType.VarLenKVPacked: _torch_varlen_kvpacked_attn,
+        AttnOpType.VarLenQKVSplited: _torch_varlen_qkvsplited_attn,
+        AttnOpType.FixedLenQKVPacked: _torch_fixedlen_qkvpacked_attn,
+        AttnOpType.FixedLenKVPacked: _torch_fixedlen_kvpacked_attn,
+        AttnOpType.FixedLenQKVSplited: _torch_fixedlen_qkvsplited_attn,
+    },
+    AttnType.Flash: {
+        AttnOpType.VarLenQKVPacked: _flash_varlen_qkvpacked_attn,
+        AttnOpType.VarLenKVPacked: _flash_varlen_kvpacked_attn,
+        AttnOpType.VarLenQKVSplited: _flash_varlen_qkvsplited_attn,
+        AttnOpType.FixedLenQKVPacked: _flash_fixedlen_qkvpacked_attn,
+        AttnOpType.FixedLenKVPacked: _flash_fixedlen_kvpacked_attn,
+        AttnOpType.FixedLenQKVSplited: _flash_fixedlen_qkvsplited_attn,
+    },
+    AttnType.RingFlash: {
+        AttnOpType.VarLenQKVPacked: _ring_flash_varlen_qkvpacked_attn,
+        AttnOpType.VarLenKVPacked: _ring_flash_varlen_kvpacked_attn,
+        AttnOpType.VarLenQKVSplited: _ring_flash_varlen_qkvsplited_attn,
+        AttnOpType.FixedLenQKVPacked: _ring_flash_fixedlen_qkvpacked_attn,
+        AttnOpType.FixedLenKVPacked: _ring_flash_fixedlen_kvpacked_attn,
+        AttnOpType.FixedLenQKVSplited: _ring_flash_fixedlen_qkvsplited_attn,
+    },
+    AttnType.ZigZagFlash: {
+        AttnOpType.VarLenQKVPacked: _zigzag_ring_flash_varlen_qkvpacked_attn,
+        AttnOpType.VarLenKVPacked: _zigzag_ring_flash_varlen_kvpacked_attn,
+        AttnOpType.VarLenQKVSplited: _zigzag_ring_flash_varlen_qkvsplited_attn,
+        AttnOpType.FixedLenQKVPacked: _zigzag_ring_flash_fixedlen_qkvpacked_attn,
+        AttnOpType.FixedLenKVPacked: _zigzag_ring_flash_fixedlen_kvpacked_attn,
+        AttnOpType.FixedLenQKVSplited: _zigzag_ring_flash_fixedlen_qkvsplited_attn,
+    },
+    AttnType.FullKVZigZagFlash: {
+        AttnOpType.VarLenQKVPacked: _fullkv_zigzag_ring_flash_varlen_qkvpacked_attn,
+        AttnOpType.VarLenKVPacked: _fullkv_zigzag_ring_flash_varlen_kvpacked_attn,
+        AttnOpType.VarLenQKVSplited: _fullkv_zigzag_ring_flash_varlen_qkvsplited_attn,
+        AttnOpType.FixedLenQKVPacked: _fullkv_zigzag_ring_flash_fixedlen_qkvpacked_attn,
+        AttnOpType.FixedLenKVPacked: _fullkv_zigzag_ring_flash_fixedlen_kvpacked_attn,
+        AttnOpType.FixedLenQKVSplited: _fullkv_zigzag_ring_flash_fixedlen_qkvsplited_attn,
+    },
+    AttnType.NPUFlash: {
+        AttnOpType.VarLenQKVPacked: _npu_varlen_qkvpacked_attn,
+        AttnOpType.VarLenKVPacked: _npu_varlen_kvpacked_attn,
+        AttnOpType.VarLenQKVSplited: _npu_varlen_qkvsplited_attn,
+        AttnOpType.FixedLenQKVPacked: _npu_fixedlen_qkvpacked_attn,
+        AttnOpType.FixedLenKVPacked: _npu_fixedlen_kvpacked_attn,
+        AttnOpType.FixedLenQKVSplited: _npu_fixedlen_qkvsplited_attn,
+    },
+    AttnType.DeepLinkFlash: {
+        AttnOpType.VarLenQKVPacked: _deeplink_varlen_qkvpacked_attn,
+        AttnOpType.VarLenKVPacked: _deeplink_varlen_kvpacked_attn,
+        AttnOpType.VarLenQKVSplited: _deeplink_varlen_qkvsplited_attn,
+        AttnOpType.FixedLenQKVPacked: _deeplink_fixedlen_qkvpacked_attn,
+        AttnOpType.FixedLenKVPacked: _deeplink_fixedlen_kvpacked_attn,
+        AttnOpType.FixedLenQKVSplited: _deeplink_fixedlen_qkvsplited_attn,
+    },
+}
+
+
+def _select_attn_op(op_type: AttnOpType) -> Tuple[AttnType, Callable]:
+    attn_type = None
+
+    ring_attn_conf = gpc.config.get("use_ring_attn", "none")
+
+    if gpc.config.model.get("use_flash_attn", False):
+        if device_backend == AcceleratorType.GPU and gpu_flash_attn_impl:
+            if ring_attn_conf == "none":
+                attn_type = AttnType.Flash
+            elif ring_attn_conf == "basic":
+                attn_type = AttnType.RingFlash
+            elif ring_attn_conf == "zigzag":
+                attn_type = AttnType.ZigZagFlash
+            elif ring_attn_conf == "full_kv_zigzag":
+                attn_type = AttnType.FullKVZigZagFlash
+            else:
+                raise NotImplementedError(f"Unsupported ring flash attention type: {ring_attn_conf}")
+        elif device_backend == AcceleratorType.NPU and is_torch_npu:
+            assert ring_attn_conf == "none", "ring flash attention for npu is not yet implemented"
+
+            attn_type = AttnType.NPUFlash
+        elif device_backend == AcceleratorType.DIPU and deeplink_flash_attn_impl:
+            assert ring_attn_conf == "none", "ring flash attention for deeplink is not yet implemented"
+
+            attn_type = AttnType.DeepLinkFlash
+        else:
+            raise NotImplementedError(f"Unsupported device type: {device_backend} for flash attention")
+    else:
+        attn_type = AttnType.Torch
+
+    return attn_type, _attn_ops_bindings[attn_type][op_type]
+
+
+###############################
+# Attenton Interfaces
+###############################
+
+
 @auto_wrap_distributed_attention
 class SelfAttention(nn.Module):
     """Implements scaled dot-product attention with optional softmax scaling.
@@ -480,52 +789,37 @@ class SelfAttention(nn.Module):
         softmax_scale = self.softmax_scale if softmax_scale is None else softmax_scale
         causal = self.causal if causal is None else causal
 
-        if gpc.config.model.get("use_flash_attn", False):
-            if device_backend == AcceleratorType.GPU and gpu_flash_attn_impl:
-                return _flash_fixedlen_qkvpacked_attn(qkv, self.dropout.p, softmax_scale, causal)
-            elif device_backend == AcceleratorType.NPU and is_torch_npu:
-                return _npu_fixedlen_qkvpacked_attn(qkv, self.dropout.p, softmax_scale, causal)
-            elif device_backend == AcceleratorType.DIPU and deeplink_flash_attn_impl:
-                return _deeplink_fixedlne_qkvpacked_attn(qkv, self.dropout.p, softmax_scale, causal)
-            else:
-                raise NotImplementedError(f"Unsupported device type: {device_backend} for flash attention")
-        else:
-            return _torch_fixedlen_qkvpacked_attn(qkv, self.dropout, softmax_scale, causal, key_padding_mask)
+        attn_type, op = _select_attn_op(AttnOpType.FixedLenQKVPacked)
+
+        # TODO: more unified interface
+        dropout = self.dropout if attn_type is AttnType.Torch else self.dropout.p
+        extra_args = (key_padding_mask) if attn_type is AttnType.Torch else ()
+
+        return op(qkv, dropout, softmax_scale, causal, *extra_args)
 
     @forward.register(conditions=(str(QKVPackType.KVPACKED), str(CuSeqlenType.WithOut)))
     def _q_kv_without_cu_seqlens(self, q, kv, softmax_scale=None, causal=None, key_padding_mask=None):
         softmax_scale = self.softmax_scale if softmax_scale is None else softmax_scale
         causal = self.causal if causal is None else causal
 
-        if gpc.config.model.get("use_flash_attn", False):
-            if device_backend == AcceleratorType.GPU and gpu_flash_attn_impl:
-                return _ring_fixedlen_kvpacked_attn(q, kv, self.dropout.p, softmax_scale, causal, self.layer_idx)
+        attn_type, op = _select_attn_op(AttnOpType.FixedLenKVPacked)
 
-            elif device_backend == AcceleratorType.NPU and is_torch_npu:
-                return _npu_fixedlen_kvpacked_attn(q, kv, self.dropout.p, softmax_scale, causal)
-            elif device_backend == AcceleratorType.DIPU and deeplink_flash_attn_impl:
-                return _deeplink_fixedlen_kvpacked_attn(q, kv, self.dropout.p, softmax_scale, causal)
-            else:
-                raise NotImplementedError(f"Unsupported device type: {device_backend} for flash attention")
-        else:
-            return _torch_fixedlen_kvpacked_attn(q, kv, self.dropout, softmax_scale, causal, key_padding_mask)
+        dropout = self.dropout if attn_type is AttnType.Torch else self.dropout.p
+        extra_args = (key_padding_mask) if attn_type is AttnType.Torch else ()
+
+        return op(q, kv, dropout, softmax_scale, causal, *extra_args)
 
     @forward.register(conditions=(str(QKVPackType.QKVSPLITED), str(CuSeqlenType.WithOut)))
     def _q_k_v_without_cu_seqlens(self, q, k, v, softmax_scale=None, causal=None, key_padding_mask=None):
         softmax_scale = self.softmax_scale if softmax_scale is None else softmax_scale
         causal = self.causal if causal is None else causal
 
-        if gpc.config.model.get("use_flash_attn", False):
-            if device_backend == AcceleratorType.GPU and gpu_flash_attn_impl:
-                return _flash_fixedlen_qkvsplited_attn(q, k, v, self.dropout.p, softmax_scale, causal)
-            elif device_backend == AcceleratorType.NPU and is_torch_npu:
-                return _npu_fixedlen_qkvsplited_attn(q, k, v, self.dropout.p, softmax_scale, causal)
-            elif device_backend == AcceleratorType.DIPU and deeplink_flash_attn_impl:
-                return _deeplink_fixedlen_qkvsplited_attn(q, k, v, self.dropout.p, softmax_scale, causal)
-            else:
-                raise NotImplementedError(f"Unsupported device type: {device_backend} for flash attention")
-        else:
-            return _torch_fixedlen_qkvsplited_attn(q, k, v, self.dropout, softmax_scale, causal, key_padding_mask)
+        attn_type, op = _select_attn_op(AttnOpType.FixedLenQKVSplited)
+
+        dropout = self.dropout if attn_type is AttnType.Torch else self.dropout.p
+        extra_args = (key_padding_mask) if attn_type is AttnType.Torch else ()
+
+        return op(q, k, v, dropout, softmax_scale, causal, *extra_args)
 
     @forward.register(conditions=(str(QKVPackType.QKVPACKED), str(CuSeqlenType.With)))
     def _qkv_with_cu_seqlens(
@@ -540,21 +834,12 @@ class SelfAttention(nn.Module):
         softmax_scale = self.softmax_scale if softmax_scale is None else softmax_scale
         causal = self.causal if causal is None else causal
 
-        if gpc.config.model.get("use_flash_attn", False):
-            if device_backend == AcceleratorType.GPU and gpu_flash_attn_impl:
-                return _flash_varlen_qkvpacked_attn(qkv, cu_seqlens, max_seqlen, self.dropout.p, softmax_scale, causal)
-            elif device_backend == AcceleratorType.NPU and is_torch_npu:
-                return _npu_varlen_qkvpacked_attn(qkv, cu_seqlens, max_seqlen, self.dropout.p, softmax_scale, causal)
-            elif device_backend == AcceleratorType.DIPU and deeplink_flash_attn_impl:
-                return _deeplink_varlen_qkvpacked_attn(
-                    qkv, cu_seqlens, max_seqlen, self.dropout.p, softmax_scale, causal
-                )
-            else:
-                raise NotImplementedError(f"Unsupported device type: {device_backend} for flash attention")
-        else:
-            return _torch_varlen_qkvpacked_attn(
-                qkv, cu_seqlens, max_seqlen, self.dropout, softmax_scale, causal, key_padding_mask
-            )
+        attn_type, op = _select_attn_op(AttnOpType.VarLenQKVPacked)
+
+        dropout = self.dropout if attn_type is AttnType.Torch else self.dropout.p
+        extra_args = (key_padding_mask) if attn_type is AttnType.Torch else ()
+
+        return op(qkv, cu_seqlens, max_seqlen, dropout, softmax_scale, causal, *extra_args)
 
     @forward.register(conditions=(str(QKVPackType.KVPACKED), str(CuSeqlenType.With)))
     def _q_kv_with_cu_seqlens(
@@ -572,34 +857,14 @@ class SelfAttention(nn.Module):
         softmax_scale = self.softmax_scale if softmax_scale is None else softmax_scale
         causal = self.causal if causal is None else causal
 
-        if gpc.config.model.get("use_flash_attn", False):
-            if device_backend == AcceleratorType.GPU and gpu_flash_attn_impl:
-                return _flash_varlen_kvpacked_attn(
-                    q, kv, cu_seqlens_q, cu_seqlens_k, max_seqlen_q, max_seqlen_k, self.dropout.p, softmax_scale, causal
-                )
-            elif device_backend == AcceleratorType.NPU and is_torch_npu:
-                return _npu_varlen_kvpacked_attn(
-                    q, kv, cu_seqlens_q, cu_seqlens_k, max_seqlen_q, max_seqlen_k, self.dropout.p, softmax_scale, causal
-                )
-            elif device_backend == AcceleratorType.DIPU and deeplink_flash_attn_impl:
-                return _deeplink_varlen_kvpacked_attn(
-                    q, kv, cu_seqlens_q, cu_seqlens_k, max_seqlen_q, max_seqlen_k, self.dropout.p, softmax_scale, causal
-                )
-            else:
-                raise NotImplementedError(f"Unsupported device type: {device_backend} for flash attention")
-        else:
-            return _torch_varlen_kvpacked_attn(
-                q,
-                kv,
-                cu_seqlens_q,
-                cu_seqlens_k,
-                max_seqlen_q,
-                max_seqlen_k,
-                self.dropout,
-                softmax_scale,
-                causal,
-                key_padding_mask,
-            )
+        attn_type, op = _select_attn_op(AttnOpType.VarLenKVPacked)
+
+        dropout = self.dropout if attn_type is AttnType.Torch else self.dropout.p
+        extra_args = (key_padding_mask) if attn_type is AttnType.Torch else ()
+
+        return op(
+            q, kv, cu_seqlens_q, cu_seqlens_k, max_seqlen_q, max_seqlen_k, dropout, softmax_scale, causal, *extra_args
+        )
 
     @forward.register(conditions=(str(QKVPackType.QKVSPLITED), str(CuSeqlenType.With)))
     def _q_k_v_with_cu_seqlens(
@@ -618,62 +883,14 @@ class SelfAttention(nn.Module):
         softmax_scale = self.softmax_scale if softmax_scale is None else softmax_scale
         causal = self.causal if causal is None else causal
 
-        if gpc.config.model.get("use_flash_attn", False):
-            if device_backend == AcceleratorType.GPU and gpu_flash_attn_impl:
-                return _flash_varlen_qkvsplited_attn(
-                    q,
-                    k,
-                    v,
-                    cu_seqlens_q,
-                    cu_seqlens_k,
-                    max_seqlen_q,
-                    max_seqlen_k,
-                    self.dropout.p,
-                    softmax_scale,
-                    causal,
-                )
-            elif device_backend == AcceleratorType.NPU and is_torch_npu:
-                return _npu_varlen_qkvsplited_attn(
-                    q,
-                    k,
-                    v,
-                    cu_seqlens_q,
-                    cu_seqlens_k,
-                    max_seqlen_q,
-                    max_seqlen_k,
-                    self.dropout.p,
-                    softmax_scale,
-                    causal,
-                )
-            elif device_backend == AcceleratorType.DIPU and deeplink_flash_attn_impl:
-                return _deeplink_varlen_qkvsplited_attn(
-                    q,
-                    k,
-                    v,
-                    cu_seqlens_q,
-                    cu_seqlens_k,
-                    max_seqlen_q,
-                    max_seqlen_k,
-                    self.dropout.p,
-                    softmax_scale,
-                    causal,
-                )
-            else:
-                raise NotImplementedError(f"Unsupported device type: {device_backend} for flash attention")
-        else:
-            return _torch_varlen_qkvsplited_attn(
-                q,
-                k,
-                v,
-                cu_seqlens_q,
-                cu_seqlens_k,
-                max_seqlen_q,
-                max_seqlen_k,
-                self.dropout,
-                softmax_scale,
-                causal,
-                key_padding_mask,
-            )
+        attn_type, op = _select_attn_op(AttnOpType.VarLenQKVSplited)
+
+        dropout = self.dropout if attn_type is AttnType.Torch else self.dropout.p
+        extra_args = (key_padding_mask) if attn_type is AttnType.Torch else ()
+
+        return op(
+            q, k, v, cu_seqlens_q, cu_seqlens_k, max_seqlen_q, max_seqlen_k, dropout, softmax_scale, causal, *extra_args
+        )
 
 
 @auto_wrap_distributed_attention
@@ -721,34 +938,24 @@ class CrossAttention(nn.Module):
         softmax_scale = self.softmax_scale if softmax_scale is None else softmax_scale
         causal = self.causal if causal is None else causal
 
-        if gpc.config.model.get("use_flash_attn", False):
-            if device_backend == AcceleratorType.GPU and gpu_flash_attn_impl:
-                return _flash_fixedlen_kvpacked_attn(q, kv, self.dropout.p, softmax_scale, causal)
-            elif device_backend == AcceleratorType.NPU and is_torch_npu:
-                return _npu_fixedlen_kvpacked_attn(q, kv, self.dropout.p, softmax_scale, causal)
-            elif device_backend == AcceleratorType.DIPU and deeplink_flash_attn_impl:
-                return _deeplink_fixedlen_kvpacked_attn(q, kv, self.dropout.p, softmax_scale, causal)
-            else:
-                raise NotImplementedError(f"Unsupported device type: {device_backend} for flash attention")
-        else:
-            return _torch_fixedlen_kvpacked_attn(q, kv, self.dropout, softmax_scale, causal, key_padding_mask)
+        attn_type, op = _select_attn_op(AttnOpType.FixedLenKVPacked)
+
+        dropout = self.dropout if attn_type is AttnType.Torch else self.dropout.p
+        extra_args = (key_padding_mask) if attn_type is AttnType.Torch else ()
+
+        return op(q, kv, dropout, softmax_scale, causal, *extra_args)
 
     @forward.register(conditions=(str(QKVPackType.QKVSPLITED), str(CuSeqlenType.WithOut)))
     def _q_k_v_without_cu_seqlens(self, q, k, v, softmax_scale=None, causal=None, key_padding_mask=None):
         softmax_scale = self.softmax_scale if softmax_scale is None else softmax_scale
         causal = self.causal if causal is None else causal
 
-        if gpc.config.model.get("use_flash_attn", False):
-            if device_backend == AcceleratorType.GPU and gpu_flash_attn_impl:
-                return _flash_fixedlen_qkvsplited_attn(q, k, v, self.dropout.p, softmax_scale, causal)
-            elif device_backend == AcceleratorType.NPU and is_torch_npu:
-                return _npu_fixedlen_qkvsplited_attn(q, k, v, self.dropout.p, softmax_scale, causal)
-            elif device_backend == AcceleratorType.DIPU and deeplink_flash_attn_impl:
-                return _deeplink_fixedlen_qkvsplited_attn(q, k, v, self.dropout.p, softmax_scale, causal)
-            else:
-                raise NotImplementedError(f"Unsupported device type: {device_backend} for flash attention")
-        else:
-            return _torch_fixedlen_qkvsplited_attn(q, k, v, self.dropout, softmax_scale, causal, key_padding_mask)
+        attn_type, op = _select_attn_op(AttnOpType.FixedLenQKVSplited)
+
+        dropout = self.dropout if attn_type is AttnType.Torch else self.dropout.p
+        extra_args = (key_padding_mask) if attn_type is AttnType.Torch else ()
+
+        return op(q, k, v, dropout, softmax_scale, causal, *extra_args)
 
     @forward.register(conditions=(str(QKVPackType.KVPACKED), str(CuSeqlenType.With)))
     def _q_kv_with_cu_seqlens(
@@ -766,34 +973,14 @@ class CrossAttention(nn.Module):
         softmax_scale = self.softmax_scale if softmax_scale is None else softmax_scale
         causal = self.causal if causal is None else causal
 
-        if gpc.config.model.get("use_flash_attn", False):
-            if device_backend == AcceleratorType.GPU and gpu_flash_attn_impl:
-                return _flash_varlen_kvpacked_attn(
-                    q, kv, cu_seqlens_q, cu_seqlens_k, max_seqlen_q, max_seqlen_k, self.dropout.p, softmax_scale, causal
-                )
-            elif device_backend == AcceleratorType.NPU and is_torch_npu:
-                return _npu_varlen_kvpacked_attn(
-                    q, kv, cu_seqlens_q, cu_seqlens_k, max_seqlen_q, max_seqlen_k, self.dropout.p, softmax_scale, causal
-                )
-            elif device_backend == AcceleratorType.DIPU and deeplink_flash_attn_impl:
-                return _deeplink_varlen_kvpacked_attn(
-                    q, kv, cu_seqlens_q, cu_seqlens_k, max_seqlen_q, max_seqlen_k, self.dropout.p, softmax_scale, causal
-                )
-            else:
-                raise NotImplementedError(f"Unsupported device type: {device_backend} for flash attention")
-        else:
-            return _torch_varlen_kvpacked_attn(
-                q,
-                kv,
-                cu_seqlens_q,
-                cu_seqlens_k,
-                max_seqlen_q,
-                max_seqlen_k,
-                self.dropout,
-                softmax_scale,
-                causal,
-                key_padding_mask,
-            )
+        attn_type, op = _select_attn_op(AttnOpType.VarLenKVPacked)
+
+        dropout = self.dropout if attn_type is AttnType.Torch else self.dropout.p
+        extra_args = (key_padding_mask) if attn_type is AttnType.Torch else ()
+
+        return op(
+            q, kv, cu_seqlens_q, cu_seqlens_k, max_seqlen_q, max_seqlen_k, dropout, softmax_scale, causal, *extra_args
+        )
 
     @forward.register(conditions=(str(QKVPackType.QKVSPLITED), str(CuSeqlenType.With)))
     def _q_k_v_with_cu_seqlens(
@@ -812,59 +999,11 @@ class CrossAttention(nn.Module):
         softmax_scale = self.softmax_scale if softmax_scale is None else softmax_scale
         causal = self.causal if causal is None else causal
 
-        if gpc.config.model.get("use_flash_attn", False):
-            if device_backend == AcceleratorType.GPU and gpu_flash_attn_impl:
-                return _flash_varlen_qkvsplited_attn(
-                    q,
-                    k,
-                    v,
-                    cu_seqlens_q,
-                    cu_seqlens_k,
-                    max_seqlen_q,
-                    max_seqlen_k,
-                    self.dropout.p,
-                    softmax_scale,
-                    causal,
-                )
-            elif device_backend == AcceleratorType.NPU and is_torch_npu:
-                return _npu_varlen_qkvsplited_attn(
-                    q,
-                    k,
-                    v,
-                    cu_seqlens_q,
-                    cu_seqlens_k,
-                    max_seqlen_q,
-                    max_seqlen_k,
-                    self.dropout.p,
-                    softmax_scale,
-                    causal,
-                )
-            elif device_backend == AcceleratorType.DIPU and deeplink_flash_attn_impl:
-                return _deeplink_varlen_qkvsplited_attn(
-                    q,
-                    k,
-                    v,
-                    cu_seqlens_q,
-                    cu_seqlens_k,
-                    max_seqlen_q,
-                    max_seqlen_k,
-                    self.dropout.p,
-                    softmax_scale,
-                    causal,
-                )
-            else:
-                raise NotImplementedError(f"Unsupported device type: {device_backend} for flash attention")
-        else:
-            return _torch_varlen_qkvsplited_attn(
-                q,
-                k,
-                v,
-                cu_seqlens_q,
-                cu_seqlens_k,
-                max_seqlen_q,
-                max_seqlen_k,
-                self.dropout,
-                softmax_scale,
-                causal,
-                key_padding_mask,
-            )
+        attn_type, op = _select_attn_op(AttnOpType.VarLenQKVSplited)
+
+        dropout = self.dropout if attn_type is AttnType.Torch else self.dropout.p
+        extra_args = (key_padding_mask) if attn_type is AttnType.Torch else ()
+
+        return op(
+            q, k, v, cu_seqlens_q, cu_seqlens_k, max_seqlen_q, max_seqlen_k, dropout, softmax_scale, causal, *extra_args
+        )
