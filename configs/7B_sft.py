@@ -1,11 +1,12 @@
 JOB_NAME = "7b_train"
+model_type = "INTERNLM_FROM_HF"
 DO_ALERT = False
 
-SEQ_LEN = 2048
-HIDDEN_SIZE = 4096
-NUM_ATTENTION_HEAD = 32
+SEQ_LEN = 256
+HIDDEN_SIZE = 128
+NUM_ATTENTION_HEAD = 8
 MLP_RATIO = 8 / 3
-NUM_LAYER = 32
+NUM_LAYER = 8
 VOCAB_SIZE = 103168
 
 MODEL_ONLY_FOLDER = "local:llm_ckpts/xxxx"
@@ -45,6 +46,7 @@ ckpt = dict(
 )
 
 TRAIN_FOLDER = None  # "/path/to/dataset"
+#TRAIN_FOLDER = "/mnt/petrelfs/share_data/wangguoteng.p/0623_scratch_tokenized_filtered/train/"  # "/path/to/dataset"
 VALID_FOLDER = None  # "/path/to/dataset"
 data = dict(
     seq_len=SEQ_LEN,
@@ -57,7 +59,7 @@ data = dict(
     # defaults to 0, means disable evaluate
     valid_every=50,
     pack_sample_into_one=False,
-    total_steps=50000,
+    total_steps=5,
     skip_batches="",
     # rampup_batch_size (str): A string with three space-separated integers representing the
     #       starting batch size, the increment, and the number of steps between
@@ -71,6 +73,7 @@ data = dict(
     valid_folder=VALID_FOLDER,
     empty_cache_and_diag_interval=200,
     diag_outlier_ratio=1.1,
+    use_packed_dataset=False,
 )
 
 grad_scaler = dict(
@@ -131,12 +134,12 @@ beta2_scheduler = dict(
 
 use_fp32_norm = False
 model = dict(
-    checkpoint=False,  # The proportion of layers for activation aheckpointing, the optional value are True/False/[0-1]
+    checkpoint=True,  # The proportion of layers for activation aheckpointing, the optional value are True/False/[0-1]
     num_attention_heads=NUM_ATTENTION_HEAD,
     embed_split_hidden=True,
     vocab_size=VOCAB_SIZE,
     embed_grad_scale=1,
-    parallel_output=True,
+    parallel_output=False,
     hidden_size=HIDDEN_SIZE,
     num_layers=NUM_LAYER,
     mlp_ratio=MLP_RATIO,
@@ -144,7 +147,7 @@ model = dict(
     dtype="torch.bfloat16",  # Support: "torch.float16", "torch.half", "torch.bfloat16", "torch.float32", "torch.tf32"
     norm_type="rmsnorm",
     layer_norm_epsilon=1e-5,
-    use_flash_attn=True,
+    use_flash_attn=False,
     # Whether the odd and even columns of the query and key in the model are normally interleaved.
     # If it's True, the model's odd and even columns are normally ordered; if it's False,
     # it means that the model has prematurely concatenated all odd columns and even columns in front

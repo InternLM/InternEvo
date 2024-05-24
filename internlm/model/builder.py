@@ -27,7 +27,12 @@ def create_model(model_type, *args, **kwargs) -> Union[nn.Module, List[nn.Module
         kwargs["first"] = kwargs["last"] = True
         kwargs["start_layer_idx"] = 0
         kwargs["num_layers"] = num_layers
-        model = model_buidler(*args, **kwargs).to(kwargs["device"])
+        if "_FROM_HF" in model_type: # TODO: here need to decide which model config to choose
+            from internlm.model.configuration_internlm import InternLMConfig
+            internlmConf = InternLMConfig()
+            model = model_buidler(*args, internlmConf).to(kwargs["device"])
+        else:
+            model = model_buidler(*args, **kwargs).to(kwargs["device"])
         setattr(model, "first_layer", 0)
         setattr(model, "last_layer", num_layers)
     else:
