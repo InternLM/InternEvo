@@ -46,14 +46,14 @@ ckpt = dict(
 )
 
 TRAIN_FOLDER = None  # "/path/to/dataset"
-#TRAIN_FOLDER = "/mnt/petrelfs/share_data/wangguoteng.p/0623_scratch_tokenized_filtered/train/"  # "/path/to/dataset"
+TRAIN_FOLDER = "/mnt/petrelfs/share_data/wangguoteng.p/0623_scratch_tokenized_filtered/train/"  # "/path/to/dataset"
 VALID_FOLDER = None  # "/path/to/dataset"
 data = dict(
     seq_len=SEQ_LEN,
     # micro_num means the number of micro_batch contained in one gradient update
     micro_num=4,
     # packed_length = micro_bsz * SEQ_LEN
-    micro_bsz=2,
+    micro_bsz=1,
     # defaults to the value of micro_num
     valid_micro_num=4,
     # defaults to 0, means disable evaluate

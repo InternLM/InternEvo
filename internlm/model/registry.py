@@ -8,7 +8,7 @@ from internlm.model.modeling_internlm2 import InternLM2
 from internlm.model.modeling_llama import Llama2
 from internlm.model.modeling_llava import Llava
 from internlm.model.modeling_moe import Internlm1MoE
-from internlm.model.modeling_internlm_hf import InternLMModel
+from internlm.model.modeling_internlm_hf import InternLMForCausalLM
 
 
 class Registry:
@@ -82,4 +82,4 @@ def register_model_initializer() -> None:
     model_initializer.register_module("LLAMA2", Llama2)
     model_initializer.register_module("INTERNLM_MoE", Internlm1MoE)
     model_initializer.register_module("LLAVA", Llava)
-    model_initializer.register_module("INTERNLM_FROM_HF", InternLMModel)
+    model_initializer.register_module("INTERNLM_FROM_HF", InternLMForCausalLM)
