@@ -46,20 +46,23 @@ ckpt = dict(
 )
 
 TRAIN_FOLDER = None  # "/path/to/dataset"
-TRAIN_FOLDER = "/mnt/petrelfs/share_data/wangguoteng.p/0623_scratch_tokenized_filtered/train/"  # "/path/to/dataset"
+# TRAIN_FOLDER = "/mnt/petrelfs/share_data/wangguoteng.p/0623_scratch_tokenized_filtered/train/"  # "/path/to/dataset"
 VALID_FOLDER = None  # "/path/to/dataset"
 data = dict(
+    type="hf",
+    hf_dataset_name="roneneldan/TinyStories",
+    hf_tokenizer_name="internlm/internlm-7b",
     seq_len=SEQ_LEN,
     # micro_num means the number of micro_batch contained in one gradient update
     micro_num=4,
     # packed_length = micro_bsz * SEQ_LEN
-    micro_bsz=1,
+    micro_bsz=2,
     # defaults to the value of micro_num
     valid_micro_num=4,
     # defaults to 0, means disable evaluate
-    valid_every=50,
+    valid_every=100000,
     pack_sample_into_one=False,
-    total_steps=5,
+    total_steps=50000,
     skip_batches="",
     # rampup_batch_size (str): A string with three space-separated integers representing the
     #       starting batch size, the increment, and the number of steps between

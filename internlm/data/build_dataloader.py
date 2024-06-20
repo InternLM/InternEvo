@@ -1,11 +1,17 @@
 # Copyright (c) InternLM. All rights reserved.
 from functools import partial
+import sys
+import datasets
 
+import torch
 import torch.distributed as dist
-from torch.utils.data import ConcatDataset, DataLoader
+from transformers import AutoTokenizer
+from datasets.distributed import split_dataset_by_node
+from torch.utils.data import ConcatDataset, DataLoader, Dataset
 
 from internlm.core.context import ParallelMode
 from internlm.core.context import global_context as gpc
+from internlm.data.streaming.batch_sampler import StreamingStaticBatchSampler
 from internlm.data.tokenized.batch_sampler import (
     StaticBatchSampler,
     get_dpsampler_dataloader,
@@ -107,6 +113,73 @@ def get_tokenized_valid_loader_items(data_cfg):
 
     return valid_ds, valid_collate_fn
 
+def hf_collate_fn(batch, micro_num, micro_bsz, seq_len):
+    input_ids_list = []
+    attention_mask_list = []
+    labels_list = []
+    
+    for b in batch:
+        attention_mask_list.append(b['attention_mask'])
+        input_ids = torch.abs(b['input_ids']*b['attention_mask'])
+        input_ids_list.append(input_ids)
+        label = torch.tensor([w if w > 0 else -100 for w in input_ids.tolist()][1:]+[-100])
+        labels_list.append(label)
+    
+    input_ids = torch.stack(input_ids_list)
+    attention_mask = torch.stack(attention_mask_list)
+    labels = torch.stack(labels_list)
+    
+    return {"input_ids": input_ids, "attention_mask": attention_mask, "type_ids": torch.zeros(micro_num, micro_bsz, seq_len, dtype=torch.int64)}, labels
+
+
+def create_dataloader(data_cfg, split='train'):
+    train_dataset = HuggingFaceStreamingDataset(data_cfg.hf_dataset_name, data_cfg.hf_tokenizer_name, data_cfg.seq_len, split)
+    train_batch_sampler = StreamingStaticBatchSampler(batch_size = data_cfg.micro_num * data_cfg.micro_bsz, rampup_batch_size = data_cfg.rampup_batch_size)
+    train_dl = DataLoader(
+        dataset=train_dataset,
+        batch_sampler=train_batch_sampler,
+        num_workers=data_cfg.get("num_worker", 4),
+        pin_memory=True,
+        collate_fn=partial(hf_collate_fn, micro_num=data_cfg.micro_num, micro_bsz=data_cfg.micro_bsz, seq_len=data_cfg.seq_len),
+        persistent_workers=data_cfg.get("num_worker", 4) > 0,
+    )
+    return train_dl
+
+class HuggingFaceStreamingDataset(Dataset):
+    def __init__(self, dataset_name, tokenizer_name, model_max_length, split='train', buffer_size=1000):
+        self.dataset = datasets.load_dataset(dataset_name, split=split, streaming=True)
+        self.dataset = split_dataset_by_node(self.dataset, rank=gpc.get_local_rank(ParallelMode.DATA), world_size=gpc.get_world_size(ParallelMode.DATA))
+        self.buffer_size = buffer_size
+        self.senior_iterator = iter(self)
+
+        self.tokenizer = AutoTokenizer.from_pretrained(tokenizer_name, trust_remote_code=True)
+        self.tokenizer.padding_side = "right"
+        self.tokenizer.truncation_side = "right"
+        self.tokenizer.model_max_length = model_max_length
+
+    def __iter__(self):
+        buffer = []
+        for sample in self.dataset:
+            buffer.append(sample)
+            if len(buffer) >= self.buffer_size:
+                yield from self._tokenize(buffer)
+                buffer = []
+
+        if buffer:
+            yield from self._tokenize(buffer)
+    
+    def __len__(self):
+        return sys.maxsize
+    
+    def _tokenize(self, samples):
+        texts = [sample['text'] for sample in samples]
+        tokenized_outputs = self.tokenizer(texts, padding=True, truncation=True, return_tensors='pt')
+        for i in range(len(samples)):
+            yield {key: tokenized_outputs[key][i] for key in tokenized_outputs}
+
+    def __getitem__(self, _):
+        return next(self.senior_iterator)
+
 
 def build_train_loader_with_data_type():
     """
@@ -115,6 +188,11 @@ def build_train_loader_with_data_type():
     Returns: A tuple of (train_dl, dataset_types).
     """
     data_cfg = gpc.config.data
+
+    if data_cfg.type == "hf":
+        train_dl = create_dataloader(data_cfg)
+        return train_dl, ["en"]
+
     train_folder = data_cfg.get("train_folder", None)
     dataset_types = list(get_dataset_type_ids_map(train_folder).keys()) if train_folder else ["en", "cn", "code"]
 
@@ -140,6 +218,9 @@ def build_valid_loader_with_data_type():
     """Generate and return the validation data loader based on data type."""
 
     data_cfg = gpc.config.data
+
+    if data_cfg.type == "hf":
+        return None
 
     if data_cfg.type == "tokenized":
         valid_ds, valid_collate_fn = get_tokenized_valid_loader_items(data_cfg)
