@@ -2,11 +2,11 @@ JOB_NAME = "7b_train"
 model_type = "INTERNLM_FROM_HF"
 DO_ALERT = False
 
-SEQ_LEN = 256
-HIDDEN_SIZE = 128
-NUM_ATTENTION_HEAD = 8
+SEQ_LEN = 1024
+HIDDEN_SIZE = 4096
+NUM_ATTENTION_HEAD = 32
 MLP_RATIO = 8 / 3
-NUM_LAYER = 8
+NUM_LAYER = 32
 VOCAB_SIZE = 103168
 
 MODEL_ONLY_FOLDER = "local:llm_ckpts/xxxx"
@@ -46,7 +46,6 @@ ckpt = dict(
 )
 
 TRAIN_FOLDER = None  # "/path/to/dataset"
-# TRAIN_FOLDER = "/mnt/petrelfs/share_data/wangguoteng.p/0623_scratch_tokenized_filtered/train/"  # "/path/to/dataset"
 VALID_FOLDER = None  # "/path/to/dataset"
 data = dict(
     type="hf",

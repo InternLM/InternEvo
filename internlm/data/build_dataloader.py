@@ -113,26 +113,26 @@ def get_tokenized_valid_loader_items(data_cfg):
 
     return valid_ds, valid_collate_fn
 
-def hf_collate_fn(batch, micro_num, micro_bsz, seq_len):
-    input_ids_list = []
-    attention_mask_list = []
-    labels_list = []
-    
-    for b in batch:
-        attention_mask_list.append(b['attention_mask'])
-        input_ids = torch.abs(b['input_ids']*b['attention_mask'])
-        input_ids_list.append(input_ids)
-        label = torch.tensor([w if w > 0 else -100 for w in input_ids.tolist()][1:]+[-100])
-        labels_list.append(label)
-    
-    input_ids = torch.stack(input_ids_list)
-    attention_mask = torch.stack(attention_mask_list)
-    labels = torch.stack(labels_list)
-    
-    return {"input_ids": input_ids, "attention_mask": attention_mask, "type_ids": torch.zeros(micro_num, micro_bsz, seq_len, dtype=torch.int64)}, labels
+def create_hf_dataloader(data_cfg, split='train'):
+    def hf_collate_fn(batch, micro_num, micro_bsz, seq_len):
+        input_ids_list = []
+        attention_mask_list = []
+        labels_list = []
+        for b in batch:
+            attention_mask = b['attention_mask']
+            input_ids = b['input_ids']
+            input_ids = torch.abs(input_ids * attention_mask)
+            input_ids = torch.nn.functional.pad(input_ids, (0, seq_len - len(input_ids)), mode='constant', value=0)
+            attention_mask = torch.nn.functional.pad(attention_mask, (0, seq_len - len(attention_mask)), mode='constant', value=0)
+            label = torch.tensor([w if w > 0 else -100 for w in input_ids.tolist()][1:]+[-100])
+            input_ids_list.append(input_ids)
+            attention_mask_list.append(attention_mask)
+            labels_list.append(label)
+        input_ids = torch.stack(input_ids_list)
+        attention_mask = torch.stack(attention_mask_list)
+        labels = torch.stack(labels_list)
+        return {"input_ids": input_ids, "attention_mask": attention_mask, "type_ids": torch.zeros(micro_num, micro_bsz, seq_len, dtype=torch.int64)}, labels
 
-
-def create_dataloader(data_cfg, split='train'):
     train_dataset = HuggingFaceStreamingDataset(data_cfg.hf_dataset_name, data_cfg.hf_tokenizer_name, data_cfg.seq_len, split)
     train_batch_sampler = StreamingStaticBatchSampler(batch_size = data_cfg.micro_num * data_cfg.micro_bsz, rampup_batch_size = data_cfg.rampup_batch_size)
     train_dl = DataLoader(
@@ -190,7 +190,7 @@ def build_train_loader_with_data_type():
     data_cfg = gpc.config.data
 
     if data_cfg.type == "hf":
-        train_dl = create_dataloader(data_cfg)
+        train_dl = create_hf_dataloader(data_cfg)
         return train_dl, ["en"]
 
     train_folder = data_cfg.get("train_folder", None)
