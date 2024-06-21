@@ -79,7 +79,7 @@ def pack_return_tensors(return_tensors):
         raise TypeError("Output of model must be tensor or list/tuple of tensors")
     if isinstance(label[0], torch.Tensor):
         label = torch.cat(label, dim=0)
-    else:
+    elif isinstance(label[0], dict):
         merged_label = {k: [] for k in label[0].keys()}
         for d in label:
             for k, v in d.items():

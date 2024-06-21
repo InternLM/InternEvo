@@ -9,10 +9,36 @@ import json
 import mmap
 import os
 import threading
+import time
 from pathlib import Path
 
 import numpy as np
 import torch
+
+from internlm.accelerator import get_accelerator
+from internlm.core.context import global_context as gpc
+from internlm.utils.logger import get_logger
+
+logger = get_logger(__file__)
+internlm_accelerator = get_accelerator()
+
+
+def gen_shm_meta_name_without_scalar(path: str):
+    """gen_shm_meta_name_without_scalar
+
+    Args:
+        path (str): dataset path, like:
+        /llm_data/tokenized/train/cn/train-00000.bin
+    """
+    bin_path = Path(path)
+    shm_prefix_path = Path(gpc.config.data.shm_path)
+
+    # Use the entire path as the relative path part
+    dataset_base_path = bin_path.relative_to(bin_path.anchor)  # Removes the root part (e.g., '/' or 'C:\')
+
+    # /dev/shm/metacache/llm_data/tokenized/train/cn/train-00000.bin
+    shm_path_without_num_tokens = Path(shm_prefix_path, dataset_base_path)
+    return shm_path_without_num_tokens
 
 
 class JsonlDataset(torch.utils.data.Dataset):
@@ -29,7 +55,63 @@ class JsonlDataset(torch.utils.data.Dataset):
     Note that only the "tokens" key is used.
     """
 
-    def __init__(self, path: str, dataset_type_id: int = 0, min_length=50):
+    def __init__(self, path: str, dataset_type_id: int = 0, min_length=50, pack_sample_into_one=False):
+        if not gpc.config.data.use_shm:
+            self._process_init(path, dataset_type_id, min_length)
+        else:
+            devices_per_node = internlm_accelerator.device_count()
+            self.local_rank = gpc.get_global_rank() % devices_per_node
+            shm_path_without_num_tokens = gen_shm_meta_name_without_scalar(path)
+
+            found_cache, shm_path, num_tokens, seed = False, None, None, None
+            while not found_cache:
+                if shm_path_without_num_tokens.parent.exists():
+                    for file in shm_path_without_num_tokens.parent.iterdir():
+                        fp_str = str(file.resolve())
+                        if fp_str.startswith(str(shm_path_without_num_tokens.resolve())) and fp_str.endswith(".final"):
+                            # Found cache
+                            scalers = fp_str.split("%")
+                            num_tokens = int(scalers[1])
+                            seed = int(scalers[2].split(".")[0])
+                            found_cache = True
+                            shm_path = fp_str
+
+                # for local_rank 0, no need to wait
+                # go forward to do computing and saving
+                if self.local_rank == 0:
+                    break
+
+                if not found_cache:
+                    logger.warning(f"GPU {self.local_rank} loading meta: cache not found, waiting...")
+                    time.sleep(1)
+
+            if found_cache:
+                assert shm_path and num_tokens is not None and seed is not None
+                self.shm_handler = np.load(shm_path, mmap_mode="r+")
+                self.offsets = self.shm_handler[0]
+                self.lengths = self.shm_handler[1]
+                if pack_sample_into_one:
+                    self.indices = self.shm_handler[2]
+                    self.cum_lens = self.shm_handler[3]
+                else:
+                    self.sample_indices = self.shm_handler[2]
+                    self.len_samples_shuffled = self.shm_handler[3]
+                    self.acm_len_samples = self.shm_handler[4]
+                self.num_tokens = num_tokens
+                self.seed = seed
+                self.threadlocal = threading.local()
+                self.path = path
+                self.resolved_path = Path(path).resolve()
+                self.type_id = dataset_type_id
+                self.old_length = len(self.offsets)
+            elif self.local_rank == 0:
+                self._process_init(path, dataset_type_id, min_length)
+            else:
+                assert False, "should not arrive here"
+
+            self.found_cache = found_cache
+
+    def _process_init(self, path: str, dataset_type_id: int = 0, min_length=50):
         self.path = path
         self.threadlocal = threading.local()
         resolved_path = Path(path).resolve()

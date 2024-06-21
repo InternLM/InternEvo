@@ -76,6 +76,10 @@ data = dict(
     empty_cache_and_diag_interval=200,
     diag_outlier_ratio=1.1,
     use_packed_dataset=False,
+    # whether use shared memory to load meta files
+    use_shm=False,
+    # when use shm, the default shm_path is "/dev/shm/metacache"
+    # shm_path="/dev/shm/metacache"
 )
 
 grad_scaler = dict(
@@ -105,6 +109,11 @@ hybrid_zero_optimizer = dict(
     reduce_bucket_size=512 * 1024 * 1024,
     # grad clipping
     clip_grad_norm=1.0,
+    # whether use new optm
+    use_split_tensor_optim=False,
+    # when use split tensor optm
+    # Perform all gather with a set of parameters of all_gather_size
+    all_gather_size=512 * 1024 * 1024,
 )
 
 loss = dict(

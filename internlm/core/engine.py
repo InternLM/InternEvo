@@ -93,6 +93,11 @@ class Engine:
         """Returns the criterion (loss function) attached to the engine."""
         return self._criterion
 
+    @criterion.setter
+    def criterion(self, criterion):
+        """Sets the criterion (loss function)."""
+        self._criterion = criterion
+
     def _all_reduce_gradients(self):
         """Handles all-reduce operations of gradients across different parallel groups."""
         for handler in self._gradient_handlers:

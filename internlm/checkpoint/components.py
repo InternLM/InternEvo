@@ -11,7 +11,7 @@ from internlm.core.context import ParallelMode
 from internlm.core.context import global_context as gpc
 from internlm.core.trainer import TrainState
 from internlm.model.moe.moe import MoE
-from internlm.solver.optimizer import HybridZeroOptimizer
+from internlm.solver.optimizer import HybridZeroOptimizer, HybridZeroOptimizer_v2
 from internlm.utils.common import get_current_device
 from internlm.utils.logger import get_logger
 from internlm.utils.parallel import is_using_isp
@@ -345,7 +345,7 @@ def load_optimizer_checkpoint(folder, optim):
 
     states = llm_load(os.path.join(folder, fp), map_location=get_current_device())
 
-    if isinstance(optim, HybridZeroOptimizer):
+    if isinstance(optim, (HybridZeroOptimizer, HybridZeroOptimizer_v2)):
         fp_meta = os.path.join(folder, optim.rank_unique_id)
         try:
             zero_devide_optim_plan = llm_load(fp_meta)
@@ -393,7 +393,7 @@ def save_optimizer_checkpoint(optim, state_path):
     dp_size = gpc.get_world_size(ParallelMode.DATA)
 
     states = optim.state_dict()
-    if isinstance(optim, HybridZeroOptimizer):
+    if isinstance(optim, (HybridZeroOptimizer, HybridZeroOptimizer_v2)):
         if is_using_isp():
             fp = f"optimizer_tp{tp_rank}_wp{wp_rank}_pp{pp_rank}_dp{dp_rank}.pt"
             llm_save(os.path.join(state_path, fp), states)

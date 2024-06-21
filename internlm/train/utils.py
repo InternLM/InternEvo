@@ -1,9 +1,11 @@
 from typing import Dict, Tuple
 
 import torch
+from torch import nn
 
 from internlm.core.context.parallel_context import ParallelMode
 from internlm.core.context.parallel_context import global_context as gpc
+from internlm.core.naive_amp import unwrap_naive_amp
 from internlm.model.modules.utils import is_moe_param
 from internlm.utils.parallel import is_tensor_data_parallel_parameter, is_using_isp
 
@@ -86,3 +88,16 @@ def create_param_groups(model, weight_decay):
         "weight_decay": weight_decay,
     }
     return split_params_into_different_groups_for_optimizer(parameters)
+
+
+def map_param_block(model):
+    for _chunk in unwrap_naive_amp(model):
+        for name, children in _chunk.named_children():
+            if isinstance(children, nn.ModuleList):
+                for idx, block in enumerate(children):
+                    block_name = name + f"_{idx}"
+                    for param in block.parameters():
+                        setattr(param, "block_name", block_name)
+            else:
+                for param in children.parameters():
+                    setattr(param, "block_name", name)

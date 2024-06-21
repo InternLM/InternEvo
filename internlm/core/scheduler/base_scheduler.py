@@ -8,6 +8,7 @@ from typing import Any, Callable, Dict, Iterable
 
 import torch
 
+from internlm.apis import InferenceParams
 from internlm.core.engine import Engine
 
 
@@ -44,10 +45,26 @@ class BaseScheduler(ABC):
         so the data of batch is unpacked and 'bsz_stride' is equal to 'micro_bsz'.
         In all other cases 'bsz_stride' should be equal to 1.
         """
-        assert isinstance(data, dict) and isinstance(label, torch.Tensor)
-        micro_batch_data = {k: v[offset : offset + bsz_stride] for k, v in data.items()}
-        micro_batch_label = label[offset : offset + bsz_stride]
+        assert isinstance(data, dict)
 
+        micro_batch_data = {}
+        for k, v in data.items():
+            if isinstance(v, torch.Tensor):
+                micro_batch_data[k] = v[offset : offset + bsz_stride]
+            elif isinstance(v, InferenceParams):
+                v.set_batch_offset(offset, bsz_stride)
+                micro_batch_data[k] = v
+            elif isinstance(v, (list, tuple)):
+                micro_batch_data[k] = v[offset : offset + bsz_stride]
+            else:
+                raise NotImplementedError(f"value of type {type(v)} is not supported")
+
+        if isinstance(label, torch.Tensor):
+            micro_batch_label = label[offset : offset + bsz_stride]
+        elif isinstance(label, Dict):
+            micro_batch_label = {k: v[offset : offset + bsz_stride] if v.dim() > 0 else v for k, v in label.items()}
+        else:
+            micro_batch_label = label
         return micro_batch_data, micro_batch_label
 
     @abstractmethod

@@ -1,7 +1,10 @@
 #!/usr/bin/env python
 # -*- encoding: utf-8 -*-
 
+import gc
 import logging
+import os
+import shutil
 import socket
 import time
 import traceback
@@ -10,6 +13,7 @@ from functools import partial
 import torch.distributed as dist
 
 import internlm
+from internlm.accelerator import get_accelerator
 from internlm.checkpoint import CheckpointManager
 from internlm.core.context import ParallelMode
 from internlm.core.context import global_context as gpc
@@ -50,6 +54,7 @@ from internlm.utils.writer import Writer
 
 # global llm logger
 logger = logging.getLogger(__file__)
+internlm_accelerator = get_accelerator()
 
 
 def main(args):
@@ -175,6 +180,8 @@ def main(args):
     train_iter = iter(train_dl)
 
     with initialize_llm_profile(profiling=args.profiling, start_time=current_time) as prof:
+        # close automatic garbage collection
+        gc.disable()
         # start iterating the train data and begin training
         for batch_count in range(train_state.batch_count, total_steps):
             empty_cache_and_diag(batch_count, interval=gpc.config.data.empty_cache_and_diag_interval)
@@ -313,3 +320,10 @@ if __name__ == "__main__":
             )
 
             # internlm_accelerator.memory._dump_snapshot(f"my_snapshot_{gpc.get_global_rank()}.pickle")
+        finally:
+            # local rank0 delete all files in shm_path, when use shm
+            devices_per_node = internlm_accelerator.device_count()
+            local_rank = gpc.get_global_rank() % devices_per_node
+            if gpc.config.data.use_shm and local_rank == 0:
+                if os.path.exists(gpc.config.data.shm_path):
+                    shutil.rmtree(gpc.config.data.shm_path)

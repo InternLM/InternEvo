@@ -63,11 +63,15 @@ from internlm.model.ops.norm import RMSNorm
 from internlm.model.registry import register_model_initializer
 from internlm.monitor import set_env_var
 from internlm.monitor.monitor import monitor_manager as mm
-from internlm.solver.optimizer import FSDPadaptOptimizer, HybridZeroOptimizer
+from internlm.solver.optimizer import (
+    FSDPadaptOptimizer,
+    HybridZeroOptimizer,
+    HybridZeroOptimizer_v2,
+)
 from internlm.solver.optimizer.compatible_adamw import new_compatible_adamw
 from internlm.solver.schedulers.beta2_scheduler import Beta2Scheduler
 from internlm.solver.schedulers.lr_scheduler import FineTuneCosineAnnealingWarmupLR
-from internlm.train.utils import create_param_groups
+from internlm.train.utils import create_param_groups, map_param_block
 from internlm.utils.common import DummyProfile, SchedulerHook, get_current_device
 from internlm.utils.logger import get_logger
 from internlm.utils.megatron_timers import megatron_timer as timer
@@ -341,6 +345,9 @@ def initialize_optimizer(model: Union[nn.Module, nn.ModuleList], isp_communicato
     zero_cfg = gpc.config.hybrid_zero_optimizer
     grad_scal_cfg = gpc.config.grad_scaler
 
+    if "use_split_tensor_optim" in zero_cfg and zero_cfg.use_split_tensor_optim:
+        map_param_block(model)
+
     params = create_param_groups(model, adam_cfg.weight_decay)
 
     naive_optimizer = new_compatible_adamw(
@@ -370,13 +377,25 @@ def initialize_optimizer(model: Union[nn.Module, nn.ModuleList], isp_communicato
         param_bcast_sync_handler = None
 
     if not gpc.config.parallel.zero1.fsdp:
-        optimizer = HybridZeroOptimizer(
-            naive_optimizer,
-            grad_scal_cfg=grad_scal_cfg,
-            zero_cfg=zero_cfg,
-            param_bcast_sync_handler=param_bcast_sync_handler,
-            isp_communicator=isp_communicator,
-        )
+        if (
+            "use_split_tensor_optim" not in gpc.config.hybrid_zero_optimizer
+            or not gpc.config.hybrid_zero_optimizer.use_split_tensor_optim
+        ):
+            optimizer = HybridZeroOptimizer(
+                naive_optimizer,
+                grad_scal_cfg=grad_scal_cfg,
+                zero_cfg=zero_cfg,
+                param_bcast_sync_handler=param_bcast_sync_handler,
+                isp_communicator=isp_communicator,
+            )
+        else:
+            optimizer = HybridZeroOptimizer_v2(
+                naive_optimizer,
+                grad_scal_cfg=grad_scal_cfg,
+                zero_cfg=zero_cfg,
+                param_bcast_sync_handler=param_bcast_sync_handler,
+                isp_communicator=isp_communicator,
+            )
     else:
         optimizer = FSDPadaptOptimizer(
             naive_optimizer,
@@ -630,6 +649,8 @@ def record_current_batch_training_metrics(
 
         fwd_bwd_time = round(timer("fwd-bwd").elapsed(), 2)
         infos["fwd_bwd_time"] = fwd_bwd_time
+        bwd_time = round(timer("bwd").elapsed(), 2)
+        infos["bwd_time"] = bwd_time
 
         for key, value in acc_perplex.items():
             infos[key] = value

@@ -53,7 +53,9 @@ def move_to_device(data):
         data = [move_to_device(x) for x in data]
     elif isinstance(data, dict):
         data = {k: move_to_device(v) for k, v in data.items()}
-
+    else:
+        # other types like scalar, other params, return the value itself.
+        return data
     return data
 
 

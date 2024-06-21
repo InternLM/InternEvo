@@ -175,7 +175,6 @@ class NonPipelineScheduler(BaseScheduler):
                 If True, the model is run for the forward pass, else back propagation will be executed.
             return_loss (bool, optional): Loss will be returned if True.
             return_output_label (bool, optional): Output and label will be returned if True.
-
         Returns:
             Tuple[:class:`torch.Tensor`]: A tuple of (output, label, loss), loss and label could be None.
         """

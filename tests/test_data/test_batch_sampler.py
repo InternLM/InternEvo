@@ -187,6 +187,7 @@ def test_warmup(use_flash_atten_case, group_case, micro_bsz_case):
     config.data.gradient_accumulation = config.data.micro_num
     config.data.rampup_batch_size = group_case[1]
     config.data.packed_length = micro_bsz_case * config.data.seq_len
+    config.data.use_shm = False
     should_sccuess = group_case[2]
     answer = group_case[3]
 

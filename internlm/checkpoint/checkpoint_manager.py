@@ -17,7 +17,7 @@ from internlm.initialize.legacy.launch import (
     ckpt_info_sanity_check,
 )
 from internlm.monitor import send_alert_message
-from internlm.solver.optimizer import HybridZeroOptimizer, reload_zero_fp32_buff
+from internlm.solver.optimizer import HybridZeroOptimizer, HybridZeroOptimizer_v2
 from internlm.utils.common import get_current_device
 from internlm.utils.logger import get_logger
 from internlm.utils.megatron_timers import megatron_timer as timer
@@ -210,8 +210,8 @@ def try_load_internlm_ckpt_func(ckpt_mm, load_info, *args, func=None, **kwargs):
     load_content_str += f"{CheckpointLoadContent.MODEL}, "
     internlm_accelerator.synchronize()
 
-    if isinstance(ckpt_mm.optimizer, HybridZeroOptimizer):
-        reload_zero_fp32_buff(ckpt_mm.optimizer)
+    if isinstance(ckpt_mm.optimizer, (HybridZeroOptimizer, HybridZeroOptimizer_v2)):
+        ckpt_mm.optimizer.reload_zero_fp32_buff()
 
 
 class CheckpointManager:
@@ -552,9 +552,10 @@ now step_count is {train_state.step_count}",
 
             # If we only load model weight, we need rewrite zero optim's fp32 buffer.
             if (
-                load_content.only_load(CheckpointLoadContent.MODEL) and isinstance(self.optimizer, HybridZeroOptimizer)
+                "optimizer" not in load_content.load_set
+                and isinstance(self.optimizer, (HybridZeroOptimizer, HybridZeroOptimizer_v2))
             ) or gpc.config.get("only_load_lr", False):
-                reload_zero_fp32_buff(self.optimizer)
+                self.optimizer.reload_zero_fp32_buff()
 
             if gpc.is_rank_for_log():
                 logger.info(f"load_ckpt_info : {self.load_ckpt_info}")

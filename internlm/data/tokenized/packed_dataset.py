@@ -4,22 +4,27 @@
 import itertools as it
 import operator
 import os
+import shutil
 from copy import deepcopy
+from pathlib import Path
 from typing import Dict
 
 import numpy as np
-import torch
 import torch.distributed as dist
 from torch.utils.data import ConcatDataset, Dataset
 from tqdm import tqdm
 
+from internlm.accelerator import get_accelerator
 from internlm.core.context import global_context as gpc
 from internlm.data.tokenized.single_dataset import JsonlDataset
 from internlm.data.utils import get_dataset_type_id, get_dataset_type_ids_map
 from internlm.utils.logger import get_logger
 
+from .single_dataset import gen_shm_meta_name_without_scalar
+
 DEFAULT_SEED = 1024
 logger = get_logger(__file__)
+internlm_accelerator = get_accelerator()
 
 
 class PackedDataset(Dataset):
@@ -67,7 +72,12 @@ class PackedDataset(Dataset):
         return self.build_unpack(item)
 
 
-class PackedDatasetWithoutCuSeqlen(torch.utils.data.Dataset):
+def gen_shm_meta_name_scalar(path: str, num_tokens: int, seed: int):
+    shm_path_without_num_tokens = gen_shm_meta_name_without_scalar(path)
+    return "%".join([str(shm_path_without_num_tokens), str(num_tokens), str(seed)])
+
+
+class PackedDatasetWithoutCuSeqlen(Dataset):
     """
     A dataset wrapper that aggregates samples with different lengths based on packed_length.
     If a sample is shorter than max_length_per_sample, it will be merged with other samples.
@@ -98,13 +108,50 @@ class PackedDatasetWithoutCuSeqlen(torch.utils.data.Dataset):
         ), "The dataset must have lengths attribute and have the same length as the dataset"
         self.dataset = dataset
         self.max_length_per_sample = max_length_per_sample
-        self.lengths = getattr(self.dataset, "lengths")
         self.bsz = packed_length // max_length_per_sample
         self.packed_length = packed_length
         self.debug = debug
         # Force a seed to be fixed to prevent problems caused by the seed not being restored when restarting
-
         self.seed = DEFAULT_SEED
+        self.path = self.get_dataset_name()
+
+        if not gpc.config.data.use_shm:
+            self._process_init()
+        else:
+            if self.dataset.found_cache:
+                assert (
+                    hasattr(dataset, "lengths")
+                    and hasattr(dataset, "indices")
+                    and hasattr(dataset, "cum_lens")
+                    and hasattr(dataset, "num_tokens")
+                )
+                self.lengths = self.dataset.lengths
+                self.indices = self.dataset.indices
+                self.cum_lens = self.dataset.cum_lens
+                self.num_tokens = self.dataset.num_tokens
+                assert self.seed == getattr(self.dataset, "seed")
+                assert packed_length % max_length_per_sample == 0
+                assert len(getattr(dataset, "lengths")) == len(
+                    dataset
+                ), "The dataset must have lengths attribute and have the same length as the dataset"
+            else:
+                self._process_init()
+                # If shm-packed datast found no cache, local rank 0 try save.
+                if self.dataset.local_rank == 0:
+                    shm_path = Path(gen_shm_meta_name_scalar(self.path, self.num_tokens, self.seed))
+                    shm_path_str = str(shm_path)
+                    assert not os.path.exists(shm_path_str)
+                    if not os.path.exists(str(shm_path.parent)):
+                        os.makedirs(str(shm_path.parent), exist_ok=True)
+
+                    data = np.asarray([self.dataset.offsets, self.lengths, self.indices, self.cum_lens])
+                    np.save(shm_path_str, data)
+                    # Prevent the risk of competition between jsondataset and packeddataset in
+                    # different processes on the same node.
+                    shutil.move(shm_path_str + ".npy", shm_path_str + ".final")  # np.save will auto add .npy
+
+    def _process_init(self):
+        self.lengths = getattr(self.dataset, "lengths")
         indices = np.arange(len(self.lengths))
         rng = np.random.RandomState(self.seed)
         rng.shuffle(indices)
@@ -234,8 +281,54 @@ class PackedDatasetWithCut(PackedDataset):
         packed_length: int = 4096,
     ):
         super().__init__(dataset, max_length_per_sample, packed_length)
-        self.sample_indices, self.len_samples_shuffled, self.acm_len_samples = self.accu_sample_len(seed=self.seed)
-        self.num_tokens = sum(self.lengths)
+        self.path = self.get_dataset_name()
+        if not gpc.config.data.use_shm:
+            self.sample_indices, self.len_samples_shuffled, self.acm_len_samples = self.accu_sample_len(seed=self.seed)
+            self.num_tokens = sum(self.lengths)
+        else:
+            if self.dataset.found_cache:
+                assert (
+                    hasattr(dataset, "sample_indices")
+                    and hasattr(dataset, "len_samples_shuffled")
+                    and hasattr(dataset, "acm_len_samples")
+                    and hasattr(dataset, "num_tokens")
+                )
+                self.sample_indices = self.dataset.sample_indices
+                self.len_samples_shuffled = self.dataset.len_samples_shuffled
+                self.acm_len_samples = self.dataset.acm_len_samples
+                self.num_tokens = self.dataset.num_tokens
+                assert self.seed == getattr(self.dataset, "seed")
+                assert packed_length % max_length_per_sample == 0
+                assert hasattr(dataset, "lengths")
+                assert len(getattr(dataset, "lengths")) == len(
+                    dataset
+                ), "The dataset must have lengths attribute and have the same length as the dataset"
+            else:
+                self.sample_indices, self.len_samples_shuffled, self.acm_len_samples = self.accu_sample_len(
+                    seed=self.seed
+                )
+                self.num_tokens = sum(self.lengths)
+                # If shm-packed datast found no cache, local rank 0 try save.
+                if self.dataset.local_rank == 0:
+                    shm_path = Path(gen_shm_meta_name_scalar(self.path, self.num_tokens, self.seed))
+                    shm_path_str = str(shm_path)
+                    assert not os.path.exists(shm_path_str)
+                    if not os.path.exists(str(shm_path.parent)):
+                        os.makedirs(str(shm_path.parent), exist_ok=True)
+
+                    data = np.asarray(
+                        [
+                            self.dataset.offsets,
+                            self.lengths,
+                            self.sample_indices,
+                            self.len_samples_shuffled,
+                            self.acm_len_samples,
+                        ]
+                    )
+                    np.save(shm_path_str, data)
+                    # Prevent the risk of competition between jsondataset and packeddataset in
+                    # different processes on the same node.
+                    shutil.move(shm_path_str + ".npy", shm_path_str + ".final")  # np.save will auto add .npy
 
     def get_dataset_name(self):
         return self.dataset.get_dataset_name()
@@ -452,7 +545,12 @@ def get_packed_dataset_without_short_length(
                     ), f"The file name `{fp}` matched the following resample keys:{catch_ml_keys}"
 
                 ds_type_id = get_dataset_type_id(DATASET_TYPE_IDS_MAP, path=fp)
-                ds = JsonlDataset(fp, ds_type_id, min_length=min_length_num)
+                ds = JsonlDataset(
+                    fp,
+                    ds_type_id,
+                    min_length=min_length_num,
+                    pack_sample_into_one=pack_sample_into_one,
+                )
 
                 if hasattr(ds, "old_length"):
                     delete_samples += ds.old_length - len(ds)

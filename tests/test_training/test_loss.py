@@ -59,6 +59,7 @@ def train(
     enable_sp: bool = False,
     enable_ckpt: bool = False,
     model_type: str = "INTERNLM",
+    optimizer_ver: str = "v1",
 ):
     # initialize distributed environment
     config = Config.from_file(CONFIG_FILE_PATH)
@@ -71,6 +72,10 @@ def train(
     total_steps = config.data.total_steps
     skip_batches = config.data.skip_batches
     label_smoothing = config.loss.label_smoothing
+
+    if optimizer_ver == "v2":
+        config.hybrid_zero_optimizer.new_version = True
+        config.all_gather_size = 512 * 1024 * 1024
 
     # update ckpt config
     if model_type == "INTERNLM" and tp_mode != "isp" and interleaved is False:
@@ -293,6 +298,18 @@ def test_training_loss_with_dp4():
     check_loss_accuracy()
 
 
+@pytest.mark.training_4GPU_optimizer_v2
+def test_training_loss_with_dp4_optimizer_v2():
+    # model training
+    train(dp_size=4, optimizer_ver="v2")
+
+    # print loss value
+    print(f"cur_loss_list: {cur_loss_list}", flush=True)
+
+    check_loss_spike()
+    check_loss_accuracy()
+
+
 @pytest.mark.training_8GPU_4DP2TP
 def test_training_loss_with_dp4_tp2():
     # model training
@@ -317,10 +334,34 @@ def test_training_loss_with_dp4_tp2_sp():
     check_loss_accuracy()
 
 
+@pytest.mark.training_8GPU_4DP2TPSP_optimizer_v2
+def test_training_loss_with_dp4_tp2_sp_optimizer_v2():
+    # model training
+    train(dp_size=4, tp_size=2, tp_mode="fsp", enable_sp=True, optimizer_ver="v2")
+
+    # print loss value
+    print(f"cur_loss_list: {cur_loss_list}", flush=True)
+
+    check_loss_spike()
+    check_loss_accuracy()
+
+
 @pytest.mark.training_8GPU_4DP2PP
 def test_training_loss_with_dp4_pp2():
     # model training
     train(dp_size=4, pp_size=2)
+
+    # print loss value
+    print(f"cur_loss_list: {cur_loss_list}", flush=True)
+
+    check_loss_spike()
+    check_loss_accuracy()
+
+
+@pytest.mark.training_8GPU_4DP2PP_optimizer_v2
+def test_training_loss_with_dp4_pp2_optimizer_v2():
+    # model training
+    train(dp_size=4, pp_size=2, optimizer_ver="v2")
 
     # print loss value
     print(f"cur_loss_list: {cur_loss_list}", flush=True)
@@ -356,6 +397,18 @@ def test_training_loss_with_dp4_tp2_pp2_mtp():
 def test_training_loss_with_dp4_tp2_pp2_msp():
     # model training
     train(dp_size=4, tp_size=2, pp_size=2, tp_mode="msp")
+
+    # print loss value
+    print(f"cur_loss_list: {cur_loss_list}", flush=True)
+
+    check_loss_spike()
+    check_loss_accuracy()
+
+
+@pytest.mark.training_16GPU_4DP2TP2PP_MSP_optimizer_v2
+def test_training_loss_with_dp4_tp2_pp2_msp_optimizer_v2():
+    # model training
+    train(dp_size=4, tp_size=2, pp_size=2, tp_mode="msp", optimizer_ver="v2")
 
     # print loss value
     print(f"cur_loss_list: {cur_loss_list}", flush=True)
