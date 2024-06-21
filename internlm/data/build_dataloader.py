@@ -114,7 +114,7 @@ def get_tokenized_valid_loader_items(data_cfg):
     return valid_ds, valid_collate_fn
 
 def create_hf_dataloader(data_cfg, split='train'):
-    def hf_collate_fn(batch, micro_num, micro_bsz, seq_len):
+    def collate_fn(batch, micro_num, micro_bsz, seq_len):
         input_ids_list = []
         attention_mask_list = []
         labels_list = []
@@ -133,14 +133,14 @@ def create_hf_dataloader(data_cfg, split='train'):
         labels = torch.stack(labels_list)
         return {"input_ids": input_ids, "attention_mask": attention_mask, "type_ids": torch.zeros(micro_num, micro_bsz, seq_len, dtype=torch.int64)}, labels
 
-    train_dataset = HuggingFaceStreamingDataset(data_cfg.hf_dataset_name, data_cfg.hf_tokenizer_name, data_cfg.seq_len, split)
+    train_dataset = HuggingFaceStreamingDataset(data_cfg.train_folder, data_cfg.tokenizer_path, data_cfg.seq_len, split)
     train_batch_sampler = StreamingStaticBatchSampler(batch_size = data_cfg.micro_num * data_cfg.micro_bsz, rampup_batch_size = data_cfg.rampup_batch_size)
     train_dl = DataLoader(
         dataset=train_dataset,
         batch_sampler=train_batch_sampler,
         num_workers=data_cfg.get("num_worker", 4),
         pin_memory=True,
-        collate_fn=partial(hf_collate_fn, micro_num=data_cfg.micro_num, micro_bsz=data_cfg.micro_bsz, seq_len=data_cfg.seq_len),
+        collate_fn=partial(collate_fn, micro_num=data_cfg.micro_num, micro_bsz=data_cfg.micro_bsz, seq_len=data_cfg.seq_len),
         persistent_workers=data_cfg.get("num_worker", 4) > 0,
     )
     return train_dl

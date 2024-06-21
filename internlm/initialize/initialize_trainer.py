@@ -82,7 +82,7 @@ def initialize_trainer(
 
     if gpc.config.data.use_packed_dataset:
         data_fn = packed_data_normalizer
-    elif gpc.config.data.type=="hf":
+    elif gpc.config.data.type == "hf":
         data_fn = None
     else:
         data_fn = unpack_data
