@@ -1,3 +1,4 @@
+import argparse
 import inspect
 import logging
 import os
@@ -9,9 +10,8 @@ import torch
 from internlm.apis.inference import SequenceGenerator
 from internlm.core.context import ParallelMode
 from internlm.core.context import global_context as gpc
-from internlm.initialize.launch import launch_from_torch
-from internlm.model.registry import model_initializer
-from internlm.train import initialize_model
+from internlm.initialize.launch import initialize_distributed_env
+from internlm.train import initialize_model, initialize_parallel_communicator
 from internlm.utils.storage_manager import get_fns, init_storage_manager, llm_load
 from tools.interface import GenerationConfig
 
@@ -102,6 +102,10 @@ def match_fn_signature(func: Callable, args_dict: Dict) -> None:
         logger.warning(f"These args:{args_set} are popped for func:{func.__name__}.")
 
 
+def use_torchrun_starter():
+    return os.getenv("RANK") is not None
+
+
 def get_tp_rank() -> int:
     """Get the tensor parallel rank.
     This script uses torchrun to initialize the environment, so RANK in the environment variable is the tensor
@@ -119,7 +123,7 @@ def get_tp_world_size() -> int:
     Returns:
         int: The tensor parallel world size to which the current process belongs.
     """
-    return int(os.environ.get("WORLD_SIZE", 0))
+    return int(os.environ.get("WORLD_SIZE", 1))
 
 
 def initialize_internlm_model(
@@ -173,27 +177,32 @@ def initialize_internlm_model(
     model_config["dtype"] = param_dtype
     model_config["parallel_output"] = False
     # FIXME: fix it.
-    match_fn_signature(model_initializer.get_module(model_type), model_config)
     if gpc.is_rank_for_log():
         logger.info(f"model_config: {model_config}.")
-    launch_from_torch(
+
+    initialize_distributed_env(
         config=dict(
             model_type=model_type,
             model=model_config,
             parallel=dict(
                 zero1=dict(size=1, fsdp=False),
                 pipeline=dict(size=1, interleaved_overlap=True),
-                tensor=get_tp_world_size(),
+                tensor=dict(size=get_tp_world_size(), mode="mtp"),
                 sequence_parallel=0,
             ),
         ),
+        launcher="torch" if use_torchrun_starter() else "slurm",
         seed=seed,
+        master_port=23574,
+        args_check=False,
     )
-    model = initialize_model()
     # Directly get the origin model without NativeAMP wrapper.
+    model = initialize_model()
+    _ = initialize_parallel_communicator(model)
     model = model.model
 
     state_dict = merge_pp_within_tp(ckpt_dir, del_model_prefix=del_model_prefix)
+
     load_info = model.load_state_dict(state_dict, strict=False)
     logger.info(f"Rank:{gpc.get_local_rank(ParallelMode.TENSOR)}. Load info: {load_info}.")
 
@@ -224,11 +233,11 @@ def internlm_interactive_generation(
     sequenece_generator = SequenceGenerator(
         decoder=model,
         eos_token_id=tokenizer.eos_id(),
-        pad_token_id=tokenizer.eos_id(),
+        pad_token_id=tokenizer.bos_id(),
         bos_token_id=tokenizer.bos_id(),
         additional_eos_token_list=additional_eos_token_list,
     )
-    additional_eos_token_list = torch.LongTensor(additional_eos_token_list)
+    additional_eos_token_list = torch.LongTensor(additional_eos_token_list) if additional_eos_token_list else None
     input_ids = [tokenizer.bos_id()] + tokenizer.encode(prompt)
     input_ids = torch.LongTensor([input_ids]).to(get_model_device(model))
     output_generator = sequenece_generator.streaming_generate(
@@ -250,32 +259,48 @@ def internlm_interactive_generation(
         yield cur_output
 
 
+def get_default_parser():
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--ckpt_dir", type=str, help="path to the ckpt file", required=True)
+    parser.add_argument(
+        "--tokenizer_path", type=str, default="tools/tokenizer_internlm2.model", help="path to the tokenizer file"
+    )
+
+    return parser
+
+
 if __name__ == "__main__":
+    parser = get_default_parser()
+    args = parser.parse_args()
+
     """
     Here is a simple example to generate with origin internlm model architecture.
     Use the following command to run:
-    >>> torchrun --master_port 12331 --nnodes=1 --node_rank=0 --nproc_per_node=1 tools/load_internlm_model.py
+    >>> torchrun --master_port 12321 --nnodes=1 --node_rank=0 --nproc_per_node=1 tools/load_internlm2_model.py
     """
     model = initialize_internlm_model(
-        model_type="INTERNLM",
-        ckpt_dir="[Please replace this with the directory where the internlm model weights are stored]",
+        model_type="INTERNLM2_PUBLIC",
+        ckpt_dir=args.ckpt_dir,
         model_config=dict(
-            checkpoint=False,
-            num_attention_heads=32,
-            embed_split_hidden=True,
-            vocab_size=103168,
-            embed_grad_scale=1,
-            parallel_output=False,
-            hidden_size=4096,
-            num_layers=32,
-            mlp_ratio=8 / 3,
-            apply_post_layer_norm=False,
-            dtype="torch.bfloat16",
-            norm_type="rmsnorm",
-            layer_norm_epsilon=1e-5,
-            use_flash_attn=True,
             num_chunks=1,
-            use_dynamic_ntk_rope=True,
+            checkpoint=0.2,
+            dtype="torch.bfloat16",
+            embed_split_hidden=True,
+            num_layers=32,
+            hidden_size=4096,
+            vocab_size=92544,
+            embed_grad_scale=1,
+            parallel_output=True,
+            num_attention_heads=32,
+            num_kv_attention_heads=8,
+            mlp_ratio=3.5,
+            use_flash_attn=True,
+            norm_type="rmsnorm",
+            qk_interleaved=True,
+            apply_post_layer_norm=False,
+            no_bias=True,
+            layer_norm_epsilon=1e-5,
+            rope_base=1000000,
         ),
         del_model_prefix=True,
     )
@@ -284,15 +309,14 @@ if __name__ == "__main__":
 
     prompt = """<|User|>:{query}<eoh>\n<|Bot|>:"""
     prompt = prompt.replace("{query}", "hello")
-    tokenizer = SentencePieceProcessor("tools/tokenizer_internlm.model")  # pylint: disable=E1121
-
+    tokenizer = SentencePieceProcessor(args.tokenizer_path)  # pylint: disable=E1121
     generation_config = GenerationConfig()
     output_generator = internlm_interactive_generation(
         model=model,
         tokenizer=tokenizer,
         prompt=prompt,
         generation_config=generation_config,
-        additional_eos_token_list=[103028],
+        additional_eos_token_list=[tokenizer.eos_id()],
     )
 
     for text in output_generator:
