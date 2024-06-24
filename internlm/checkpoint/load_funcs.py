@@ -3,6 +3,7 @@ import os
 
 import torch
 
+from transformers import AutoModelForCausalLM
 from internlm.accelerator import get_accelerator
 from internlm.core.context import ParallelMode
 from internlm.core.context import global_context as gpc
@@ -304,8 +305,18 @@ def load_internlm_with_dynamic_parallel_size(folder, model):
         )
 
 
+def load_hf_internlm_pretrained_weights(folder, model):
+    """NOTE: when loading huggingface's llama pretrained weights, you should set `adapt_hf=True` in your config."""
+    assert folder is not None, "Please specify the folder of the pretrained model"
+    if gpc.is_rank_for_log():
+        logger.info(f"Loading pretrained model from {folder}")
+
+    model = AutoModelForCausalLM.from_pretrained(folder, trust_remote_code=True, use_auth_token=True)
+
+
 LOAD_FUNC_DICT = {
     "llama": load_llama_pretrained_weights,
     "hf_llama": load_hf_llama_pretrained_weights,
     "internlm_test": load_internlm_with_dynamic_parallel_size,
+    "hf_internlm": load_hf_internlm_pretrained_weights,
 }

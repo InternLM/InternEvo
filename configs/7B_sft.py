@@ -9,7 +9,7 @@ MLP_RATIO = 8 / 3
 NUM_LAYER = 32
 VOCAB_SIZE = 103168
 
-MODEL_ONLY_FOLDER = "local:llm_ckpts/xxxx"
+MODEL_ONLY_FOLDER = "internlm/internlm-7b"
 # Ckpt folder format:
 # fs: 'local:/mnt/nfs/XXX'
 SAVE_CKPT_FOLDER = "local:llm_ckpts"
@@ -30,7 +30,7 @@ ckpt = dict(
     # 1. the 'path' indicate ckpt path,
     # 2. the 'content‘ means what states will be loaded, support: "model", "sampler", "optimizer", "scheduler", "all"
     # 3. the ’ckpt_type‘ means the type of checkpoint to be loaded, support: "internevo", "llama", "hf_llama".
-    load_ckpt_info=dict(path=MODEL_ONLY_FOLDER, content=("model",), ckpt_type="internevo"),
+    load_ckpt_info=dict(path=MODEL_ONLY_FOLDER, content=("model",), ckpt_type="hf_internlm"),
     # 'auto_resume' is designed to automatically load the latest checkpoint from 'save_ckpt_folder' when encountering
     # training interruptions/hangs caused by hardware failures, using a scheduling system (such as k8s/slurm)
     # with an automatic restart mechanism upon training reboot.
@@ -38,7 +38,7 @@ ckpt = dict(
     # path specified in `load_ckpt_info` by default.
     # If you want to initialize your model weights from another model, you must set `auto_resume` to False.
     # If you want to train from scratch, please set `auto_resume` to False and 'load_ckpt_info' to None.
-    auto_resume=True,
+    auto_resume=False,
     checkpoint_every=CHECKPOINT_EVERY,
     async_upload=True,  # async ckpt upload. (only work for boto3 ckpt)
     async_upload_tmp_folder="/dev/shm/internlm_tmp_ckpt/",  # path for temporarily files during asynchronous upload.
@@ -167,6 +167,7 @@ model = dict(
     # qk_interleaved = False: q[-1] = [q1,q3,q5,...,q2,q4,q6,...], k[-1] = [k1,k3,k5,...,k2,k4,k6,...]
     qk_interleaved=False,
     num_chunks=1,  # if num_chunks > 1, interleaved pipeline scheduler is used.
+    adapt_hf=True,
 )
 """
 zero1 parallel (dict):
