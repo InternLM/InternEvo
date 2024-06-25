@@ -1,6 +1,6 @@
 import torch
 
-def hf_collate_fn(batch, micro_num, micro_bsz, seq_len):
+def nopack_collate_fn(batch, micro_num, micro_bsz, seq_len):
     input_ids_list = []
     attention_mask_list = []
     labels_list = []

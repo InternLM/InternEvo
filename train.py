@@ -204,7 +204,6 @@ def main(args):
             # record the consumed samples in training
             train_state.batch_count = batch_count
             train_state.num_consumed_samples_in_epoch += len(batch[1])
-            
             if batch_skipper(batch_count):  # skip this batch
                 if gpc.is_rank_for_log():
                     logger.info(f"Skip batch count:`{batch_count}`...")
