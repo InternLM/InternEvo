@@ -172,7 +172,16 @@ def main(args):
         memory_profiler = None
 
     # initialize the batch skipper
-    batch_skipper = BatchSkipper(skip_batches)
+    if gpc.config.data.type=="hf" and gpc.config.ckpt.auto_resume and train_state.batch_count > 0:
+        batch_skipper = BatchSkipper(f"0-{train_state.batch_count - 1}")
+        train_state.batch_count = 0
+        train_state.num_consumed_samples_in_epoch = 0
+        if hasattr(train_state, "batch_sampler"):
+            train_state.batch_sampler.batch_count = 0
+            train_state.batch_sampler.num_consumed_samples_in_epoch = 0
+            train_state.batch_sampler_iter = iter(train_state.batch_sampler)
+    else:
+        batch_skipper = BatchSkipper(skip_batches)
 
     trainer.train()
 
@@ -195,6 +204,7 @@ def main(args):
             # record the consumed samples in training
             train_state.batch_count = batch_count
             train_state.num_consumed_samples_in_epoch += len(batch[1])
+            
             if batch_skipper(batch_count):  # skip this batch
                 if gpc.is_rank_for_log():
                     logger.info(f"Skip batch count:`{batch_count}`...")
