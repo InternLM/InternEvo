@@ -8,7 +8,7 @@ from internlm.model.modeling_internlm2 import InternLM2
 from internlm.model.modeling_llama import Llama2
 from internlm.model.modeling_llava import Llava
 from internlm.model.modeling_moe import Internlm1MoE
-from internlm.model.modeling_internlm_hf import InternLMForCausalLM
+from huggingface_model.internlm_model.modeling_internlm import InternLMForCausalLM
 
 
 class Registry:
