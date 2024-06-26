@@ -5,7 +5,7 @@
 ├── interface.py # 生成用的接口
 ├── internlm_sft_on_moss.py # 在 moss 数据集上进行 SFT 训练的样例
 ├── intern_moss_example.py # 在 moss 数据集上进行训练的样例
-├── load_internlm_model.py # 加载 InternLM 原生格式并进行推理的工具
+├── load_internlm2_model.py # 加载 InternLM 原生格式并进行推理的工具
 ├── openai_api.py # 使用 OpenAI 接口实现的流式部署
 ├── pal_inference.py # PAL 范式推理的工具
 ├── README_EN.md

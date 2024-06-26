@@ -6,7 +6,7 @@ This directory provide some tools for model training with the following file str
 ├── interface.py # interface for generation
 ├── internlm_sft_on_moss.py # example for SFT training on moss dataset
 ├── intern_moss_example.py # example for training on moss dataset
-├── load_internlm_model.py # tools for loading InternLM checkpoints and generating
+├── load_internlm2_model.py # tools for loading InternLM checkpoints and generating
 ├── openai_api.py # stream deployment with OpenAI APIs
 ├── pal_inference.py # tools for PAL reasoning
 ├── README_EN.md

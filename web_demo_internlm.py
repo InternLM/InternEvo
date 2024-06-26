@@ -8,7 +8,7 @@ from sentencepiece import SentencePieceProcessor
 
 from internlm.accelerator import get_accelerator
 from tools.interface import GenerationConfig
-from tools.load_internlm_model import (
+from tools.load_internlm2_model import (
     initialize_internlm_model,
     internlm_interactive_generation,
 )
