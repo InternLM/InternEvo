@@ -28,9 +28,16 @@ def create_model(model_type, *args, **kwargs) -> Union[nn.Module, List[nn.Module
         kwargs["start_layer_idx"] = 0
         kwargs["num_layers"] = num_layers
         if "_FROM_HF" in model_type: # TODO: here need to decide which model config to choose
-            from huggingface_model.internlm_model.configuration_internlm import InternLMConfig
-            internlmConf = InternLMConfig()
-            model = model_buidler(*args, internlmConf).to(kwargs["device"])
+            hf_model_conf_map = {
+                "INTERNLM_FROM_HF":("huggingface_model.internlm_model.configuration_internlm", "InternLMConfig"),
+                "INTERNLM2_FROM_HF": ("huggingface_model.internlm2_model.configuration_internlm2", "InternLM2Config"),
+            }
+            if model_type not in hf_model_conf_map:
+                raise ValueError(f"Unknown model type: {model_type}")
+            config_module_name, config_class_name = hf_model_conf_map[model_type]
+            config_class = import_class_from_module(config_module_name, config_class_name)
+            config = config_class()
+            model = model_buidler(*args, config).to(kwargs["device"])
         else:
             model = model_buidler(*args, **kwargs).to(kwargs["device"])
         setattr(model, "first_layer", 0)
@@ -39,3 +46,7 @@ def create_model(model_type, *args, **kwargs) -> Union[nn.Module, List[nn.Module
         model = pipeline_parallel_sharding_wrapper(num_layers, num_chunks, model_buidler, *args, **kwargs)
 
     return model
+
+def import_class_from_module(module_name, class_name):
+    module = __import__(module_name, fromlist=[class_name])
+    return getattr(module, class_name)
