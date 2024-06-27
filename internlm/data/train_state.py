@@ -1,6 +1,6 @@
 # Copyright (c) InternLM. All rights reserved.
 from internlm.core.context import global_context as gpc
-from internlm.core.trainer import TrainState
+from internlm.core.trainstate import TrainState
 
 
 def get_train_state(dataloader):

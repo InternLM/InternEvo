@@ -3,7 +3,7 @@
 
 # adopted from https://github.com/hpcaitech/ColossalAI/blob/main/colossalai/initialize
 
-from typing import Callable, Iterable, List, Optional, Tuple
+from typing import Callable, List, Optional, Tuple
 
 from torch import nn
 from torch.nn.modules.loss import _Loss
@@ -21,7 +21,7 @@ from internlm.core.scheduler import (
     PipelineScheduler,
 )
 from internlm.core.scheduler.pipeline_scheduler import get_tensor_shape
-from internlm.core.trainer import Trainer
+from internlm.core.trainer import DeprecatedTrainer
 from internlm.data.utils import packed_data_normalizer, unpack_data
 from internlm.solver.optimizer.hybrid_zero_optim import BaseOptimizer
 from internlm.solver.schedulers.beta2_scheduler import Beta2Scheduler
@@ -32,12 +32,10 @@ def initialize_trainer(
     model: nn.Module,
     optimizer: Optimizer,
     criterion: Optional[_Loss] = None,
-    train_dataloader: Optional[Iterable] = None,
-    test_dataloader: Optional[Iterable] = None,
     lr_scheduler: Optional[_LRScheduler] = None,
     beta2_scheduler: Optional[Beta2Scheduler] = None,
     scheduler_hooks: Optional[List[SchedulerHook]] = None,
-) -> Tuple[Trainer, DataLoader, DataLoader, _LRScheduler]:
+) -> Tuple[DeprecatedTrainer, DataLoader, DataLoader, _LRScheduler]:
     """Core function to wrap the essential training components with our functionality based on the config which is
     loaded into gpc.config.
 
@@ -45,13 +43,11 @@ def initialize_trainer(
         model (:class:`torch.nn.Module` or `Callable`): Your model instance or a function to build the model.
         optimizer (:class:`BaseOptimizer`): Your optimizer for training.
         criterion (:class:`torch.nn.modules.loss._Loss`, optional): Your criterion instance.
-        train_dataloader (:class:`torch.utils.data.DataLoader`, optional): Dataloader for training.
-        test_dataloader (:class:`torch.utils.data.DataLoader`, optional): Dataloader for testing.
         lr_scheduler (:class:`torch.nn.lr_scheduler._LRScheduler`, optional): Your lr scheduler instance, optional.
 
     Returns:
         Tuple (trainer, train_dataloader, test_dataloader, lr_scheduler):
-            A tuple of ``(trainer, train_dataloader, test_dataloader, lr_scheduler)``
+            A tuple of ``(trainer, lr_scheduler)``
             where only ``trainer`` could not be None.
     """
 
@@ -136,6 +132,6 @@ def initialize_trainer(
         clip_grad_norm=clip_grad_norm,
     )
 
-    trainer = Trainer(engine, scheduler)
+    trainer = DeprecatedTrainer(engine, scheduler)
 
-    return trainer, train_dataloader, test_dataloader, lr_scheduler
+    return trainer

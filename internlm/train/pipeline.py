@@ -41,7 +41,7 @@ from internlm.core.parallel.comm.tensor import (
     TensorParallelCommunicator,
 )
 from internlm.core.parallel.comm.zero import ParamAsyncBcastHandler
-from internlm.core.trainer import TrainState
+from internlm.core.trainstate import TrainState
 from internlm.data.utils import unpack_type_ids
 from internlm.model.builder import create_model
 from internlm.model.metrics import SchedulerMetricHook
@@ -526,7 +526,7 @@ def record_current_batch_training_metrics(
     train_state,
     optimizer,
     beta2_scheduler,
-    trainer,
+    engine,
     start_time,
     very_begining_time,
     loss,
@@ -548,18 +548,18 @@ def record_current_batch_training_metrics(
 
     if success_update and gpc.is_rank_for_log():
         lr = optimizer.param_groups[0]["lr"]
-        if hasattr(trainer.engine.optimizer, "grad_scaler"):
-            scaler = trainer.engine.optimizer.grad_scaler._scale.item()
-        elif hasattr(trainer.engine.optimizer.optim, "grad_scaler"):
-            scaler = trainer.engine.optimizer.optim.grad_scaler._scale.item()
+        if hasattr(engine.optimizer, "grad_scaler"):
+            scaler = engine.optimizer.grad_scaler._scale.item()
+        elif hasattr(engine.optimizer.optim, "grad_scaler"):
+            scaler = engine.optimizer.optim.grad_scaler._scale.item()
 
         num_tokens_in_batch = batch[1].nelement()
         real_num_tokens = math.ceil(acc_perplex.pop("real_token_num") / gpc.get_world_size(ParallelMode.GLOBAL))
         if gpc.config.data.type == "hf":
             num_samples_in_batch = gpc.config.data.micro_bsz * gpc.config.data.micro_num
-            max_length_in_batch = batch[0]['attention_mask'].sum(dim=1).max().item()
+            max_length_in_batch = batch[0]["attention_mask"].sum(dim=1).max().item()
             max_samples_in_batch = gpc.config.data.micro_bsz
-            min_samples_in_batch = gpc.config.data.micro_bsz   
+            min_samples_in_batch = gpc.config.data.micro_bsz
         else:
             num_samples_in_batch = sum([len(b) - 1 for b in batch[0]["cu_seqlens"]])
             max_length_in_batch = max([(b[1:] - b[:-1]).max().item() for b in batch[0]["cu_seqlens"]])

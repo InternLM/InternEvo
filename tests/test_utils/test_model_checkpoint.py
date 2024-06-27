@@ -11,7 +11,7 @@ import torch.distributed as dist
 
 from internlm.checkpoint import CheckpointManager
 from internlm.core.context.parallel_context import Config
-from internlm.core.trainer import TrainState
+from internlm.core.trainstate import TrainState
 from internlm.solver.optimizer.hybrid_zero_optim import HybridZeroOptimizer
 from internlm.utils.storage_manager import SingletonMeta, wait_async_upload_finish
 from tests.test_utils.common_fixture import (  # noqa # pylint: disable=unused-import

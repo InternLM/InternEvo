@@ -27,7 +27,7 @@ from internlm.core.context import (  # noqa: E402  #pylint: disable=wrong-import
 from internlm.core.context.parallel_context import (  # noqa: E402  #pylint: disable=wrong-import-position
     Config,
 )
-from internlm.core.trainer import (  # noqa: E402  #pylint: disable=wrong-import-position
+from internlm.core.trainstate import (  # noqa: E402  #pylint: disable=wrong-import-position
     TrainState,
 )
 from internlm.data import (  # noqa: E402  #pylint: disable=wrong-import-position

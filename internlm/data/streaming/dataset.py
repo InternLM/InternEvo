@@ -1,17 +1,31 @@
 import sys
-import datasets
 
+import datasets
+from datasets.distributed import split_dataset_by_node
 from torch.utils.data import Dataset
 from transformers import AutoTokenizer
-from datasets.distributed import split_dataset_by_node
 
 from internlm.core.context import ParallelMode
 from internlm.core.context import global_context as gpc
 
+
 class HuggingFaceStreamingDataset(Dataset):
-    def __init__(self, dataset_name, tokenizer_name, model_max_length, split='train', buffer_size=1000):
+    """
+    A PyTorch Dataset class for streaming and on-the-fly tokenizing text data from Hugging Face.
+
+    Args:
+        dataset_name (str): Name of the dataset to load from Hugging Face datasets library.
+        tokenizer_name (str): Name or path of the pretrained tokenizer from Hugging Face transformers.
+        model_max_length (int): Maximum length of the tokenized input sequences.
+        split (str, optional): Dataset split to load (e.g., "train", "validation", "test"). Default is "train".
+        buffer_size (int, optional): Number of samples to tokenize in each batch. Default is 1000.
+    """
+
+    def __init__(self, dataset_name, tokenizer_name, model_max_length, split="train", buffer_size=1000):
         self.dataset = datasets.load_dataset(dataset_name, split=split, streaming=True)
-        self.dataset = split_dataset_by_node(self.dataset, rank=gpc.get_local_rank(ParallelMode.DATA), world_size=gpc.get_world_size(ParallelMode.DATA))
+        self.dataset = split_dataset_by_node(
+            self.dataset, rank=gpc.get_local_rank(ParallelMode.DATA), world_size=gpc.get_world_size(ParallelMode.DATA)
+        )
         self.buffer_size = buffer_size
         self.senior_iterator = iter(self)
 
@@ -30,13 +44,13 @@ class HuggingFaceStreamingDataset(Dataset):
 
         if buffer:
             yield from self._tokenize(buffer)
-    
+
     def __len__(self):
         return sys.maxsize
-    
+
     def _tokenize(self, samples):
-        texts = [sample['text'] for sample in samples]
-        tokenized_outputs = self.tokenizer(texts, padding=True, truncation=True, return_tensors='pt')
+        texts = [sample["text"] for sample in samples]
+        tokenized_outputs = self.tokenizer(texts, padding=True, truncation=True, return_tensors="pt")
         for i in range(len(samples)):
             yield {key: tokenized_outputs[key][i] for key in tokenized_outputs}
 

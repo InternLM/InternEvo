@@ -10,7 +10,20 @@ from internlm.utils.logger import get_logger
 
 logger = get_logger(__file__)
 
+
 class StreamingStaticBatchSampler:
+    """
+    Custom batch sampler for streaming dataset.
+
+    Args:
+        batch_size (int): The batch size for the current rank.
+        rampup_batch_size (str): A string with three space-separated integers representing the
+                                 starting batch size, the increment, and the number of steps between
+                                 each increment. For example, "192 24 8" means that the batch size
+                                 starts at 192 and increases by 24 every 8 steps.
+        micro_bsz (int): The micro-batch size.
+
+    """
 
     def __init__(self, batch_size: int = 1, rampup_batch_size: Optional[str] = None, micro_bsz: int = 1):
         if rampup_batch_size:
@@ -47,7 +60,7 @@ class StreamingStaticBatchSampler:
             batch_rampup_idx = self.batch_count // self.incre_every
             cur_batch_size = batch_rampup_idx * self.bsz_incre + self.start_bsz
             cur_batch_size = min(cur_batch_size, self.batch_size)
-            
+
             self.num_consumed_samples_in_epoch += cur_batch_size
             self.batch_count += 1
             yield [0] * cur_batch_size

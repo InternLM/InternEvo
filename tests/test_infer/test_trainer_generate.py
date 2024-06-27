@@ -7,7 +7,7 @@ import internlm  # noqa: E402
 from internlm.apis.inference import SequenceGenerator, batch_tokenize
 from internlm.checkpoint import CheckpointManager  # noqa: E402
 from internlm.core.context import global_context as gpc  # noqa: E402
-from internlm.core.trainer import TrainState  # noqa: E402
+from internlm.core.trainstate import TrainState  # noqa: E402
 from internlm.data import build_train_loader_with_data_type  # noqa: E402
 from internlm.initialize import initialize_distributed_env  # noqa: E402
 from internlm.model.losses import FlashGPTLMLoss  # noqa: E402

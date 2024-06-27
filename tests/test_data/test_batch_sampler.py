@@ -9,7 +9,7 @@ from internlm.core.context import global_context as gpc
 
 # from internlm.core.context import ParallelMode
 from internlm.core.context.parallel_context import Config
-from internlm.core.trainer import TrainState
+from internlm.core.trainstate import TrainState
 from internlm.data import (
     build_train_loader_with_data_type,
     build_valid_loader_with_data_type,
