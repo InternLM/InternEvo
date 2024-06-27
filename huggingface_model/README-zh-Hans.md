@@ -74,12 +74,12 @@
 在仓库根目录运行以下命令：
 
 ```bash
-python transformers/convert2hf_internlm.py --src origin_ckpt/ --tgt hf_ckpt/ --tokenizer ./tools/tokenizer_internlm2.model --max_pos 4096 --rotary_type origin
+python huggingface_model/convert2hf_internlm.py --src origin_ckpt/ --tgt hf_ckpt/ --tokenizer ./tools/tokenizer_internlm2.model --max_pos 4096 --rotary_type origin
 ```
 
 ```bash
 # dynamic NTK
-python transformers/convert2hf_internlm.py --src origin_ckpt/ --tgt hf_ckpt/ --tokenizer ./tools/tokenizer_internlm2.model --max_pos 4096 --rotary_type dynamic --scaling_factor 2.0
+python huggingface_model/convert2hf_internlm.py --src origin_ckpt/ --tgt hf_ckpt/ --tokenizer ./tools/tokenizer_internlm2.model --max_pos 4096 --rotary_type dynamic --scaling_factor 2.0
 ```
 
 然后可以使用 `from_pretrained` 接口加载：
@@ -102,13 +102,13 @@ python transformers/convert2hf_internlm.py --src origin_ckpt/ --tgt hf_ckpt/ --t
 在仓库根目录运行以下命令：
 
 ```bash
-python transformers/revert_internlm.py --src /path/to/src --tgt /path/to/tgt --tp_size 2 --embed_split --use_flash --version 1
+python huggingface_model/revert_internlm.py --src /path/to/src --tgt /path/to/tgt --tp_size 2 --embed_split --use_flash --version 1
 ```
 
 如果模型是用 `safetensors` 格式保存的，则需要添加 `--safetensors` 参数：
 
 ```bash
-python transformers/revert_internlm.py --src /path/to/src --tgt /path/to/tgt --tp_size 2 --embed_split --use_flash --version 1 --safetensors
+python huggingface_model/revert_internlm.py --src /path/to/src --tgt /path/to/tgt --tp_size 2 --embed_split --use_flash --version 1 --safetensors
 ```
 
 ## 权重转换 - InternLM2
@@ -127,12 +127,12 @@ python transformers/revert_internlm.py --src /path/to/src --tgt /path/to/tgt --t
 在仓库根目录运行以下命令：
 
 ```bash
-python transformers/convert2hf_internlm2.py --src origin_ckpt/ --tgt hf_ckpt/ --tokenizer ./tools/tokenizer_internlm2.model --max_pos 32768 --rotary_type origin
+python huggingface_model/convert2hf_internlm2.py --src origin_ckpt/ --tgt hf_ckpt/ --tokenizer ./tools/tokenizer_internlm2.model --max_pos 32768 --rotary_type origin
 ```
 
 ```bash
 # dynamic NTK
-python transformers/convert2hf_internlm2.py --src origin_ckpt/ --tgt hf_ckpt/ --tokenizer ./tools/tokenizer_internlm2.model --max_pos 32768 --rotary_type dynamic --scaling_factor 2.0
+python huggingface_model/convert2hf_internlm2.py --src origin_ckpt/ --tgt hf_ckpt/ --tokenizer ./tools/tokenizer_internlm2.model --max_pos 32768 --rotary_type dynamic --scaling_factor 2.0
 ```
 
 然后可以使用 `from_pretrained` 接口加载：
@@ -154,11 +154,11 @@ python transformers/convert2hf_internlm2.py --src origin_ckpt/ --tgt hf_ckpt/ --
 在仓库根目录运行以下命令：
 
 ```bash
-python transformers/revert_internlm2.py --src /path/to/src --tgt /path/to/tgt --tp_size 2 --embed_split --use_flash
+python huggingface_model/revert_internlm2.py --src /path/to/src --tgt /path/to/tgt --tp_size 2 --embed_split --use_flash
 ```
 
 如果模型是用 `safetensors` 格式保存的，则需要添加 `--safetensors` 参数：
 
 ```bash
-python transformers/revert_internlm2.py --src /path/to/src --tgt /path/to/tgt --tp_size 2 --embed_split --use_flash --safetensors
+python huggingface_model/revert_internlm2.py --src /path/to/src --tgt /path/to/tgt --tp_size 2 --embed_split --use_flash --safetensors
 ```
