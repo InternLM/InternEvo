@@ -173,7 +173,7 @@ def main(args):
         memory_profiler = None
 
     # initialize the batch skipper
-    if gpc.config.data.type=="hf" and gpc.config.ckpt.auto_resume and train_state.batch_count > 0:
+    if gpc.config.data.type == "hf" and gpc.config.ckpt.auto_resume and train_state.batch_count > 0:
         batch_skipper = BatchSkipper(f"0-{train_state.batch_count - 1}")
         train_state.batch_count = 0
         train_state.num_consumed_samples_in_epoch = 0
