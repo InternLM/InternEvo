@@ -2,30 +2,25 @@ import gc
 import logging
 import time
 from functools import partial
-from typing import Callable, Iterable
+from typing import Iterable
 
 import torch.distributed as dist
-from torch import nn
 
 from internlm.checkpoint.checkpoint_manager import CheckpointManager
 from internlm.core.context import global_context as gpc
 from internlm.core.context.process_group_initializer import ParallelMode
-from internlm.core.engine import Engine
-from internlm.core.gradient_handler import PipelineSharedModuleGradientHandler
 from internlm.core.scheduler import (
     BaseScheduler,
     InterleavedPipelineScheduler,
     NonPipelineScheduler,
     PipelineScheduler,
 )
-from internlm.core.scheduler.pipeline_scheduler import get_tensor_shape
 from internlm.data.train_state import get_train_state
-from internlm.data.utils import packed_data_normalizer, unpack_data
 from internlm.eval.evaluation import evaluate_on_val_dls
+from internlm.initialize.initialize_trainer import initialize_trainer
 from internlm.model.losses.ce_loss import FlashGPTLMLoss
 from internlm.model.metrics import AccPerplex
 from internlm.monitor.monitor import send_alert_message
-from internlm.solver.optimizer.hybrid_zero_optim import BaseOptimizer
 from internlm.train.pipeline import (
     get_scheduler_hooks,
     initialize_llm_profile,
@@ -134,89 +129,6 @@ class TrainerBuilder:
             dataset_types=kwargs["dataset_types"],
         )
 
-        scheduler_hooks = get_scheduler_hooks(metric, optimizer, isp_communicator)
-        if isinstance(model, nn.Module):
-            # first sync model across dp ranks
-            model.to(get_current_device())
-        elif isinstance(model, Callable):
-            model = model().to(get_current_device())
-
-        # clip grad norm
-        clip_grad_norm = gpc.config.hybrid_zero_optimizer.get("clip_grad_norm", 0.0)
-
-        assert isinstance(optimizer, BaseOptimizer), "optimizer must be instance of BaseOptimizer"
-
-        # gradient handler, only support PipelineSharedModuleGradientHandler now
-        if gpc.is_using_parallel_mode(ParallelMode.PIPELINE):
-            gpc.config.gradient_handler = [dict(type="PipelineSharedModuleGradientHandler")]
-        gradient_handler_cfg = gpc.config.get("gradient_handler", [])
-        gradient_handlers = []
-        assert isinstance(
-            gradient_handler_cfg, list
-        ), f"gradient_handler must be list but got {type(gradient_handler_cfg)}"
-        for config in gradient_handler_cfg:
-            if isinstance(config, dict) and config.get("type") == "PipelineSharedModuleGradientHandler":
-                handler = PipelineSharedModuleGradientHandler(model=model, optimizer=optimizer)
-                gradient_handlers.append(handler)
-
-        if gpc.config.data.use_packed_dataset:
-            data_fn = packed_data_normalizer
-        elif gpc.config.data.type == "hf":
-            data_fn = None
-        else:
-            data_fn = unpack_data
-
-        if gpc.is_using_parallel_mode(ParallelMode.PIPELINE):
-            gpc.config.NUM_MICRO_BATCHES = gpc.config.data.micro_num
-            tensor_shape = get_tensor_shape()
-            use_interleaved = (
-                hasattr(gpc.config, "model")
-                and hasattr(gpc.config.model, "num_chunks")
-                and gpc.config.model.num_chunks > 1
-            )
-            scatter_gather = gpc.is_initialized(ParallelMode.TENSOR)
-            if use_interleaved:
-                if isinstance(model, nn.Sequential):
-                    model = nn.ModuleList([model])
-
-                communication_overlap = gpc.config.parallel["pipeline"].get("interleaved_overlap", False)
-                scheduler = InterleavedPipelineScheduler(
-                    data_process_func=data_fn,
-                    num_microbatches=gpc.config.NUM_MICRO_BATCHES,
-                    num_chunks=gpc.config.model.num_chunks,
-                    dtype=gpc.config.model["dtype"],
-                    tensor_shape=tensor_shape,
-                    scatter_gather_tensors=scatter_gather,
-                    scheduler_hooks=scheduler_hooks,
-                    communication_overlap=communication_overlap,
-                )
-            else:
-                scheduler = PipelineScheduler(
-                    data_process_func=data_fn,
-                    num_microbatches=gpc.config.NUM_MICRO_BATCHES,
-                    dtype=gpc.config.model["dtype"],
-                    tensor_shape=tensor_shape,
-                    scatter_gather_tensors=scatter_gather,
-                    scheduler_hooks=scheduler_hooks,
-                )
-        else:
-            scheduler = NonPipelineScheduler(
-                data_process_func=data_fn,
-                gradient_accumulation_size=gpc.config.data.gradient_accumulation,
-                scheduler_hooks=scheduler_hooks,
-            )
-
-        # initialize engine for trainer
-        self._engine = Engine(
-            model=model,
-            optimizer=optimizer,
-            lr_scheduler=lr_scheduler,
-            beta2_scheduler=beta2_scheduler,
-            criterion=criterion,
-            gradient_handlers=gradient_handlers,
-            clip_grad_norm=clip_grad_norm,
-        )
-
         # initialize simple memory profiler
         if kwargs["profiling"]:
             self.memory_profiler = SimpleMemoryProfiler(
@@ -254,6 +166,19 @@ class TrainerBuilder:
         self.writer = writer
         self.ckpt_manager = ckpt_manager
         self.metric = metric
+
+        # initialize trainer
+        trainer, _, _, _ = initialize_trainer(
+            model=model,
+            optimizer=optimizer,
+            criterion=criterion,
+            train_dataloader=train_dl,
+            lr_scheduler=lr_scheduler,
+            beta2_scheduler=beta2_scheduler,
+            scheduler_hooks=get_scheduler_hooks(metric, optimizer, isp_communicator),
+        )
+        scheduler = trainer.schedule
+        self._engine = trainer.engine
 
         # build schedule
         if scheduler is None:
