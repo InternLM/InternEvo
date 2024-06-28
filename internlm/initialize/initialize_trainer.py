@@ -32,8 +32,6 @@ def initialize_trainer(
     model: nn.Module,
     optimizer: Optimizer,
     criterion: Optional[_Loss] = None,
-    train_dataloader: Optional[Iterable] = None,
-    test_dataloader: Optional[Iterable] = None,
     lr_scheduler: Optional[_LRScheduler] = None,
     beta2_scheduler: Optional[Beta2Scheduler] = None,
     scheduler_hooks: Optional[List[SchedulerHook]] = None,
@@ -45,14 +43,10 @@ def initialize_trainer(
         model (:class:`torch.nn.Module` or `Callable`): Your model instance or a function to build the model.
         optimizer (:class:`BaseOptimizer`): Your optimizer for training.
         criterion (:class:`torch.nn.modules.loss._Loss`, optional): Your criterion instance.
-        train_dataloader (:class:`torch.utils.data.DataLoader`, optional): Dataloader for training.
-        test_dataloader (:class:`torch.utils.data.DataLoader`, optional): Dataloader for testing.
         lr_scheduler (:class:`torch.nn.lr_scheduler._LRScheduler`, optional): Your lr scheduler instance, optional.
 
     Returns:
-        Tuple (trainer, train_dataloader, test_dataloader, lr_scheduler):
-            A tuple of ``(trainer, train_dataloader, test_dataloader, lr_scheduler)``
-            where only ``trainer`` could not be None.
+        Tuple (engine, scheduler)
     """
 
     if isinstance(model, nn.Module):
@@ -136,6 +130,6 @@ def initialize_trainer(
         clip_grad_norm=clip_grad_norm,
     )
 
-    trainer = Trainer(engine, scheduler)
+    # trainer = Trainer(engine, scheduler)
 
-    return trainer, train_dataloader, test_dataloader, lr_scheduler
+    return engine, scheduler

@@ -20,7 +20,7 @@ import internlm  # noqa: E402
 from internlm.checkpoint import CheckpointManager  # noqa: E402
 from internlm.core.context import ParallelMode  # noqa: E402
 from internlm.core.context import global_context as gpc  # noqa: E402
-from internlm.core.trainer import TrainState  # noqa: E402
+from internlm.core.trainer import TrainState, Trainer  # noqa: E402
 from internlm.data import (  # noqa: E402
     build_train_loader_with_data_type,
     build_valid_loader_with_data_type,
@@ -181,15 +181,15 @@ def main(args):
         ),
     ]
 
-    trainer, train_dl, _, _ = internlm.initialize_trainer(
+    engine, scheduler = internlm.initialize_trainer(
         model=model,
         optimizer=optimizer,
         criterion=criterion,
-        train_dataloader=train_dl,
         lr_scheduler=lr_scheduler,
         beta2_scheduler=beta2_scheduler,
         scheduler_hooks=scheduler_hooks,
     )
+    trainer = Trainer(engine, scheduler)
 
     # initialize simple memory profiler
     if args.profiling:

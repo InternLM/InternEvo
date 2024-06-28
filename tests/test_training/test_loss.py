@@ -9,7 +9,7 @@ import internlm
 from internlm.checkpoint import CheckpointManager
 from internlm.core.context import Config, ParallelMode
 from internlm.core.context import global_context as gpc
-from internlm.core.trainer import TrainState
+from internlm.core.trainer import TrainState, Trainer
 from internlm.data import build_train_loader_with_data_type
 from internlm.initialize import initialize_distributed_env
 from internlm.model.losses import FlashGPTLMLoss
@@ -177,15 +177,15 @@ def train(
     )
 
     # initialize trainer
-    trainer, train_dl, _, _ = internlm.initialize_trainer(
+    engine, scheduler = internlm.initialize_trainer(
         model=model,
         optimizer=optimizer,
         criterion=criterion,
-        train_dataloader=train_dl,
         lr_scheduler=lr_scheduler,
         beta2_scheduler=beta2_scheduler,
         scheduler_hooks=get_scheduler_hooks(metric, optimizer, isp_communicator),
     )
+    trainer = Trainer(engine, scheduler)
 
     # initialize the batch skipper
     batch_skipper = BatchSkipper(skip_batches)

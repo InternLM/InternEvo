@@ -15,6 +15,7 @@ from internlm.core.scheduler import (
     NonPipelineScheduler,
     PipelineScheduler,
 )
+from internlm.core.trainer import Trainer
 from internlm.data.train_state import get_train_state
 from internlm.eval.evaluation import evaluate_on_val_dls
 from internlm.initialize.initialize_trainer import initialize_trainer
@@ -46,7 +47,7 @@ from internlm.utils.writer import Writer
 logger = logging.getLogger(__file__)
 
 
-class TrainerBuilder:
+class TrainerBuilder(Trainer):
     """
     Manage the training process.
 
@@ -168,72 +169,16 @@ class TrainerBuilder:
         self.metric = metric
 
         # initialize trainer
-        trainer, _, _, _ = initialize_trainer(
+        engine, scheduler = initialize_trainer(
             model=model,
             optimizer=optimizer,
             criterion=criterion,
-            train_dataloader=train_dl,
             lr_scheduler=lr_scheduler,
             beta2_scheduler=beta2_scheduler,
             scheduler_hooks=get_scheduler_hooks(metric, optimizer, isp_communicator),
         )
-        scheduler = trainer.schedule
-        self._engine = trainer.engine
-
-        # build schedule
-        if scheduler is None:
-            self._schedule = NonPipelineScheduler()
-        else:
-            assert isinstance(
-                scheduler, BaseScheduler
-            ), f"expected schedule to be of type BaseSchedule, but got {type(scheduler)}"
-            self._schedule = scheduler
-
-        self._schedule.pre_processing(self._engine)
-
-    @property
-    def engine(self):
-        """Returns the engine that responsible for managing the training and evaluation process."""
-        return self._engine
-
-    @property
-    def schedule(self):
-        """Returns the runtime scheduler."""
-        return self._schedule
-
-    @property
-    def uses_pipeline(self):
-        """Returns whether the pipeline parallel is used or not."""
-        return isinstance(self._schedule, (PipelineScheduler, InterleavedPipelineScheduler))
-
-    def train(self):
-        """Sets the model to training mode."""
-        self._engine.train()
-
-    def eval(self):
-        """Sets the model to evaluation mode."""
-        self._engine.eval()
-
-    def zero_grad(self):
-        """Sets the gradient of all parameters in the model to zero."""
-        self._engine.zero_grad()
-
-    def step(self):
-        """Executes the parameter update step."""
-        return self._engine.step()
-
-    def execute_schedule(self, data_iter: Iterable, **kwargs):
-        """Runs the forward, loss computation, and backward for the model.
-        Returns a tuple of (output, label, loss).
-
-        Args:
-            data_iter (Iterable): The data iterator.
-            **kwargs: Additional keyword arguments.
-
-        Returns:
-            Tuple[:class:`torch.Tensor`]: A tuple of (output, label, loss, moe_loss).
-        """
-        return self._schedule.forward_backward_step(self._engine, data_iter, **kwargs)
+        # self.trainer = Trainer(engine, scheduler)
+        super().__init__(engine, scheduler)
 
     def fit(self):
         self.train()
