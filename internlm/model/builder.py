@@ -47,7 +47,6 @@ def create_model(model_type, *args, **kwargs) -> Union[nn.Module, List[nn.Module
 
     return model
 
-
 def import_class_from_module(module_name, class_name):
     module = __import__(module_name, fromlist=[class_name])
     return getattr(module, class_name)
