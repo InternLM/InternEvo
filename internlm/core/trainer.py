@@ -361,7 +361,7 @@ class Trainer:
                         return_output_label=False,
                     )
                 else:
-                    _, _, loss = self.execute_schedule(
+                    _, _, loss = self.execute_schedule(  # pylint: disable=W0632
                         batch,
                         forward_only=False,
                         return_loss=True,
@@ -501,7 +501,7 @@ class Trainer:
                                         batch, forward_only=True, return_loss=True, return_output_label=False
                                     )
                                 else:
-                                    _, _, loss = self.execute_schedule(
+                                    _, _, loss = self.execute_schedule(  # pylint: disable=W0632
                                         batch, forward_only=True, return_loss=True, return_output_label=False
                                     )
                         else:
@@ -510,7 +510,7 @@ class Trainer:
                                     batch, forward_only=True, return_loss=True, return_output_label=False
                                 )
                             else:
-                                _, _, loss = self.execute_schedule(
+                                _, _, loss = self.execute_schedule(  # pylint: disable=W0632
                                     batch, forward_only=True, return_loss=True, return_output_label=False
                                 )
                     if verbose:

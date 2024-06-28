@@ -305,13 +305,13 @@ def load_internlm_with_dynamic_parallel_size(folder, model):
         )
 
 
-def load_hf_model_pretrained_weights(folder, model):  # noqa
+def load_hf_model_pretrained_weights(folder, model):  # pylint: disable=W0613
     """NOTE: when loading huggingface's model pretrained weights, you should set `adapt_hf=True` in your config."""
     assert folder is not None, "Please specify the folder of the pretrained model"
     if gpc.is_rank_for_log():
         logger.info(f"Loading pretrained model from {folder}")
 
-    model = AutoModelForCausalLM.from_pretrained(folder, trust_remote_code=True, use_auth_token=True)  # noqa
+    model = AutoModelForCausalLM.from_pretrained(folder, trust_remote_code=True, use_auth_token=True)  # noqa: F841
 
 
 LOAD_FUNC_DICT = {
