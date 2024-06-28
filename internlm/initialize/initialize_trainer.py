@@ -3,7 +3,7 @@
 
 # adopted from https://github.com/hpcaitech/ColossalAI/blob/main/colossalai/initialize
 
-from typing import Callable, Iterable, List, Optional, Tuple
+from typing import Callable, List, Optional, Tuple
 
 from torch import nn
 from torch.nn.modules.loss import _Loss

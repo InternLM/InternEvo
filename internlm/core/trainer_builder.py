@@ -2,19 +2,12 @@ import gc
 import logging
 import time
 from functools import partial
-from typing import Iterable
 
 import torch.distributed as dist
 
 from internlm.checkpoint.checkpoint_manager import CheckpointManager
 from internlm.core.context import global_context as gpc
 from internlm.core.context.process_group_initializer import ParallelMode
-from internlm.core.scheduler import (
-    BaseScheduler,
-    InterleavedPipelineScheduler,
-    NonPipelineScheduler,
-    PipelineScheduler,
-)
 from internlm.core.trainer import Trainer
 from internlm.data.train_state import get_train_state
 from internlm.eval.evaluation import evaluate_on_val_dls

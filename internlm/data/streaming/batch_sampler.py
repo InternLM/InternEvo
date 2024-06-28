@@ -10,7 +10,11 @@ from internlm.utils.logger import get_logger
 
 logger = get_logger(__file__)
 
+
 class StreamingStaticBatchSampler:
+    """
+    StreamingStaticBatchSampler is used for the training process.
+    """
 
     def __init__(self, batch_size: int = 1, rampup_batch_size: Optional[str] = None, micro_bsz: int = 1):
         if rampup_batch_size:
@@ -47,7 +51,7 @@ class StreamingStaticBatchSampler:
             batch_rampup_idx = self.batch_count // self.incre_every
             cur_batch_size = batch_rampup_idx * self.bsz_incre + self.start_bsz
             cur_batch_size = min(cur_batch_size, self.batch_size)
-            
+
             self.num_consumed_samples_in_epoch += cur_batch_size
             self.batch_count += 1
             yield [0] * cur_batch_size

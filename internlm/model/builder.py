@@ -27,9 +27,9 @@ def create_model(model_type, *args, **kwargs) -> Union[nn.Module, List[nn.Module
         kwargs["first"] = kwargs["last"] = True
         kwargs["start_layer_idx"] = 0
         kwargs["num_layers"] = num_layers
-        if "_FROM_HF" in model_type: # TODO: here need to decide which model config to choose
+        if "_FROM_HF" in model_type:  # TODO: here need to decide which model config to choose
             hf_model_conf_map = {
-                "INTERNLM_FROM_HF":("huggingface_model.internlm_model.configuration_internlm", "InternLMConfig"),
+                "INTERNLM_FROM_HF": ("huggingface_model.internlm_model.configuration_internlm", "InternLMConfig"),
                 "INTERNLM2_FROM_HF": ("huggingface_model.internlm2_model.configuration_internlm2", "InternLM2Config"),
             }
             if model_type not in hf_model_conf_map:
@@ -46,6 +46,7 @@ def create_model(model_type, *args, **kwargs) -> Union[nn.Module, List[nn.Module
         model = pipeline_parallel_sharding_wrapper(num_layers, num_chunks, model_buidler, *args, **kwargs)
 
     return model
+
 
 def import_class_from_module(module_name, class_name):
     module = __import__(module_name, fromlist=[class_name])
