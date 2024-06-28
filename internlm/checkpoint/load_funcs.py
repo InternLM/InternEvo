@@ -2,8 +2,8 @@
 import os
 
 import torch
-
 from transformers import AutoModelForCausalLM
+
 from internlm.accelerator import get_accelerator
 from internlm.core.context import ParallelMode
 from internlm.core.context import global_context as gpc
