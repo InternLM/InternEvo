@@ -100,3 +100,29 @@ def jsonl_ds_collate_fn(batch, max_length_per_sample):
         return {"input_ids": xs, "images": images}, ys
     else:
         return {"input_ids": xs}, ys
+
+
+def generation_collate_fn(batch, pad_id=0):
+    """
+    Collate function for generation dataset.
+
+    Args:
+        batch (List[Dict]): List of dictionaries representing each sample in batch.
+            Each dictionary contains "tokens".
+
+    Returns:
+        Tuple[Dict[str, torch.Tensor], torch.Tensor]: A tuple containing a dictionary of tensors with "input_ids",
+        and the tensor of padded "labels".
+
+    """
+    xs, ys = [], []
+    for x in batch:
+        tokens = [abs(w) for w in x["tokens"]]
+        labels = [w if w > 0 else -100 for w in x["tokens"]]
+        labels = labels[1:] + [-100]
+        xs.append(torch.as_tensor(tokens[::-1]))
+        ys.append(torch.as_tensor(labels[::-1]))  # y has been shifted
+    xs = torch.nn.utils.rnn.pad_sequence(xs, batch_first=True, padding_value=pad_id).flip(dims=[1])
+    ys = torch.nn.utils.rnn.pad_sequence(ys, batch_first=True, padding_value=-100).flip(dims=[1])
+
+    return {"input_ids": xs}, ys

@@ -1,4 +1,5 @@
 from .build_dataloader import (
+    build_generation_loader_with_data_type,
     build_train_loader_with_data_type,
     build_valid_loader_with_data_type,
 )
@@ -6,4 +7,5 @@ from .build_dataloader import (
 __all__ = [
     "build_train_loader_with_data_type",
     "build_valid_loader_with_data_type",
+    "build_generation_loader_with_data_type",
 ]

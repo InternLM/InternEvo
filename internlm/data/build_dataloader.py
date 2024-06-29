@@ -10,7 +10,11 @@ from internlm.data.tokenized.batch_sampler import (
     StaticBatchSampler,
     get_dpsampler_dataloader,
 )
-from internlm.data.tokenized.collaters import jsonl_ds_collate_fn, packed_collate_fn
+from internlm.data.tokenized.collaters import (
+    generation_collate_fn,
+    jsonl_ds_collate_fn,
+    packed_collate_fn,
+)
 from internlm.data.tokenized.dataset import get_dataset_dict
 from internlm.data.tokenized.dummy_dataset import RandomDataset
 from internlm.data.tokenized.dummy_dataset_multimodal import RandomDatasetMultimodal
@@ -178,3 +182,58 @@ def build_valid_loader_with_data_type():
             )
 
     return val_dls
+
+
+def build_generation_loader_with_data_type(data_cfg, generation_cfg):
+    """Generate and return the validation data loader based on data type."""
+
+    if data_cfg.type == "tokenized":
+        gene_ds, _ = get_tokenized_valid_loader_items(data_cfg)
+    else:
+        raise ValueError(f"dataset type {data_cfg.type} is not supported")
+
+    if gene_ds is None:
+        return None
+
+    gene_dls = {}
+    for gene_name, ds in gene_ds.items():
+        # making the batch_size of validate larger can speed up the evaluation, but it should not be too large,
+        # otherwise too much data may be dropped
+        batch_size = min(
+            data_cfg.valid_micro_num * data_cfg.micro_bsz, len(ds) // gpc.get_world_size(ParallelMode.DATA)
+        )
+        batch_size = batch_size // data_cfg.micro_bsz * data_cfg.micro_bsz
+
+        if batch_size == 0 and gpc.is_rank_for_log():
+            logger.info(f"skip validate {gene_name}.")
+            continue
+
+        gene_dls[gene_name] = get_dpsampler_dataloader(
+            ds,
+            shuffle=False,
+            num_workers=data_cfg.get("num_worker", 0),
+            batch_size=batch_size,
+            collate_fn=partial(generation_collate_fn, pad_id=generation_cfg.pad_id),
+        )
+
+        if gpc.is_rank_for_log():
+            logger.info(
+                f"load validation dataset {gene_name} with valid batch size {str(batch_size)} and "
+                f"samples {str(len(gene_dls[gene_name]))}."
+            )
+
+    return gene_dls
+
+
+if __name__ == "__main__":
+    train_ds = RandomDatasetMultimodal(
+        num_samples=30,
+        max_len=100,
+        image_size=10,
+        image_token_size=100,
+    )
+    padded_train_ds = PackedDatasetWithPadForMultimodal(
+        train_ds, max_length_per_sample=100, packed_length=110, padding_side="left"
+    )
+    # import pdb; pdb.set_trace()
+    print(train_ds, padded_train_ds.build_pack(0)["tokens"])
