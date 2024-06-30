@@ -51,6 +51,6 @@ def get_dataset_dict(folder, split="valid") -> Dict:
                 datasets.append(ds)
         if datasets:
             ds = ConcatDataset(datasets=datasets)
-            data_dict[os.path.basename(root)] = ds
+            data_dict[os.path.basename(root.rstrip(os.path.sep))] = ds
 
     return data_dict

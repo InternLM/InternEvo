@@ -2,12 +2,15 @@
 # -*- encoding: utf-8 -*-
 
 import gc
+import json
 import logging
 import os
 import shutil
 import socket
 import traceback
+from pathlib import Path
 
+import numpy as np
 import torch
 from tqdm import tqdm
 
@@ -61,10 +64,12 @@ def main():
         "",
         (object,),
         {
+            "output_folder": Path(generation_config["output_folder"]),
             "ckpt_folder": generation_config["ckpt_folder"]
             if "ckpt_folder" in generation_config
             else get_latest_subdirectory(gpc.config.ckpt.save_ckpt_folder),
             "data_folder": generation_config["data_folder"] if "data_folder" in generation_config else None,
+            "batch_size": generation_config.get("batch_size", None),
             "eos_id": generation_config.get("eos_id", 2),
             "bos_id": generation_config.get("bos_id", 1),
             "pad_id": generation_config.get("bos_id", 1),
@@ -79,6 +84,9 @@ def main():
             "length_penalty": generation_config.get("length_penalty", 1.0),
         },
     )
+
+    if not os.path.exists(generation_config.output_folder.absolute()):
+        generation_config.output_folder.mkdir(exist_ok=True, parents=True)
 
     # get and broadcast current time
     current_time = launch_time()
@@ -137,16 +145,17 @@ def main():
         additional_eos_token_list=generation_config.additional_eos_token_list,
     )
 
-    batch_count = 0
+    ds_count = 0
     gc.disable()
     with torch.inference_mode():
         for ds_name, gene_dl in gene_dls.items():
             if len(gene_dl) == 0:
                 logger.info(f"Validation dataset: {ds_name} is empty")
                 continue
-            empty_cache_and_diag(batch_count, interval=gpc.config.data.empty_cache_and_diag_interval)
-            timer(f"batch {batch_count}").start()
+            timer(f"dataset {ds_count}").start()
 
+            # pylint: disable=forgotten-debug-statement
+            all_output_str = []
             # pylint: disable=unused-variable
             for val_idx, (labels, input_ids) in tqdm(
                 enumerate(gene_dl),
@@ -155,29 +164,55 @@ def main():
                 position=1,
                 leave=False,
             ):
-                input_ids = torch.LongTensor(input_ids).to(get_model_device(model))
-                output_ids = sequenece_generator.generate(
-                    tokens=input_ids,
-                    max_length=generation_config.max_length,
-                    do_sample=generation_config.do_sample,
-                    temperature=generation_config.temperature,
-                    num_beams=generation_config.num_beams,
-                    top_k=generation_config.top_k,
-                    top_p=generation_config.top_p,
-                    repetition_penalty=generation_config.repetition_penalty,
-                    length_penalty=generation_config.length_penalty,
-                )
-                output_tokens = output_ids.tolist()
+                empty_cache_and_diag(val_idx, interval=gpc.config.data.empty_cache_and_diag_interval)
+                input_ids = torch.LongTensor(input_ids)
+                if input_ids.size(1) >= generation_config.max_length:
+                    logger.warning(
+                        f"Not generating for the {val_idx}'th batch, because the sequence "
+                        f"length of the batch is {input_ids.size(1)} over the max generation"
+                        f"length {generation_config.max_length}"
+                    )
+                    output_ids = input_ids[:, : generation_config.max_length, ...]
+                else:
+                    input_ids = input_ids.clamp(min=0, max=gpc.config.model.vocab_size).to(get_model_device(model))
+                    output_ids = sequenece_generator.generate(
+                        tokens=input_ids,
+                        max_length=generation_config.max_length,
+                        do_sample=generation_config.do_sample,
+                        temperature=generation_config.temperature,
+                        num_beams=generation_config.num_beams,
+                        top_k=generation_config.top_k,
+                        top_p=generation_config.top_p,
+                        repetition_penalty=generation_config.repetition_penalty,
+                        length_penalty=generation_config.length_penalty,
+                    )
+                for output in output_ids:
+                    not_pad_indices = torch.nonzero(output != generation_config.pad_id)
+                    if not_pad_indices.nelement() != 0:
+                        sequence = output[not_pad_indices[0] :]
+                    else:
+                        sequence = output
+                    sequence = sequence.tolist()
+                    line = str.encode(json.dumps({"tokens": sequence}))
+                    all_output_str.append(
+                        (
+                            line,
+                            len(line),
+                        )
+                    )
 
-                # pylint: disable=forgotten-debug-statement
-                all_output_str = []
-                for b in range(len(output_tokens)):
-                    for sent_idx in range(len(output_tokens[b])):
-                        cur_output_tokens = output_tokens[b][sent_idx]
-                        all_output_str.append(cur_output_tokens)
-                batch_count += 1
+            bin_meta, last_position = [], 0
+            with open(generation_config.output_folder.joinpath(f"{ds_name}.bin"), "wb") as file:
+                for line, token_num in all_output_str:
+                    file.write(line)
+                    bin_meta.append((last_position, token_num))
+                    last_position += len(line)
 
-            timer(f"batch {batch_count}").stop()
+            with open(generation_config.output_folder.joinpath(f"{ds_name}.bin.meta"), "wb") as file:
+                np.save(file, bin_meta)
+
+            timer(f"dataset {ds_count}").stop()
+            ds_count += 1
 
 
 if __name__ == "__main__":
@@ -188,6 +223,9 @@ if __name__ == "__main__":
     initialize_distributed_env(config=args.config, launcher=args.launcher, master_port=args.port, seed=args.seed)
     assert hasattr(gpc, "config") and gpc.config is not None
     assert "generation" in gpc.config, f"Please set `generation` config in `{args.config}` file"
+    assert (
+        "output_folder" in gpc.config["generation"]
+    ), "Must set `output_folder` for the save folder of generation data"
 
     # initialize monitor manager context
     with initialize_monitor_manager(

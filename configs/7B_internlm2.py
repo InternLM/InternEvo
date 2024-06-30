@@ -207,6 +207,9 @@ monitor = dict(
 # metric_dtype = "fp32"
 
 generation = dict(
+    ckpt_folder="/path/to/saved/ckpt",
+    output_folder="/path/to/save/generation",
+    batch_size=1,
     eos_id=[2, 0],
     bos_id=1,
     max_length=100,

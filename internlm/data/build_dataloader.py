@@ -203,6 +203,8 @@ def build_generation_loader_with_data_type(data_cfg, generation_cfg):
             data_cfg.valid_micro_num * data_cfg.micro_bsz, len(ds) // gpc.get_world_size(ParallelMode.DATA)
         )
         batch_size = batch_size // data_cfg.micro_bsz * data_cfg.micro_bsz
+        if generation_cfg.batch_size:
+            batch_size = generation_cfg.batch_size
 
         if batch_size == 0 and gpc.is_rank_for_log():
             logger.info(f"skip validate {gene_name}.")
@@ -223,17 +225,3 @@ def build_generation_loader_with_data_type(data_cfg, generation_cfg):
             )
 
     return gene_dls
-
-
-if __name__ == "__main__":
-    train_ds = RandomDatasetMultimodal(
-        num_samples=30,
-        max_len=100,
-        image_size=10,
-        image_token_size=100,
-    )
-    padded_train_ds = PackedDatasetWithPadForMultimodal(
-        train_ds, max_length_per_sample=100, packed_length=110, padding_side="left"
-    )
-    # import pdb; pdb.set_trace()
-    print(train_ds, padded_train_ds.build_pack(0)["tokens"])
