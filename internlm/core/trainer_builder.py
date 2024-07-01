@@ -25,6 +25,7 @@ from internlm.train.pipeline import (
 )
 from internlm.utils.common import (
     BatchSkipper,
+    enable_pytorch_expandable_segments,
     get_current_device,
     get_megatron_flops,
     launch_time,
@@ -60,6 +61,9 @@ class TrainerBuilder(Trainer):
         val_dls,
         **kwargs,
     ):
+        very_begining_time = time.time()
+        enable_pytorch_expandable_segments()
+
         # get and broadcast current time
         current_time = launch_time()
         objs = [current_time]
@@ -148,7 +152,7 @@ class TrainerBuilder(Trainer):
         else:
             self.batch_skipper = BatchSkipper(gpc.config.data.skip_batches)
 
-        self.very_begining_time = kwargs["very_begining_time"]
+        self.very_begining_time = very_begining_time
         self.profiling = kwargs["profiling"]
         self.current_time = current_time
         self.train_dl = train_dl
