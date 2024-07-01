@@ -24,11 +24,13 @@ jobs:
     - name: raw-chinese-data
       run: |
         source activate ${evo_env_torch21_flash2}
+        export PYTHONPATH=$PWD:$PYTHONPATH
         sh ./ci_scripts/data/tokenizer_chinese.sh ${GITHUB_RUN_ID}-${GITHUB_JOB}
 
     - name: alpaca-data
       run: |
         source activate ${evo_env_torch21_flash2}
+        export PYTHONPATH=$PWD:$PYTHONPATH
         sh ./ci_scripts/data/tokenizer_alpaca.sh
 
   train:
