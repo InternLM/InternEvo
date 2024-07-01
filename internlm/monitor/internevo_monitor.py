@@ -11,11 +11,11 @@ from functools import wraps
 from internlm.accelerator import get_accelerator
 from internlm.core.context import global_context as gpc
 from internlm.monitor.monitor import initialize_monitor_manager
-from internlm.monitor.monitor import monitor_manager as mm
 
 # global llm logger
 logger = logging.getLogger(__file__)
 internlm_accelerator = get_accelerator()
+
 
 def internevo_monitor(feishu_alert=True, clean_run=True):
     def decorator(func):
@@ -34,7 +34,7 @@ def internevo_monitor(feishu_alert=True, clean_run=True):
                 return func(*args, **kwargs)
             try:
                 return func(*args, **kwargs)
-            except Exception as e:
+            except Exception:
                 hostname = socket.gethostname()
                 logger.error(
                     f"Raise exception from {hostname} with rank id: {gpc.get_global_rank()}\n{traceback.format_exc()}",
@@ -47,4 +47,5 @@ def internevo_monitor(feishu_alert=True, clean_run=True):
                         shutil.rmtree(gpc.config.data.shm_path)
 
         return wrapper
+
     return decorator
