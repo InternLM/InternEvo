@@ -42,10 +42,10 @@ def main(args):
     # initialize kwargs
     kwargs = vars(args) | {"dataset_types": dataset_types, "very_begining_time": very_begining_time}
 
-    # initialize trainer
+    # build trainer
     trainer = TrainerBuilder(model, train_dl, val_dls, **kwargs)
 
-    # train
+    # training
     trainer.fit()
 
 
