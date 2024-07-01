@@ -984,7 +984,7 @@ class InternLM2ForCausalLM(InternLM2PreTrainedModel):
         self.post_init()
         for module in self.modules():
             for param in module.parameters():
-                if gpc.config.parallel["tensor"].get("mode", "mtp") == "isp":
+                if getattr(gpc, 'config', None) is not None and gpc.config.parallel["tensor"].get("mode", "mtp") == "isp":
                     setattr(param, IS_TENSOR_DATA_PARALLEL, True)
                 else:
                     setattr(param, IS_TENSOR_ZERO_PARALLEL, True)
@@ -1306,7 +1306,7 @@ class InternLM2ForSequenceClassification(InternLM2PreTrainedModel):
         self.post_init()
         for module in self.modules():
             for param in module.parameters():
-                if gpc.config.parallel["tensor"].get("mode", "mtp") == "isp":
+                if getattr(gpc, 'config', None) is not None and gpc.config.parallel["tensor"].get("mode", "mtp") == "isp":
                     setattr(param, IS_TENSOR_DATA_PARALLEL, True)
                 else:
                     setattr(param, IS_TENSOR_ZERO_PARALLEL, True)
