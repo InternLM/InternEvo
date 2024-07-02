@@ -23,8 +23,6 @@ class HuggingFaceStreamingDataset(Dataset):
         self.senior_iterator = iter(self)
 
         self.tokenizer = AutoTokenizer.from_pretrained(tokenizer_name, trust_remote_code=True)
-        self.tokenizer.padding_side = "right"
-        self.tokenizer.truncation_side = "right"
         self.tokenizer.model_max_length = model_max_length
 
     def __iter__(self):
@@ -43,9 +41,43 @@ class HuggingFaceStreamingDataset(Dataset):
 
     def _tokenize(self, samples):
         texts = [sample["text"] for sample in samples]
-        tokenized_outputs = self.tokenizer(texts, padding=True, truncation=True, return_tensors="pt")
+        tokenized_outputs = self.tokenizer(texts)
         for i in range(len(samples)):
             yield {key: tokenized_outputs[key][i] for key in tokenized_outputs}
 
+    def __getitem__(self, _):
+        return next(self.senior_iterator)
+
+
+class PackedDataset(Dataset):
+    def __init__(self, dataset, seq_len, micro_bsz):
+        self.dataset = dataset
+        self.seq_len = seq_len
+        self.micro_bsz = micro_bsz
+
+        self.senior_iterator = iter(self)
+
+    def __iter__(self):
+        input_ids = []
+        cu_seqlens = [0]
+        labels = []
+        for sample in self.dataset:
+            if len(input_ids + sample['input_ids']) > self.micro_bsz * self.seq_len:
+                yield {
+                    "input_ids": input_ids,
+                    "cu_seqlens": cu_seqlens,
+                    "labels" : labels,
+                }
+                input_ids = sample['input_ids']
+                cu_seqlens = [0, len(sample['input_ids'])]
+                labels = sample['input_ids'][1:] + [-100]
+            else:
+                input_ids = input_ids + sample['input_ids']
+                cu_seqlens.append(len(sample['input_ids'])+cu_seqlens[-1])
+                labels = labels + sample['input_ids'][1:] + [-100]
+
+    def __len__(self):
+        return sys.maxsize
+    
     def __getitem__(self, _):
         return next(self.senior_iterator)
