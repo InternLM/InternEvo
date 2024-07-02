@@ -169,6 +169,8 @@
 
     srun -p internllm -N 2 -n 16 --ntasks-per-node=8 --gpus-per-task=1 python train.py --config ./configs/20B_sft.py
 
+其中，train.py文件的编写参考：[训练代码示例](../../../../examples/huggingface_trainer/train.py)
+
 训练结果
 ----------------
 
