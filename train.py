@@ -22,6 +22,7 @@ from internlm.data import (
     build_train_loader_with_data_type,
     build_valid_loader_with_data_type,
 )
+from internlm.data.streaming.utils import naive_hf_resume
 from internlm.data.train_state import get_train_state
 from internlm.eval.evaluation import evaluate_on_val_dls
 from internlm.initialize import initialize_distributed_env
@@ -63,7 +64,6 @@ def main(args):
     enable_pytorch_expandable_segments()
 
     # init setting
-    skip_batches = gpc.config.data.skip_batches
     total_steps = gpc.config.data.total_steps
     valid_every = gpc.config.data.valid_every
     label_smoothing = gpc.config.loss.label_smoothing
@@ -173,16 +173,10 @@ def main(args):
         memory_profiler = None
 
     # initialize the batch skipper
-    if gpc.config.data.type == "hf" and gpc.config.ckpt.auto_resume and train_state.batch_count > 0:
-        batch_skipper = BatchSkipper(f"0-{train_state.batch_count - 1}")
-        train_state.batch_count = 0
-        train_state.num_consumed_samples_in_epoch = 0
-        if hasattr(train_state, "batch_sampler"):
-            train_state.batch_sampler.batch_count = 0
-            train_state.batch_sampler.num_consumed_samples_in_epoch = 0
-            train_state.batch_sampler_iter = iter(train_state.batch_sampler)
-    else:
-        batch_skipper = BatchSkipper(skip_batches)
+    skip_batches = gpc.config.data.skip_batches
+    if gpc.config.data.type == "hf" and gpc.config.ckpt.auto_resume:
+        skip_batches = naive_hf_resume(train_state)
+    batch_skipper = BatchSkipper(skip_batches)
 
     trainer.train()
 

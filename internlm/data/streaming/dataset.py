@@ -49,7 +49,7 @@ class HuggingFaceStreamingDataset(Dataset):
         return next(self.senior_iterator)
 
 
-class PackedDataset(Dataset):
+class HuggingFacePackedDataset(Dataset):
     def __init__(self, dataset, seq_len, micro_bsz):
         self.dataset = dataset
         self.seq_len = seq_len

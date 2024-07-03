@@ -1,9 +1,13 @@
 from .batch_sampler import StreamingStaticBatchSampler
-from .collaters import nopack_collate_fn
-from .dataset import HuggingFaceStreamingDataset
+from .collaters import nopack_collate_fn, pack_collate_fn
+from .dataset import HuggingFacePackedDataset, HuggingFaceStreamingDataset
+from .utils import naive_hf_resume
 
 __all__ = [
     "StreamingStaticBatchSampler",
     "nopack_collate_fn",
+    "pack_collate_fn",
     "HuggingFaceStreamingDataset",
+    "HuggingFacePackedDataset",
+    "naive_hf_resume",
 ]

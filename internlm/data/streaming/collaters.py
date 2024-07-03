@@ -1,6 +1,7 @@
 import itertools
-import torch
+
 import numpy as np
+import torch
 
 
 def nopack_collate_fn(batch, micro_num, micro_bsz, seq_len):
@@ -28,29 +29,30 @@ def nopack_collate_fn(batch, micro_num, micro_bsz, seq_len):
         "type_ids": torch.zeros(micro_num, micro_bsz, seq_len, dtype=torch.int64),
     }, labels
 
+
 def pack_collate_fn(batch, micro_num, micro_bsz, seq_len):
     packed_length = micro_bsz * seq_len
-    
+
     input_ids_list = []
     cu_seqlens_list = []
     labels_list = []
     indexes_list = []
 
     for b in batch:
-        input_ids_list.append(torch.LongTensor(b['input_ids']+[0]*(packed_length-len(b['input_ids']))))
-        labels_list.append(torch.LongTensor(b["labels"]+[-100]*(packed_length-len(b["labels"]))))
-        cu_seqlens = b['cu_seqlens']+[packed_length]
+        input_ids_list.append(torch.LongTensor(b["input_ids"] + [0] * (packed_length - len(b["input_ids"]))))
+        labels_list.append(torch.LongTensor(b["labels"] + [-100] * (packed_length - len(b["labels"]))))
+        cu_seqlens = b["cu_seqlens"] + [packed_length]
         cu_seqlens_list.append(torch.IntTensor(cu_seqlens))
-        indexes = list(itertools.chain(*[np.arange(l2-l1) for l1, l2 in zip(cu_seqlens[:-1], cu_seqlens[1:])]))
+        indexes = list(itertools.chain(*[np.arange(l2 - l1) for l1, l2 in zip(cu_seqlens[:-1], cu_seqlens[1:])]))
         indexes_list.append(torch.IntTensor(indexes))
 
     input_ids = torch.stack(input_ids_list)
     labels = torch.stack(labels_list)
     indexes = torch.stack(indexes_list)
-    
+
     return {
-        "input_ids": input_ids, 
-        "cu_seqlens": cu_seqlens_list, 
+        "input_ids": input_ids,
+        "cu_seqlens": cu_seqlens_list,
         "indexes": indexes,
-        "type_ids": torch.zeros(micro_num, micro_bsz * seq_len, dtype=torch.int64), 
+        "type_ids": torch.zeros(micro_num, micro_bsz * seq_len, dtype=torch.int64),
     }, labels
