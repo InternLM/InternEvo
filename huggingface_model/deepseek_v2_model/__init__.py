@@ -1,0 +1,2 @@
+from .configuration_deepseek import DeepseekV2Config
+from .modeling_deepseek import DeepseekV2ForCausalLM
