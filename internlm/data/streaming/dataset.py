@@ -3,10 +3,10 @@ import sys
 import datasets
 from datasets.distributed import split_dataset_by_node
 from torch.utils.data import Dataset
-from transformers import AutoTokenizer
 
 from internlm.core.context import ParallelMode
 from internlm.core.context import global_context as gpc
+from transformers import AutoTokenizer
 
 
 class HuggingFaceStreamingDataset(Dataset):
@@ -41,7 +41,7 @@ class HuggingFaceStreamingDataset(Dataset):
 
     def _tokenize(self, samples):
         texts = [sample["text"] for sample in samples]
-        tokenized_outputs = self.tokenizer(texts)
+        tokenized_outputs = self.tokenizer(texts, truncation=True)
         for i in range(len(samples)):
             yield {key: tokenized_outputs[key][i] for key in tokenized_outputs}
 
@@ -50,6 +50,10 @@ class HuggingFaceStreamingDataset(Dataset):
 
 
 class HuggingFacePackedDataset(Dataset):
+    """
+    Simple packed dataset for huggingface.
+    """
+
     def __init__(self, dataset, seq_len, micro_bsz):
         self.dataset = dataset
         self.seq_len = seq_len
@@ -62,22 +66,28 @@ class HuggingFacePackedDataset(Dataset):
         cu_seqlens = [0]
         labels = []
         for sample in self.dataset:
-            if len(input_ids + sample['input_ids']) > self.micro_bsz * self.seq_len:
+            if len(input_ids + sample["input_ids"]) > self.micro_bsz * self.seq_len:
                 yield {
                     "input_ids": input_ids,
                     "cu_seqlens": cu_seqlens,
-                    "labels" : labels,
+                    "labels": labels,
                 }
-                input_ids = sample['input_ids']
-                cu_seqlens = [0, len(sample['input_ids'])]
-                labels = sample['input_ids'][1:] + [-100]
+                input_ids = sample["input_ids"]
+                cu_seqlens = [0, len(sample["input_ids"])]
+                labels = sample["input_ids"][1:] + [-100]
             else:
-                input_ids = input_ids + sample['input_ids']
-                cu_seqlens.append(len(sample['input_ids'])+cu_seqlens[-1])
-                labels = labels + sample['input_ids'][1:] + [-100]
+                input_ids = input_ids + sample["input_ids"]
+                cu_seqlens.append(len(sample["input_ids"]) + cu_seqlens[-1])
+                labels = labels + sample["input_ids"][1:] + [-100]
+        if input_ids:
+            yield {
+                "input_ids": input_ids,
+                "cu_seqlens": cu_seqlens,
+                "labels": labels,
+            }
 
     def __len__(self):
         return sys.maxsize
-    
+
     def __getitem__(self, _):
         return next(self.senior_iterator)

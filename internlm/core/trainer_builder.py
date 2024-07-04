@@ -2,14 +2,17 @@ import gc
 import logging
 import time
 from functools import partial
+from typing import Dict, Optional
 
+import torch
 import torch.distributed as dist
+from torch.utils.data import DataLoader
 
 from internlm.checkpoint.checkpoint_manager import CheckpointManager
 from internlm.core.context import global_context as gpc
 from internlm.core.context.process_group_initializer import ParallelMode
 from internlm.core.trainer import Trainer
-from internlm.data.streaming.utils import naive_hf_resume
+from internlm.data.streaming.utils import hf_simple_resume
 from internlm.data.train_state import get_train_state
 from internlm.eval.evaluation import evaluate_on_val_dls
 from internlm.initialize.initialize_trainer import initialize_trainer
@@ -44,25 +47,36 @@ logger = logging.getLogger(__file__)
 
 class TrainerBuilder(Trainer):
     """
-    Manage the training process.
+    Manage InternEvo training process.
 
     Args:
-        model: The dmodel to be trained.
-        train_dl: The training data loader.
-            such as ['en', 'cn', 'code']. The order of the List should be consistent with the type_id specified
-            in the dataset. Changed parameters need to be used in conjunction with set_current_type_ids().
-        val_dls: Validation data loaders.
-        kwargs: Additional arguments and configurations.
+        model (torch.nn.Module): The model to be trained.
+        train_dl (torch.utils.data.DataLoader): The training data loader.
+        val_dls (Optional[Dict[str, torch.utils.data.DataLoader]]): The validation data loaders.
+        kwargs: Additional keyward arguments.
     """
 
     def __init__(
         self,
-        model,
-        train_dl,
-        val_dls,
+        model: torch.nn.Module,
+        train_dl: DataLoader,
+        val_dls: Optional[Dict[str, DataLoader]] = None,
         **kwargs,
     ):
+        """
+        Initialize InternEvo TrainerBuilder class.
+
+        Args:
+            model (torch.nn.Module): The model to be trained.
+            train_dl (torch.utils.data.DataLoader): The training data loader.
+            val_dls (Optional[Dict[str, torch.utils.data.DataLoader]]): The validation data loaders.
+            kwargs: Additional keyward arguments.
+        """
+
+        # record very_begining_time
         very_begining_time = time.time()
+
+        # set torch expandable_segments
         enable_pytorch_expandable_segments()
 
         # get and broadcast current time
@@ -89,8 +103,10 @@ class TrainerBuilder(Trainer):
         # initialize and resume train state
         train_state = get_train_state(train_dl)
 
+        # initialize optimizer
         optimizer, beta2_scheduler, lr_scheduler = initialize_optimizer(model, isp_communicator)
 
+        # initialize checkpoint manager
         ckpt_manager = CheckpointManager(
             ckpt_config=gpc.config.ckpt,
             model=model,
@@ -102,7 +118,7 @@ class TrainerBuilder(Trainer):
             feishu_address=gpc.config.monitor.alert.feishu_alert_address,
         )
 
-        # Loading other persistent training states.
+        # load other persistent training states
         ckpt_manager.try_resume_training(train_state, current_time)
 
         # initialize customed llm writer
@@ -141,12 +157,13 @@ class TrainerBuilder(Trainer):
         else:
             self.memory_profiler = None
 
-        # initialize the batch skipper
+        # initialize batch skipper
         skip_batches = gpc.config.data.skip_batches
         if gpc.config.data.type == "hf" and gpc.config.ckpt.auto_resume:
-            skip_batches = naive_hf_resume(train_state)
+            skip_batches = hf_simple_resume(train_state)
         self.batch_skipper = BatchSkipper(skip_batches)
 
+        # set TrainerBuilder attributes
         self.very_begining_time = very_begining_time
         self.profiling = kwargs["profiling"]
         self.current_time = current_time
@@ -169,12 +186,17 @@ class TrainerBuilder(Trainer):
             beta2_scheduler=beta2_scheduler,
             scheduler_hooks=get_scheduler_hooks(metric, optimizer, isp_communicator),
         )
-        # self.trainer = Trainer(engine, scheduler)
+
         super().__init__(engine, scheduler)
 
     def fit(self):
+        """
+        Launch InternEvo TrainerBuilder training process.
+        """
+
         self.train()
         train_iter = iter(self.train_dl)
+
         with initialize_llm_profile(profiling=self.profiling, start_time=self.current_time) as prof:
             # close automatic garbage collection
             gc.disable()

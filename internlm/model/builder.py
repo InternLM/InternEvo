@@ -31,7 +31,10 @@ def create_model(model_type, *args, **kwargs) -> Union[nn.Module, List[nn.Module
             hf_model_conf_map = {
                 "INTERNLM_FROM_HF": ("huggingface_model.internlm_model.configuration_internlm", "InternLMConfig"),
                 "INTERNLM2_FROM_HF": ("huggingface_model.internlm2_model.configuration_internlm2", "InternLM2Config"),
-                "DEEPSEEKV2_FROM_HF": ("huggingface_model.deepseek_v2_model.configuration_deepseek", "DeepseekV2Config"),
+                "DEEPSEEKV2_FROM_HF": (
+                    "huggingface_model.deepseek_v2_model.configuration_deepseek",
+                    "DeepseekV2Config",
+                ),
                 "BAICHUAN2_FROM_HF": ("huggingface_model.baichuan2_model.configuration_baichuan", "BaichuanConfig"),
                 "PHI3_FROM_HF": ("huggingface_model.phi3_model.configuration_phi3", "Phi3Config"),
             }

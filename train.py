@@ -22,7 +22,7 @@ from internlm.data import (
     build_train_loader_with_data_type,
     build_valid_loader_with_data_type,
 )
-from internlm.data.streaming.utils import naive_hf_resume
+from internlm.data.streaming.utils import hf_simple_resume
 from internlm.data.train_state import get_train_state
 from internlm.eval.evaluation import evaluate_on_val_dls
 from internlm.initialize import initialize_distributed_env
@@ -175,7 +175,7 @@ def main(args):
     # initialize the batch skipper
     skip_batches = gpc.config.data.skip_batches
     if gpc.config.data.type == "hf" and gpc.config.ckpt.auto_resume:
-        skip_batches = naive_hf_resume(train_state)
+        skip_batches = hf_simple_resume(train_state)
     batch_skipper = BatchSkipper(skip_batches)
 
     trainer.train()
