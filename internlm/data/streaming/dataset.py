@@ -50,6 +50,10 @@ class HuggingFaceStreamingDataset(Dataset):
 
 
 class HuggingFacePackedDataset(Dataset):
+    """
+    packed dataset for huggingface
+    """
+
     def __init__(self, dataset, seq_len, micro_bsz):
         self.dataset = dataset
         self.seq_len = seq_len
@@ -62,22 +66,22 @@ class HuggingFacePackedDataset(Dataset):
         cu_seqlens = [0]
         labels = []
         for sample in self.dataset:
-            if len(input_ids + sample['input_ids']) > self.micro_bsz * self.seq_len:
+            if len(input_ids + sample["input_ids"]) > self.micro_bsz * self.seq_len:
                 yield {
                     "input_ids": input_ids,
                     "cu_seqlens": cu_seqlens,
-                    "labels" : labels,
+                    "labels": labels,
                 }
-                input_ids = sample['input_ids']
-                cu_seqlens = [0, len(sample['input_ids'])]
-                labels = sample['input_ids'][1:] + [-100]
+                input_ids = sample["input_ids"]
+                cu_seqlens = [0, len(sample["input_ids"])]
+                labels = sample["input_ids"][1:] + [-100]
             else:
-                input_ids = input_ids + sample['input_ids']
-                cu_seqlens.append(len(sample['input_ids'])+cu_seqlens[-1])
-                labels = labels + sample['input_ids'][1:] + [-100]
+                input_ids = input_ids + sample["input_ids"]
+                cu_seqlens.append(len(sample["input_ids"]) + cu_seqlens[-1])
+                labels = labels + sample["input_ids"][1:] + [-100]
 
     def __len__(self):
         return sys.maxsize
-    
+
     def __getitem__(self, _):
         return next(self.senior_iterator)

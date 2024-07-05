@@ -1,10 +1,13 @@
 from typing import List, Union
 
-from internlm.core.context.parallel_context import IS_TENSOR_DATA_PARALLEL, IS_TENSOR_ZERO_PARALLEL
 from torch import nn
 
 from internlm.core.context import ParallelMode
 from internlm.core.context import global_context as gpc
+from internlm.core.context.parallel_context import (
+    IS_TENSOR_DATA_PARALLEL,
+    IS_TENSOR_ZERO_PARALLEL,
+)
 from internlm.core.parallel.shard import pipeline_parallel_sharding_wrapper
 from internlm.model.registry import model_initializer
 from internlm.utils.common import get_current_device
@@ -32,7 +35,10 @@ def create_model(model_type, *args, **kwargs) -> Union[nn.Module, List[nn.Module
             hf_model_conf_map = {
                 "INTERNLM_FROM_HF": ("huggingface_model.internlm_model.configuration_internlm", "InternLMConfig"),
                 "INTERNLM2_FROM_HF": ("huggingface_model.internlm2_model.configuration_internlm2", "InternLM2Config"),
-                "DEEPSEEKV2_FROM_HF": ("huggingface_model.deepseek_v2_model.configuration_deepseek", "DeepseekV2Config"),
+                "DEEPSEEKV2_FROM_HF": (
+                    "huggingface_model.deepseek_v2_model.configuration_deepseek",
+                    "DeepseekV2Config",
+                ),
                 "BAICHUAN2_FROM_HF": ("huggingface_model.baichuan2_model.configuration_baichuan", "BaichuanConfig"),
                 "PHI3_FROM_HF": ("huggingface_model.phi3_model.configuration_phi3", "Phi3Config"),
             }

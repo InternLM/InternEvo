@@ -3,10 +3,10 @@
 
 from typing import Callable
 
+from huggingface_model.baichuan2_model.modeling_baichuan import BaichuanForCausalLM
+from huggingface_model.deepseek_v2_model.modeling_deepseek import DeepseekV2ForCausalLM
 from huggingface_model.internlm2_model.modeling_internlm2 import InternLM2ForCausalLM
 from huggingface_model.internlm_model.modeling_internlm import InternLMForCausalLM
-from huggingface_model.deepseek_v2_model.modeling_deepseek import DeepseekV2ForCausalLM
-from huggingface_model.baichuan2_model.modeling_baichuan import BaichuanForCausalLM
 from huggingface_model.phi3_model.modeling_phi3 import Phi3ForCausalLM
 from internlm.model.modeling_internlm import InternLM1
 from internlm.model.modeling_internlm2 import InternLM2
