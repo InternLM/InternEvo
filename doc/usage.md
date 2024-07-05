@@ -83,32 +83,36 @@ MODEL_ONLY_FOLDER = "local:llm_ckpts/xxxx"
 # Ckpt folder format:
 # fs: 'local:/mnt/nfs/XXX'
 SAVE_CKPT_FOLDER = "local:llm_ckpts"
-LOAD_CKPT_FOLDER = "local:llm_ckpts/49"
 
 # boto3 Ckpt folder format:
 # import os
 # BOTO3_IP = os.environ["BOTO3_IP"] # boto3 bucket endpoint
 # SAVE_CKPT_FOLDER = f"boto3:s3://model_weights.{BOTO3_IP}/internlm"
-# LOAD_CKPT_FOLDER = f"boto3:s3://model_weights.{BOTO3_IP}/internlm/snapshot/1/"
 CHECKPOINT_EVERY = 50
 ckpt = dict(
     enable_save_ckpt=False,  # enable ckpt save.
     save_ckpt_folder=SAVE_CKPT_FOLDER,  # Path to save training ckpt.
-    # load_ckpt_folder= dict(path=MODEL_ONLY_FOLDER, content=["model"], ckpt_type="normal"),
-    load_ckpt_folder="local:llm_ckpts/",
     # 'load_ckpt_info' setting guide:
     # 1. the 'path' indicate ckpt path,
     # 2. the 'content‘ means what states will be loaded, support: "model", "sampler", "optimizer", "scheduler", "all"
-    # 3. the ’ckpt_type‘ means the type of checkpoint to be loaded, now only 'normal' type is supported.
-    load_ckpt_info=dict(path=MODEL_ONLY_FOLDER, content=("model",), ckpt_type="internlm"),
+    # 3. the ’ckpt_type‘ means the type of checkpoint to be loaded, support: "internevo", "llama", "hf_llama", "hf_model".
+    load_ckpt_info=dict(path=MODEL_ONLY_FOLDER, content=("model",), ckpt_type="internevo"),
+    # 'auto_resume' is designed to automatically load the latest checkpoint from 'save_ckpt_folder' when encountering
+    # training interruptions/hangs caused by hardware failures, using a scheduling system (such as k8s/slurm)
+    # with an automatic restart mechanism upon training reboot.
+    # Please be aware that if `auto_resume` is not set (its default value is True), it will not load the checkpoint
+    # path specified in `load_ckpt_info` by default.
+    # If you want to initialize your model weights from another model, you must set `auto_resume` to False.
+    # If you want to train from scratch, please set `auto_resume` to False and 'load_ckpt_info' to None.
+    auto_resume=True,
     checkpoint_every=CHECKPOINT_EVERY,
     async_upload=True,  # async ckpt upload. (only work for boto3 ckpt)
     async_upload_tmp_folder="/dev/shm/internlm_tmp_ckpt/",  # path for temporarily files during asynchronous upload.
     oss_snapshot_freq=int(CHECKPOINT_EVERY / 2),  # snapshot ckpt save frequency.
 )
 
-TRAIN_FOLDER = "/path/to/dataset"
-VALID_FOLDER = "/path/to/dataset"
+TRAIN_FOLDER = None  # "/path/to/dataset"
+VALID_FOLDER = None  # "/path/to/dataset"
 data = dict(
     seq_len=SEQ_LEN,
     # micro_num means the number of micro_batch contained in one gradient update
@@ -122,13 +126,22 @@ data = dict(
     pack_sample_into_one=False,
     total_steps=50000,
     skip_batches="",
+    # rampup_batch_size (str): A string with three space-separated integers representing the
+    #       starting batch size, the increment, and the number of steps between
+    #       each increment. For example, "192 24 8" means that the batch size (micro_num)
+    #       starts at 192 and increases by 24 every 8 steps. Defaults to None.
+    #       (IMPORTANT): The interval step size is 'micro_bsz'.
     rampup_batch_size="",
     # Datasets with less than 50 rows will be discarded
     min_length=50,
-    # train_folder=TRAIN_FOLDER,
-    # valid_folder=VALID_FOLDER,
-    empty_cache_and_diag_interval=10,
+    train_folder=TRAIN_FOLDER,
+    valid_folder=VALID_FOLDER,
+    empty_cache_and_diag_interval=200,
     diag_outlier_ratio=1.1,
+    # whether use shared memory to load meta files
+    use_shm=False,
+    # when use shm, the default shm_path is "/dev/shm/metacache"
+    # shm_path="/dev/shm/metacache"
 )
 
 grad_scaler = dict(
@@ -153,11 +166,16 @@ grad_scaler = dict(
 hybrid_zero_optimizer = dict(
     # Enable low_level_optimzer overlap_communication
     overlap_sync_grad=True,
-    overlap_sync_param=True,
+    overlap_sync_param=False,
     # bucket size for nccl communication params
     reduce_bucket_size=512 * 1024 * 1024,
     # grad clipping
     clip_grad_norm=1.0,
+    # whether use new optm
+    use_split_tensor_optim=False,
+    # when use split tensor optm
+    # Perform all gather with a set of parameters of all_gather_size
+    all_gather_size=512 * 1024 * 1024,
 )
 
 loss = dict(
@@ -187,6 +205,7 @@ beta2_scheduler = dict(
     cur_iter=-1,
 )
 
+use_fp32_norm = False
 model = dict(
     checkpoint=False,  # The proportion of layers for activation aheckpointing, the optional value are True/False/[0-1]
     num_attention_heads=NUM_ATTENTION_HEAD,
@@ -198,28 +217,50 @@ model = dict(
     num_layers=NUM_LAYER,
     mlp_ratio=MLP_RATIO,
     apply_post_layer_norm=False,
-    dtype="torch.float16",  # Support: "torch.float16", "torch.half", "torch.bfloat16", "torch.float32", "torch.tf32"
+    dtype="torch.bfloat16",  # Support: "torch.float16", "torch.half", "torch.bfloat16", "torch.float32", "torch.tf32"
     norm_type="rmsnorm",
     layer_norm_epsilon=1e-5,
     use_flash_attn=True,
+    # Whether the odd and even columns of the query and key in the model are normally interleaved.
+    # If it's True, the model's odd and even columns are normally ordered; if it's False,
+    # it means that the model has prematurely concatenated all odd columns and even columns in front
+    # and back, in order to improve the RoPE's computational efficiency.
+    # Example:
+    # qk_interleaved = True: q[-1] = [q1,q2,q3,q4,q5,q6,...], k[-1] = [k1,k2,k3,k4,k5,k6,...]
+    # qk_interleaved = False: q[-1] = [q1,q3,q5,...,q2,q4,q6,...], k[-1] = [k1,k3,k5,...,k2,k4,k6,...]
+    qk_interleaved=False,
     num_chunks=1,  # if num_chunks > 1, interleaved pipeline scheduler is used.
 )
 """
-zero1 parallel:
-    1. if zero1 <= 0, The size of the zero process group is equal to the size of the dp process group,
-        so parameters will be divided within the range of dp.
-    2. if zero1 == 1, zero is not used, and all dp groups retain the full amount of model parameters.
-    3. zero1 > 1 and zero1 <= dp world size, the world size of zero is a subset of dp world size.
+zero1 parallel (dict):
+    1. size: int
+        * if size <= 0, the size of the zero process group is equal to the size of the dp process group,
+            so parameters will be divided within the range of dp.
+        * if size == 1, zero is not used, and all dp groups retain the full amount of model parameters.
+        * if size > 1 and size <= dp world size, the world size of zero is a subset of dp world size.
         For smaller models, it is usually a better choice to split the parameters within nodes with a setting <= 8.
+    2. fsdp: bool, enable/disable torch's fully sharded data parallel, defaults to False.
+tensor parallel (dict):
+    1. size: int, the size of tensor parallel.
+    2. mode: str, the tensor parallel mode, should be in ['mtp', 'msp', 'fsp', 'isp'],
+        defaults to 'mtp', means the pure megatron tensor parallel without sequence parallel.
+        msp: megatron tensor parallel with sequence parallel, sequence parallel size = tensor parallel size.
+        fsp: tensor parallel by flash-attn with sequence parallel, sequence parallel size = tensor parallel size.
+        isp: customed intern sequence parallel without tensor parallel, can be used with weight parallel.
 pipeline parallel (dict):
     1. size: int, the size of pipeline parallel.
-    2. interleaved_overlap: bool, enable/disable communication overlap when using interleaved pipeline scheduler.
-tensor parallel: tensor parallel size, usually the number of GPUs per node.
+    2. interleaved_overlap: bool, enable/disable communication overlap when using interleaved pipeline scheduler,
+        defaults to False.
+weight parallel (dict):
+    1. size: int, the size of weight parallel.
+    2. overlap: bool, enable/disable all_gather/reduce_scatter communication overlap, defaults to False.
+    3. memory_pool: bool, enable/disable memory pool, defaults to False.
 """
 parallel = dict(
-    zero1=8,
+    zero1=dict(size=-1),
+    tensor=dict(size=1, mode="mtp"),
     pipeline=dict(size=1, interleaved_overlap=True),
-    sequence_parallel=False,
+    weight=dict(size=1, overlap=True, memory_pool=True),
 )
 
 cudnn_deterministic = False
@@ -231,6 +272,10 @@ monitor = dict(
         enable_feishu_alert=DO_ALERT,
         feishu_alert_address=None,  # feishu webhook to send alert message
         light_monitor_address=None,  # light_monitor address to send heartbeat
+        alert_file_path=f"llm_alter/{JOB_NAME}_alert.log",
+    ),
+    tensorboard=dict(
+        queue_max_length=10,
     ),
 )
 ```
@@ -264,23 +309,56 @@ data = dict(
 ```
 数据集的详细内容可参考``数据准备``模块相关的介绍。
 
+同时，也支持huggingface格式的数据集处理。
+train_folder设置为huggingface上可以通过load_dataset直接下载的数据集路径，如："roneneldan/TinyStories"
+在data中，需要新增type及tokenizer_path字段，标示数据集是huggingface格式，并指定tokenizer路径，如：
+```python
+TRAIN_FOLDER = "roneneldan/TinyStories"
+SEQ_LEN = 2048
+data = dict(
+    type="hf",
+    tokenizer_path="internlm/internlm-7b",
+    seq_len=SEQ_LEN,  # 数据样本长度，默认值为 2048
+    micro_num=1,  # micro_num 是指在一次模型参数更新中会处理的 micro_batch 的数目，默认值为 1
+    micro_bsz=1,  # packed_length = micro_bsz * SEQ_LEN，为一次处理的 micro_batch 的数据大小，默认值为 1
+    total_steps=50000,  # 总的所需执行的 step 的数目，默认值为 50000
+    min_length=50,  # 若数据集文件中，数据行数少于50，将会被废弃
+    train_folder=TRAIN_FOLDER,  # 数据集文件路径，默认值为 None；若 train_folder 为空，则以自动生成的随机数据集
+进行训练测试
+    pack_sample_into_one=False, # 数据整理的逻辑，决定是按照 seq_len 维度或者是 sequence 的真实长度来进行attention计算
+)
+```
+
 #### 模型配置
 
 如果在启动训练时要加载模型 `checkpoint`，可进行如下相关配置：
 ```python
 SAVE_CKPT_FOLDER = "local:/path/to/save/ckpt"
-LOAD_CKPT_FOLDER = "local:/path/to/load/resume/ckpt"
+# MODEL_ONLY_FOLDER = "internlm/internlm-7b"
+MODEL_ONLY_FOLDER = "local:/path/to/load/resume/ckpt"
 ckpt = dict(
+    enable_save_ckpt=True,  # 是否开启保存 checkpoint 功能
     save_ckpt_folder=SAVE_CKPT_FOLDER,  # 存储模型和优化器 checkpoint 的路径
     checkpoint_every=float("inf"),  # 每多少个 step 存储一次 checkpoint，默认值为 inf
     # 断点续训时，加载模型和优化器等权重的路径，将从指定的 step 恢复训练
     # content 表示哪些状态会被加载，支持： "model", "sampler", "optimizer", "scheduler", "all"
-    # ckpt_type 表示加载的模型类型，目前支持: "internlm"
+    # ckpt_type 表示加载的模型类型，目前支持: "internevo", "llama", "hf_llama", "hf_model"
+    # 其中，"hf_model"类型表示从huggingface上下载模型加载ckpt，MODEL_ONLY_FOLDER需要设置为可以
+    # 通过AutoModel直接加载的模型路径，如："internlm/internlm-7b"
     load_ckpt_info=dict(path=MODEL_ONLY_FOLDER, content=("model",), ckpt_type="internlm"),
+    # 'auto_resume' 旨在在遇到由硬件故障引起的训练中断/挂起时，自动从 'save_ckpt_folder' 加载最新的检查点，
+    # 使用调度系统（例如 k8s/slurm）在训练重启时自动重启机制。
+    # 请注意，如果未设置 auto_resume（其默认值为 True），它将不会默认加载 load_ckpt_info 中指定的检查点路径。
+    # 如果你想从另一个模型初始化你的模型权重，必须将 auto_resume 设置为 False。
+    # 如果你想从头开始训练，请将 auto_resume 设置为 False 并将 'load_ckpt_info' 设置为 None。
+    auto_resume=False,
+    async_upload=True,  # 异步检查点上传。（仅适用于 boto3 检查点）
+    async_upload_tmp_folder="/dev/shm/internlm_tmp_ckpt/",  # 异步上传期间临时文件的路径。
+    oss_snapshot_freq=int(CHECKPOINT_EVERY / 2),  # 快照检查点保存频率。
 )
 ```
 注意：
-- 路径若以 `local:` 为前缀，则存储在本地文件系统；若以 `boto3:` 为前缀，则存储在远程 oss 上
+- 路径若以 `local:` 为前缀，则存储在本地文件系统；若以 `boto3:` 为前缀，则存储在远程 oss 上；若无前缀，为huggingface上可以直接下载的模型路径。
 
 模型相关关键参数配置如下所示：
 ```python
@@ -306,7 +384,7 @@ model = dict(
     layer_norm_epsilon=1e-5,
 )
 ```
-注意：用户可自定义模型类型名和模型结构，并配置相对应的模型参数。通过`utils/registry.py`下的`MODEL_INITIALIZER`对象进行模型初始化函数接口注册，在训练主函数`train.py`中初始化模型时，可通过`model_type`配置获取指定的模型初始化接口函数。
+注意：用户可自定义模型类型名和模型结构，并配置相对应的模型参数。通过`internlm/model/registry.py`下的`model_initializer`对象进行模型初始化函数接口注册，在训练主函数`train.py`中初始化模型时，可通过`model_type`配置获取指定的模型初始化接口函数。
 
 *如果基于 InternLM 7B继续训练，可以参考 [ModelZoo](https://github.com/InternLM/InternLM/tree/main#model-zoo) 中 OpenXLab 链接下载权重*
 
@@ -315,21 +393,32 @@ model = dict(
 训练并行配置样例如下：
 ```python
 parallel = dict(
-    zero1=8,
-    tensor=1,
+    zero1=dict(size=-1),
+    tensor=dict(size=1, mode="mtp"),
     pipeline=dict(size=1, interleaved_overlap=True),
-    sequence_parallel=False,
+    weight=dict(size=1, overlap=True, memory_pool=True),
 )
 ```
-- zero1：zero 并行策略，分如下三种情况，默认值为 -1
-  - 当`zero1 <= 0`，则 zero1 进程组的大小等于数据并行进程组的大小，因此优化器状态参数将在数据并行范围内分配
-  - 当`zero1 == 1`，则不使用 zero1 ，所有数据并行组保留完整的优化器状态参数
-  - 当`zero1 > 1`且`zero1 <= data_parallel_world_size`，则 zero1 进程组是数据并行进程组的子集
-- tensor：张量并行大小，通常是每个节点的 GPU 数量，默认值为 1
-- pipeline：流水线并行策略
-  - size：流水线并行大小，默认值为 1
-  - interleaved_overlap：bool 类型，交错式调度时，开启或关闭通信优化，默认值为关闭
-- sequence_parallel：是否开启序列化并行，默认值为 False
+- zero1（字典）：
+  1. size: 整数
+    - 当`zero1 <= 0`，则 zero1 进程组的大小等于数据并行进程组的大小，因此优化器状态参数将在数据并行范围内分配
+    - 当`zero1 == 1`，则不使用 zero1 ，所有数据并行组保留完整的优化器状态参数
+    - 当`zero1 > 1`且`zero1 <= data_parallel_world_size`，则 zero1 进程组是数据并行进程组的子集
+  2. fsdp: 布尔值，启用/禁用torch的完全分片数据并行，默认为False。
+- tensor（字典）：
+  1. size: 整数，张量并行的大小。
+  2. mode: 字符串，张量并行模式，应该是 ['mtp', 'msp', 'fsp', 'isp'] 中的一个，
+    - 默认为 'mtp'，意味着没有序列并行的纯Megatron张量并行。
+    - msp: 带序列并行的Megatron张量并行，序列并行大小 = 张量并行大小。
+    - fsp: 通过flash-attn带序列并行的张量并行，序列并行大小 = 张量并行大小。
+    - isp: 定制的内部序列并行，不带张量并行，可以与权重并行一起使用。
+- pipeline（字典）：
+  1. size: 整数，流水线并行的大小。
+  2. interleaved_overlap: 布尔值，启用/禁用在使用交错流水线调度器时的通信重叠，默认为False。
+- weight（字典）：
+  1. size: 整数，权重并行的大小。
+  2. overlap: 布尔值，启用/禁用all_gather/reduce_scatter通信重叠，默认为False。
+  3. memory_pool: 布尔值，启用/禁用内存池，默认为False。
 
 注意：`数据并行大小 = 总的 GPU 数目 / 流水线并行大小 / 张量并行大小`
 

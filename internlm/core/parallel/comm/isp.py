@@ -259,7 +259,8 @@ class ISPCommunicator(WPCommunicator):
         self._overlap_states[cid] = ISPOverlapState()
 
         # Important: only works for llama-class models
-        for _, children in model.named_children():
+        children_name = model.model.named_children() if "_FROM_HF" in gpc.config.model_type else model.named_children()
+        for _, children in children_name:
             if isinstance(children, nn.ModuleList):
                 self._overlap_states[cid].ckpt_block_num = int(self.model_conf.activation_checkpointing * len(children))
 

@@ -3,16 +3,16 @@
 [English](./README.md) |
 [简体中文](./README-zh-Hans.md)
 
-该文件夹下包含了 transformers 格式的 `InternLM2` 模型及一些辅助脚本。
+该文件夹下包含了 transformers 格式的模型及一些辅助脚本。
 
 ```bash
 ├── convert2hf_internlm2.py
 ├── convert2hf_internlm.py
 ├── internlm2_model
-│   ├── configuration_internlm.py
+│   ├── configuration_internlm2.py
 │   ├── __init__.py
 │   ├── modeling_internlm2.py
-│   └── tokenization_internlm.py
+│   └── tokenization_internlm2.py
 ├── internlm_model
 │   ├── configuration_internlm.py
 │   ├── __init__.py
@@ -58,6 +58,108 @@
 >>> model = AutoModel.from_pretrained("hf_ckpt/", trust_remote_code=True, torch_dtype=torch.float16, device_map="auto", attn_implementation="flash_attention_2")
 ```
 
+## InternEvo适配训练huggingface格式模型
+
+对于huggingface上面发布的模型，使用InternEvo框架训练，需要适配的步骤如下：
+
+### 步骤一 下载模型文件
+从huggingface上下载指定模型的config及modeling文件，放入huggingface_model路径下，新建模型路径。
+如：
+```bash
+huggingface_model
+├── internlm_model
+│   ├── configuration_internlm.py
+│   ├── __init__.py
+│   ├── modeling_internlm.py
+```
+
+在模型路径中创建__init__.py文件，并导出相关接口，如：
+```bash
+from .configuration_internlm import InternLMConfig
+from .modeling_internlm import InternLMForCausalLM
+```
+
+### 步骤二 注册模型
+在internlm/model/registry.py文件中，需要在register_model_initializer函数里面注册huggingface模型的入口函数，如：
+```bash
+from huggingface_model.internlm_model.modeling_internlm import InternLMForCausalLM
+
+def register_model_initializer() -> None:
+    model_initializer.register_module("INTERNLM_FROM_HF", InternLMForCausalLM)
+```
+
+### 步骤三 加载模型配置参数
+在internlm/model/builder.py文件中，create_model函数中，在hf_model_conf_map里面新增模型配置接口，如：
+```bash
+hf_model_conf_map = {
+    "INTERNLM_FROM_HF":("huggingface_model.internlm_model.configuration_internlm", "InternLMConfig"),
+}
+```
+注意：这里要求新增的模型model_type定义以_FROM_HF字段结尾。
+
+### 步骤四 修改模型配置文件
+从huggingface上下载的configuration_xxx.py文件，__init__函数需要新增return_dict字段设置，默认值设置为False，否则返回类型与InternEvo不匹配，如：
+```bash
+    def __init__(  # pylint: disable=W0102
+        self,
+        ......
+        return_dict=False,
+        **kwargs,
+    ):
+
+    ......
+
+        super().__init__(
+            ......
+            return_dict=return_dict,
+            **kwargs,
+```
+
+### 步骤五 修改模型modeling文件
+从huggingface上下载的modeling_xxx.py文件，需要在类似InternLMForCausalLM类的__init__函数中为参数设置属性，当前仅支持使用dp或isp训练huggingface上下载的模型。需要添加的代码如下：
+```bash
+from internlm.core.context import (
+    IS_TENSOR_ZERO_PARALLEL,
+    IS_TENSOR_DATA_PARALLEL,
+)
+from internlm.core.context import global_context as gpc
+
+class InternLM2ForCausalLM(InternLM2PreTrainedModel):
+    def __init__(self, config):
+
+    ......
+
+        for module in self.modules():
+            for param in module.parameters():
+                if gpc.config.parallel["tensor"].get("mode", "mtp") == "isp":
+                    setattr(param, IS_TENSOR_DATA_PARALLEL, True)
+                else:
+                    setattr(param, IS_TENSOR_ZERO_PARALLEL, True)
+```
+
+### 步骤六 修改配置文件，加载huggingface格式数据集及模型权重
+我们提供了configs/7B_hf.py配置文件，用来训练huggingface上的模型。其中，需要更改的配置项及说明如下：
+```bash
+model_type = "INTERNLM_FROM_HF"
+MODEL_ONLY_FOLDER = "internlm/internlm-7b"
+ckpt = dict(
+    load_ckpt_info=dict(path=MODEL_ONLY_FOLDER, content=("model",), ckpt_type="hf_model"),
+    auto_resume=False,
+)
+TRAIN_FOLDER = "roneneldan/TinyStories"
+data = dict(
+    type="hf",
+    tokenizer_path="internlm/internlm-7b",
+)
+```
+model_type：设置模型类型，需要以“_FROM_HF”结尾，这里设置的值需要与上述步骤二及步骤三中的值保持一致。
+MODEL_ONLY_FOLDER：设置从huggingface上加载的模型路径。
+load_ckpt_info：模型加载路径信息，其中，ckpt_type需要设置为"hf_model"。
+auto_resume：需要设置为False。
+TRAIN_FOLDER：设置从huggingface上加载的数据集路径。
+type：数据集类型需要设置为"hf"。
+tokenizer_path：设置从huggingface加载的模型tokenizer路径。
+
 ## 权重转换 - InternLM
 
 `convert2hf_internlm.py` 可以将训练保存的权重一键转换为 transformers 格式。所需要的参数为：
@@ -74,12 +176,12 @@
 在仓库根目录运行以下命令：
 
 ```bash
-python transformers/convert2hf_internlm.py --src origin_ckpt/ --tgt hf_ckpt/ --tokenizer ./tools/tokenizer_internlm2.model --max_pos 4096 --rotary_type origin
+python huggingface_model/convert2hf_internlm.py --src origin_ckpt/ --tgt hf_ckpt/ --tokenizer ./tools/tokenizer_internlm2.model --max_pos 4096 --rotary_type origin
 ```
 
 ```bash
 # dynamic NTK
-python transformers/convert2hf_internlm.py --src origin_ckpt/ --tgt hf_ckpt/ --tokenizer ./tools/tokenizer_internlm2.model --max_pos 4096 --rotary_type dynamic --scaling_factor 2.0
+python huggingface_model/convert2hf_internlm.py --src origin_ckpt/ --tgt hf_ckpt/ --tokenizer ./tools/tokenizer_internlm2.model --max_pos 4096 --rotary_type dynamic --scaling_factor 2.0
 ```
 
 然后可以使用 `from_pretrained` 接口加载：
@@ -102,13 +204,13 @@ python transformers/convert2hf_internlm.py --src origin_ckpt/ --tgt hf_ckpt/ --t
 在仓库根目录运行以下命令：
 
 ```bash
-python transformers/revert_internlm.py --src /path/to/src --tgt /path/to/tgt --tp_size 2 --embed_split --use_flash --version 1
+python huggingface_model/revert_internlm.py --src /path/to/src --tgt /path/to/tgt --tp_size 2 --embed_split --use_flash --version 1
 ```
 
 如果模型是用 `safetensors` 格式保存的，则需要添加 `--safetensors` 参数：
 
 ```bash
-python transformers/revert_internlm.py --src /path/to/src --tgt /path/to/tgt --tp_size 2 --embed_split --use_flash --version 1 --safetensors
+python huggingface_model/revert_internlm.py --src /path/to/src --tgt /path/to/tgt --tp_size 2 --embed_split --use_flash --version 1 --safetensors
 ```
 
 ## 权重转换 - InternLM2
@@ -127,12 +229,12 @@ python transformers/revert_internlm.py --src /path/to/src --tgt /path/to/tgt --t
 在仓库根目录运行以下命令：
 
 ```bash
-python transformers/convert2hf_internlm2.py --src origin_ckpt/ --tgt hf_ckpt/ --tokenizer ./tools/tokenizer_internlm2.model --max_pos 32768 --rotary_type origin
+python huggingface_model/convert2hf_internlm2.py --src origin_ckpt/ --tgt hf_ckpt/ --tokenizer ./tools/tokenizer_internlm2.model --max_pos 32768 --rotary_type origin
 ```
 
 ```bash
 # dynamic NTK
-python transformers/convert2hf_internlm2.py --src origin_ckpt/ --tgt hf_ckpt/ --tokenizer ./tools/tokenizer_internlm2.model --max_pos 32768 --rotary_type dynamic --scaling_factor 2.0
+python huggingface_model/convert2hf_internlm2.py --src origin_ckpt/ --tgt hf_ckpt/ --tokenizer ./tools/tokenizer_internlm2.model --max_pos 32768 --rotary_type dynamic --scaling_factor 2.0
 ```
 
 然后可以使用 `from_pretrained` 接口加载：
@@ -154,11 +256,11 @@ python transformers/convert2hf_internlm2.py --src origin_ckpt/ --tgt hf_ckpt/ --
 在仓库根目录运行以下命令：
 
 ```bash
-python transformers/revert_internlm2.py --src /path/to/src --tgt /path/to/tgt --tp_size 2 --embed_split --use_flash
+python huggingface_model/revert_internlm2.py --src /path/to/src --tgt /path/to/tgt --tp_size 2 --embed_split --use_flash
 ```
 
 如果模型是用 `safetensors` 格式保存的，则需要添加 `--safetensors` 参数：
 
 ```bash
-python transformers/revert_internlm2.py --src /path/to/src --tgt /path/to/tgt --tp_size 2 --embed_split --use_flash --safetensors
+python huggingface_model/revert_internlm2.py --src /path/to/src --tgt /path/to/tgt --tp_size 2 --embed_split --use_flash --safetensors
 ```

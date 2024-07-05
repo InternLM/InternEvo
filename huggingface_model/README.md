@@ -3,16 +3,16 @@
 [English](./README.md) |
 [简体中文](./README-zh-Hans.md)
 
-This folder contains the `InternLM2` model in transformers format and some scripts.
+This folder contains the model in transformers format and some scripts.
 
 ```bash
 ├── convert2hf_internlm2.py
 ├── convert2hf_internlm.py
 ├── internlm2_model
-│   ├── configuration_internlm.py
+│   ├── configuration_internlm2.py
 │   ├── __init__.py
 │   ├── modeling_internlm2.py
-│   └── tokenization_internlm.py
+│   └── tokenization_internlm2.py
 ├── internlm_model
 │   ├── configuration_internlm.py
 │   ├── __init__.py
@@ -58,6 +58,108 @@ Here are some examples that you can refer to:
 >>> model = AutoModel.from_pretrained("hf_ckpt/", trust_remote_code=True, torch_dtype=torch.float16, device_map="auto", attn_implementation="flash_attention_2")
 ```
 
+## InternEvo Adaptation for Training Hugging Face Format Models
+
+For models published on Hugging Face, to train using the InternEvo framework, the following adaptation steps are required:
+
+### Step One: Download Model Files
+Download the specified model's configuration and modeling files from Hugging Face and place them in the huggingface_model directory, creating a new model path.
+For example:
+```bash
+huggingface_model
+├── internlm_model
+│   ├── configuration_internlm.py
+│   ├── __init__.py
+│   ├── modeling_internlm.py
+```
+
+In the model path, create an __init__.py file and export the relevant interfaces, such as:
+```bash
+from .configuration_internlm import InternLMConfig
+from .modeling_internlm import InternLMForCausalLM
+```
+
+### Step Two: Register the Model
+In the internlm/model/registry.py file, you need to register the entry function for the Hugging Face model within the register_model_initializer function, such as:
+```bash
+from huggingface_model.internlm_model.modeling_internlm import InternLMForCausalLM
+
+def register_model_initializer() -> None:
+    model_initializer.register_module("INTERNLM_FROM_HF", InternLMForCausalLM)
+```
+
+### Step Three: Load Model Configuration Parameters
+In the internlm/model/builder.py file, within the create_model function, add the model configuration interface to the hf_model_conf_map, such as:
+```bash
+hf_model_conf_map = {
+    "INTERNLM_FROM_HF":("huggingface_model.internlm_model.configuration_internlm", "InternLMConfig"),
+}
+```
+Note: Here, it is required that the newly added model's model_type definition ends with the suffix _FROM_HF.
+
+### Step Four: Modify the Model Configuration File
+The downloaded configuration_xxx.py file from Hugging Face requires an addition to the __init__ function to include a return_dict field setting. The default value should be set to False; otherwise, the return type will not match with InternEvo, such as:
+```bash
+    def __init__(  # pylint: disable=W0102
+        self,
+        ......
+        return_dict=False,
+        **kwargs,
+    ):
+
+    ......
+
+        super().__init__(
+            ......
+            return_dict=return_dict,
+            **kwargs,
+```
+
+### Step Five: Modify the Modeling File of the Model
+The downloaded modeling_xxx.py file from Hugging Face needs to have attributes set for parameters in the __init__ function of classes similar to InternLMForCausalLM. Currently, only training with dp or isp is supported for models downloaded from Hugging Face. The code that needs to be added is as follows:
+```bash
+from internlm.core.context import (
+    IS_TENSOR_ZERO_PARALLEL,
+    IS_TENSOR_DATA_PARALLEL,
+)
+from internlm.core.context import global_context as gpc
+
+class InternLM2ForCausalLM(InternLM2PreTrainedModel):
+    def __init__(self, config):
+
+    ......
+
+        for module in self.modules():
+            for param in module.parameters():
+                if gpc.config.parallel["tensor"].get("mode", "mtp") == "isp":
+                    setattr(param, IS_TENSOR_DATA_PARALLEL, True)
+                else:
+                    setattr(param, IS_TENSOR_ZERO_PARALLEL, True)
+```
+
+### Step Six: Modify the Configuration File to Load Hugging Face Format Dataset and Model Weights
+We provide the configs/7B_hf.py configuration file for training models from Hugging Face. The configuration items that need to be changed and their descriptions are as follows:
+```bash
+model_type = "INTERNLM_FROM_HF"
+MODEL_ONLY_FOLDER = "internlm/internlm-7b"
+ckpt = dict(
+    load_ckpt_info=dict(path=MODEL_ONLY_FOLDER, content=("model",), ckpt_type="hf_model"),
+    auto_resume=False,
+)
+TRAIN_FOLDER = "roneneldan/TinyStories"
+data = dict(
+    type="hf",
+    tokenizer_path="internlm/internlm-7b",
+)
+```
+model_type: Set the model type, which should end with "_FROM_HF". The value set here must be consistent with the values in the aforementioned Step Two and Step Three.
+MODEL_ONLY_FOLDER: Set the path to load the model from Hugging Face.
+load_ckpt_info: Path information for loading the model, where ckpt_type needs to be set to "hf_model".
+auto_resume: It needs to be set to False.
+TRAIN_FOLDER: Set the path to load the dataset from Hugging Face.
+type: The dataset type should be set to "hf".
+tokenizer_path: Set the path for the tokenizer loaded from the Hugging Face model.
+
 ## Weight Conversion - InternLM
 
 `convert2hf_internlm.py` can convert saved training InternLM weights into the transformers format with a single command. Below are the parameters needed:
@@ -74,12 +176,12 @@ Here are some examples that you can refer to:
 Execute the command in the root directory of repository:
 
 ```bash
-python transformers/convert2hf_internlm.py --src origin_ckpt/ --tgt hf_ckpt/ --tokenizer ./tools/tokenizer_internlm2.model --max_pos 4096 --rotary_type origin
+python huggingface_model/convert2hf_internlm.py --src origin_ckpt/ --tgt hf_ckpt/ --tokenizer ./tools/tokenizer_internlm2.model --max_pos 4096 --rotary_type origin
 ```
 
 ```bash
 # dynamic NTK
-python transformers/convert2hf_internlm.py --src origin_ckpt/ --tgt hf_ckpt/ --tokenizer ./tools/tokenizer_internlm2.model --max_pos 4096 --rotary_type dynamic --scaling_factor 2.0
+python huggingface_model/convert2hf_internlm.py --src origin_ckpt/ --tgt hf_ckpt/ --tokenizer ./tools/tokenizer_internlm2.model --max_pos 4096 --rotary_type dynamic --scaling_factor 2.0
 ```
 
 Then, you can load it using the `from_pretrained` interface:
@@ -102,13 +204,13 @@ Then, you can load it using the `from_pretrained` interface:
 Execute the command below:
 
 ```bash
-python transformers/revert_internlm.py --src /path/to/src --tgt /path/to/tgt --tp_size 2 --embed_split --use_flash --version 1
+python huggingface_model/revert_internlm.py --src /path/to/src --tgt /path/to/tgt --tp_size 2 --embed_split --use_flash --version 1
 ```
 
 If the model is saved with `safetensors`, please add `--safetensors` to the command:
 
 ```bash
-python transformers/revert_internlm.py --src /path/to/src --tgt /path/to/tgt --tp_size 2 --embed_split --use_flash --version 1 --safetensors
+python huggingface_model/revert_internlm.py --src /path/to/src --tgt /path/to/tgt --tp_size 2 --embed_split --use_flash --version 1 --safetensors
 ```
 
 ## Weight Conversion - InternLM2
@@ -127,12 +229,12 @@ python transformers/revert_internlm.py --src /path/to/src --tgt /path/to/tgt --t
 Execute the command in the root directory of repository:
 
 ```bash
-python transformers/convert2hf_internlm2.py --src origin_ckpt/ --tgt hf_ckpt/ --tokenizer ./tools/tokenizer_internlm2.model --max_pos 32768 --rotary_type origin
+python huggingface_model/convert2hf_internlm2.py --src origin_ckpt/ --tgt hf_ckpt/ --tokenizer ./tools/tokenizer_internlm2.model --max_pos 32768 --rotary_type origin
 ```
 
 ```bash
 # dynamic NTK
-python transformers/convert2hf_internlm2.py --src origin_ckpt/ --tgt hf_ckpt/ --tokenizer ./tools/tokenizer_internlm2.model --max_pos 32768 --rotary_type dynamic --scaling_factor 2.0
+python huggingface_model/convert2hf_internlm2.py --src origin_ckpt/ --tgt hf_ckpt/ --tokenizer ./tools/tokenizer_internlm2.model --max_pos 32768 --rotary_type dynamic --scaling_factor 2.0
 ```
 
 Then, you can load it using the `from_pretrained` interface:
@@ -154,11 +256,11 @@ Then, you can load it using the `from_pretrained` interface:
 Execute the command below:
 
 ```bash
-python transformers/revert_internlm2.py --src /path/to/src --tgt /path/to/tgt --tp_size 2 --embed_split --use_flash
+python huggingface_model/revert_internlm2.py --src /path/to/src --tgt /path/to/tgt --tp_size 2 --embed_split --use_flash
 ```
 
 If the model is saved with `safetensors`, please add `--safetensors` to the command:
 
 ```bash
-python transformers/revert_internlm2.py --src /path/to/src --tgt /path/to/tgt --tp_size 2 --embed_split --use_flash --safetensors
+python huggingface_model/revert_internlm2.py --src /path/to/src --tgt /path/to/tgt --tp_size 2 --embed_split --use_flash --safetensors
 ```

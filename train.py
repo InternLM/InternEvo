@@ -17,10 +17,12 @@ from internlm.accelerator import get_accelerator
 from internlm.checkpoint import CheckpointManager
 from internlm.core.context import ParallelMode
 from internlm.core.context import global_context as gpc
+from internlm.core.trainer import Trainer
 from internlm.data import (
     build_train_loader_with_data_type,
     build_valid_loader_with_data_type,
 )
+from internlm.data.streaming.utils import hf_simple_resume
 from internlm.data.train_state import get_train_state
 from internlm.eval.evaluation import evaluate_on_val_dls
 from internlm.initialize import initialize_distributed_env
@@ -62,7 +64,6 @@ def main(args):
     enable_pytorch_expandable_segments()
 
     # init setting
-    skip_batches = gpc.config.data.skip_batches
     total_steps = gpc.config.data.total_steps
     valid_every = gpc.config.data.valid_every
     label_smoothing = gpc.config.loss.label_smoothing
@@ -148,15 +149,15 @@ def main(args):
     )
 
     # initialize trainer
-    trainer, train_dl, _, _ = internlm.initialize_trainer(
+    engine, scheduler = internlm.initialize_trainer(
         model=model,
         optimizer=optimizer,
         criterion=criterion,
-        train_dataloader=train_dl,
         lr_scheduler=lr_scheduler,
         beta2_scheduler=beta2_scheduler,
         scheduler_hooks=get_scheduler_hooks(metric, optimizer, isp_communicator),
     )
+    trainer = Trainer(engine, scheduler)
 
     # initialize simple memory profiler
     if args.profiling:
@@ -172,6 +173,9 @@ def main(args):
         memory_profiler = None
 
     # initialize the batch skipper
+    skip_batches = gpc.config.data.skip_batches
+    if gpc.config.data.type == "hf" and gpc.config.ckpt.auto_resume:
+        skip_batches = hf_simple_resume(train_state)
     batch_skipper = BatchSkipper(skip_batches)
 
     trainer.train()

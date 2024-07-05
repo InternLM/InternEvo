@@ -39,6 +39,11 @@ from transformers.utils import (
     logging,
     replace_return_docstrings,
 )
+from internlm.core.context import (
+    IS_TENSOR_ZERO_PARALLEL,
+    IS_TENSOR_DATA_PARALLEL,
+)
+from internlm.core.context import global_context as gpc
 
 try:
     from transformers.generation.streamers import BaseStreamer
@@ -977,6 +982,12 @@ class InternLM2ForCausalLM(InternLM2PreTrainedModel):
 
         # Initialize weights and apply final processing
         self.post_init()
+        for module in self.modules():
+            for param in module.parameters():
+                if getattr(gpc, 'config', None) is not None and gpc.config.parallel["tensor"].get("mode", "mtp") == "isp":
+                    setattr(param, IS_TENSOR_DATA_PARALLEL, True)
+                else:
+                    setattr(param, IS_TENSOR_ZERO_PARALLEL, True)
 
     def get_input_embeddings(self):
         return self.model.tok_embeddings
@@ -1293,6 +1304,12 @@ class InternLM2ForSequenceClassification(InternLM2PreTrainedModel):
 
         # Initialize weights and apply final processing
         self.post_init()
+        for module in self.modules():
+            for param in module.parameters():
+                if getattr(gpc, 'config', None) is not None and gpc.config.parallel["tensor"].get("mode", "mtp") == "isp":
+                    setattr(param, IS_TENSOR_DATA_PARALLEL, True)
+                else:
+                    setattr(param, IS_TENSOR_ZERO_PARALLEL, True)
 
     def get_input_embeddings(self):
         return self.model.tok_embeddings

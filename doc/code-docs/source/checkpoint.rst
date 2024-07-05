@@ -16,7 +16,7 @@ CheckpointManager
 
 - ``checkpoint_every``: 检查点存储频率，参数类型 ``int``，默认为： ``50``。
 
-- ``load_ckpt_folder``: 初始化检查点/权重加载路径。参数类型 ``str``，默认为： ``None``，详见 :ref:`load-ckpt-folder`。
+- ``load_ckpt_info``: 初始化检查点/权重加载信息。参数类型 ``dict``，默认为： ``None``，详见 :ref:`load-ckpt-info`。
 
 - ``async_upload``: 是否开启异步上传，默认值为：``False``，详见 :ref:`asyncupload`。
 
@@ -36,8 +36,8 @@ CheckpointManager
   ckpt = dict(
       enable_save_ckpt=False,  # enable ckpt save.
       save_ckpt_folder=SAVE_CKPT_FOLDER,  # Path to save training ckpt.
-      load_ckpt_folder=dict(path="local:/mnt/mfs/ckpt", content=["all",], ckpt_type="internlm"), 
-      auto_resume=False, # disable auto-resume, internlm will load model checkpoint from the path of 'load_ckpt_folder'.
+      load_ckpt_info=dict(path="local:/mnt/mfs/ckpt", content=["all",], ckpt_type="internlm"), 
+      auto_resume=False, # disable auto-resume, internlm will load model checkpoint from the path of 'load_ckpt_info'.
       checkpoint_every=CHECKPOINT_EVERY,
       async_upload=True,  # async ckpt upload. (only work for boto3, volc and oss2 ckpt)
       async_upload_tmp_folder="/dev/shm/internlm_tmp_ckpt/",  # path for temporarily files during asynchronous upload.
@@ -52,7 +52,7 @@ CheckpointManager
 加载与存储格式约定
 --------------------------
 
-.. _load-ckpt-folder:
+.. _load-ckpt-info:
 
 (1) 路径格式约定
 ~~~~~~~~~~~~~~~~~~~~~~~~~~
@@ -75,10 +75,10 @@ InternEvo对config中出现的所有存储路径都遵循以下的路径格式�
 
 
 
-(2) 模型加载(load_ckpt_folder)格式约定
+(2) 模型加载(load_ckpt_info)格式约定
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
-load_ckpt_folder 由三个字段组成， ``path`` 、 ``content`` 和 ``ckpt_type`` 。
+load_ckpt_info 由三个字段组成， ``path`` 、 ``content`` 和 ``ckpt_type`` 。
 
 - ``path``：给出了检查点/初始化模型权重的加载路径（path的格式见下小节）
 
@@ -92,17 +92,23 @@ load_ckpt_folder 由三个字段组成， ``path`` 、 ``content`` 和 ``ckpt_ty
 
 - ``ckpt_type``：表示加载的模型权重类型，目前支持的字段包括：
 
-  - ``internlm``：internevo约定的checkpoint存储格式。
+  - ``internevo``：internevo约定的checkpoint存储格式。
+  - ``llama``：llama约定的checkpoint存储格式。
+  - ``hf_llama``：huggingface llama约定的checkpoint存储格式。
+  - ``hf_model``：适用于加载huggingface所有模型的checkpoint存储格式。
 
 下面给出两个例子：
 
 .. code-block:: python
 
   # 从文件存储相对路径 ckpt_model 中加载已有模型权重初始化模型，适合 sft 等训练初始化
-  load_ckpt_folder= dict(path="local:ckpt_model", content=["model",], ckpt_type="internlm")
+  load_ckpt_info = dict(path="local:ckpt_model", content=("model",), ckpt_type="internevo")
 
   # 从文件存储相对路径 ckpt_model 中加载所有的状态，适合断点续训的场景
-  load_ckpt_folder= dict(path="local:ckpt_model", content=["all",], ckpt_type="internlm")
+  load_ckpt_info = dict(path="local:ckpt_model", content=("all",), ckpt_type="internevo")
+
+  # 从 huggingface 下载指定模型，加载checkpoint
+  load_ckpt_info = dict(path="internlm/internlm-7b", content=("model",), ckpt_type="hf_model")
 
 
 .. _asyncupload:
@@ -144,13 +150,13 @@ config.ckpt 中相关的参数：
 
 检查点自动加载功能的目的是在resume训练时，自动加载 ``save_ckpt_folder`` 路径下最新的检查点（包括snapshot检查点）。配合上自动重启机制，可以实现无人干预的任务自动恢复。
 
-该功能默认开启，所以要注意如果需要加载 ``load_ckpt_folder`` 路径下的模型权重，要将 ``auto_resume`` 设置为 False，否则可能会产生预期外的行为。
+该功能默认开启，所以要注意如果需要加载 ``load_ckpt_info`` 路径下的模型权重，要将 ``auto_resume`` 设置为 False，否则可能会产生预期外的行为。
 
 config.ckpt 中相关的参数：
 
 - ``auto_resume``: 是否开启检查点自动恢复。参数类型 ``bool``，默认为 ``True``。
 
-``auto_resume`` 如果为True，则尝试从 ``save_ckpt_folder`` 路径中自动加载最新的ckpt，如果找不到，则从step 0开始训练。如果为False，则尝试从 ``load_ckpt_folder`` 中加载模型参数。
+``auto_resume`` 如果为True，则尝试从 ``save_ckpt_folder`` 路径中自动加载最新的ckpt，如果找不到，则从step 0开始训练。如果为False，则尝试从 ``load_ckpt_info`` 中加载模型参数。
 
 
 .. _stopfile:

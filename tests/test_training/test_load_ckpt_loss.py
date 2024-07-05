@@ -29,6 +29,7 @@ from internlm.core.context.parallel_context import (  # noqa: E402  #pylint: dis
 )
 from internlm.core.trainer import (  # noqa: E402  #pylint: disable=wrong-import-position
     TrainState,
+    Trainer,
 )
 from internlm.data import (  # noqa: E402  #pylint: disable=wrong-import-position
     build_train_loader_with_data_type,
@@ -265,15 +266,15 @@ def train_model(args):
         ),
     ]
 
-    trainer, train_dl, _, _ = internlm.initialize_trainer(
+    engine, scheduler = internlm.initialize_trainer(
         model=model,
         optimizer=optimizer,
         criterion=criterion,
-        train_dataloader=train_dl,
         lr_scheduler=lr_scheduler,
         beta2_scheduler=beta2_scheduler,
         scheduler_hooks=scheduler_hooks,
     )
+    trainer = Trainer(engine, scheduler)
 
     trainer.train()
     train_iter = iter(train_dl)
