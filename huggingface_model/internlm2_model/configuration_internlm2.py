@@ -96,6 +96,7 @@ class InternLM2Config(PretrainedConfig):
         rope_theta=10000,
         rope_scaling=None,
         attn_implementation="eager",
+        return_dict=False,
         **kwargs,
     ):
         self.vocab_size = vocab_size
@@ -126,6 +127,7 @@ class InternLM2Config(PretrainedConfig):
             bos_token_id=bos_token_id,
             eos_token_id=eos_token_id,
             tie_word_embeddings=tie_word_embeddings,
+            return_dict=return_dict,
             **kwargs,
         )
 

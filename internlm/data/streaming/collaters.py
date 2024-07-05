@@ -1,0 +1,58 @@
+import itertools
+
+import numpy as np
+import torch
+
+
+def nopack_collate_fn(batch, micro_num, micro_bsz, seq_len):
+    input_ids_list = []
+    attention_mask_list = []
+    labels_list = []
+    for b in batch:
+        attention_mask = torch.tensor(b["attention_mask"])
+        input_ids = torch.LongTensor(b["input_ids"])
+        input_ids = torch.abs(input_ids * attention_mask)
+        input_ids = torch.nn.functional.pad(input_ids, (0, seq_len - len(input_ids)), mode="constant", value=0)
+        attention_mask = torch.nn.functional.pad(
+            attention_mask, (0, seq_len - len(attention_mask)), mode="constant", value=0
+        )
+        label = torch.LongTensor([w if w > 0 else -100 for w in input_ids.tolist()][1:] + [-100])
+        input_ids_list.append(input_ids)
+        attention_mask_list.append(attention_mask)
+        labels_list.append(label)
+    input_ids = torch.stack(input_ids_list)
+    attention_mask = torch.stack(attention_mask_list)
+    labels = torch.stack(labels_list)
+    return {
+        "input_ids": input_ids,
+        "attention_mask": attention_mask,
+        "type_ids": torch.zeros(micro_num, micro_bsz, seq_len, dtype=torch.int64),
+    }, labels
+
+
+def pack_collate_fn(batch, micro_num, micro_bsz, seq_len):
+    packed_length = micro_bsz * seq_len
+
+    input_ids_list = []
+    cu_seqlens_list = []
+    labels_list = []
+    indexes_list = []
+
+    for b in batch:
+        input_ids_list.append(torch.LongTensor(b["input_ids"] + [0] * (packed_length - len(b["input_ids"]))))
+        labels_list.append(torch.LongTensor(b["labels"] + [-100] * (packed_length - len(b["labels"]))))
+        cu_seqlens = b["cu_seqlens"] + [packed_length]
+        cu_seqlens_list.append(torch.IntTensor(cu_seqlens))
+        indexes = list(itertools.chain(*[np.arange(l2 - l1) for l1, l2 in zip(cu_seqlens[:-1], cu_seqlens[1:])]))
+        indexes_list.append(torch.IntTensor(indexes))
+
+    input_ids = torch.stack(input_ids_list)
+    labels = torch.stack(labels_list)
+    indexes = torch.stack(indexes_list)
+
+    return {
+        "input_ids": input_ids,
+        "cu_seqlens": cu_seqlens_list,
+        "indexes": indexes,
+        "type_ids": torch.zeros(micro_num, micro_bsz * seq_len, dtype=torch.int64),
+    }, labels

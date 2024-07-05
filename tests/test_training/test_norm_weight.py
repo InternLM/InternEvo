@@ -9,6 +9,7 @@ import internlm
 from internlm.accelerator import get_accelerator
 from internlm.core.context import ParallelMode
 from internlm.core.context import global_context as gpc
+from internlm.core.trainer import Trainer
 from internlm.data import build_train_loader_with_data_type
 from internlm.model.losses import FlashGPTLMLoss
 from internlm.model.metrics import AccPerplex
@@ -90,15 +91,15 @@ def train_check_norm_weight(args):
         dataset_types=dataset_types,
     )
 
-    trainer, train_dl, _, _ = internlm.initialize_trainer(
+    engine, scheduler = internlm.initialize_trainer(
         model=model,
         optimizer=optimizer,
         criterion=criterion,
-        train_dataloader=train_dl,
         lr_scheduler=lr_scheduler,
         beta2_scheduler=beta2_scheduler,
         scheduler_hooks=get_scheduler_hooks(metric, optimizer, isp_communicator),
     )
+    trainer = Trainer(engine, scheduler)
 
     # transfer the train data loader into train data iterator
     trainer.train()

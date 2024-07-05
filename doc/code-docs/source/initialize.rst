@@ -77,16 +77,18 @@ InternEvo 在配置文件中使用字段 ``model_type`` 和 ``model`` 来控制�
 - 字段 ``model_type`` 指明了要初始化的模型类型
 - 字段 ``model`` 中的参数指定了在模型初始化过程中的参数设置
 
-值得注意的是，用户可以定义新的模型类型，并使用装饰器 ``@MODEL_INITIALIZER.register_module`` 注册模型的初始化函数，其中 ``MODEL_INITIALIZER`` 是类 ``internlm.util.registry.Registry`` 的一个实例化对象，示例如下所示：
+值得注意的是，用户可以定义新的模型类型，并通过 ``register_module`` 注册模型的初始化函数，示例如下所示：
 
 .. code-block:: python
 
-    MODEL_TYPE = "NEW_MODEL"
+    model_initializer = Registry("model_initializer")
 
-    @MODEL_INITIALIZER.register_module(module_name=MODEL_TYPE)
-    def build_new_model_with_cfg(*args, **kwargs):
+    def register_model_initializer() -> None:
+        model_initializer.register_module("INTERNLM", InternLM1)
 
 .. _InternLM-optim-init:
+
+其中，"INTERNLM"为新的模型类型，InternLM1为新模型的入口函数。
 
 优化器初始化
 -------------------------

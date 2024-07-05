@@ -25,7 +25,7 @@ if [[ -d ${CKPTS_OUTPUT} ]]; then
     fi
 fi
 
-python ./transformers/convert2hf_internlm.py --src ${CKPTS_INPUT} --tgt ${CKPTS_OUTPUT} --tokenizer ./tools/tokenizer_internlm.model
+python ./huggingface_model/convert2hf_internlm.py --src ${CKPTS_INPUT} --tgt ${CKPTS_OUTPUT} --tokenizer ./tools/tokenizer_internlm.model
 [[ $? -ne 0 ]] && { echo "test convert2hf_internlm.py failed.";  exit_code=$(($exit_code + 1)); }
 
 #assert exists model

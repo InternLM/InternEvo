@@ -7,7 +7,7 @@ import internlm  # noqa: E402
 from internlm.apis.inference import SequenceGenerator, batch_tokenize
 from internlm.checkpoint import CheckpointManager  # noqa: E402
 from internlm.core.context import global_context as gpc  # noqa: E402
-from internlm.core.trainer import TrainState  # noqa: E402
+from internlm.core.trainer import TrainState, Trainer  # noqa: E402
 from internlm.data import build_train_loader_with_data_type  # noqa: E402
 from internlm.initialize import initialize_distributed_env  # noqa: E402
 from internlm.model.losses import FlashGPTLMLoss  # noqa: E402
@@ -47,15 +47,15 @@ def setup_generator(config, tokenizer):
     ckpt_manager.try_resume_training(train_state)
 
     # initialize trainer
-    trainer, train_dl, _, _ = internlm.initialize_trainer(
+    engine, scheduler = internlm.initialize_trainer(
         model=model,
         optimizer=optimizer,
         criterion=criterion,
-        train_dataloader=train_dl,
         lr_scheduler=lr_scheduler,
         beta2_scheduler=beta2_scheduler,
         scheduler_hooks=get_scheduler_hooks(None, optimizer, isp_communicator),
     )
+    trainer = Trainer(engine, scheduler)
 
     trainer.schedule.data_process_func = None
 
