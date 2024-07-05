@@ -37,11 +37,6 @@ from transformers.activations import ACT2FN
 from transformers.modeling_outputs import BaseModelOutputWithPast, CausalLMOutputWithPast
 from transformers.generation.utils import GenerationConfig
 from transformers.utils import logging, ContextManagers
-from internlm.core.context import (
-    IS_TENSOR_ZERO_PARALLEL,
-    IS_TENSOR_DATA_PARALLEL,
-)
-from internlm.core.context import global_context as gpc
 
 import os
 from contextlib import contextmanager
@@ -541,12 +536,6 @@ class BaichuanForCausalLM(BaichuanPreTrainedModel):
             quantize_offline(self, 4)
         # Initialize weights and apply final processing
         self.post_init()
-        for module in self.modules():
-            for param in module.parameters():
-                if gpc.config.parallel["tensor"].get("mode", "mtp") == "isp":
-                    setattr(param, IS_TENSOR_DATA_PARALLEL, True)
-                else:
-                    setattr(param, IS_TENSOR_ZERO_PARALLEL, True)
 
     def get_input_embeddings(self):
         return self.model.embed_tokens

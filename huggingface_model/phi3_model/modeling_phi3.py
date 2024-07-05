@@ -47,12 +47,6 @@ from transformers.utils import (
 )
 from .configuration_phi3 import Phi3Config
 
-from internlm.core.context import (
-    IS_TENSOR_ZERO_PARALLEL,
-    IS_TENSOR_DATA_PARALLEL,
-)
-from internlm.core.context import global_context as gpc
-
 
 logger = logging.get_logger(__name__)
 
@@ -1173,13 +1167,6 @@ class Phi3ForCausalLM(Phi3PreTrainedModel):
         # Initialize weights and apply final processing
         self.post_init()
 
-        for module in self.modules():
-            for param in module.parameters():
-                if gpc.config.parallel["tensor"].get("mode", "mtp") == "isp":
-                    setattr(param, IS_TENSOR_DATA_PARALLEL, True)
-                else:
-                    setattr(param, IS_TENSOR_ZERO_PARALLEL, True)
-
     # Copied from transformers.models.llama.modeling_llama.LlamaForCausalLM.get_input_embeddings
     def get_input_embeddings(self):
         return self.model.embed_tokens
@@ -1388,13 +1375,6 @@ class Phi3ForSequenceClassification(Phi3PreTrainedModel):
         # Initialize weights and apply final processing
         self.post_init()
 
-        for module in self.modules():
-            for param in module.parameters():
-                if gpc.config.parallel["tensor"].get("mode", "mtp") == "isp":
-                    setattr(param, IS_TENSOR_DATA_PARALLEL, True)
-                else:
-                    setattr(param, IS_TENSOR_ZERO_PARALLEL, True)
-
     def get_input_embeddings(self):
         return self.model.embed_tokens
 
@@ -1518,13 +1498,6 @@ class Phi3ForTokenClassification(Phi3PreTrainedModel):
 
         # Initialize weights and apply final processing
         self.post_init()
-
-        for module in self.modules():
-            for param in module.parameters():
-                if gpc.config.parallel["tensor"].get("mode", "mtp") == "isp":
-                    setattr(param, IS_TENSOR_DATA_PARALLEL, True)
-                else:
-                    setattr(param, IS_TENSOR_ZERO_PARALLEL, True)
 
     @add_start_docstrings_to_model_forward(PHI3_INPUTS_DOCSTRING)
     @add_code_sample_docstrings(

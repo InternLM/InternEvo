@@ -115,29 +115,7 @@ hf_model_conf_map = {
             **kwargs,
 ```
 
-### 步骤五 修改模型modeling文件
-从huggingface上下载的modeling_xxx.py文件，需要在类似InternLMForCausalLM类的__init__函数中为参数设置属性，当前仅支持使用dp或isp训练huggingface上下载的模型。需要添加的代码如下：
-```bash
-from internlm.core.context import (
-    IS_TENSOR_ZERO_PARALLEL,
-    IS_TENSOR_DATA_PARALLEL,
-)
-from internlm.core.context import global_context as gpc
-
-class InternLM2ForCausalLM(InternLM2PreTrainedModel):
-    def __init__(self, config):
-
-    ......
-
-        for module in self.modules():
-            for param in module.parameters():
-                if gpc.config.parallel["tensor"].get("mode", "mtp") == "isp":
-                    setattr(param, IS_TENSOR_DATA_PARALLEL, True)
-                else:
-                    setattr(param, IS_TENSOR_ZERO_PARALLEL, True)
-```
-
-### 步骤六 修改配置文件，加载huggingface格式数据集及模型权重
+### 步骤五 修改配置文件，加载huggingface格式数据集及模型权重
 我们提供了configs/7B_hf.py配置文件，用来训练huggingface上的模型。其中，需要更改的配置项及说明如下：
 ```bash
 model_type = "INTERNLM_FROM_HF"

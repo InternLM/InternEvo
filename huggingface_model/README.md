@@ -115,29 +115,7 @@ The downloaded configuration_xxx.py file from Hugging Face requires an addition 
             **kwargs,
 ```
 
-### Step Five: Modify the Modeling File of the Model
-The downloaded modeling_xxx.py file from Hugging Face needs to have attributes set for parameters in the __init__ function of classes similar to InternLMForCausalLM. Currently, only training with dp or isp is supported for models downloaded from Hugging Face. The code that needs to be added is as follows:
-```bash
-from internlm.core.context import (
-    IS_TENSOR_ZERO_PARALLEL,
-    IS_TENSOR_DATA_PARALLEL,
-)
-from internlm.core.context import global_context as gpc
-
-class InternLM2ForCausalLM(InternLM2PreTrainedModel):
-    def __init__(self, config):
-
-    ......
-
-        for module in self.modules():
-            for param in module.parameters():
-                if gpc.config.parallel["tensor"].get("mode", "mtp") == "isp":
-                    setattr(param, IS_TENSOR_DATA_PARALLEL, True)
-                else:
-                    setattr(param, IS_TENSOR_ZERO_PARALLEL, True)
-```
-
-### Step Six: Modify the Configuration File to Load Hugging Face Format Dataset and Model Weights
+### Step Five: Modify the Configuration File to Load Hugging Face Format Dataset and Model Weights
 We provide the configs/7B_hf.py configuration file for training models from Hugging Face. The configuration items that need to be changed and their descriptions are as follows:
 ```bash
 model_type = "INTERNLM_FROM_HF"

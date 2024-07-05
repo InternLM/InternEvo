@@ -58,12 +58,6 @@ from .configuration_deepseek import DeepseekV2Config
 import torch.distributed as dist
 import numpy as np
 
-from internlm.core.context import (
-    IS_TENSOR_ZERO_PARALLEL,
-    IS_TENSOR_DATA_PARALLEL,
-)
-from internlm.core.context import global_context as gpc
-
 if is_flash_attn_2_available():
     from flash_attn import flash_attn_func, flash_attn_varlen_func
     from flash_attn.bert_padding import index_first_axis, pad_input, unpad_input  # noqa
@@ -1602,12 +1596,6 @@ class DeepseekV2ForCausalLM(DeepseekV2PreTrainedModel):
 
         # Initialize weights and apply final processing
         self.post_init()
-        for module in self.modules():
-            for param in module.parameters():
-                if gpc.config.parallel["tensor"].get("mode", "mtp") == "isp":
-                    setattr(param, IS_TENSOR_DATA_PARALLEL, True)
-                else:
-                    setattr(param, IS_TENSOR_ZERO_PARALLEL, True)
 
     def get_input_embeddings(self):
         return self.model.embed_tokens
@@ -1826,12 +1814,6 @@ class DeepseekV2ForSequenceClassification(DeepseekV2PreTrainedModel):
 
         # Initialize weights and apply final processing
         self.post_init()
-        for module in self.modules():
-            for param in module.parameters():
-                if gpc.config.parallel["tensor"].get("mode", "mtp") == "isp":
-                    setattr(param, IS_TENSOR_DATA_PARALLEL, True)
-                else:
-                    setattr(param, IS_TENSOR_ZERO_PARALLEL, True)
 
     def get_input_embeddings(self):
         return self.model.embed_tokens

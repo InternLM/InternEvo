@@ -1,5 +1,6 @@
 from typing import List, Union
 
+from internlm.core.context.parallel_context import IS_TENSOR_DATA_PARALLEL, IS_TENSOR_ZERO_PARALLEL
 from torch import nn
 
 from internlm.core.context import ParallelMode
@@ -47,6 +48,14 @@ def create_model(model_type, *args, **kwargs) -> Union[nn.Module, List[nn.Module
         setattr(model, "last_layer", num_layers)
     else:
         model = pipeline_parallel_sharding_wrapper(num_layers, num_chunks, model_buidler, *args, **kwargs)
+
+    if "_FROM_HF" in gpc.config.model_type:
+        for module in model.modules():
+            for param in module.parameters():
+                if gpc.config.parallel["tensor"].get("mode", "mtp") == "isp":
+                    setattr(param, IS_TENSOR_DATA_PARALLEL, True)
+                else:
+                    setattr(param, IS_TENSOR_ZERO_PARALLEL, True)
 
     return model
 
