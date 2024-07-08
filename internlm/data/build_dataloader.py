@@ -171,10 +171,7 @@ def build_valid_loader_with_data_type():
 
     data_cfg = gpc.config.data
 
-    if data_cfg.type == "hf":
-        return None
-
-    if data_cfg.type == "tokenized":
+    if data_cfg.type in ["tokenized", "hf"]:
         valid_ds, valid_collate_fn = get_tokenized_valid_loader_items(data_cfg)
     else:
         raise ValueError(f"dataset type {data_cfg.type} is not supported")

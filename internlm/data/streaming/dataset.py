@@ -41,7 +41,7 @@ class HuggingFaceStreamingDataset(Dataset):
 
     def _tokenize(self, samples):
         texts = [sample["text"] for sample in samples]
-        tokenized_outputs = self.tokenizer(texts)
+        tokenized_outputs = self.tokenizer(texts, truncation=True)
         for i in range(len(samples)):
             yield {key: tokenized_outputs[key][i] for key in tokenized_outputs}
 
@@ -51,7 +51,7 @@ class HuggingFaceStreamingDataset(Dataset):
 
 class HuggingFacePackedDataset(Dataset):
     """
-    packed dataset for huggingface
+    Simple packed dataset for huggingface.
     """
 
     def __init__(self, dataset, seq_len, micro_bsz):
@@ -79,6 +79,12 @@ class HuggingFacePackedDataset(Dataset):
                 input_ids = input_ids + sample["input_ids"]
                 cu_seqlens.append(len(sample["input_ids"]) + cu_seqlens[-1])
                 labels = labels + sample["input_ids"][1:] + [-100]
+        if input_ids:
+            yield {
+                "input_ids": input_ids,
+                "cu_seqlens": cu_seqlens,
+                "labels": labels,
+            }
 
     def __len__(self):
         return sys.maxsize
