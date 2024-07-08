@@ -138,7 +138,6 @@ class Phi3Config(PretrainedConfig):
         eos_token_id=32000,
         pad_token_id=32000,
         sliding_window=None,
-        return_dict=False,
         **kwargs,
     ):
         self.vocab_size = vocab_size
@@ -171,7 +170,6 @@ class Phi3Config(PretrainedConfig):
             eos_token_id=eos_token_id,
             pad_token_id=pad_token_id,
             tie_word_embeddings=tie_word_embeddings,
-            return_dict=return_dict,
             **kwargs,
         )
 

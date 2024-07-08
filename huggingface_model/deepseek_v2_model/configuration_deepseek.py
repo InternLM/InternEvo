@@ -154,7 +154,6 @@ class DeepseekV2Config(PretrainedConfig):
         rope_scaling=None,
         attention_bias=False,
         attention_dropout=0.0,
-        return_dict=False,
         **kwargs,
     ):
         self.vocab_size = vocab_size
@@ -203,6 +202,5 @@ class DeepseekV2Config(PretrainedConfig):
             bos_token_id=bos_token_id,
             eos_token_id=eos_token_id,
             tie_word_embeddings=tie_word_embeddings,
-            return_dict=return_dict,
             **kwargs,
         )

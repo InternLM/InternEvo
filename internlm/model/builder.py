@@ -46,7 +46,7 @@ def create_model(model_type, *args, **kwargs) -> Union[nn.Module, List[nn.Module
                 raise ValueError(f"Unknown model type: {model_type}")
             config_module_name, config_class_name = hf_model_conf_map[model_type]
             config_class = import_class_from_module(config_module_name, config_class_name)
-            config = config_class()
+            config = config_class(return_dict=False)
             model = model_buidler(*args, config).to(kwargs["device"])
         else:
             model = model_buidler(*args, **kwargs).to(kwargs["device"])
