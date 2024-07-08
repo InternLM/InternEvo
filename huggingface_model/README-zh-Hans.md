@@ -97,25 +97,7 @@ hf_model_conf_map = {
 ```
 注意：这里要求新增的模型model_type定义以_FROM_HF字段结尾。
 
-### 步骤四 修改模型配置文件
-从huggingface上下载的configuration_xxx.py文件，__init__函数需要新增return_dict字段设置，默认值设置为False，否则返回类型与InternEvo不匹配，如：
-```bash
-    def __init__(  # pylint: disable=W0102
-        self,
-        ......
-        return_dict=False,
-        **kwargs,
-    ):
-
-    ......
-
-        super().__init__(
-            ......
-            return_dict=return_dict,
-            **kwargs,
-```
-
-### 步骤五 修改配置文件，加载huggingface格式数据集及模型权重
+### 步骤四 修改配置文件，加载huggingface格式数据集及模型权重
 我们提供了configs/7B_hf.py配置文件，用来训练huggingface上的模型。其中，需要更改的配置项及说明如下：
 ```bash
 model_type = "INTERNLM_FROM_HF"

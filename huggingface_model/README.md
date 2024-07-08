@@ -97,25 +97,7 @@ hf_model_conf_map = {
 ```
 Note: Here, it is required that the newly added model's model_type definition ends with the suffix _FROM_HF.
 
-### Step Four: Modify the Model Configuration File
-The downloaded configuration_xxx.py file from Hugging Face requires an addition to the __init__ function to include a return_dict field setting. The default value should be set to False; otherwise, the return type will not match with InternEvo, such as:
-```bash
-    def __init__(  # pylint: disable=W0102
-        self,
-        ......
-        return_dict=False,
-        **kwargs,
-    ):
-
-    ......
-
-        super().__init__(
-            ......
-            return_dict=return_dict,
-            **kwargs,
-```
-
-### Step Five: Modify the Configuration File to Load Hugging Face Format Dataset and Model Weights
+### Step Four: Modify the Configuration File to Load Hugging Face Format Dataset and Model Weights
 We provide the configs/7B_hf.py configuration file for training models from Hugging Face. The configuration items that need to be changed and their descriptions are as follows:
 ```bash
 model_type = "INTERNLM_FROM_HF"

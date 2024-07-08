@@ -311,7 +311,7 @@ def load_hf_model_pretrained_weights(folder, model):
     if gpc.is_rank_for_log():
         logger.info(f"Loading pretrained model from {folder}")
 
-    pretrained_model = AutoModelForCausalLM.from_pretrained(folder, trust_remote_code=True, use_auth_token=True)
+    pretrained_model = AutoModelForCausalLM.from_pretrained(folder, trust_remote_code=True)
     model.load_state_dict(pretrained_model.state_dict(), strict=False)
 
     if gpc.is_rank_for_log():
