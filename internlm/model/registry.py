@@ -7,6 +7,7 @@ from huggingface_model.baichuan2_model.modeling_baichuan import BaichuanForCausa
 from huggingface_model.deepseek_v2_model.modeling_deepseek import DeepseekV2ForCausalLM
 from huggingface_model.internlm2_model.modeling_internlm2 import InternLM2ForCausalLM
 from huggingface_model.internlm_model.modeling_internlm import InternLMForCausalLM
+from huggingface_model.mixtral_model.modeling_moe_mistral import MixtralForCausalLM
 from huggingface_model.phi3_model.modeling_phi3 import Phi3ForCausalLM
 from internlm.model.modeling_internlm import InternLM1
 from internlm.model.modeling_internlm2 import InternLM2
@@ -91,3 +92,4 @@ def register_model_initializer() -> None:
     model_initializer.register_module("DEEPSEEKV2_FROM_HF", DeepseekV2ForCausalLM)
     model_initializer.register_module("BAICHUAN2_FROM_HF", BaichuanForCausalLM)
     model_initializer.register_module("PHI3_FROM_HF", Phi3ForCausalLM)
+    model_initializer.register_module("MIXTRAL_FROM_HF", MixtralForCausalLM)

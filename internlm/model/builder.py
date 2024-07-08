@@ -41,6 +41,7 @@ def create_model(model_type, *args, **kwargs) -> Union[nn.Module, List[nn.Module
                 ),
                 "BAICHUAN2_FROM_HF": ("huggingface_model.baichuan2_model.configuration_baichuan", "BaichuanConfig"),
                 "PHI3_FROM_HF": ("huggingface_model.phi3_model.configuration_phi3", "Phi3Config"),
+                "MIXTRAL_FROM_HF": ("huggingface_model.mixtral_model.configuration_moe_mistral", "MixtralConfig"),
             }
             if model_type not in hf_model_conf_map:
                 raise ValueError(f"Unknown model type: {model_type}")
