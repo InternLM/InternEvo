@@ -11,17 +11,9 @@ from internlm.initialize import initialize_distributed_env
 from internlm.monitor import internevo_monitor
 from internlm.train import initialize_model
 from internlm.utils.common import parse_args
-from internlm.model.registry import model_initializer, hf_config_initializer
-from huggingface_model.internlm_model.modeling_internlm import InternLMForCausalLM
-from huggingface_model.internlm_model.configuration_internlm import InternLMConfig
 
 @internevo_monitor(feishu_alert=True, clean_run=True)
 def main(args):
-
-    # register huggingface model and config for InternEvo
-    model_initializer.register_module("INTERNLM_FROM_HF", InternLMForCausalLLM)
-    hf_config_initializer.register_module("INTERNLM_FROM_HF", InternLMConfig)
-
     # initialize model
     model = initialize_model()
 

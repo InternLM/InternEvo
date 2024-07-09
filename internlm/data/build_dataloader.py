@@ -115,7 +115,12 @@ def get_tokenized_valid_loader_items(data_cfg):
 
 
 def get_hf_train_loader_items(data_cfg):
-    train_ds = HuggingFaceStreamingDataset(data_cfg.train_folder, data_cfg.train_instance, data_cfg.tokenizer_path, data_cfg.seq_len)
+    train_ds = HuggingFaceStreamingDataset(
+        dataset_name=data_cfg.train_folder,
+        tokenizer_name=data_cfg.tokenizer_path,
+        model_max_length=data_cfg.seq_len,
+        subset_name=data_cfg.get("subset_name", None),
+    )
     if data_cfg.use_packed_dataset:
         train_ds = HuggingFacePackedDataset(dataset=train_ds, seq_len=data_cfg.seq_len, micro_bsz=data_cfg.micro_bsz)
         train_sampler = StreamingStaticBatchSampler(

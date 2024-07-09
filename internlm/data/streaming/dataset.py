@@ -3,10 +3,10 @@ import sys
 import datasets
 from datasets.distributed import split_dataset_by_node
 from torch.utils.data import Dataset
-from transformers import AutoTokenizer
 
 from internlm.core.context import ParallelMode
 from internlm.core.context import global_context as gpc
+from transformers import AutoTokenizer
 
 
 class HuggingFaceStreamingDataset(Dataset):
@@ -14,11 +14,10 @@ class HuggingFaceStreamingDataset(Dataset):
     Streaming and on-the-fly tokenized dataset for huggingface
     """
 
-    def __init__(self, dataset_name, instance_name, tokenizer_name, model_max_length, split="train", buffer_size=1000):
-        if instance_name is None:
-          self.dataset = datasets.load_dataset(dataset_name, split=split, streaming=True)
-        else:
-          self.dataset = datasets.load_dataset(dataset_name, instance_name, split=split, streaming=True)
+    def __init__(
+        self, dataset_name, tokenizer_name, model_max_length, split="train", buffer_size=1000, subset_name=None
+    ):
+        self.dataset = datasets.load_dataset(dataset_name, data_dir=subset_name, split=split, streaming=True)
         self.dataset = split_dataset_by_node(
             self.dataset, rank=gpc.get_local_rank(ParallelMode.DATA), world_size=gpc.get_world_size(ParallelMode.DATA)
         )
