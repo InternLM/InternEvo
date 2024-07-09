@@ -41,7 +41,8 @@ ckpt = dict(
     oss_snapshot_freq=int(CHECKPOINT_EVERY / 2),  # snapshot ckpt save frequency.
 )
 
-TRAIN_FOLDER = "roneneldan/TinyStories"  # "/path/to/dataset"
+TRAIN_FOLDER = 'Salesforce/wikitext' # "roneneldan/TinyStories', 'path/to/dataset'
+TRAIN_INSTANCE = 'wikitext-103-raw-v1' # 'instance name'
 VALID_FOLDER = None  # "/path/to/dataset"
 data = dict(
     type="hf",
@@ -56,7 +57,7 @@ data = dict(
     # defaults to 0, means disable evaluate
     valid_every=100000,
     pack_sample_into_one=False,
-    total_steps=50000,
+    total_steps=110,
     skip_batches="",
     # rampup_batch_size (str): A string with three space-separated integers representing the
     #       starting batch size, the increment, and the number of steps between
@@ -67,6 +68,7 @@ data = dict(
     # Datasets with less than 50 rows will be discarded
     min_length=50,
     train_folder=TRAIN_FOLDER,
+    train_instance=TRAIN_INSTANCE,    
     valid_folder=VALID_FOLDER,
     empty_cache_and_diag_interval=200,
     diag_outlier_ratio=1.1,
