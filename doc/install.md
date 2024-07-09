@@ -82,6 +82,11 @@ pip install -v --disable-pip-version-check --no-cache-dir --global-option="--cpp
 cd ../../
 ```
 
+### 额外安装
+```bash
+pip install git+https://github.com/databricks/megablocks@v0.3.2 # MOE相关
+```
+
 ### 环境镜像
 用户可以使用提供的 dockerfile 结合 docker.Makefile 来构建自己的镜像，或者也可以从 https://hub.docker.com/r/internlm/internlm 获取安装了 InternEvo 运行环境的镜像。
 
@@ -134,4 +139,3 @@ pip3 install setuptools
 wget https://gitee.com/ascend/pytorch/releases/download/v6.0.rc1-pytorch2.1.0/torch_npu-2.1.0.post3-cp310-cp310-manylinux_2_17_x86_64.manylinux2014_x86_64.whl
 pip install torch_npu-2.1.0.post3-cp310-cp310-manylinux_2_17_x86_64.manylinux2014_x86_64.whl
 ```
-
