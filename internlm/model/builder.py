@@ -9,7 +9,7 @@ from internlm.core.context.parallel_context import (
     IS_TENSOR_ZERO_PARALLEL,
 )
 from internlm.core.parallel.shard import pipeline_parallel_sharding_wrapper
-from internlm.model.registry import model_initializer, hf_config_initializer
+from internlm.model.registry import hf_config_initializer, model_initializer
 from internlm.utils.common import get_current_device
 
 
