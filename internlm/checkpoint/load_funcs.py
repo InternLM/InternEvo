@@ -2,7 +2,6 @@
 import os
 
 import torch
-from transformers import AutoModelForCausalLM
 
 from internlm.accelerator import get_accelerator
 from internlm.core.context import ParallelMode
@@ -10,6 +9,7 @@ from internlm.core.context import global_context as gpc
 from internlm.core.parallel.shard import partition_uniform
 from internlm.utils.logger import get_logger
 from internlm.utils.storage_manager import get_fns, llm_load
+from transformers import AutoModelForCausalLM
 
 logger = get_logger(__file__)
 internlm_accelerator = get_accelerator()
