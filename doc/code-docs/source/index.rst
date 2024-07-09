@@ -95,14 +95,6 @@ InternEvo
 
    example/index
 
-训练huggingface模型
--------------------
-
-.. toctree::
-   :maxdepth: 2
-
-   adapt_huggingface
-
 常见问题
 -------------------
 
