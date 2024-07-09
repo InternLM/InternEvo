@@ -3,12 +3,6 @@
 
 from typing import Callable
 
-from huggingface_model.baichuan2_model.modeling_baichuan import BaichuanForCausalLM
-from huggingface_model.deepseek_v2_model.modeling_deepseek import DeepseekV2ForCausalLM
-from huggingface_model.internlm2_model.modeling_internlm2 import InternLM2ForCausalLM
-from huggingface_model.internlm_model.modeling_internlm import InternLMForCausalLM
-from huggingface_model.mixtral_model.modeling_moe_mistral import MixtralForCausalLM
-from huggingface_model.phi3_model.modeling_phi3 import Phi3ForCausalLM
 from internlm.model.modeling_internlm import InternLM1
 from internlm.model.modeling_internlm2 import InternLM2
 from internlm.model.modeling_llama import Llama2
@@ -79,6 +73,7 @@ class Registry:
 
 
 model_initializer = Registry("model_initializer")
+hf_config_initializer = Registry("hf_config_initializer")
 
 
 def register_model_initializer() -> None:
@@ -87,9 +82,3 @@ def register_model_initializer() -> None:
     model_initializer.register_module("LLAMA2", Llama2)
     model_initializer.register_module("INTERNLM_MoE", Internlm1MoE)
     model_initializer.register_module("LLAVA", Llava)
-    model_initializer.register_module("INTERNLM_FROM_HF", InternLMForCausalLM)
-    model_initializer.register_module("INTERNLM2_FROM_HF", InternLM2ForCausalLM)
-    model_initializer.register_module("DEEPSEEKV2_FROM_HF", DeepseekV2ForCausalLM)
-    model_initializer.register_module("BAICHUAN2_FROM_HF", BaichuanForCausalLM)
-    model_initializer.register_module("PHI3_FROM_HF", Phi3ForCausalLM)
-    model_initializer.register_module("MIXTRAL_FROM_HF", MixtralForCausalLM)

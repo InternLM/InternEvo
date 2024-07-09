@@ -167,8 +167,6 @@
 
     srun -p internllm -N 1 -n 8 --ntasks-per-node=8 --gpus-per-task=1 python train.py --config ./configs/7B_sft.py
 
-其中，train.py文件的编写参考：[训练代码示例](../../../../train.py)
-
 训练结果
 ----------------
 

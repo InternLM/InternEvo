@@ -2,7 +2,6 @@
 import os
 
 import torch
-from transformers import AutoModelForCausalLM
 
 from internlm.accelerator import get_accelerator
 from internlm.core.context import ParallelMode
@@ -10,6 +9,7 @@ from internlm.core.context import global_context as gpc
 from internlm.core.parallel.shard import partition_uniform
 from internlm.utils.logger import get_logger
 from internlm.utils.storage_manager import get_fns, llm_load
+from transformers import AutoModelForCausalLM
 
 logger = get_logger(__file__)
 internlm_accelerator = get_accelerator()
@@ -311,7 +311,7 @@ def load_hf_model_pretrained_weights(folder, model):
     if gpc.is_rank_for_log():
         logger.info(f"Loading pretrained model from {folder}")
 
-    pretrained_model = AutoModelForCausalLM.from_pretrained(folder, trust_remote_code=True, use_auth_token=True)
+    pretrained_model = AutoModelForCausalLM.from_pretrained(folder, trust_remote_code=True)
     model.load_state_dict(pretrained_model.state_dict(), strict=False)
 
     if gpc.is_rank_for_log():

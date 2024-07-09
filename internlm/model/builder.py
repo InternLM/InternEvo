@@ -9,7 +9,7 @@ from internlm.core.context.parallel_context import (
     IS_TENSOR_ZERO_PARALLEL,
 )
 from internlm.core.parallel.shard import pipeline_parallel_sharding_wrapper
-from internlm.model.registry import model_initializer
+from internlm.model.registry import hf_config_initializer, model_initializer
 from internlm.utils.common import get_current_device
 
 
@@ -32,22 +32,8 @@ def create_model(model_type, *args, **kwargs) -> Union[nn.Module, List[nn.Module
         kwargs["start_layer_idx"] = 0
         kwargs["num_layers"] = num_layers
         if "_FROM_HF" in model_type:  # TODO: here need to decide which model config to choose
-            hf_model_conf_map = {
-                "INTERNLM_FROM_HF": ("huggingface_model.internlm_model.configuration_internlm", "InternLMConfig"),
-                "INTERNLM2_FROM_HF": ("huggingface_model.internlm2_model.configuration_internlm2", "InternLM2Config"),
-                "DEEPSEEKV2_FROM_HF": (
-                    "huggingface_model.deepseek_v2_model.configuration_deepseek",
-                    "DeepseekV2Config",
-                ),
-                "BAICHUAN2_FROM_HF": ("huggingface_model.baichuan2_model.configuration_baichuan", "BaichuanConfig"),
-                "PHI3_FROM_HF": ("huggingface_model.phi3_model.configuration_phi3", "Phi3Config"),
-                "MIXTRAL_FROM_HF": ("huggingface_model.mixtral_model.configuration_moe_mistral", "MixtralConfig"),
-            }
-            if model_type not in hf_model_conf_map:
-                raise ValueError(f"Unknown model type: {model_type}")
-            config_module_name, config_class_name = hf_model_conf_map[model_type]
-            config_class = import_class_from_module(config_module_name, config_class_name)
-            config = config_class(return_dict=False)
+            hf_config_builder = hf_config_initializer.get_module(module_name=model_type)
+            config = hf_config_builder(return_dict=False)
             model = model_buidler(*args, config).to(kwargs["device"])
         else:
             model = model_buidler(*args, **kwargs).to(kwargs["device"])
@@ -65,8 +51,3 @@ def create_model(model_type, *args, **kwargs) -> Union[nn.Module, List[nn.Module
                     setattr(param, IS_TENSOR_ZERO_PARALLEL, True)
 
     return model
-
-
-def import_class_from_module(module_name, class_name):
-    module = __import__(module_name, fromlist=[class_name])
-    return getattr(module, class_name)
