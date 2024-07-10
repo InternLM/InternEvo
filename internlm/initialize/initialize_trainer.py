@@ -130,6 +130,4 @@ def initialize_trainer(
         clip_grad_norm=clip_grad_norm,
     )
 
-    # trainer = Trainer(engine, scheduler)
-
     return engine, scheduler
