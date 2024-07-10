@@ -39,9 +39,12 @@ def pack_collate_fn(batch, micro_num, micro_bsz, seq_len):
     indexes_list = []
 
     for b in batch:
-        input_ids_list.append(torch.LongTensor(b["input_ids"] + [0] * (packed_length - len(b["input_ids"]))))
-        labels_list.append(torch.LongTensor(b["labels"] + [-100] * (packed_length - len(b["labels"]))))
-        cu_seqlens = b["cu_seqlens"] + [packed_length]
+        assert len(b["input_ids"]) == packed_length
+        assert len(b["labels"]) == packed_length
+        assert b["cu_seqlens"][0] == 0 and b["cu_seqlens"][-1] == packed_length
+        input_ids_list.append(torch.LongTensor(b["input_ids"]))
+        labels_list.append(torch.LongTensor(b["labels"]))
+        cu_seqlens = b["cu_seqlens"]
         cu_seqlens_list.append(torch.IntTensor(cu_seqlens))
         indexes = list(itertools.chain(*[np.arange(l2 - l1) for l1, l2 in zip(cu_seqlens[:-1], cu_seqlens[1:])]))
         indexes_list.append(torch.IntTensor(indexes))

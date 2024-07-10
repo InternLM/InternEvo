@@ -70,9 +70,9 @@ class HuggingFacePackedDataset(Dataset):
         for sample in self.dataset:
             if len(input_ids + sample["input_ids"]) > self.micro_bsz * self.seq_len:
                 yield {
-                    "input_ids": input_ids,
-                    "cu_seqlens": cu_seqlens,
-                    "labels": labels,
+                    "input_ids": input_ids + [0]*(self.micro_bsz*self.seq_len-len(input_ids)),
+                    "cu_seqlens": cu_seqlens + [self.micro_bsz * self.seq_len] if cu_seqlens[-1] < self.micro_bsz * self.seq_len else cu_seqlens,
+                    "labels": labels + [-100]*(self.micro_bsz*self.seq_len-len(labels)),
                 }
                 input_ids = sample["input_ids"]
                 cu_seqlens = [0, len(sample["input_ids"])]
@@ -83,9 +83,9 @@ class HuggingFacePackedDataset(Dataset):
                 labels = labels + sample["input_ids"][1:] + [-100]
         if input_ids:
             yield {
-                "input_ids": input_ids,
-                "cu_seqlens": cu_seqlens,
-                "labels": labels,
+                "input_ids": input_ids + [0]*(self.micro_bsz*self.seq_len-len(input_ids)),
+                "cu_seqlens": cu_seqlens + [self.micro_bsz * self.seq_len] if cu_seqlens[-1] < self.micro_bsz * self.seq_len else cu_seqlens,
+                "labels": labels + [-100]*(self.micro_bsz*self.seq_len-len(labels)),
             }
 
     def __len__(self):
