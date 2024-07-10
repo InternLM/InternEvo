@@ -12,6 +12,7 @@ from internlm.monitor import internevo_monitor
 from internlm.train import initialize_model
 from internlm.utils.common import parse_args
 
+
 @internevo_monitor(feishu_alert=True, clean_run=True)
 def main(args):
     # initialize model

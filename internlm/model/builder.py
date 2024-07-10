@@ -31,7 +31,7 @@ def create_model(model_type, *args, **kwargs) -> Union[nn.Module, List[nn.Module
         kwargs["first"] = kwargs["last"] = True
         kwargs["start_layer_idx"] = 0
         kwargs["num_layers"] = num_layers
-        if "_FROM_HF" in model_type:  # TODO: here need to decide which model config to choose
+        if "_FROM_HF" in model_type:
             hf_config_builder = hf_config_initializer.get_module(module_name=model_type)
             config = hf_config_builder(return_dict=False)
             model = model_buidler(*args, config).to(kwargs["device"])
