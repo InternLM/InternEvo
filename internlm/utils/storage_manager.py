@@ -4,6 +4,8 @@
 import multiprocessing
 import os
 
+from internlm.utils.common import SingletonMeta
+
 if "USE_DILL_PICKLE" in os.environ:
     import dill
 
@@ -962,23 +964,6 @@ def check_tmp_folder_accessibility(tmp_local_folder: str):
         if ret is False:
             error_str = f'{socket.gethostname()} dose not have read and write permissions on {tmp_local_folder}"'
             raise RuntimeError(error_str)
-
-
-class SingletonMeta(type):
-    """
-    Singleton Meta.
-    """
-
-    _instances = {}
-
-    def __call__(cls, *args, **kwargs):
-        if cls not in cls._instances:
-            cls._instances[cls] = super().__call__(*args, **kwargs)
-        else:
-            assert (
-                len(args) == 0 and len(kwargs) == 0
-            ), f"{cls.__name__} is a singleton class and a instance has been created."
-        return cls._instances[cls]
 
 
 class StorageManager(metaclass=SingletonMeta):
