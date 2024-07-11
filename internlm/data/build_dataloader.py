@@ -121,7 +121,7 @@ def get_hf_train_loader_items(data_cfg):
         model_max_length=data_cfg.seq_len,
         subset_name=data_cfg.get("subset_name", None),
     )
-    if "_FROM_HF" in gpc.config.model_type and not data_cfg.use_packed_dataset:
+    if gpc.config.model_type == "hf" and not data_cfg.use_packed_dataset:
         train_sampler = StreamingStaticBatchSampler(
             batch_size=data_cfg.micro_num * data_cfg.micro_bsz, rampup_batch_size=data_cfg.rampup_batch_size
         )
