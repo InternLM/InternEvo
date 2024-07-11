@@ -121,20 +121,20 @@ def get_hf_train_loader_items(data_cfg):
         model_max_length=data_cfg.seq_len,
         subset_name=data_cfg.get("subset_name", None),
     )
-    if data_cfg.use_packed_dataset:
+    if "_FROM_HF" in gpc.config.model_type and not data_cfg.use_packed_dataset:
+        train_sampler = StreamingStaticBatchSampler(
+            batch_size=data_cfg.micro_num * data_cfg.micro_bsz, rampup_batch_size=data_cfg.rampup_batch_size
+        )
+        train_collate_fn = partial(
+            nopack_collate_fn, micro_num=data_cfg.micro_num, micro_bsz=data_cfg.micro_bsz, seq_len=data_cfg.seq_len
+        )
+    else:
         train_ds = HuggingFacePackedDataset(dataset=train_ds, seq_len=data_cfg.seq_len, micro_bsz=data_cfg.micro_bsz)
         train_sampler = StreamingStaticBatchSampler(
             batch_size=data_cfg.micro_num, rampup_batch_size=data_cfg.rampup_batch_size
         )
         train_collate_fn = partial(
             pack_collate_fn, micro_num=data_cfg.micro_num, micro_bsz=data_cfg.micro_bsz, seq_len=data_cfg.seq_len
-        )
-    else:
-        train_sampler = StreamingStaticBatchSampler(
-            batch_size=data_cfg.micro_num * data_cfg.micro_bsz, rampup_batch_size=data_cfg.rampup_batch_size
-        )
-        train_collate_fn = partial(
-            nopack_collate_fn, micro_num=data_cfg.micro_num, micro_bsz=data_cfg.micro_bsz, seq_len=data_cfg.seq_len
         )
     return train_ds, train_sampler, train_collate_fn
 

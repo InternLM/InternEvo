@@ -51,6 +51,10 @@ def unpack_type_ids(type_ids, cu_seqlens):
 
 
 def unpack_data(data, label):
+
+    if "_FROM_HF" in gpc.config.model_type:
+        return data, label
+
     data["input_ids"] = _unpack_data(data["input_ids"], data["cu_seqlens"], padding_v=0).squeeze(0)
     label = _unpack_data(label, data["cu_seqlens"], padding_v=-100).squeeze(0)
 
@@ -72,5 +76,13 @@ def packed_data_normalizer(data, label):
     # Move to parallel package for standardization
     if gpc.config.parallel.sequence_parallel and gpc.config.parallel["tensor"].get("mode", "mtp") == "isp":
         data["indexes"] = _split(data["indexes"], ParallelMode.TENSOR, dim=0)
+
+    if "_FROM_HF" in gpc.config.model_type:
+        data.pop("cu_seqlens")
+        data.pop("max_seqlen")
+        data["position_ids"] = data.pop("indexes")
+        data["attention_mask"] = torch.ones(
+            (data["input_ids"].shape), dtype=torch.bool, device=data["input_ids"].device
+        )
 
     return data, label

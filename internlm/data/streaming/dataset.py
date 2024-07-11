@@ -1,6 +1,8 @@
+import itertools
 import sys
 
 import datasets
+import numpy as np
 from datasets.distributed import split_dataset_by_node
 from torch.utils.data import Dataset
 
@@ -69,10 +71,21 @@ class HuggingFacePackedDataset(Dataset):
         labels = []
         for sample in self.dataset:
             if len(input_ids + sample["input_ids"]) > self.micro_bsz * self.seq_len:
+                assert cu_seqlens[-1] <= self.micro_bsz * self.seq_len
+                input_ids = input_ids + [0] * (self.micro_bsz * self.seq_len - len(input_ids))
+                cu_seqlens = (
+                    cu_seqlens + [self.micro_bsz * self.seq_len]
+                    if cu_seqlens[-1] < self.micro_bsz * self.seq_len
+                    else cu_seqlens
+                )
+                labels = labels + [-100] * (self.micro_bsz * self.seq_len - len(labels))
                 yield {
-                    "input_ids": input_ids + [0]*(self.micro_bsz*self.seq_len-len(input_ids)),
-                    "cu_seqlens": cu_seqlens + [self.micro_bsz * self.seq_len] if cu_seqlens[-1] < self.micro_bsz * self.seq_len else cu_seqlens,
-                    "labels": labels + [-100]*(self.micro_bsz*self.seq_len-len(labels)),
+                    "input_ids": input_ids,
+                    "cu_seqlens": cu_seqlens,
+                    "indexes": list(
+                        itertools.chain(*[np.arange(l2 - l1) for l1, l2 in zip(cu_seqlens[:-1], cu_seqlens[1:])])
+                    ),
+                    "labels": labels,
                 }
                 input_ids = sample["input_ids"]
                 cu_seqlens = [0, len(sample["input_ids"])]
@@ -82,10 +95,21 @@ class HuggingFacePackedDataset(Dataset):
                 cu_seqlens.append(len(sample["input_ids"]) + cu_seqlens[-1])
                 labels = labels + sample["input_ids"][1:] + [-100]
         if input_ids:
+            assert cu_seqlens[-1] <= self.micro_bsz * self.seq_len
+            input_ids = input_ids + [0] * (self.micro_bsz * self.seq_len - len(input_ids))
+            cu_seqlens = (
+                cu_seqlens + [self.micro_bsz * self.seq_len]
+                if cu_seqlens[-1] < self.micro_bsz * self.seq_len
+                else cu_seqlens
+            )
+            labels = labels + [-100] * (self.micro_bsz * self.seq_len - len(labels))
             yield {
-                "input_ids": input_ids + [0]*(self.micro_bsz*self.seq_len-len(input_ids)),
-                "cu_seqlens": cu_seqlens + [self.micro_bsz * self.seq_len] if cu_seqlens[-1] < self.micro_bsz * self.seq_len else cu_seqlens,
-                "labels": labels + [-100]*(self.micro_bsz*self.seq_len-len(labels)),
+                "input_ids": input_ids,
+                "cu_seqlens": cu_seqlens,
+                "indexes": list(
+                    itertools.chain(*[np.arange(l2 - l1) for l1, l2 in zip(cu_seqlens[:-1], cu_seqlens[1:])])
+                ),
+                "labels": labels,
             }
 
     def __len__(self):

@@ -1,6 +1,3 @@
-import itertools
-
-import numpy as np
 import torch
 
 
@@ -35,23 +32,23 @@ def pack_collate_fn(batch, micro_num, micro_bsz, seq_len):
 
     input_ids_list = []
     cu_seqlens_list = []
-    labels_list = []
     indexes_list = []
+    labels_list = []
 
     for b in batch:
         assert len(b["input_ids"]) == packed_length
-        assert len(b["labels"]) == packed_length
         assert b["cu_seqlens"][0] == 0 and b["cu_seqlens"][-1] == packed_length
+        assert len(b["indexes"]) == packed_length
+        assert len(b["labels"]) == packed_length
+
         input_ids_list.append(torch.LongTensor(b["input_ids"]))
+        cu_seqlens_list.append(torch.IntTensor(b["cu_seqlens"]))
+        indexes_list.append(torch.IntTensor(b["indexes"]))
         labels_list.append(torch.LongTensor(b["labels"]))
-        cu_seqlens = b["cu_seqlens"]
-        cu_seqlens_list.append(torch.IntTensor(cu_seqlens))
-        indexes = list(itertools.chain(*[np.arange(l2 - l1) for l1, l2 in zip(cu_seqlens[:-1], cu_seqlens[1:])]))
-        indexes_list.append(torch.IntTensor(indexes))
 
     input_ids = torch.stack(input_ids_list)
-    labels = torch.stack(labels_list)
     indexes = torch.stack(indexes_list)
+    labels = torch.stack(labels_list)
 
     return {
         "input_ids": input_ids,

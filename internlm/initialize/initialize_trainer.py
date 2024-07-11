@@ -74,12 +74,7 @@ def initialize_trainer(
     # initialize scheduler for trainer
     scheduler = None
 
-    if gpc.config.data.use_packed_dataset:
-        data_fn = packed_data_normalizer
-    elif gpc.config.data.type == "hf":
-        data_fn = None
-    else:
-        data_fn = unpack_data
+    data_fn = packed_data_normalizer if gpc.config.data.use_packed_dataset else unpack_data
 
     if gpc.is_using_parallel_mode(ParallelMode.PIPELINE):
         gpc.config.NUM_MICRO_BATCHES = gpc.config.data.micro_num

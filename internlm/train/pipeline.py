@@ -555,7 +555,11 @@ def record_current_batch_training_metrics(
 
         num_tokens_in_batch = batch[1].nelement()
         real_num_tokens = math.ceil(acc_perplex.pop("real_token_num") / gpc.get_world_size(ParallelMode.GLOBAL))
-        if gpc.config.data.type == "hf" and not gpc.config.data.use_packed_dataset:
+        if (
+            gpc.config.data.type == "hf"
+            and not gpc.config.data.use_packed_dataset
+            and "_FROM_HF" in gpc.config.model_type
+        ):
             num_samples_in_batch = gpc.config.data.micro_bsz * gpc.config.data.micro_num
             max_length_in_batch = batch[0]["attention_mask"].sum(dim=1).max().item()
             max_samples_in_batch = gpc.config.data.micro_bsz
