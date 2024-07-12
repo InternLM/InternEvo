@@ -147,12 +147,6 @@ def load_hf_llama_pretrained_weights(folder, model):
             if f"model.layers.{layer_ids}.self_attn.rotary_emb.inv_freq" in states:
                 states.pop(f"model.layers.{layer_ids}.self_attn.rotary_emb.inv_freq")
 
-        if gpc.config.model_type in ("LLAMA2",):
-            w2 = states.pop(f"layers.{i}.feed_forward.w2.weight")
-            w3 = states.pop(f"layers.{i}.feed_forward.w3.weight")
-            states[f"layers.{i}.feed_forward.w2.weight"] = w3
-            states[f"layers.{i}.feed_forward.w3.weight"] = w2
-
         for name in list(states.keys()):
             if name.startswith(f"layers.{i}"):
                 current_states[name.replace(f".{i}.", f".{idx}.")] = states.pop(name)
