@@ -475,8 +475,7 @@ def load_new_batch(train_dl: DataLoader, train_iter: Iterable, train_state: Trai
     if batch[0].get("type_ids", None) is not None:
         # if use_packed_dataset is False, we need to unpack type_ids
         if not gpc.config.data.use_packed_dataset:
-            # TODO: check logic
-            if gpc.config.data.type != "hf" or gpc.config.model.type != "hf":
+            if gpc.config.data.type != "hf" or gpc.config.model_type != "hf":
                 batch[0]["type_ids"] = unpack_type_ids(batch[0]["type_ids"], batch[0]["cu_seqlens"])
 
     return batch, train_iter
