@@ -47,7 +47,9 @@ class HuggingFaceStreamingDataset(Dataset):
         texts = [sample["text"] for sample in samples]
         tokenized_outputs = self.tokenizer(texts, truncation=True)
         for i in range(len(samples)):
-            yield {key: tokenized_outputs[key][i] for key in tokenized_outputs}
+            assert "input_ids" in tokenized_outputs, "huggingface tokenizer should generate input_ids"
+            if len(tokenized_outputs["input_ids"][i]) > 0:
+                yield {key: tokenized_outputs[key][i] for key in tokenized_outputs}
 
     def __getitem__(self, _):
         return next(self.senior_iterator)
@@ -55,14 +57,14 @@ class HuggingFaceStreamingDataset(Dataset):
 
 class HuggingFacePackedDataset(Dataset):
     """
-    Simple packed dataset for huggingface.
+    Simple packed dataset for huggingface that uses right-padding as packing strategy when multiple sentences are packed together in order.
     """
 
-    def __init__(self, dataset, seq_len, micro_bsz):
+    def __init__(self, dataset, seq_len, micro_bsz, pad_token_id=0):
         self.dataset = dataset
         self.seq_len = seq_len
         self.micro_bsz = micro_bsz
-
+        self.pad_token_id = pad_token_id
         self.senior_iterator = iter(self)
 
     def __iter__(self):
@@ -72,7 +74,7 @@ class HuggingFacePackedDataset(Dataset):
         for sample in self.dataset:
             if len(input_ids + sample["input_ids"]) > self.micro_bsz * self.seq_len:
                 assert cu_seqlens[-1] <= self.micro_bsz * self.seq_len
-                input_ids = input_ids + [0] * (self.micro_bsz * self.seq_len - len(input_ids))
+                input_ids = input_ids + [self.pad_token_id] * (self.micro_bsz * self.seq_len - len(input_ids))
                 cu_seqlens = (
                     cu_seqlens + [self.micro_bsz * self.seq_len]
                     if cu_seqlens[-1] < self.micro_bsz * self.seq_len
@@ -89,14 +91,15 @@ class HuggingFacePackedDataset(Dataset):
                 }
                 input_ids = sample["input_ids"]
                 cu_seqlens = [0, len(sample["input_ids"])]
-                labels = sample["input_ids"][1:] + [-100]
+                labels = [w if w > 0 else -100 for w in sample["input_ids"]][1:] + [-100]
             else:
                 input_ids = input_ids + sample["input_ids"]
                 cu_seqlens.append(len(sample["input_ids"]) + cu_seqlens[-1])
-                labels = labels + sample["input_ids"][1:] + [-100]
+                labels = labels + [w if w > 0 else -100 for w in sample["input_ids"]][1:] + [-100]
+
         if input_ids:
             assert cu_seqlens[-1] <= self.micro_bsz * self.seq_len
-            input_ids = input_ids + [0] * (self.micro_bsz * self.seq_len - len(input_ids))
+            input_ids = input_ids + [self.pad_token_id] * (self.micro_bsz * self.seq_len - len(input_ids))
             cu_seqlens = (
                 cu_seqlens + [self.micro_bsz * self.seq_len]
                 if cu_seqlens[-1] < self.micro_bsz * self.seq_len
