@@ -8,19 +8,21 @@ def nopack_collate_fn(batch, micro_num, micro_bsz, seq_len, pad_token_id=0):
 
     for b in batch:
         assert len(b["input_ids"]) > 0
-        
+
         if "attention_mask" in b:
-            assert len(b["input_ids"]) == len(b["attention_mask"]), "input_ids and attention_mask should be equal length"
+            assert len(b["input_ids"]) == len(
+                b["attention_mask"]
+            ), "input_ids and attention_mask should be equal length"
         else:
-            attention_mask = [1] * len(b["input_ids"])
-        
+            b["attention_mask"] = [True] * len(b["input_ids"])
+
         input_ids = b["input_ids"] + [pad_token_id] * (seq_len - len(b["input_ids"]))
-        attention_mask = b["attention_mask"] + [0] * (seq_len - len(b["attention_mask"]))
+        attention_mask = b["attention_mask"] + [False] * (seq_len - len(b["attention_mask"]))
         labels = [w if w > 0 else -100 for w in b["input_ids"]][1:] + [-100]
         labels = labels + [-100] * (seq_len - len(b["input_ids"]))
-          
-        input_ids_list.append(torch.LongTensor(input_ids))  
-        attention_mask_list.append(torch.IntTensor(attention_mask))
+
+        input_ids_list.append(torch.LongTensor(input_ids))
+        attention_mask_list.append(torch.BoolTensor(attention_mask))
         labels_list.append(torch.LongTensor(labels))
 
     input_ids = torch.stack(input_ids_list)

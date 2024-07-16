@@ -57,7 +57,7 @@ class HuggingFaceStreamingDataset(Dataset):
 
 class HuggingFacePackedDataset(Dataset):
     """
-    Simple packed dataset for huggingface that uses right-padding as packing strategy when multiple sentences are packed together in order.
+    Simple packed dataset for huggingface
     """
 
     def __init__(self, dataset, seq_len, micro_bsz, pad_token_id=0):

@@ -131,10 +131,16 @@ def get_hf_train_loader_items(data_cfg):
             batch_size=data_cfg.micro_num * data_cfg.micro_bsz, rampup_batch_size=data_cfg.rampup_batch_size
         )
         train_collate_fn = partial(
-            nopack_collate_fn, micro_num=data_cfg.micro_num, micro_bsz=data_cfg.micro_bsz, seq_len=data_cfg.seq_len, pad_token_id = pad_token_id
+            nopack_collate_fn,
+            micro_num=data_cfg.micro_num,
+            micro_bsz=data_cfg.micro_bsz,
+            seq_len=data_cfg.seq_len,
+            pad_token_id=pad_token_id,
         )
     else:
-        train_ds = HuggingFacePackedDataset(dataset=train_ds, seq_len=data_cfg.seq_len, micro_bsz=data_cfg.micro_bsz, pad_token_id = pad_token_id)
+        train_ds = HuggingFacePackedDataset(
+            dataset=train_ds, seq_len=data_cfg.seq_len, micro_bsz=data_cfg.micro_bsz, pad_token_id=pad_token_id
+        )
         train_sampler = StreamingStaticBatchSampler(
             batch_size=data_cfg.micro_num, rampup_batch_size=data_cfg.rampup_batch_size
         )
