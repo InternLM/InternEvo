@@ -19,6 +19,7 @@ from internlm.core.scheduler import (
     InterleavedPipelineScheduler,
     NonPipelineScheduler,
     PipelineScheduler,
+    ZeroPPScheduler,
 )
 from internlm.core.scheduler.pipeline_scheduler import get_tensor_shape
 from internlm.core.trainer import Trainer
@@ -88,16 +89,35 @@ def initialize_trainer(
                 model = nn.ModuleList([model])
 
             communication_overlap = gpc.config.parallel["pipeline"].get("interleaved_overlap", False)
-            scheduler = InterleavedPipelineScheduler(
-                data_process_func=data_fn,
-                num_microbatches=gpc.config.NUM_MICRO_BATCHES,
-                num_chunks=gpc.config.model.num_chunks,
-                dtype=gpc.config.model["dtype"],
-                tensor_shape=tensor_shape,
-                scatter_gather_tensors=scatter_gather,
-                scheduler_hooks=scheduler_hooks,
-                communication_overlap=communication_overlap,
-            )
+            use_zeropp = hasattr(gpc.config.parallel.pipeline, "use_zeropp") and gpc.config.parallel.pipeline.use_zeropp
+            if use_zeropp:
+                unit_schedule_size = (
+                    gpc.config.data["unit_schedule_size"]
+                    if (hasattr(gpc.config, "data") and hasattr(gpc.config.data, "unit_schedule_size"))
+                    else None
+                )
+                scheduler = ZeroPPScheduler(
+                    data_process_func=data_fn,
+                    num_microbatches=gpc.config.NUM_MICRO_BATCHES,
+                    num_chunks=gpc.config.model.num_chunks,
+                    dtype=gpc.config.model["dtype"],
+                    tensor_shape=tensor_shape,
+                    scatter_gather_tensors=scatter_gather,
+                    scheduler_hooks=scheduler_hooks,
+                    communication_overlap=communication_overlap,
+                    unit_schedule_size=unit_schedule_size,
+                )
+            else:
+                scheduler = InterleavedPipelineScheduler(
+                    data_process_func=data_fn,
+                    num_microbatches=gpc.config.NUM_MICRO_BATCHES,
+                    num_chunks=gpc.config.model.num_chunks,
+                    dtype=gpc.config.model["dtype"],
+                    tensor_shape=tensor_shape,
+                    scatter_gather_tensors=scatter_gather,
+                    scheduler_hooks=scheduler_hooks,
+                    communication_overlap=communication_overlap,
+                )
         else:
             scheduler = PipelineScheduler(
                 data_process_func=data_fn,

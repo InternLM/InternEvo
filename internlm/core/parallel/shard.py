@@ -95,14 +95,19 @@ def pipeline_parallel_sharding_wrapper(
 
     models = []
 
-    for start, end in parts:
+    use_checkpoint = kwargs["checkpoint"]
+    for part_idx, (start, end) in enumerate(parts):
         kwargs["num_layers"] = end - start
         kwargs["first"] = start == 0
         # If there is no content in the final layer, assign the last layer.
         kwargs["last"] = end == num_layers and len(all_parts[-1]) != 0
         kwargs["device"] = device
         kwargs["start_layer_idx"] = start
-
+        if hasattr(gpc.config.parallel.pipeline, "use_zeropp") and gpc.config.parallel.pipeline.use_zeropp:
+            if part_idx == num_chunks - 1 and gpc.is_pipeline_last_stage(ignore_virtual=True):
+                kwargs["checkpoint"] = False
+            else:
+                kwargs["checkpoint"] = use_checkpoint
         chunk = model_builder(**kwargs).to(device)
         setattr(chunk, "first_layer", start)
         setattr(chunk, "last_layer", end)

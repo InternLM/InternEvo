@@ -20,6 +20,7 @@ from internlm.core.parallel.shard import (
 )
 from internlm.model.ops.linear import linear_backward_op, linear_forward_op
 from internlm.utils.logger import get_logger
+from internlm.utils.zeropp_manager import ZeroppManager
 
 if TYPE_CHECKING:
     from internlm.core.parallel.comm.isp import WPCommunicator
@@ -30,6 +31,21 @@ internlm_accelerator = get_accelerator()
 
 custom_bwd = internlm_accelerator.return_custom_bwd()
 custom_fwd = internlm_accelerator.return_custom_fwd()
+
+
+def decoupled_grad_func(x, grad_output, module, communicator):
+    grad_weight, grad_bias = linear_backward_op(
+        x,
+        grad_output,
+        module.bias is not None and module.bias.requires_grad,
+    )
+    communicator.grad_hook(grad_weight, async_op=True, module=module, is_bias=False)
+    if grad_bias is not None:
+        communicator.grad_hook(grad_bias, async_op=True, module=module, is_bias=True)
+        return [module.weight, module.bias]
+    return [
+        module.weight,
+    ]
 
 
 # adpated from https://github.com/Dao-AILab/flash-attention/blob/main/flash_attn/ops/fused_dense.py
@@ -170,8 +186,22 @@ class WPFusedDenseFunc(torch.autograd.Function):
             x = x.to(dtype=torch.get_autocast_gpu_dtype())
         x = x.contiguous()
 
-        total_weight = communicator.weight_hook(weight, module=module)
-        total_bias = bias if bias is None else communicator.weight_hook(bias, module=module, is_bias=True)
+        use_zeropp = hasattr(gpc.config.parallel.pipeline, "use_zeropp") and gpc.config.parallel.pipeline.use_zeropp
+        if use_zeropp:
+            total_weight = ZeroppManager.retrieve_full_wp_parameters(module.weight)
+            if total_weight is None:
+                total_weight = communicator.weight_hook(weight, module=module)
+                ZeroppManager.cache_full_wp_parameters(module.weight, total_weight)
+            if bias is None:
+                total_bias = bias
+            else:
+                total_bias = ZeroppManager.retrieve_full_wp_parameters(module.bias)
+                if total_bias is None:
+                    total_bias = communicator.weight_hook(bias, module=module)
+                    ZeroppManager.cache_full_wp_parameters(module.bias, total_bias)
+        else:
+            total_weight = communicator.weight_hook(weight, module=module)
+            total_bias = bias if bias is None else communicator.weight_hook(bias, module=module, is_bias=True)
 
         if torch.is_autocast_enabled():
             total_weight = total_weight.to(dtype=torch.get_autocast_gpu_dtype())
@@ -187,9 +217,10 @@ class WPFusedDenseFunc(torch.autograd.Function):
 
         output = linear_forward_op(x, total_weight, total_bias)
 
-        # release memory
-        del total_weight
-        del total_bias
+        if not use_zeropp:
+            # release memory
+            del total_weight
+            del total_bias
 
         saved_x = None if ctx.compute_weight_gradient is False else x
         ctx.save_for_backward(saved_x, weight)
@@ -212,24 +243,37 @@ class WPFusedDenseFunc(torch.autograd.Function):
         batch_dim = batch_shape.numel()
         grad_output = grad_output.reshape(batch_dim, grad_output.shape[-1])
 
-        total_weight = communicator.weight_hook(weight, module=module)
+        use_zeropp = hasattr(gpc.config.parallel.pipeline, "use_zeropp") and gpc.config.parallel.pipeline.use_zeropp
+        if use_zeropp:
+            total_weight = ZeroppManager.retrieve_full_wp_parameters(module.weight)
+            if total_weight is None:
+                total_weight = communicator.weight_hook(weight, module=module)
+                ZeroppManager.cache_full_wp_parameters(module.weight, total_weight)
+        else:
+            total_weight = communicator.weight_hook(weight, module=module)
 
         # compute weight grad
         if ctx.needs_input_grad[1]:
             assert ctx.compute_weight_gradient
-            grad_weight, grad_bias = linear_backward_op(
-                x.reshape(batch_dim, x.shape[-1]),
-                grad_output,
-                ctx.needs_input_grad[2],
-            )
-
-            grad_weight, grad_weight_sync = communicator.grad_hook(
-                grad_weight, async_op=True, module=module, is_bias=False
-            )
-            if grad_bias is not None:
-                grad_bias, grad_bias_sync = communicator.grad_hook(
-                    grad_bias, async_op=True, module=module, is_bias=True
+            if use_zeropp:
+                grad_weight = None
+                grad_bias = None
+                ZeroppManager.put(
+                    x.reshape(batch_dim, x.shape[-1]), grad_output, module, communicator, decoupled_grad_func
                 )
+            else:
+                grad_weight, grad_bias = linear_backward_op(
+                    x.reshape(batch_dim, x.shape[-1]),
+                    grad_output,
+                    ctx.needs_input_grad[2],
+                )
+                grad_weight, grad_weight_sync = communicator.grad_hook(
+                    grad_weight, async_op=True, module=module, is_bias=False
+                )
+                if grad_bias is not None:
+                    grad_bias, grad_bias_sync = communicator.grad_hook(
+                        grad_bias, async_op=True, module=module, is_bias=True
+                    )
         else:
             grad_weight = None
             grad_bias = grad_output if ctx.needs_input_grad[2] else None
@@ -247,12 +291,12 @@ class WPFusedDenseFunc(torch.autograd.Function):
         else:
             grad_input = None
 
-        del total_weight
-
-        if ctx.needs_input_grad[1]:
-            grad_weight_sync.wait()
-            if grad_bias is not None:
-                grad_bias_sync.wait()
+        if not use_zeropp:
+            del total_weight
+            if ctx.needs_input_grad[1]:
+                grad_weight_sync.wait()
+                if grad_bias is not None:
+                    grad_bias_sync.wait()
 
         return grad_input, grad_weight, grad_bias, None, None, None, None
 

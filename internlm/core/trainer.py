@@ -14,6 +14,7 @@ from internlm.core.scheduler import (
     InterleavedPipelineScheduler,
     NonPipelineScheduler,
     PipelineScheduler,
+    ZeroPPScheduler,
 )
 
 
@@ -181,7 +182,7 @@ class Trainer:
     @property
     def uses_pipeline(self):
         """Returns whether the pipeline parallel is used or not."""
-        return isinstance(self._schedule, (PipelineScheduler, InterleavedPipelineScheduler))
+        return isinstance(self._schedule, (PipelineScheduler, InterleavedPipelineScheduler, ZeroPPScheduler))
 
     def train(self):
         """Sets the model to training mode."""

@@ -22,6 +22,7 @@ from internlm.utils.common import (
 )
 from internlm.utils.logger import get_logger
 from internlm.utils.timeout import llm_timeout
+from internlm.utils.zeropp_manager import ZeroppManager
 
 from .base_scheduler import BaseScheduler
 
@@ -92,10 +93,10 @@ def pack_return_tensors(return_tensors):
 def switch_virtual_pipeline_parallel_rank(rank):
     prev_rank = gpc.virtual_pipeline_parallel_rank
     try:
-        gpc.set_virtual_pipeline_parallel_rank(rank)
+        gpc.set_virtual_pipeline_parallel_rank(rank, clear_zeropp_cache=False)
         yield
     finally:
-        gpc.set_virtual_pipeline_parallel_rank(prev_rank)
+        gpc.set_virtual_pipeline_parallel_rank(prev_rank, clear_zeropp_cache=False)
 
 
 @contextmanager
@@ -1361,6 +1362,757 @@ class InterleavedPipelineScheduler(PipelineScheduler):
         self._run_cooldown_loop(engine, num_microsteps, num_1f1b_micropairs=num_1f1b_micropairs)
 
     @llm_timeout(func_name="interleaved_forward_backward_step")
+    def forward_backward_step(self, engine, data_iter, forward_only=False, return_loss=True, return_output_label=True):
+        """Run interleaved 1F1B schedule (model split into model chunks), with
+        communication between pipeline stages as needed.
+
+        Args:
+            engine (colossalai.engine.Engine): Colossalai engine for training and inference.
+            data_iter (Iterable): Dataloader as the form of an iterator, obtained by calling iter(dataloader).
+            forward_only (bool, optional):
+                Whether run forward step only. Default is false. If true, no backward will be run.
+            return_loss (bool, optional): Whether returns the loss value. Default is true.
+            return_output_label (bool, optional): If False, the output and label won't be returned.
+
+        Returns:
+            Tuple[:class:`torch.Tensor`]: A tuple of (output, label, loss, moe_loss), loss and label could be None.
+                The loss would be returned only in the last stage. And the moe_loss is accumulated from all stages.
+        """
+        assert (
+            forward_only or return_loss
+        ), "The argument 'return_loss' has to be True when 'forward_only' is False, but got False."
+
+        gpc.set_virtual_pipeline_parallel_rank(0)
+
+        self.load_batch(engine, data_iter)
+
+        if return_loss and gpc.is_pipeline_last_stage(ignore_virtual=True):
+            self._accum_loss = torch.zeros(1, device=get_current_device())
+        self._accum_moe_loss = torch.zeros(1, device=get_current_device())
+
+        if return_output_label:
+            self._return_tensors = []
+
+        if forward_only:
+            self._forward_only_step(engine)
+        else:
+            self._forward_backward_step(engine)
+
+        if return_output_label and len(self._return_tensors) > 0:
+            output, label = pack_return_tensors(self._return_tensors)
+        else:
+            output, label = (None, None)
+
+        if hasattr(gpc.config.model, "num_experts") and gpc.config.model.num_experts > 1:
+            dist.all_reduce(self._accum_moe_loss, group=gpc.get_group(ParallelMode.PIPELINE))
+        accum_moe_loss = self._accum_moe_loss
+
+        accum_loss = self._accum_loss
+        if accum_loss is not None:
+            accum_loss += self._accum_moe_loss
+
+        self._clear_state()
+
+        # Compatible for non-moe
+        if hasattr(gpc.config.model, "num_experts"):
+            return output, label, accum_loss, accum_moe_loss
+        else:
+            return output, label, accum_loss
+
+
+class ZeroPPScheduler(PipelineScheduler):
+    """
+    ZeroPP Pipeline Scheduler.
+    """
+
+    def __init__(
+        self,
+        num_microbatches: int,
+        num_chunks: int,
+        dtype: torch.dtype = torch.float,
+        data_process_func: Callable = None,
+        tensor_shape: Union[torch.Size, List[int], Tuple[int]] = None,
+        scatter_gather_tensors: bool = False,
+        scheduler_hooks: Optional[List[SchedulerHook]] = None,
+        communication_overlap: bool = False,
+        unit_schedule_size: Optional[int] = None,
+    ):
+        """A helper schedule class for pipeline parallelism running environment.
+        It uses ZeroPP strategy. Other properties are similar as
+        :class:`PipelineSchedule`.
+
+        .. ZeroPP: https://arxiv.org/abs/2402.03791
+
+        Args:
+            num_microbatches (int): The number of microbatches.
+            num_chunks (int): The number of model chunks.
+            dtype (torch.dtype, optional): The data type of the tensors. Default is torch.float.
+            data_process_func (Callable, optional):
+                The preprocessing function which receives a batch of data, and it will be executed in `load_batch`.
+            tensor_shape (torch.Size, optional): Specified shape in pipeline communication.
+            scatter_gather_tensors (bool, optional):
+                If set to `True`, communication will be reduced over pipeline when using 1D tensor parallelization.
+            scheduler_hooks (List[SchedulerHook], optional): List of scheduler hooks. Default is None.
+            communication_overlap (bool, optional): Whether to enable communication overlap. Default is False.
+            unit_schedule_size: (int, optional):
+                Unit size if using interleaved GPipe schedule. Default is None and interleaved 1F1B schedule is used.
+        """
+        assert (
+            isinstance(num_chunks, int) and num_chunks > 0
+        ), f"expected num_chunks to be an integer and larger than 0, but got {num_chunks}"
+
+        super().__init__(
+            num_microbatches,
+            dtype=dtype,
+            data_process_func=data_process_func,
+            tensor_shape=tensor_shape,
+            scatter_gather_tensors=scatter_gather_tensors,
+            scheduler_hooks=scheduler_hooks,
+        )
+
+        gpc.set_virtual_pipeline_parallel_size(num_chunks)
+        gpc.set_virtual_pipeline_parallel_rank(0)
+
+        self._num_chunks = num_chunks
+        self._communication_overlap = communication_overlap
+        # switch 1f1b loop runner function according to communication overlap
+        self._run_1f1b_loop = self._run_1f1b_loop_with_overlap
+
+        # states
+        self._pp_size = gpc.get_world_size(ParallelMode.PIPELINE)
+        self._pp_rank = gpc.get_local_rank(ParallelMode.PIPELINE)
+
+        self._accum_loss = None
+        self._accum_moe_loss = None
+        self._return_tensors = None
+        self._input_objs = [[] for _ in range(num_chunks)]
+        self._input_objs_for_backward = [[] for _ in range(num_chunks)]
+        self._output_objs = [[] for _ in range(num_chunks)]
+        self._output_obj_grads = [[] for _ in range(num_chunks)]
+        self._moe_losses = [[] for _ in range(num_chunks)]
+
+        self._input_obj_shapes = [self.tensor_shape for _ in range(num_chunks)]
+        self._output_obj_shapes = [None for _ in range(num_chunks)]
+        self._send_tensor_shape_flags = [self.tensor_shape is None for _ in range(num_chunks)]
+
+        if unit_schedule_size is not None and unit_schedule_size > 0:
+            self._unit_schedule_size = unit_schedule_size
+            self._forward_backward_step = self._forward_backward_step_gpipe
+            self._get_current_microbatch_id = self._get_chunk_by_microbatch_gpipe
+            self._get_chunk_by_microbatch = self._get_chunk_by_microbatch_gpipe
+        else:
+            self._unit_schedule_size = None
+            self._forward_backward_step = self._forward_backward_step_1f1b
+            self._get_current_microbatch_id = self._get_chunk_by_microbatch_1f1b
+            self._get_chunk_by_microbatch = self._get_chunk_by_microbatch_1f1b
+
+        self._cur_unit_schedule_size = self._unit_schedule_size
+        if (
+            hasattr(gpc.config.parallel.pipeline, "decouple_grad")
+            and gpc.config.parallel.pipeline.decouple_grad is True
+        ):
+            self.decouple_grad = True
+        else:
+            self.decouple_grad = False
+
+    @property
+    def tensor_shape(self) -> torch.Size:
+        return self._tensor_shape
+
+    @tensor_shape.setter
+    def tensor_shape(self, tensor_shape: torch.Size):
+        self._tensor_shape = tensor_shape
+        self._input_obj_shapes = [self._tensor_shape for _ in range(self._num_chunks)]
+        self._send_tensor_shape_flags = [self._tensor_shape is None for _ in range(self._num_chunks)]
+
+    def _clear_state(self) -> None:
+        self._accum_loss = None
+        self._accum_moe_loss = None
+        self._return_tensors = None
+        self._input_objs = [[] for _ in range(self._num_chunks)]
+        self._input_objs_for_backward = [[] for _ in range(self._num_chunks)]
+        self._output_objs = [[] for _ in range(self._num_chunks)]
+        self._output_obj_grads = [[] for _ in range(self._num_chunks)]
+        self._moe_losses = [[] for _ in range(self._num_chunks)]
+
+        self._input_obj_shapes = [self.tensor_shape for _ in range(self._num_chunks)]
+        self._output_obj_shapes = [None for _ in range(self._num_chunks)]
+        self._send_tensor_shape_flags = [self.tensor_shape is None for _ in range(self._num_chunks)]
+
+    def _clear_state_unit(self) -> None:
+        self._input_objs = [[] for _ in range(self._num_chunks)]
+        self._input_objs_for_backward = [[] for _ in range(self._num_chunks)]
+        self._output_objs = [[] for _ in range(self._num_chunks)]
+        self._output_obj_grads = [[] for _ in range(self._num_chunks)]
+        self._moe_losses = [[] for _ in range(self._num_chunks)]
+
+        self._input_obj_shapes = [self.tensor_shape for _ in range(self._num_chunks)]
+        self._output_obj_shapes = [None for _ in range(self._num_chunks)]
+        self._send_tensor_shape_flags = [self.tensor_shape is None for _ in range(self._num_chunks)]
+
+    def load_batch(self, engine, data_iter):
+        super().load_batch(engine, data_iter)
+        # overwrite microbatch_offset, since model chunks load the same microbatch, and should tract the offset
+        self.microbatch_offset = [0 for _ in range(self._num_chunks)]
+
+    def load_micro_batch(self, model_chunk_id):
+        micro_batch_data, micro_batch_label = self._load_micro_batch(
+            data=self.batch_data,
+            label=self.batch_label,
+            offset=self.microbatch_offset[model_chunk_id],
+            bsz_stride=self.bsz_stride,
+        )
+        if self.data_process_func:
+            micro_batch_data, micro_batch_label = self.data_process_func(micro_batch_data, micro_batch_label)
+
+        micro_batch_data["label"] = micro_batch_label
+        self.microbatch_offset[model_chunk_id] += self.bsz_stride
+        return move_to_device(micro_batch_data)
+
+    def _forward_step(self, engine, chunk_id):
+        """Forward step for passed-in model. If it is the first stage, the input tensor
+        is obtained from data_iterator, otherwise the passed-in input_obj is used.
+        Returns output tensor. This is a helper function and can be ignored by users.
+
+        Args:
+            engine (colossalai.engine.Engine): Colossalai engine for training and inference.
+            chunk_id (int): The id of model chunks.
+        Returns:
+            Union[:class:`torch.Tensor`, List[:class:`torch.Tensor`]]: output or the loss value of the current
+                pipeline stage.
+        """
+        gpc.set_virtual_pipeline_parallel_rank(chunk_id)
+
+        if gpc.is_pipeline_first_stage():
+            if (len(self._input_objs[chunk_id]) + len(self._input_objs_for_backward[chunk_id])) == len(
+                self._output_objs[chunk_id]
+            ):
+                self._input_objs[chunk_id].append(None)
+
+        input_obj = self._input_objs[chunk_id].pop(0)
+        self._input_objs_for_backward[chunk_id].append(input_obj)
+
+        micro_batch_data = self.load_micro_batch(chunk_id)
+        data, label = self._get_data_label_for_current_step(input_obj, micro_batch_data)
+
+        self._call_hooks("before_forward", data)
+        if hasattr(gpc.config.model, "num_experts"):
+            output_obj, moe_losses = self._call_engine(engine.model[chunk_id], data)
+        else:
+            output_obj = self._call_engine(engine.model[chunk_id], data)
+        # Convert output_obj to fp32 when last model chunk of last stage
+        if gpc.is_pipeline_last_stage(ignore_virtual=False) and isinstance(engine.model[chunk_id], NaiveAMPModel):
+            output_obj = engine.model[chunk_id].convert_to_fp32(output_obj)
+        self._call_hooks("after_forward", output_obj)
+
+        if gpc.is_pipeline_last_stage():
+            self._call_hooks("post_helper_func", output_obj, label)
+
+            if self._return_tensors is not None:
+                self._return_tensors.append((output_obj, label))
+            if self._accum_loss is not None:
+                self._call_hooks("before_criterion", output_obj, label)
+                loss = self._call_engine_criterion(engine, output_obj, label)
+                self._call_hooks("after_criterion", loss)
+
+                loss_reduced = loss / self.num_microbatches
+                self._accum_loss.add_(loss_reduced.detach())
+                output_obj = loss_reduced
+
+        moe_loss = (
+            sum(moe_losses) * gpc.config.loss.moe_loss_coeff
+            if hasattr(gpc.config.model, "num_experts") and gpc.config.model.num_experts > 1
+            else torch.tensor(0.0, device=get_current_device(), dtype=gpc.config.model.get("dtype"))
+        )
+        # the moe_loss is computed among the "tensor" group if sequence parallel is enabled, so we need to do allreduce
+        if gpc.config.parallel.sequence_parallel:
+            dist.all_reduce(moe_loss, op=dist.ReduceOp.AVG, group=gpc.get_group(ParallelMode.TENSOR))
+        moe_loss /= self.num_microbatches
+
+        if self._accum_moe_loss is not None:
+            self._accum_moe_loss.add_(moe_loss.detach())
+
+        self._output_objs[chunk_id].append(output_obj)
+        self._moe_losses[chunk_id].append(moe_loss)
+
+        return output_obj
+
+    def _backward_step(self, engine, chunk_id, step_id):
+        """
+        Backward step for passed-in model. If it is the last stage, the input tensor
+        is obtained from the previous forward step, otherwise the passed-in input_obj is used.
+        Returns input tensor gradient. This is a helper function and can be ignored by users.
+
+        Args:
+            engine (colossalai.engine.Engine): Colossalai engine for training and inference.
+            chunk_id (int): The id of model chunks.
+            step_id (int): The current step id.
+
+        Returns:
+            Union[:class:`torch.Tensor`, List[:class:`torch.Tensor`]]: input tensor gradient.
+        """
+        gpc.set_virtual_pipeline_parallel_rank(chunk_id)
+
+        if gpc.is_pipeline_last_stage() and len(self._output_obj_grads[chunk_id]) == 0:
+            self._output_obj_grads[chunk_id].append(None)
+
+        input_obj = self._input_objs_for_backward[chunk_id].pop(0)
+        output_obj = self._output_objs[chunk_id].pop(0)
+        output_obj_grad = self._output_obj_grads[chunk_id].pop(0)
+        moe_loss = self._moe_losses[chunk_id].pop(0)
+
+        input_obj_grad = super()._backward_step(engine, step_id, input_obj, output_obj, output_obj_grad, moe_loss)
+
+        return input_obj_grad
+
+    def _get_chunk_by_microbatch_gpipe(self, step_id: int, backward: bool = False) -> int:
+        """Helper method to get the model chunk ID given the iteration number."""
+        chunk_id = step_id // self._cur_unit_schedule_size
+        if backward:
+            chunk_id = self._num_chunks - chunk_id - 1
+        return chunk_id
+
+    def _get_current_microbatch_id_gpipe(self, step_id: int) -> int:
+        microbatch_id = step_id % self._cur_unit_schedule_size
+        return microbatch_id
+
+    def _get_chunk_by_microbatch_1f1b(self, step_id: int, backward: bool = False) -> int:
+        """Helper method to get the model chunk ID given the iteration number."""
+        microbatch_id_in_group = step_id % (self._pp_size * self._num_chunks)
+        chunk_id = microbatch_id_in_group // self._pp_size
+        if backward:
+            chunk_id = self._num_chunks - chunk_id - 1
+        return chunk_id
+
+    def _get_current_microbatch_id_1f1b(self, step_id: int) -> int:
+        num_microbatch_group = step_id // (self._pp_size * self._num_chunks)
+        step_id_in_group = step_id % (self._pp_size * self._num_chunks)
+        microbatch_id = num_microbatch_group * self._pp_size + step_id_in_group % self._pp_size
+        return microbatch_id
+
+    def _run_warmup_loop(
+        self,
+        engine: Engine,
+        num_microsteps: int,
+        num_warmup_microsteps: int,
+        receive_extra_backward: bool = False,
+        forward_only: bool = False,
+    ) -> None:
+        """
+        Run the warm-up loop and prepare data for the 1F1B stage.
+
+        During the warm-up process, for each execution, it first performs a forward computation,
+        and then sends the computation result to the next stage.
+        It also receives data for the next forward computation.
+        Since the input for the first forward computation is not considered initially,
+        it needs to receive data once at the beginning.
+
+        After the warm-up is completed, we need to prepare data for the 1F1B stage.
+        The data preparation process should be consistent with the communication method of the 1F1B stage.
+
+        Args:
+            engine (Engine): The engine to run the warm-up loop.
+            num_microsteps (int): The total number of microsteps.
+            num_warmup_microsteps (int): The number of warm-up microsteps.
+            receive_extra_backward (bool, optional): Whether to receive extra backward input for the 1F1B stage.
+                                                     Default is False.
+            forward_only (bool, optional): Whether to only perform forward pass. Default is False.
+        """
+        if not gpc.is_pipeline_first_stage():
+            if self._input_obj_shapes[0] is None:
+                self._input_obj_shapes[0] = comm.recv_obj_meta()
+            self._input_objs[0].append(
+                comm.recv_forward(
+                    self._input_obj_shapes[0],
+                    dtype=self.dtype,
+                    scatter_gather_tensors=self.scatter_gather_tensors,
+                )
+            )
+        else:
+            self._input_objs[0].append(None)
+
+        for k in range(num_warmup_microsteps):
+            chunk_id = self._get_chunk_by_microbatch(k)
+
+            output_obj = self._forward_step(engine, chunk_id)
+
+            if forward_only:
+                # when forward-only, no need to save tensors for a backward pass
+                self._input_objs[chunk_id].pop()
+                self._output_objs[chunk_id].pop()
+                self._moe_losses[chunk_id].pop()
+
+            if not gpc.is_pipeline_last_stage():
+                if isinstance(output_obj, torch.Tensor):
+                    self._output_obj_shapes[chunk_id] = output_obj.shape
+                else:
+                    self._output_obj_shapes[chunk_id] = [out_tensor.shape for out_tensor in output_obj]
+
+                if self._send_tensor_shape_flags[chunk_id]:
+                    comm.send_obj_meta(output_obj)
+                    self._send_tensor_shape_flags[chunk_id] = False  # send only once for each chunk.
+
+            if gpc.is_pipeline_first_stage(ignore_virtual=True):
+                next_forward_chunk_id = self._get_chunk_by_microbatch(k - (self._pp_size - 1))
+                next_forward_chunk_id += 1
+            else:
+                next_forward_chunk_id = self._get_chunk_by_microbatch(k + 1)
+            next_forward_chunk_id = next_forward_chunk_id % self._num_chunks
+
+            with switch_virtual_pipeline_parallel_rank(next_forward_chunk_id):
+                if not gpc.is_pipeline_first_stage() and self._input_obj_shapes[next_forward_chunk_id] is None:
+                    self._input_obj_shapes[next_forward_chunk_id] = comm.recv_obj_meta()
+                if k == (num_microsteps - 1) or gpc.is_pipeline_first_stage():
+                    input_shape = None
+                else:
+                    input_shape = self._input_obj_shapes[next_forward_chunk_id]
+
+            # Don't send tensor downstream if on last stage.
+            if gpc.is_pipeline_last_stage():
+                output_obj = None
+
+            assert output_obj is None or output_obj.dtype == self.dtype
+
+            # Send and receive tensors as appropriate (send tensors computed
+            # in this iteration; receive tensors for next iteration).
+            if k != (num_warmup_microsteps - 1) or not receive_extra_backward:
+                # Normal warm-up communication process, or no need to prepare backward input for the 1F1B stage
+                input_obj = comm.send_forward_recv_forward(
+                    output_obj,
+                    input_shape,
+                    dtype=self.dtype,
+                    scatter_gather_tensors=self.scatter_gather_tensors,
+                )
+            else:
+                # In this case, we should handle forward and backward communication separately, consistent with the
+                # overlap version of the 1F1B stage
+                input_obj = comm.send_forward_recv_forward(
+                    output_obj,
+                    input_shape,
+                    dtype=self.dtype,
+                    scatter_gather_tensors=self.scatter_gather_tensors,
+                )
+                output_obj_grad = comm.send_backward_recv_backward(
+                    None,  # nothing to send
+                    self._output_obj_shapes[self._num_chunks - 1],
+                    dtype=self.dtype,
+                    scatter_gather_tensors=self.scatter_gather_tensors,
+                )
+                self._output_obj_grads[self._num_chunks - 1].append(output_obj_grad)
+
+            self._input_objs[next_forward_chunk_id].append(input_obj)
+
+    def pop_decoupled_grads(self, engine):
+        params = ZeroppManager.pop()
+        for param in params:
+            engine.optimizer._wait_reduce_scatter_and_accumulate_grads(param, skip_decoupled_grad_accum=False)
+        self._call_hooks("after_backward", None)
+
+    def _run_1f1b_loop_with_overlap(
+        self,
+        engine: Engine,
+        num_warmup_microsteps: int,
+        num_1f1b_micropairs: int,
+        all_warmup_microsteps: bool = False,
+    ) -> None:
+        """
+        Args:
+            engine (Engine): The engine to run the 1F1B loop.
+            num_warmup_microsteps (int): The number of warm-up microsteps.
+            num_1f1b_micropairs (int): The number of 1F1B micropairs.
+            all_warmup_microsteps (bool, optional): Whether to run all warm-up microsteps. Default is False.
+        """
+
+        forward_async_communicator = None
+        backward_async_communicator = None
+        next_forward_chunk_id = next_backward_chunk_id = 0
+
+        # Run 1F1B in steady state.
+        for k in range(num_1f1b_micropairs):
+            forward_microstep_id = k + num_warmup_microsteps
+            backward_microstep_id = k
+            forward_chunk_id = self._get_chunk_by_microbatch(forward_microstep_id)
+            backward_chunk_id = self._get_chunk_by_microbatch(backward_microstep_id, backward=True)
+
+            if forward_async_communicator is not None:
+                input_obj = forward_async_communicator.wait_and_receive()
+                if forward_async_communicator.need_receive:
+                    self._input_objs[next_forward_chunk_id].append(input_obj)
+
+            # 1. Forward pass.
+            output_obj = self._forward_step(engine, forward_chunk_id)
+
+            # 3. Send the forward outputs and receive the forward inputs from the previous rank.
+
+            # Check if it is the last model chunk of the last pipeline stage, no need to send forward output.
+            gpc.set_virtual_pipeline_parallel_rank(forward_chunk_id)
+            if gpc.is_pipeline_last_stage():
+                output_obj = None
+
+            if gpc.is_pipeline_first_stage(ignore_virtual=True):
+                next_forward_chunk_id = self._get_chunk_by_microbatch(forward_microstep_id - (self._pp_size - 1))
+                next_forward_chunk_id += 1
+            else:
+                next_forward_chunk_id = self._get_chunk_by_microbatch(forward_microstep_id + 1)
+            next_forward_chunk_id = next_forward_chunk_id % self._num_chunks
+
+            with switch_virtual_pipeline_parallel_rank(next_forward_chunk_id):
+                if gpc.is_pipeline_first_stage() or k == num_1f1b_micropairs - 1:
+                    input_obj_shape = None
+                else:
+                    input_obj_shape = self._input_obj_shapes[next_forward_chunk_id]
+
+            assert output_obj is None or output_obj.dtype == self.dtype
+
+            forward_async_communicator = comm.AsynCommunicator(
+                output_obj,
+                input_obj_shape,
+                self.dtype,
+                self.scatter_gather_tensors,
+                forward=True,
+            )
+            forward_async_communicator.start()
+
+            # 2. Check if the backward input is ready.
+            if backward_async_communicator is not None:
+                output_obj_grad = backward_async_communicator.wait_and_receive()
+
+                if backward_async_communicator.need_receive:
+                    self._output_obj_grads[next_backward_chunk_id].append(output_obj_grad)
+
+            # 5. Backward pass.
+
+            input_obj_grad = self._backward_step(engine, backward_chunk_id, backward_microstep_id)
+            ZeroppManager.flush()
+
+            # 6. Send the backward output and receive the backward input for the next iteration.
+            gpc.set_virtual_pipeline_parallel_rank(backward_chunk_id)
+            if gpc.is_pipeline_first_stage():
+                input_obj_grad = None
+
+            if gpc.is_pipeline_last_stage(ignore_virtual=True):
+                next_backward_chunk_id = self._get_chunk_by_microbatch(
+                    backward_microstep_id - (self._pp_size - 1), backward=True
+                )
+                next_backward_chunk_id -= 1
+            else:
+                next_backward_chunk_id = self._get_chunk_by_microbatch(backward_microstep_id + 1, backward=True)
+            next_backward_chunk_id = next_backward_chunk_id % self._num_chunks
+
+            with switch_virtual_pipeline_parallel_rank(next_backward_chunk_id):
+                if gpc.is_pipeline_last_stage():
+                    output_obj_shape = None
+                else:
+                    output_obj_shape = self._output_obj_shapes[next_backward_chunk_id]
+
+            backward_async_communicator = comm.AsynCommunicator(
+                input_obj_grad,
+                output_obj_shape,
+                self.dtype,
+                self.scatter_gather_tensors,
+                forward=False,
+            )
+            backward_async_communicator.start()
+
+            if self.decouple_grad:
+                if backward_chunk_id == self._num_chunks - 1:
+                    if backward_microstep_id > self._pp_rank * 2:
+                        self.pop_decoupled_grads(engine)
+
+                    if backward_microstep_id == self._cur_unit_schedule_size - 1:
+                        for _ in range((self._pp_size - self._pp_rank - 1) * 2):
+                            if not ZeroppManager.empty():
+                                self.pop_decoupled_grads(engine)
+                else:
+                    self.pop_decoupled_grads(engine)
+            else:
+                self.pop_decoupled_grads(engine)
+
+        if all_warmup_microsteps:
+            if not gpc.is_pipeline_last_stage():
+                self._output_obj_grads[self._num_chunks - 1].append(
+                    comm.recv_backward(
+                        self._output_obj_shapes[self._num_chunks - 1],
+                        dtype=self.dtype,
+                        scatter_gather_tensors=self.scatter_gather_tensors,
+                    )
+                )
+            else:
+                self._output_obj_grads[self._num_chunks - 1].append(None)
+        else:
+            output_obj_grad = backward_async_communicator.wait_and_receive()
+            if backward_async_communicator.need_receive:
+                self._output_obj_grads[next_backward_chunk_id].append(output_obj_grad)
+
+    def _run_cooldown_loop(self, engine: Engine, num_microsteps: int, num_1f1b_micropairs: int) -> None:
+        """
+        Run the cooldown loop.
+
+        The cooldown loop consists of the following steps:
+        1. Perform the backward step.
+        2. Send the backward output to the next stage and receive inputs for next backward.
+
+        Args:
+            engine (Engine): The engine to use for computation.
+            num_microsteps (int): The total number of microsteps.
+            num_1f1b_micropairs (int): The number of 1F1B micro-pairs.
+        """
+        for k in range(num_1f1b_micropairs, num_microsteps):
+            chunk_id = self._get_chunk_by_microbatch(k, backward=True)
+
+            input_obj_grad = self._backward_step(engine, chunk_id, k)
+            ZeroppManager.flush()
+
+            if gpc.is_pipeline_last_stage(ignore_virtual=True):
+                next_backward_chunk_id = self._get_chunk_by_microbatch(k - (self._pp_size - 1), backward=True)
+                next_backward_chunk_id -= 1
+            else:
+                next_backward_chunk_id = self._get_chunk_by_microbatch(k + 1, backward=True)
+            next_backward_chunk_id = next_backward_chunk_id % self._num_chunks
+
+            if k != (num_microsteps - 1) and not (
+                gpc.is_pipeline_last_stage(ignore_virtual=True) and next_backward_chunk_id == (self._num_chunks - 1)
+            ):
+                output_shape = self._output_obj_shapes[next_backward_chunk_id]
+            else:
+                output_shape = None
+
+            backward_async_communicator = comm.AsynCommunicator(
+                input_obj_grad,
+                output_shape,
+                self.dtype,
+                self.scatter_gather_tensors,
+                forward=False,
+            )
+            backward_async_communicator.start()
+            self.pop_decoupled_grads(engine)
+            output_obj_grad = backward_async_communicator.wait_and_receive()
+            if backward_async_communicator.need_receive:
+                self._output_obj_grads[next_backward_chunk_id].append(output_obj_grad)
+            else:
+                self._output_obj_grads[next_backward_chunk_id].append(None)
+
+        while not ZeroppManager.empty():
+            self.pop_decoupled_grads(engine)
+
+    def _forward_only_step(self, engine: Engine):
+        num_microsteps = self.num_microbatches * self._num_chunks
+        num_warmup_microsteps = num_microsteps
+
+        self._run_warmup_loop(
+            engine,
+            num_microsteps,
+            num_warmup_microsteps,
+            receive_extra_backward=False,
+            forward_only=True,
+        )
+
+    def _unit_schedule_step(self, engine: Engine, unit_schedule_size):
+        gpc.set_virtual_pipeline_parallel_rank(0)
+        self._cur_unit_schedule_size = unit_schedule_size
+        # Compute number of warmup and remaining microbatches.
+        unit_num_microsteps = unit_schedule_size * self._num_chunks
+
+        # Run all forward passes and then all backward passes if number of
+        # microbatches is just the number of pipeline stages.
+        # Otherwise, perform (num_chunks-1)*pipeline_parallel_size on
+        # all workers, followed by more microbatches after depending on
+        # stage ID (more forward passes for earlier stages, later stages can
+        # immediately start with 1F1B).
+        num_warmup_steps = (self._pp_size - self._pp_rank - 1) * 2
+        num_warmup_steps += (self._num_chunks - 1) * unit_schedule_size
+        num_warmup_steps = min(num_warmup_steps, unit_num_microsteps)
+        num_1f1b_micropairs = unit_num_microsteps - num_warmup_steps
+        all_warmup_microsteps = num_1f1b_micropairs == 0
+
+        # We usually need to prepare an extra backward data for the 1F1B stage when the WarmUp stage ends,
+        # because the 1F1B stage typically performs one forward and backward pass together,
+        # except in the following cases:
+        receive_extra_backward = not (
+            all_warmup_microsteps  # Only warmup microsteps
+            or gpc.is_pipeline_last_stage(ignore_virtual=True)  # The rank is the last pipeline stage
+        )
+
+        # 1. Warmup
+        self._run_warmup_loop(
+            engine,
+            unit_num_microsteps,
+            num_warmup_steps,
+            receive_extra_backward=receive_extra_backward,
+        )
+
+        # 2. 1F1B
+        self._run_1f1b_loop(
+            engine,
+            num_warmup_steps,
+            num_1f1b_micropairs=num_1f1b_micropairs,
+            all_warmup_microsteps=all_warmup_microsteps,
+        )
+
+        # 3. Cooldown
+        self._run_cooldown_loop(engine, unit_num_microsteps, num_1f1b_micropairs=num_1f1b_micropairs)
+        self._clear_state_unit()
+
+    def _forward_backward_step_gpipe(self, engine: Engine):
+        last_unit_schedule_size = self.num_microbatches % self._unit_schedule_size
+        num_unit_schedules = self.num_microbatches // self._unit_schedule_size
+        if last_unit_schedule_size > 0:
+            num_unit_schedules += 1
+        else:
+            last_unit_schedule_size = self._unit_schedule_size
+
+        for _ in range(num_unit_schedules - 1):
+            self._unit_schedule_step(engine, self._unit_schedule_size)
+        self._unit_schedule_step(engine, last_unit_schedule_size)
+
+    def _forward_backward_step_1f1b(self, engine: Engine):
+        # Compute number of warmup and remaining microbatches.
+        all_warmup_microsteps = False
+        num_microsteps = self.num_microbatches * self._num_chunks
+
+        # Run all forward passes and then all backward passes if number of
+        # microbatches is just the number of pipeline stages.
+        # Otherwise, perform (num_chunks-1)*pipeline_parallel_size on
+        # all workers, followed by more microbatches after depending on
+        # stage ID (more forward passes for earlier stages, later stages can
+        # immediately start with 1F1B).
+        if self.num_microbatches == self._pp_size:
+            num_warmup_steps = num_microsteps
+            all_warmup_microsteps = True
+        else:
+            num_warmup_steps = (self._pp_size - self._pp_rank - 1) * 2
+            num_warmup_steps += (self._num_chunks - 1) * self._pp_size
+            num_warmup_steps = min(num_warmup_steps, num_microsteps)
+        num_1f1b_micropairs = num_microsteps - num_warmup_steps
+
+        # We usually need to prepare an extra backward data for the 1F1B stage when the WarmUp stage ends,
+        # because the 1F1B stage typically performs one forward and backward pass together,
+        # except in the following cases:
+        receive_extra_backward = not (
+            all_warmup_microsteps  # Only warmup microsteps
+            or gpc.is_pipeline_last_stage(ignore_virtual=True)  # The rank is the last pipeline stage
+        )
+
+        # 1. Warmup
+        self._run_warmup_loop(
+            engine,
+            num_microsteps,
+            num_warmup_steps,
+            receive_extra_backward=receive_extra_backward,
+        )
+
+        # 2. 1F1B
+        self._run_1f1b_loop(
+            engine,
+            num_warmup_steps,
+            num_1f1b_micropairs=num_1f1b_micropairs,
+            all_warmup_microsteps=all_warmup_microsteps,
+        )
+
+        # 3. Cooldown
+        self._run_cooldown_loop(engine, num_microsteps, num_1f1b_micropairs=num_1f1b_micropairs)
+
+    @llm_timeout(func_name="zeropp_forward_backward_step")
     def forward_backward_step(self, engine, data_iter, forward_only=False, return_loss=True, return_output_label=True):
         """Run interleaved 1F1B schedule (model split into model chunks), with
         communication between pipeline stages as needed.
