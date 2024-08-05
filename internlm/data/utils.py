@@ -6,6 +6,7 @@ import re
 import torch
 
 from internlm.core.context import global_context as gpc
+from internlm.core.context.process_group_initializer import ParallelMode
 from internlm.utils.utils import ModelType
 
 
@@ -73,8 +74,8 @@ def packed_data_normalizer(data, label):
     data["max_seqlen"] = (data["cu_seqlens"][1:] - data["cu_seqlens"][:-1]).max().item()
 
     if gpc.config.model_type == ModelType.HF.name:
-        data.pop("cu_seqlens")
-        data.pop("max_seqlen")
+        gpc.config.data[f"cu_seqlens_data_rank{gpc.get_local_rank(ParallelMode.DATA)}"] = data.pop("cu_seqlens")
+        gpc.config.data[f"max_seqlen_data_rank{gpc.get_local_rank(ParallelMode.DATA)}"] = data.pop("max_seqlen")
         data["position_ids"] = data.pop("indexes")
 
     return data, label
