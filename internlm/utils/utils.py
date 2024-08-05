@@ -41,6 +41,27 @@ class CuSeqlenType(Enum):
         return str(self.value)
 
 
+class ModelType(Enum):
+    HF = 1
+    INTERNLM = 2
+    INTERNLM2_PUBLIC = 3
+    LLAMA2 = 4
+    INTERNLM_MoE = 5
+    LLAVA = 6
+
+
+class DataType(Enum):
+    hf = 1
+    tokenized = 2
+
+
+class TensorParallelMode(Enum):
+    mtp = 1
+    msp = 2
+    fsp = 3
+    isp = 4
+
+
 def check_attention_argument(*args, **kwargs) -> str:
     # self, qkv, ...
     # self, q, kv, ....

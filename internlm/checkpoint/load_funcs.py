@@ -9,6 +9,7 @@ from internlm.core.context import global_context as gpc
 from internlm.core.parallel.shard import partition_uniform
 from internlm.utils.logger import get_logger
 from internlm.utils.storage_manager import get_fns, llm_load
+from internlm.utils.utils import ModelType
 from transformers import AutoModelForCausalLM
 
 logger = get_logger(__file__)
@@ -93,7 +94,7 @@ def load_hf_llama_pretrained_weights(folder, model):
 
     current_states = {}
     for idx, i in enumerate(range(model.first_layer, model.last_layer)):
-        if gpc.config.model_type == "LLAMA2":
+        if gpc.config.model_type == ModelType.LLAMA2.name:
             if deep_split:
                 layer_ids = i // 2
             else:

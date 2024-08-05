@@ -39,6 +39,7 @@ from internlm.utils.logger import get_logger
 from internlm.utils.megatron_timers import megatron_timer as timer
 from internlm.utils.parallel import get_parallel_log_file_name, is_using_isp
 from internlm.utils.simple_memory_profiler import SimpleMemoryProfiler
+from internlm.utils.utils import DataType
 from internlm.utils.writer import Writer
 
 # global llm logger
@@ -161,7 +162,7 @@ class TrainerBuilder(Trainer):
 
         # initialize batch skipper
         skip_batches = gpc.config.data.skip_batches
-        if gpc.config.data.type == "hf" and gpc.config.ckpt.auto_resume:
+        if gpc.config.data.type == DataType.hf.name and gpc.config.ckpt.auto_resume:
             skip_batches = hf_simple_resume(train_state)
         self.batch_skipper = BatchSkipper(skip_batches)
 

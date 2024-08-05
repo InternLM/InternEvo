@@ -41,7 +41,7 @@ class _VocabSequenceParallelCrossEntropy(torch.autograd.Function):
         # vocab_seq_parallel_logits: [B * (S/P), V] -> [B, S/P, V]
         # target: [B * S/P] -> [B, S/P]
         vocab_seq_parallel_logits = vocab_seq_parallel_logits.view(
-            -1, gpc.config.data.seq_len // sp_size, gpc.config.VOCAB_SIZE
+            -1, gpc.config.data.seq_len // sp_size, gpc.config.model.vocab_size
         )
         target = target.view(-1, gpc.config.data.seq_len // sp_size)
 
@@ -94,7 +94,7 @@ class _VocabSequenceParallelCrossEntropy(torch.autograd.Function):
         # transpose
         grad_input = grad_input.transpose(0, 1).contiguous()
         # reshape
-        grad_input = grad_input.view(-1, gpc.config.VOCAB_SIZE)
+        grad_input = grad_input.view(-1, gpc.config.model.vocab_size)
 
         return grad_input, None, None
 

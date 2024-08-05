@@ -11,18 +11,22 @@ from internlm.core.context import (
     ParallelMode,
 )
 from internlm.core.context import global_context as gpc
+from internlm.utils.utils import TensorParallelMode
 
 
 def is_using_sequence_parallel():
     return (
         isinstance(gpc.config.parallel["tensor"], dict)
-        and gpc.config.parallel["tensor"].get("mode", "mtp") != "mtp"
+        and gpc.config.parallel["tensor"].get("mode", TensorParallelMode.mtp.name) != TensorParallelMode.mtp.name
         and gpc.config.parallel["tensor"]["size"] > 1
     )
 
 
 def is_using_isp():
-    return isinstance(gpc.config.parallel["tensor"], dict) and gpc.config.parallel["tensor"].get("mode", "mtp") == "isp"
+    return (
+        isinstance(gpc.config.parallel["tensor"], dict)
+        and gpc.config.parallel["tensor"].get("mode", TensorParallelMode.mtp.name) == TensorParallelMode.isp.name
+    )
 
 
 def is_replica_zero_parallel_parameter(p):

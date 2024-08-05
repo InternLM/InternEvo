@@ -32,6 +32,7 @@ from internlm.data.tokenized.packed_dataset import (
 )
 from internlm.data.utils import get_dataset_type_ids_map
 from internlm.utils.logger import get_logger
+from internlm.utils.utils import DataType, ModelType
 
 # global llm logger
 logger = get_logger(__file__)
@@ -151,10 +152,10 @@ def build_train_loader_with_data_type():
 
     train_folder = data_cfg.get("train_folder", None)
 
-    if data_cfg.type == "tokenized":
+    if data_cfg.type == DataType.tokenized.name:
         train_ds, train_sampler, train_collate_fn = get_tokenized_train_loader_items(data_cfg)
         dataset_types = list(get_dataset_type_ids_map(train_folder).keys()) if train_folder else ["en", "cn", "code"]
-    elif data_cfg.type == "hf":
+    elif data_cfg.type == DataType.hf.name:
         train_ds, train_sampler, train_collate_fn = get_hf_train_loader_items(data_cfg)
         dataset_types = ["en"]
     else:
@@ -178,7 +179,7 @@ def build_valid_loader_with_data_type():
 
     data_cfg = gpc.config.data
 
-    if data_cfg.type in ["tokenized", "hf"]:
+    if data_cfg.type in [DataType.tokenized.name, DataType.hf.name]:
         valid_ds, valid_collate_fn = get_tokenized_valid_loader_items(data_cfg)
     else:
         raise ValueError(f"dataset type {data_cfg.type} is not supported")
@@ -220,7 +221,7 @@ def build_valid_loader_with_data_type():
 def build_generation_loader_with_data_type(data_cfg, generation_cfg):
     """Generate and return the validation data loader based on data type."""
 
-    if data_cfg.type == "tokenized":
+    if data_cfg.type == DataType.tokenized.name:
         gene_ds, _ = get_tokenized_valid_loader_items(data_cfg)
     else:
         raise ValueError(f"dataset type {data_cfg.type} is not supported")

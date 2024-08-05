@@ -8,6 +8,7 @@ from internlm.model.modeling_internlm2 import InternLM2
 from internlm.model.modeling_llama import Llama2
 from internlm.model.modeling_llava import Llava
 from internlm.model.modeling_moe import Internlm1MoE
+from internlm.utils.utils import ModelType
 
 
 class Registry:
@@ -77,8 +78,8 @@ hf_config_initializer = Registry("hf_config_initializer")
 
 
 def register_model_initializer() -> None:
-    model_initializer.register_module("INTERNLM", InternLM1)
-    model_initializer.register_module("INTERNLM2_PUBLIC", InternLM2)
-    model_initializer.register_module("LLAMA2", Llama2)
-    model_initializer.register_module("INTERNLM_MoE", Internlm1MoE)
-    model_initializer.register_module("LLAVA", Llava)
+    model_initializer.register_module(ModelType.INTERNLM.name, InternLM1)
+    model_initializer.register_module(ModelType.INTERNLM2_PUBLIC.name, InternLM2)
+    model_initializer.register_module(ModelType.LLAMA2.name, Llama2)
+    model_initializer.register_module(ModelType.INTERNLM_MoE.name, Internlm1MoE)
+    model_initializer.register_module(ModelType.LLAVA.name, Llava)

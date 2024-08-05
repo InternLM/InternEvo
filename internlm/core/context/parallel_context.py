@@ -19,6 +19,7 @@ from internlm.accelerator import get_accelerator
 from internlm.utils.common import SingletonMeta
 from internlm.utils.logger import get_logger
 from internlm.utils.timeout import LLM_NCCL_TIMEOUT
+from internlm.utils.utils import TensorParallelMode
 
 from . import process_group_initializer as pgroup_initializer
 from .process_group_initializer import ParallelMode
@@ -480,7 +481,7 @@ class ParallelContext(metaclass=SingletonMeta):
             if "pipeline" not in parallel_config:
                 parallel_config._add_item("pipeline", dict(size=1, interleaved_overlap=False))
             if "tensor" not in parallel_config:
-                parallel_config._add_item("tensor", dict(size=1, mode="mtp"))
+                parallel_config._add_item("tensor", dict(size=1, mode=TensorParallelMode.mtp.name))
             if "weight" not in parallel_config:
                 parallel_config._add_item("weight", dict(size=1, overlap=False, memory_pool=False))
 
@@ -497,7 +498,10 @@ class ParallelContext(metaclass=SingletonMeta):
         self.weight_data_parallel_size = max(
             1, self.world_size // self.pipeline_parallel_size // self.weight_parallel_size
         )
-        if isinstance(parallel_config["tensor"], dict) and parallel_config["tensor"]["mode"] == "isp":
+        if (
+            isinstance(parallel_config["tensor"], dict)
+            and parallel_config["tensor"]["mode"] == TensorParallelMode.isp.name
+        ):
             if self.zero1_parallel_size == -1:
                 self.zero1_parallel_size = self.weight_data_parallel_size
             self.zero1_parallel_size = max(1, self.zero1_parallel_size)
@@ -524,7 +528,8 @@ class ParallelContext(metaclass=SingletonMeta):
         if "sequence_parallel" not in parallel_config:
             parallel_config._add_item("sequence_parallel", True)
         if isinstance(parallel_config["tensor"], int) or (
-            isinstance(parallel_config["tensor"], dict) and parallel_config["tensor"]["mode"] == "mtp"
+            isinstance(parallel_config["tensor"], dict)
+            and parallel_config["tensor"]["mode"] == TensorParallelMode.mtp.name
         ):
             parallel_config["sequence_parallel"] = False
 
@@ -566,7 +571,10 @@ class ParallelContext(metaclass=SingletonMeta):
         initializers.append(pgroup_initializer.Initializer_Tensor(*initializer_args))
         initializers.append(pgroup_initializer.Initializer_Data(*initializer_args))
         initializers.append(pgroup_initializer.Initializer_ISP_Data(*initializer_args))
-        if isinstance(parallel_config["tensor"], dict) and parallel_config["tensor"]["mode"] == "isp":
+        if (
+            isinstance(parallel_config["tensor"], dict)
+            and parallel_config["tensor"]["mode"] == TensorParallelMode.isp.name
+        ):
             initializers.append(pgroup_initializer.Initializer_Zero1_ISP(*initializer_args))
         else:
             initializers.append(pgroup_initializer.Initializer_Zero1(*initializer_args))

@@ -11,6 +11,7 @@ from internlm.core.context import ParallelMode
 from internlm.core.context import global_context as gpc
 from internlm.core.parallel.comm.utils import _split
 from internlm.utils.logger import get_logger
+from internlm.utils.utils import ModelType, TensorParallelMode
 
 logger = get_logger(__file__)
 
@@ -25,8 +26,17 @@ def split_data_sequence_parallel(data, label):
     #    so we should use the complete indexes when computing the rotary embedding.
     # 2. isp: After wqkv computation, the hidden states are segmented along the sequence dimension,
     #    so we need to segment the indexes accordingly.
-    if "indexes" in data and gpc.config.parallel["tensor"].get("mode", "mtp") == "isp":
+    if (
+        "indexes" in data
+        and gpc.config.parallel["tensor"].get("mode", TensorParallelMode.mtp.name) == TensorParallelMode.isp.name
+    ):
         data["indexes"] = _split(data["indexes"], ParallelMode.TENSOR, dim=_indexes_seq_dim)
+    if (
+        gpc.config.model_type == ModelType.HF.name
+        and "position_ids" in data
+        and gpc.config.parallel["tensor"].get("mode", TensorParallelMode.mtp.name) == TensorParallelMode.isp.name
+    ):
+        data["position_ids"] = _split(data["position_ids"], ParallelMode.TENSOR, dim=_indexes_seq_dim)
 
     data["input_ids"] = _split(data["input_ids"], ParallelMode.TENSOR, dim=_seq_dim)
     label = _split(label, ParallelMode.TENSOR, dim=_seq_dim)
@@ -39,7 +49,7 @@ def split_data_sequence_parallel(data, label):
 def get_tensor_split_parallel_mode() -> ParallelMode:
     tp_mode = gpc.config.parallel.tensor.mode
 
-    if tp_mode == "isp":
+    if tp_mode == TensorParallelMode.isp.name:
         return ParallelMode.WEIGHT
     else:
         return ParallelMode.TENSOR
@@ -56,7 +66,7 @@ def get_parallel_strategies_split_mode(linear_name: str) -> str:
         return "head"
     elif linear_name in ("wqkv", "wq", "wk", "wv", "wkv", "w1", "w3", "w13"):
         return "column"
-    elif linear_name in ("wo", "out_proj", "w2") and tp_mode == "isp":
+    elif linear_name in ("wo", "out_proj", "w2") and tp_mode == TensorParallelMode.isp.name:
         return "column"
     elif linear_name in ("wo", "out_proj", "w2"):
         return "row"

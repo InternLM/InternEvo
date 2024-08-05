@@ -29,6 +29,7 @@ from internlm.utils.common import SchedulerHook, get_current_device
 from internlm.utils.utils import (
     CuSeqlenType,
     QKVPackType,
+    TensorParallelMode,
     check_attention_argument,
     params_dispatch_with_condition,
 )
@@ -900,12 +901,9 @@ def auto_wrap_distributed_attention(cls: nn.Module) -> Callable[[bool, Any, floa
     def _attetion_constructor(
         local_attn_cls: type, causal=False, softmax_scale=None, attention_dropout=0.0
     ) -> nn.Module:
-        try:
-            tp_mode = gpc.config.parallel["tensor"].get("mode", "mtp")
-        except AttributeError:
-            tp_mode = "mtp"
+        tp_mode = gpc.config.parallel["tensor"].get("mode", TensorParallelMode.mtp.name)
 
-        if tp_mode != "isp":
+        if tp_mode != TensorParallelMode.isp.name:
             return local_attn_cls(causal, softmax_scale, attention_dropout)
         else:
             return DistributedAttention(
@@ -914,3 +912,21 @@ def auto_wrap_distributed_attention(cls: nn.Module) -> Callable[[bool, Any, floa
             )
 
     return partial(_attetion_constructor, local_attn_cls=cls)
+
+
+def auto_wrap_func_distributed_attention(func: Callable) -> Callable[[bool, Any, float], nn.Module]:
+    """
+    Wrap a local attention function to a distributed one, which will be used in the ISP parallelism.
+    """
+
+    def _attention_func_constructor(*args, local_attn_func=None, **kwargs) -> Callable:
+        tp_mode = gpc.config.parallel["tensor"].get("mode", TensorParallelMode.mtp.name)
+
+        if tp_mode != TensorParallelMode.isp.name:
+            return local_attn_func(*args, **kwargs)
+        else:
+            return DistributedAttention(
+                local_attention=local_attn_func, sequence_process_group=gpc.get_group(ParallelMode.TENSOR)
+            )(*args, **kwargs)
+
+    return partial(_attention_func_constructor, local_attn_func=func)
