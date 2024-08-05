@@ -13,7 +13,7 @@ from internlm.utils.utils import ModelType
 
 def create_model(model_type) -> Union[nn.Module, List[nn.Module]]:
 
-    if model_type == "hf":
+    if model_type == ModelType.HF.name:
         extra_kwargs = {"return_dict": False, "attn_implementation": "flash_attention_2"}
         config = hf_config_initializer.get_module(module_name=model_type)(**extra_kwargs)
         convert_hf_config(config)

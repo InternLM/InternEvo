@@ -51,7 +51,7 @@ def unpack_type_ids(type_ids, cu_seqlens):
 
 def unpack_data(data, label):
 
-    if gpc.config.model_type == "hf":
+    if gpc.config.model_type == ModelType.HF.name:
         return data, label
 
     data["input_ids"] = _unpack_data(data["input_ids"], data["cu_seqlens"], padding_v=0).squeeze(0)
