@@ -86,7 +86,7 @@ from internlm.utils.parallel import (
     sync_model_replica_param_group,
 )
 from internlm.utils.timeout import llm_timeout
-from internlm.utils.utils import DataType, ModelType, TensorParallelMode
+from internlm.utils.utils import TensorParallelMode
 
 try:
     import torch_npu

@@ -32,7 +32,7 @@ from internlm.data.tokenized.packed_dataset import (
 )
 from internlm.data.utils import get_dataset_type_ids_map
 from internlm.utils.logger import get_logger
-from internlm.utils.utils import DataType, ModelType
+from internlm.utils.utils import DataType
 
 # global llm logger
 logger = get_logger(__file__)
