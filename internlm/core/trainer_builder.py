@@ -209,9 +209,9 @@ class TrainerBuilder(Trainer):
                 model,
                 optimizer.optim,
                 log_folder=f"RUN/{gpc.config.JOB_NAME}/{self.current_time}/memory_trace/rank{gpc.get_global_rank()}_"
-                f"dp{gpc.get_local_rank(ParallelMode.DATA)}_"
-                f"wp{gpc.get_local_rank(ParallelMode.WEIGHT)}_"
-                f"tp{gpc.get_local_rank(ParallelMode.TENSOR)}",
+                + f"dp{gpc.get_local_rank(ParallelMode.DATA)}_"
+                + f"wp{gpc.get_local_rank(ParallelMode.WEIGHT)}_"
+                + f"tp{gpc.get_local_rank(ParallelMode.TENSOR)}",
             )
         return None
 
