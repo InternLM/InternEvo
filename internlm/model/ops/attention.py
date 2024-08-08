@@ -1034,3 +1034,28 @@ def hf_q_k_v_with_cu_seqlens(
     )
     attn_output = attn_output.unsqueeze(0)
     return attn_output
+
+@auto_wrap_func_distributed_attention
+def isp_flash_attn_varlen_func(
+    q,
+    k,
+    v,
+    cu_seqlens,
+    max_seqlen,
+    causal=False,
+    softmax_scale=None,
+    attention_dropout=0.0,
+):
+    return _flash_varlen_qkvsplited_func(
+        q.flatten(0, 1),
+        k.flatten(0, 1),
+        v.flatten(0, 1),
+        cu_seqlens,
+        cu_seqlens,
+        max_seqlen,
+        max_seqlen,
+        dropout_p=attention_dropout,
+        softmax_scale=softmax_scale,
+        causal=causal,
+        return_attn_probs=False,
+    )
