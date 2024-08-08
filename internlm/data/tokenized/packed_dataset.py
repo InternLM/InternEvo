@@ -66,7 +66,7 @@ class PackedDataset(Dataset):
         }
         """
 
-        if gpc.config is None or gpc.config.model is None or gpc.config.data.use_packed_dataset:
+        if gpc.config.data.use_packed_dataset:
             return self.build_pack(item)
 
         return self.build_unpack(item)
@@ -349,8 +349,10 @@ class PackedDatasetWithCut(PackedDataset):
     def __len__(self):
         # Line 405 of document_to_sequence.py in metaseq is directly spliced,
         # without additional consideration of sos or eos
-        n_packs = self.num_tokens // self.packed_length
-        return n_packs
+        if gpc.config.data.use_packed_dataset:
+            n_packs = self.num_tokens // self.packed_length
+            return n_packs
+        return len(self.lengths)
 
     def cal_map(self, carriage_idx: int = 0):
         assert carriage_idx >= 0
@@ -424,13 +426,8 @@ class PackedDatasetWithCut(PackedDataset):
         return out
 
     def cal_pos_unpack(self, index):
-        if index == 0:
-            pre_pos = 0
-        else:
-            pre_pos = index * gpc.config.data["micro_bsz"]
-
-        pos = (index + 1) * gpc.config.data["micro_bsz"]
-        return pre_pos, pos
+        pos = index + gpc.config.data["micro_bsz"]
+        return index, pos
 
     def build_unpack(self, index):
         """
@@ -449,7 +446,7 @@ class PackedDatasetWithCut(PackedDataset):
         [14, 15, 16, 0, 0, 0]
 
         """
-
+        assert index < len(self.dataset), "the index should be smaller than the length of datasets."
         pre_pos, pos = self.cal_pos_unpack(index)
 
         pack, cu_seqlens, indexes, labels, type_ids = [], [0], [], [], []
