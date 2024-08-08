@@ -795,7 +795,7 @@ class DistributedAttention(nn.Module):
 
     def __init__(
         self,
-        local_attention: nn.Module,
+        local_attention: Union[nn.Module, Callable],
         sequence_process_group: dist.ProcessGroup,
     ) -> None:
         super().__init__()
@@ -892,41 +892,44 @@ class DistributedAttention(nn.Module):
         return context
 
 
-def auto_wrap_distributed_attention(cls: nn.Module) -> Callable[[bool, Any, float], nn.Module]:
+def auto_wrap_distributed_attention(attn_impl: nn.Module) -> Callable[[bool, Any, float], nn.Module]:
     """
     Wrap a local attention module to a distributed one, which will be used in the ISP parallelism.
     """
 
     # should we impl distributed attention as a metaclass?
     def _attetion_constructor(
-        local_attn_cls: type, causal=False, softmax_scale=None, attention_dropout=0.0
+        attn_impl: type, causal=False, softmax_scale=None, attention_dropout=0.0
     ) -> nn.Module:
         tp_mode = gpc.config.parallel["tensor"].get("mode", TensorParallelMode.mtp.name)
 
         if tp_mode != TensorParallelMode.isp.name:
-            return local_attn_cls(causal, softmax_scale, attention_dropout)
+            return attn_impl(causal, softmax_scale, attention_dropout)
         else:
             return DistributedAttention(
-                local_attention=local_attn_cls(causal, softmax_scale, attention_dropout),
+                local_attention=attn_impl(causal, softmax_scale, attention_dropout),
                 sequence_process_group=gpc.get_group(ParallelMode.TENSOR),
             )
 
-    return partial(_attetion_constructor, local_attn_cls=cls)
+    return partial(_attetion_constructor, attn_impl=attn_impl)
 
 
-def auto_wrap_func_distributed_attention(func: Callable) -> Callable[[bool, Any, float], nn.Module]:
+def auto_wrap_func_distributed_attention(attn_impl: Callable) -> Callable[..., Callable]:
     """
     Wrap a local attention function to a distributed one, which will be used in the ISP parallelism.
     """
 
-    def _attention_func_constructor(*args, local_attn_func=None, **kwargs) -> Callable:
+    # should we impl distributed attention as a metaclass?
+    def _attetion_constructor(
+        *args, attn_impl: type, **kwargs
+    ) -> Callable:
         tp_mode = gpc.config.parallel["tensor"].get("mode", TensorParallelMode.mtp.name)
 
         if tp_mode != TensorParallelMode.isp.name:
-            return local_attn_func(*args, **kwargs)
+            return attn_impl(*args, **kwargs)
         else:
             return DistributedAttention(
-                local_attention=local_attn_func, sequence_process_group=gpc.get_group(ParallelMode.TENSOR)
+                local_attention=attn_impl, sequence_process_group=gpc.get_group(ParallelMode.TENSOR)
             )(*args, **kwargs)
 
-    return partial(_attention_func_constructor, local_attn_func=func)
+    return partial(_attetion_constructor, attn_impl=attn_impl)

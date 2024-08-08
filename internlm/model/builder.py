@@ -9,6 +9,7 @@ from internlm.model.registry import hf_config_initializer, model_initializer
 from internlm.model.utils import convert_hf_config
 from internlm.utils.common import get_current_device
 from internlm.utils.utils import ModelType
+from internlm.model.modules.dispatch import dispatch
 
 
 def create_model(model_type) -> Union[nn.Module, List[nn.Module]]:
@@ -36,6 +37,7 @@ def create_model(model_type) -> Union[nn.Module, List[nn.Module]]:
     if not gpc.is_using_parallel_mode(ParallelMode.PIPELINE):
         if model_type == ModelType.HF.name:
             model = model_buidler(config).to(kwargs["device"])
+            dispatch(model)
         else:
             kwargs["first"] = kwargs["last"] = True
             kwargs["start_layer_idx"] = 0
