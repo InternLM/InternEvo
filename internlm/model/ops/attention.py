@@ -1058,4 +1058,4 @@ def isp_flash_attn_varlen_func(
         softmax_scale=softmax_scale,
         causal=causal,
         return_attn_probs=False,
-    )
+    ).unsqueeze(0)
