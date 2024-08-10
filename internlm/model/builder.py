@@ -1,4 +1,4 @@
-from typing import List, Union, Callable, Optional
+from typing import Callable, List, Optional, Union
 
 from torch import nn
 
@@ -9,6 +9,7 @@ from internlm.model.registry import hf_config_initializer, model_initializer
 from internlm.model.utils import convert_hf_config
 from internlm.utils.common import get_current_device
 from internlm.utils.utils import ModelType
+
 
 def create_model(model_type, model_dispatch_func: Optional[Callable] = None) -> Union[nn.Module, List[nn.Module]]:
 
@@ -47,5 +48,5 @@ def create_model(model_type, model_dispatch_func: Optional[Callable] = None) -> 
 
     if model_dispatch_func:
         model_dispatch_func(model)
-    
+
     return model

@@ -160,7 +160,11 @@ def set_parallel_attr_for_param_groups(model: Union[nn.Module, nn.ModuleList]):
 
 
 @llm_timeout(func_name="initialize_model")
-def initialize_model(pre_process_func: Optional[Callable] = None, post_process_func: Optional[Callable] = None, model_dispatch_func: Optional[Callable] = None):
+def initialize_model(
+    pre_process_func: Optional[Callable] = None,
+    post_process_func: Optional[Callable] = None,
+    model_dispatch_func: Optional[Callable] = None,
+):
     """
     Initialize model with Automatic Mixed Precision.
 
