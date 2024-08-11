@@ -213,7 +213,8 @@ class TrainerBuilder(Trainer):
                 + f"wp{gpc.get_local_rank(ParallelMode.WEIGHT)}_"
                 + f"tp{gpc.get_local_rank(ParallelMode.TENSOR)}",
             )
-        return None
+        else:
+            return None
 
     def _initialize_batch_skipper(self, train_state) -> BatchSkipper:
         skip_batches = gpc.config.data.skip_batches
@@ -346,7 +347,11 @@ class TrainerBuilder(Trainer):
         )
 
     def _should_evaluate(self) -> bool:
-        return gpc.config.data.valid_every > 0 and self.train_state.step_count % gpc.config.data.valid_every == 0
+        return (
+            gpc.config.data.valid_every > 0
+            and self.train_state.step_count > 0
+            and self.train_state.step_count % gpc.config.data.valid_every == 0
+        )
 
     def _evaluate(self):
         evaluate_on_val_dls(
