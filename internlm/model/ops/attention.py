@@ -1005,7 +1005,9 @@ def isp_flash_attn_varlen_func(
     softmax_scale=None,
     attention_dropout=0.0,
 ):
-    assert device_backend == AcceleratorType.GPU and gpu_flash_attn_impl, "For Huggingface third-party models, currently only support GPU for ISP mode."
+    assert (
+        device_backend == AcceleratorType.GPU and gpu_flash_attn_impl
+    ), "For Huggingface third-party models, currently only support GPU for ISP mode."
     return _flash_varlen_qkvsplited_func(
         q.flatten(0, 1),
         k.flatten(0, 1),
@@ -1020,6 +1022,7 @@ def isp_flash_attn_varlen_func(
         return_attn_probs=False,
     ).unsqueeze(0)
 
+
 @auto_wrap_func_distributed_attention
 def isp_flash_attn_func(
     q,
@@ -1029,7 +1032,9 @@ def isp_flash_attn_func(
     softmax_scale=None,
     attention_dropout=0.0,
 ):
-    assert device_backend == AcceleratorType.GPU and gpu_flash_attn_impl, "For Huggingface third-party models, currently only support GPU for ISP mode."
+    assert (
+        device_backend == AcceleratorType.GPU and gpu_flash_attn_impl
+    ), "For Huggingface third-party models, currently only support GPU for ISP mode."
     return _flash_fixedlen_qkvsplited_func(
         q,
         k,
