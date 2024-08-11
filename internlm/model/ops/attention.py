@@ -995,47 +995,6 @@ class CrossAttention(nn.Module):
 
 
 @auto_wrap_func_distributed_attention
-def hf_q_k_v_without_cu_seqlens(
-    query_states,
-    key_states,
-    value_states,
-    dropout_p=0.0,
-    softmax_scale=None,
-    causal=True,
-):
-    attn_output = _flash_fixedlen_qkvsplited_func(  # TODO: currently only support GPU environment
-        query_states, key_states, value_states, dropout_p=dropout_p, softmax_scale=softmax_scale, causal=causal
-    )
-    return attn_output
-
-
-@auto_wrap_func_distributed_attention
-def hf_q_k_v_with_cu_seqlens(
-    query_states,
-    key_states,
-    value_states,
-    cumulative_len,
-    max_seqlen,
-    dropout_p=0.0,
-    causal=True,
-):
-    q_unpad, k_unpad, v_unpad = query_states.flatten(0, 1), key_states.flatten(0, 1), value_states.flatten(0, 1)
-    attn_output = _flash_varlen_qkvsplited_func(  # TODO: currently only support GPU environment
-        q_unpad,
-        k_unpad,
-        v_unpad,
-        cumulative_len,
-        cumulative_len,
-        max_seqlen,
-        max_seqlen,
-        dropout_p=dropout_p,
-        return_attn_probs=False,
-        causal=causal,
-    )
-    return attn_output
-
-
-@auto_wrap_func_distributed_attention
 def isp_flash_attn_varlen_func(
     q,
     k,
@@ -1046,6 +1005,7 @@ def isp_flash_attn_varlen_func(
     softmax_scale=None,
     attention_dropout=0.0,
 ):
+    assert device_backend == AcceleratorType.GPU and gpu_flash_attn_impl, "For Huggingface third-party models, currently only support GPU for ISP mode."
     return _flash_varlen_qkvsplited_func(
         q.flatten(0, 1),
         k.flatten(0, 1),
@@ -1059,3 +1019,23 @@ def isp_flash_attn_varlen_func(
         causal=causal,
         return_attn_probs=False,
     ).unsqueeze(0)
+
+@auto_wrap_func_distributed_attention
+def isp_flash_attn_func(
+    q,
+    k,
+    v,
+    causal=False,
+    softmax_scale=None,
+    attention_dropout=0.0,
+):
+    assert device_backend == AcceleratorType.GPU and gpu_flash_attn_impl, "For Huggingface third-party models, currently only support GPU for ISP mode."
+    return _flash_fixedlen_qkvsplited_func(
+        q,
+        k,
+        v,
+        dropout_p=attention_dropout,
+        softmax_scale=softmax_scale,
+        causal=causal,
+        return_attn_probs=False,
+    )
