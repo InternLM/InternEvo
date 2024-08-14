@@ -9,7 +9,7 @@ from internlm.core.context import global_context as gpc
 from internlm.core.parallel.shard import partition_uniform
 from internlm.utils.logger import get_logger
 from internlm.utils.storage_manager import get_fns, llm_load
-from internlm.utils.utils import ModelType
+from internlm.utils.utils import ModelType, TensorParallelMode
 from transformers import AutoModelForCausalLM
 
 logger = get_logger(__file__)
@@ -307,7 +307,26 @@ def load_hf_model_pretrained_weights(folder, model):
         logger.info(f"Loading pretrained model from {folder}")
 
     pretrained_model = AutoModelForCausalLM.from_pretrained(folder, trust_remote_code=True)
-    model.load_state_dict(pretrained_model.state_dict(), strict=False)
+
+    model_state_dict = model.state_dict()
+    state_dict = pretrained_model.state_dict()
+    tp_size = gpc.get_world_size(ParallelMode.TENSOR)
+    tp_rank = gpc.get_local_rank(ParallelMode.TENSOR)
+    wp_size = gpc.get_world_size(ParallelMode.WEIGHT)
+    wp_rank = gpc.get_local_rank(ParallelMode.WEIGHT)
+    tp_mode = gpc.config.parallel.tensor["mode"]
+    split_size = wp_size if tp_mode == TensorParallelMode.isp.name else tp_size
+    local_rank = wp_rank if tp_mode == TensorParallelMode.isp.name else tp_rank
+    row_dim = 0 if tp_mode == TensorParallelMode.isp.name else 1
+
+    if hasattr(model, "split_weights"):
+        model_state_dict = model.split_weights(
+            model.first_layer, model_state_dict, state_dict, split_size, local_rank, row_dim
+        )
+        model.load_state_dict(model_state_dict, strict=False)
+    else:
+        assert tp_size == 1 and wp_size == 1
+        model.load_state_dict(state_dict, strict=False)
 
     if gpc.is_rank_for_log():
         logger.info("Pretrained weights loaded successfully")

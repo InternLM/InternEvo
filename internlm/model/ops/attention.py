@@ -995,7 +995,7 @@ class CrossAttention(nn.Module):
 
 
 @auto_wrap_func_distributed_attention
-def isp_flash_attn_varlen_func(
+def hf_q_k_v_with_cu_seqlens(
     q,
     k,
     v,
@@ -1024,7 +1024,7 @@ def isp_flash_attn_varlen_func(
 
 
 @auto_wrap_func_distributed_attention
-def isp_flash_attn_func(
+def hf_q_k_v_without_cu_seqlens(
     q,
     k,
     v,
