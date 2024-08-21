@@ -8,10 +8,11 @@ from internlm.model.modeling_internlm2 import InternLM2
 from internlm.model.modeling_llama import Llama2
 from internlm.model.modeling_llava import Llava
 from internlm.model.modeling_moe import Internlm1MoE
+from internlm.utils.common import SingletonMeta
 from internlm.utils.utils import ModelType
 
 
-class Registry:
+class Registry(metaclass=SingletonMeta):
     """This is a registry class used to register classes and modules so that a universal
     object builder can be enabled.
 
@@ -34,13 +35,12 @@ class Registry:
             module_name (str): The name of module to be registered.
         Returns:
             function: The module to be registered, so as to use it normally if via importing.
-        Raises:
-            AssertionError: Raises an AssertionError if the module has already been registered before.
         """
 
-        assert module_name not in self._registry, f"{module_name} already registered in {self.name}"
-
-        self._registry[module_name] = func
+        if self.has(module_name):
+            return
+        else:
+            self._registry[module_name] = func
 
     def get_module(self, module_name: str):
         """Retrieves a module with name `module_name` and returns the module if it has
@@ -54,9 +54,10 @@ class Registry:
             NameError: Raises a NameError if the module to be retrieved has neither been
             registered directly nor as third party modules before.
         """
-        if module_name in self._registry:
+        if self.has(module_name):
             return self._registry[module_name]
-        raise NameError(f"Module {module_name} not found in the registry {self.name}")
+        else:
+            raise NameError(f"Module {module_name} not found in the registry {self.name}")
 
     def has(self, module_name: str):
         """Searches for a module with name `module_name` and returns a boolean value indicating
@@ -74,7 +75,6 @@ class Registry:
 
 
 model_initializer = Registry("model_initializer")
-hf_config_initializer = Registry("hf_config_initializer")
 
 
 def register_model_initializer() -> None:
@@ -83,3 +83,6 @@ def register_model_initializer() -> None:
     model_initializer.register_module(ModelType.LLAMA2.name, Llama2)
     model_initializer.register_module(ModelType.INTERNLM_MoE.name, Internlm1MoE)
     model_initializer.register_module(ModelType.LLAVA.name, Llava)
+
+
+register_model_initializer()

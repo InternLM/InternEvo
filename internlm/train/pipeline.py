@@ -93,6 +93,8 @@ try:
 except (ImportError, ModuleNotFoundError):
     pass
 
+IS_INJECTED = "is_injected"
+
 logger = get_logger(__file__)
 internlm_accelerator = get_accelerator()
 
@@ -163,7 +165,6 @@ def set_parallel_attr_for_param_groups(model: Union[nn.Module, nn.ModuleList]):
 def initialize_model(pre_process_func: Optional[Callable] = None, post_process_func: Optional[Callable] = None):
     """
     Initialize model with Automatic Mixed Precision.
-
     Returns:
         torch.nn.Module:
             The neural network model to be trained or evaluated.
@@ -177,6 +178,21 @@ def initialize_model(pre_process_func: Optional[Callable] = None, post_process_f
 
     if post_process_func:
         post_process_func(pre_process_output)
+
+    return inject_model(model)
+
+
+def inject_model(model):
+    """
+    Initialize model with Automatic Mixed Precision.
+
+    Returns:
+        torch.nn.Module:
+            The neural network model to be trained or evaluated.
+    """
+
+    if hasattr(model, IS_INJECTED) and getattr(model, IS_INJECTED):
+        return model
 
     # should be set before NaiveAMPModel
     set_fp32_attr_for_model(model)
@@ -216,6 +232,9 @@ def initialize_model(pre_process_func: Optional[Callable] = None, post_process_f
     # state in the same dp group are all the same.
     random_mode = ParallelMode.WEIGHT_DATA if is_using_isp() else ParallelMode.DATA
     set_mode(random_mode)
+
+    # set is_injected flag
+    setattr(model, "IS_INJECTED", True)
 
     return model
 
@@ -525,7 +544,7 @@ def record_current_batch_training_metrics(
     train_state,
     optimizer,
     beta2_scheduler,
-    trainer,
+    engine,
     start_time,
     very_begining_time,
     loss,
@@ -547,10 +566,10 @@ def record_current_batch_training_metrics(
 
     if success_update and gpc.is_rank_for_log():
         lr = optimizer.param_groups[0]["lr"]
-        if hasattr(trainer.engine.optimizer, "grad_scaler"):
-            scaler = trainer.engine.optimizer.grad_scaler._scale.item()
-        elif hasattr(trainer.engine.optimizer.optim, "grad_scaler"):
-            scaler = trainer.engine.optimizer.optim.grad_scaler._scale.item()
+        if hasattr(engine.optimizer, "grad_scaler"):
+            scaler = engine.optimizer.grad_scaler._scale.item()
+        elif hasattr(engine.optimizer.optim, "grad_scaler"):
+            scaler = engine.optimizer.optim.grad_scaler._scale.item()
 
         num_tokens_in_batch = batch[1].nelement()
         real_num_tokens = math.ceil(acc_perplex.pop("real_token_num") / gpc.get_world_size(ParallelMode.GLOBAL))

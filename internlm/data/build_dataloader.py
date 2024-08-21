@@ -146,18 +146,14 @@ def build_train_loader_with_data_type():
     """
     Build and return the training data loader based on data type.
 
-    Returns: A tuple of (train_dl, dataset_types).
+    Returns: train_dl
     """
     data_cfg = gpc.config.data
 
-    train_folder = data_cfg.get("train_folder", None)
-
     if data_cfg.type == DataType.tokenized.name:
         train_ds, train_sampler, train_collate_fn = get_tokenized_train_loader_items(data_cfg)
-        dataset_types = list(get_dataset_type_ids_map(train_folder).keys()) if train_folder else ["en", "cn", "code"]
-    elif data_cfg.type == DataType.hf.name:
+    elif data_cfg.type == DataType.streaming.name:
         train_ds, train_sampler, train_collate_fn = get_hf_train_loader_items(data_cfg)
-        dataset_types = ["en"]
     else:
         raise ValueError(f"dataset type {data_cfg.type} is not supported")
 
@@ -171,6 +167,9 @@ def build_train_loader_with_data_type():
         persistent_workers=data_cfg.get("num_worker", 4) > 0,
     )
 
+    train_folder = gpc.config.data.get("train_folder", None)
+    dataset_types = list(get_dataset_type_ids_map(train_folder).keys()) if train_folder else ["en", "cn", "code"]
+
     return train_dl, dataset_types
 
 
@@ -179,7 +178,7 @@ def build_valid_loader_with_data_type():
 
     data_cfg = gpc.config.data
 
-    if data_cfg.type in [DataType.tokenized.name, DataType.hf.name]:
+    if data_cfg.type in [DataType.tokenized.name, DataType.streaming.name]:
         valid_ds, valid_collate_fn = get_tokenized_valid_loader_items(data_cfg)
     else:
         raise ValueError(f"dataset type {data_cfg.type} is not supported")
