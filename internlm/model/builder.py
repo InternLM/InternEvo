@@ -5,8 +5,13 @@ from torch import nn
 from internlm.core.context import ParallelMode
 from internlm.core.context import global_context as gpc
 from internlm.core.parallel.shard import pipeline_parallel_sharding_wrapper
+from internlm.model.modules.embedding import Embedding1D
+from internlm.model.modules.linear import new_linear
 from internlm.model.registry import model_initializer
 from internlm.utils.common import get_current_device
+from internlm.utils.logger import get_logger
+
+logger = get_logger(__file__)
 
 
 def create_model(model_type) -> Union[nn.Module, List[nn.Module]]:
@@ -36,4 +41,39 @@ def create_model(model_type) -> Union[nn.Module, List[nn.Module]]:
     else:
         model = pipeline_parallel_sharding_wrapper(num_layers, num_chunks, model_buidler, **kwargs)
 
+    check_model(model)
+
     return model
+
+
+def check_embed(model):
+    def traverse(module):
+        for name, child in module.named_children():
+            if isinstance(child, nn.Embedding):
+                logger.warning(
+                    f"To get parallel setting enabled, {name} of type {nn.Embedding.__name__} \
+                        is suggested to be replaced with type {Embedding1D.__name__}"
+                )
+            else:
+                traverse(child)
+
+    traverse(model)
+
+
+def check_linear(model):
+    def traverse(module):
+        for name, child in module.named_children():
+            if isinstance(child, nn.Linear):
+                logger.warning(
+                    f"To get parallel setting enabled, {name} of type {nn.Linear.__name__} \
+                        is suggested to be replaced with type {new_linear.__name__}"
+                )
+            else:
+                traverse(child)
+
+    traverse(model)
+
+
+def check_model(model):
+    check_embed(model)
+    check_linear(model)
