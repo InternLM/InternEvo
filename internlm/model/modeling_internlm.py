@@ -451,14 +451,14 @@ class InternLM1(BaseModel):
                 dim=0,
             )[local_rank]
             state_dict[f"blocks.{i}.mlp.w3.weight"] = torch.chunk(
-                state_dict.pop(f"model.layers.{layer_ids}.mlp.up_proj.weight"),
-                split_size,
-                dim=0,
-            )[local_rank]
-            state_dict[f"blocks.{i}.mlp.w2.weight"] = torch.chunk(
                 state_dict.pop(f"model.layers.{layer_ids}.mlp.down_proj.weight"),
                 split_size,
                 dim=row_dim,
+            )[local_rank]
+            state_dict[f"blocks.{i}.mlp.w2.weight"] = torch.chunk(
+                state_dict.pop(f"model.layers.{layer_ids}.mlp.up_proj.weight"),
+                split_size,
+                dim=0,
             )[local_rank]
 
             # attn norm
@@ -631,6 +631,8 @@ class InternLM1(BaseModel):
         model_config = gpc.config.model
         n_heads = model_config["num_attention_heads"]
         h_dim = model_config["hidden_size"]
+        tp_mode = gpc.config.parallel.tensor["mode"]
+        row_dim = 0 if tp_mode == "isp" else 1
 
         # load states
         states, num_shards = InternLM1.load_sharded_states(src)
@@ -683,7 +685,7 @@ class InternLM1(BaseModel):
             ).reshape(-1)
 
             state_dict[f"model.layers.{layer_i}.self_attn.o_proj.weight"] = torch.cat(
-                [states[i][f"blocks.{layer_i}.mixer.out_proj.weight"] for i in range(num_shards)], dim=1
+                [states[i][f"blocks.{layer_i}.mixer.out_proj.weight"] for i in range(num_shards)], dim=row_dim
             )
             state_dict[f"model.layers.{layer_i}.self_attn.o_proj.bias"] = states[0][
                 f"blocks.{layer_i}.mixer.out_proj.bias"
@@ -692,7 +694,7 @@ class InternLM1(BaseModel):
                 [states[i][f"blocks.{layer_i}.mlp.w1.weight"] for i in range(num_shards)], dim=0
             )
             state_dict[f"model.layers.{layer_i}.mlp.down_proj.weight"] = torch.cat(
-                [states[i][f"blocks.{layer_i}.mlp.w3.weight"] for i in range(num_shards)], dim=1
+                [states[i][f"blocks.{layer_i}.mlp.w3.weight"] for i in range(num_shards)], dim=row_dim
             )
             state_dict[f"model.layers.{layer_i}.mlp.up_proj.weight"] = torch.cat(
                 [states[i][f"blocks.{layer_i}.mlp.w2.weight"] for i in range(num_shards)], dim=0

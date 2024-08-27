@@ -588,6 +588,8 @@ class InternLM2(BaseModel):
             return qkv
 
         model_config = gpc.config.model
+        tp_mode = gpc.config.parallel.tensor["mode"]
+        row_dim = 0 if tp_mode == "isp" else 1
 
         # load states
         states, num_shards = InternLM2.load_sharded_states(src)
@@ -613,13 +615,13 @@ class InternLM2(BaseModel):
             )
 
             state_dict[f"model.layers.{layer_i}.attention.wo.weight"] = torch.cat(
-                [states[i][f"layers.{layer_i}.attention.wo.weight"] for i in range(num_shards)], dim=1
+                [states[i][f"layers.{layer_i}.attention.wo.weight"] for i in range(num_shards)], dim=row_dim
             )
             state_dict[f"model.layers.{layer_i}.feed_forward.w1.weight"] = torch.cat(
                 [states[i][f"layers.{layer_i}.feed_forward.w1.weight"] for i in range(num_shards)], dim=0
             )
             state_dict[f"model.layers.{layer_i}.feed_forward.w2.weight"] = torch.cat(
-                [states[i][f"layers.{layer_i}.feed_forward.w2.weight"] for i in range(num_shards)], dim=1
+                [states[i][f"layers.{layer_i}.feed_forward.w2.weight"] for i in range(num_shards)], dim=row_dim
             )
             state_dict[f"model.layers.{layer_i}.feed_forward.w3.weight"] = torch.cat(
                 [states[i][f"layers.{layer_i}.feed_forward.w3.weight"] for i in range(num_shards)], dim=0
