@@ -572,7 +572,7 @@ class Llama2(BaseModel):
         internlm_accelerator.empty_cache()
 
     @staticmethod
-    def load_llama_pretrained_weights(folder: str, model: nn.Module):
+    def load_llama_pretrained_weights(folder: str, model: nn.Module) -> None:
         assert folder is not None, "Please specify the folder of the pretrained model"
         if gpc.is_rank_for_log():
             logger.info(f"Loading pretrained model from {folder}")
@@ -625,3 +625,7 @@ class Llama2(BaseModel):
             )
 
         internlm_accelerator.empty_cache()
+
+    @staticmethod
+    def convert_internevo2hf_weights(src: str, tgt: str) -> None:
+        raise NotImplementedError

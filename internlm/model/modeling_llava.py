@@ -236,5 +236,9 @@ class Llava(BaseModel):
         return hidden_states
 
     @staticmethod
-    def load_hf_weights(folder: str, model: nn.Module):
+    def load_hf_weights(folder: str, model: nn.Module) -> None:
+        raise NotImplementedError
+
+    @staticmethod
+    def convert_internevo2hf_weights(src: str, tgt: str) -> None:
         raise NotImplementedError
