@@ -808,7 +808,7 @@ class DistributedAttention(nn.Module):
 
     @forward.register(conditions=(str(QKVPackType.QKVPACKED), str(CuSeqlenType.With)))
     @forward.register(conditions=(str(QKVPackType.QKVPACKED), str(CuSeqlenType.WithOut)))
-    def _(self, qkv: torch.Tensor, **kwargs) -> torch.Tensor:
+    def _qkv(self, qkv: torch.Tensor, *args, **kwargs) -> torch.Tensor:
         """forward
 
         Arguments:
@@ -822,7 +822,7 @@ class DistributedAttention(nn.Module):
         # scatter in n_head and gather in seqlen(packlen)
         qkv = _SeqAllToAll.apply(self.spg, qkv, 3, 1)
 
-        context = self.local_attn(qkv, **kwargs)
+        context = self.local_attn(qkv, *args, **kwargs)
 
         # context shape: [1, packlen, n_head, head_dim] or [batch, seqlen, n_head, head_dim]
         # scatter in seqlen(packlen) and gather in n_head
@@ -832,7 +832,7 @@ class DistributedAttention(nn.Module):
 
     @forward.register(conditions=(str(QKVPackType.KVPACKED), str(CuSeqlenType.With)))
     @forward.register(conditions=(str(QKVPackType.KVPACKED), str(CuSeqlenType.WithOut)))
-    def _(self, q: torch.Tensor, kv: torch.Tensor, **kwargs) -> torch.Tensor:
+    def _q_kv(self, q: torch.Tensor, kv: torch.Tensor, *args, **kwargs) -> torch.Tensor:
         """forward
 
         Arguments:
@@ -850,7 +850,7 @@ class DistributedAttention(nn.Module):
         # scatter in n_head and gather in seqlen(packlen)
         kv = _SeqAllToAll.apply(self.spg, kv, 3, 1)
 
-        context = self.local_attn(q, kv, **kwargs)
+        context = self.local_attn(q, kv, *args, **kwargs)
 
         # context shape: [1, packlen, n_head, head_dim] or [batch, seqlen, n_head, head_dim]
         # scatter in seqlen(packlen) and gather in n_head
@@ -860,7 +860,7 @@ class DistributedAttention(nn.Module):
 
     @forward.register(conditions=(str(QKVPackType.QKVSPLITED), str(CuSeqlenType.With)))
     @forward.register(conditions=(str(QKVPackType.QKVSPLITED), str(CuSeqlenType.WithOut)))
-    def _(self, q: torch.Tensor, k: torch.Tensor, v: torch.Tensor, **kwargs) -> torch.Tensor:
+    def _q_k_v(self, q: torch.Tensor, k: torch.Tensor, v: torch.Tensor, *args, **kwargs) -> torch.Tensor:
         """forward
 
         Arguments:
@@ -883,7 +883,7 @@ class DistributedAttention(nn.Module):
         # scatter in n_head and gather in seqlen(packlen)
         v = _SeqAllToAll.apply(self.spg, v, 2, 1)
 
-        context = self.local_attn(q, k, v, **kwargs)
+        context = self.local_attn(q, k, v, *args, **kwargs)
 
         # context shape: [1, packlen, n_head, head_dim] or [batch, seqlen, n_head, head_dim]
         # scatter in seqlen(packlen) and gather in n_head
