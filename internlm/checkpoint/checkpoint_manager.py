@@ -444,11 +444,15 @@ now step_count is {train_state.step_count}",
 
             if self.enable_internevo2hf_ckpt and save_hf_ckpt_folder is not None and gpc.is_rank_for_log():
                 # convert internevo2hf checkpoint
-                logger.info(f"Start to convert internevo2hf checkpoint from {save_ckpt_folder} to {save_hf_ckpt_folder}.")
+                logger.info(
+                    f"Start to convert internevo2hf checkpoint from {save_ckpt_folder} to {save_hf_ckpt_folder}."
+                )
                 model_initializer.get_module(module_name=gpc.config.model_type).convert_internevo2hf_weights(
                     src=save_ckpt_folder, tgt=save_hf_ckpt_folder
                 )
-                logger.info(f"Finish to convert internevo2hf checkpoint from {save_ckpt_folder} to {save_hf_ckpt_folder}.")
+                logger.info(
+                    f"Finish to convert internevo2hf checkpoint from {save_ckpt_folder} to {save_hf_ckpt_folder}."
+                )
 
             torch.distributed.barrier()
 

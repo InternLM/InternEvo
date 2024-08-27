@@ -4,8 +4,8 @@ import os
 import re
 from typing import Optional
 
-from einops import rearrange
 import torch
+from einops import rearrange
 from torch import nn
 from tqdm import tqdm
 
@@ -31,13 +31,12 @@ from internlm.model.utils import (
 from internlm.solver.activation_checkpoint import activation_checkpoint
 from internlm.utils.logger import get_logger
 from internlm.utils.storage_manager import get_fns, llm_load, llm_save
+from internlm.utils.utils import TensorParallelMode
 from transformers.modeling_utils import (
     SAFE_WEIGHTS_INDEX_NAME,
     SAFE_WEIGHTS_NAME,
     shard_checkpoint,
 )
-
-from internlm.utils.utils import TensorParallelMode
 
 internlm_accelerator = get_accelerator()
 logger = get_logger(__file__)
@@ -627,7 +626,6 @@ class InternLM2(BaseModel):
                         states[tp][pp] = llm_load(ckpt_name, map_location="cpu")
             return states
 
-
         def merge(states):
             merged_states = []
             for tp_state in tqdm(states):
@@ -700,8 +698,6 @@ class InternLM2(BaseModel):
             state_dict[f"model.layers.{layer_i}.feed_forward.w1.weight"] = torch.cat(
                 [states[i][f"layers.{layer_i}.feed_forward.w1.weight"] for i in range(num_shards)], dim=0
             )
-
-            intermediate_size = states[0][f"layers.{layer_i}.feed_forward.w2.weight"].shape[1] * num_shards
             state_dict[f"model.layers.{layer_i}.feed_forward.w2.weight"] = torch.cat(
                 [states[i][f"layers.{layer_i}.feed_forward.w2.weight"] for i in range(num_shards)], dim=1
             )

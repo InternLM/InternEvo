@@ -31,13 +31,12 @@ from internlm.model.utils import (
 from internlm.solver.activation_checkpoint import activation_checkpoint
 from internlm.utils.logger import get_logger
 from internlm.utils.storage_manager import get_fns, llm_load, llm_save
+from internlm.utils.utils import TensorParallelMode
 from transformers.modeling_utils import (
     SAFE_WEIGHTS_INDEX_NAME,
     SAFE_WEIGHTS_NAME,
     shard_checkpoint,
 )
-
-from internlm.utils.utils import TensorParallelMode
 
 internlm_accelerator = get_accelerator()
 logger = get_logger(__file__)
@@ -678,7 +677,7 @@ class InternLM1(BaseModel):
                     for pp in tqdm(range(max_pp)):
                         ckpt_name = os.path.join(src, f"model_tp{tp}_pp{pp}.pt")
                         states[tp][pp] = llm_load(ckpt_name, map_location="cpu")
-                return states
+            return states
 
         def merge(states):
             merged_states = []
