@@ -8,3 +8,8 @@ class BaseModel(nn.Module, metaclass=ABCMeta):
     @abstractmethod
     def load_hf_weights(folder: str, model: nn.Module) -> None:
         raise NotImplementedError
+
+    @staticmethod
+    @abstractmethod
+    def convert_internevo2hf_weights(src: str, tgt: str) -> None:
+        raise NotImplementedError

@@ -258,6 +258,7 @@ class CheckpointManager:
             self.async_upload_tmp_folder = None
 
         self.async_upload = get_config_value(ckpt_config, "async_upload", False)
+        self.enable_internevo2hf_ckpt = get_config_value(ckpt_config, "enable_internevo2hf_ckpt", False)
 
         use_processpool = self.save_ckpt_folder is not None and (
             self.save_ckpt_folder.startswith("volc:") or self.save_ckpt_folder.startswith("oss2:")
@@ -420,6 +421,7 @@ now step_count is {train_state.step_count}",
         save_ckpts, save_type, now_break = self.is_now_to_save_ckpt(train_state, force=force)
 
         if save_ckpts:
+            save_hf_ckpt_folder = None
             # Wait for the previous round of asynchronous upload storage to complete.
             self.storage_manager.wait()
             if save_type == CheckpointSaveType.SNAPSHOT_CHECKPOINT:
@@ -428,6 +430,7 @@ now step_count is {train_state.step_count}",
                 save_ckpt_folder = os.path.join(self.snapshot_ckpt_folder, f"{self.snapshot_counter}")
             else:
                 save_ckpt_folder = os.path.join(self.save_ckpt_folder, str(train_state.step_count))
+                save_hf_ckpt_folder = os.path.join(self.save_ckpt_folder, f"{str(train_state.step_count)}_hf")
 
             self.save_checkpoint(
                 folder=save_ckpt_folder,
@@ -438,6 +441,16 @@ now step_count is {train_state.step_count}",
                 model_config=self.model_config,
                 model_config_file=self.model_config_file,
             )
+
+            if self.enable_internevo2hf_ckpt and save_hf_ckpt_folder is not None and gpc.is_rank_for_log():
+                # convert internevo2hf checkpoint
+                logger.info(f"Start to convert internevo2hf checkpoint from {save_ckpt_folder} to {save_hf_ckpt_folder}.")
+                model_initializer.get_module(module_name=gpc.config.model_type).convert_internevo2hf_weights(
+                    src=save_ckpt_folder, tgt=save_hf_ckpt_folder
+                )
+                logger.info(f"Finish to convert internevo2hf checkpoint from {save_ckpt_folder} to {save_hf_ckpt_folder}.")
+
+            torch.distributed.barrier()
 
         return now_break
 

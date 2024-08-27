@@ -5,6 +5,7 @@ from torch import nn
 from internlm.core.context import ParallelMode
 from internlm.core.context import global_context as gpc
 from internlm.core.parallel.shard import pipeline_parallel_sharding_wrapper
+from internlm.model.base_model import BaseModel
 from internlm.model.modules.embedding import Embedding1D
 from internlm.model.modules.linear import ParallelLinearWithCommExt, new_linear
 from internlm.model.registry import model_initializer
@@ -76,5 +77,8 @@ def check_linear(model):
 
 
 def check_model(model):
+    assert isinstance(
+        model, BaseModel
+    ), f"To load_hf_weights and convert_internevo2hf_weights enabled, model must inherit from {BaseModel.__name__}"
     check_embed(model)
     check_linear(model)

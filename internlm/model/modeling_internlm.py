@@ -3,10 +3,12 @@
 
 import math
 import os
+import re
 from typing import Optional
 
 import torch
 from torch import nn
+from tqdm import tqdm
 
 from internlm.accelerator import get_accelerator
 from internlm.core.context import ParallelMode
@@ -28,7 +30,14 @@ from internlm.model.utils import (
 )
 from internlm.solver.activation_checkpoint import activation_checkpoint
 from internlm.utils.logger import get_logger
-from internlm.utils.storage_manager import get_fns, llm_load
+from internlm.utils.storage_manager import get_fns, llm_load, llm_save
+from transformers.modeling_utils import (
+    SAFE_WEIGHTS_INDEX_NAME,
+    SAFE_WEIGHTS_NAME,
+    shard_checkpoint,
+)
+
+from internlm.utils.utils import TensorParallelMode
 
 internlm_accelerator = get_accelerator()
 logger = get_logger(__file__)
@@ -619,3 +628,199 @@ class InternLM1(BaseModel):
             )
 
         internlm_accelerator.empty_cache()
+
+    @staticmethod
+    def convert_internevo2hf_weights(src: str, tgt: str):
+        def _find_max_tp_pp(names):
+            ckpt_names = []
+            for name in names:
+                if name.startswith("model_t") and not name.endswith("md5"):
+                    # _t: avoid conflictint with model_config.pt
+                    ckpt_names.append(name)
+
+            max_tp, max_pp = -1, -1
+            for ckpt in ckpt_names:
+                _, tp, pp = os.path.splitext(ckpt)[0].split("_")
+                max_tp = max(max_tp, int(tp[2:]) + 1)
+                max_pp = max(max_pp, int(pp[2:]) + 1)
+
+            return max_tp, max_pp
+
+        def _find_max_wp_pp(names):
+            ckpt_names = []
+            for name in names:
+                if name.startswith("model_w") and not name.endswith("md5"):
+                    ckpt_names.append(name)
+
+            max_wp, max_pp = -1, -1
+            for ckpt in ckpt_names:
+                _, wp, pp = os.path.splitext(ckpt)[0].split("_")
+                max_wp = max(max_wp, int(wp[2:]) + 1)
+                max_pp = max(max_pp, int(pp[2:]) + 1)
+
+            return max_wp, max_pp
+
+        def load_source(src):
+            ckpt_names = get_fns(src)
+            if gpc.config.parallel.tensor.mode == TensorParallelMode.isp.name:
+                max_wp, max_pp = _find_max_wp_pp(ckpt_names)
+                # 2-d array wp_rank, pp_rank
+                states = [[None for _ in range(max_pp)] for __ in range(max_wp)]
+                for wp in tqdm(range(max_wp)):
+                    for pp in tqdm(range(max_pp)):
+                        ckpt_name = os.path.join(src, f"model_wp{wp}_pp{pp}.pt")
+                        states[wp][pp] = llm_load(ckpt_name, map_location="cpu")
+            else:
+                max_tp, max_pp = _find_max_tp_pp(ckpt_names)
+                # 2-d array tp_rank, pp_rank
+                states = [[None for _ in range(max_pp)] for __ in range(max_tp)]
+                for tp in tqdm(range(max_tp)):
+                    for pp in tqdm(range(max_pp)):
+                        ckpt_name = os.path.join(src, f"model_tp{tp}_pp{pp}.pt")
+                        states[tp][pp] = llm_load(ckpt_name, map_location="cpu")
+                return states
+
+        def merge(states):
+            merged_states = []
+            for tp_state in tqdm(states):
+                layer_shift = 0
+                shifted_state = {}
+                # shift key
+                for tp_pp_state in tp_state:
+                    _layer_shift = 0
+                    keys = list(tp_pp_state.keys())
+                    for key in keys:
+                        if key.endswith(".inv_freq"):
+                            continue
+                        match = re.search(r"\.\d+\.", key)
+                        name = key
+                        if match is not None:
+                            # layers
+                            s, e = match.span()
+                            layer_idx = int(key[s + 1 : e - 1]) + layer_shift
+                            _layer_shift = max(_layer_shift, int(key[s + 1 : e - 1]))
+                            name = key[:s] + f".{layer_idx}." + key[e:]
+                        if name.startswith("model."):
+                            name = name[6:]
+                        shifted_state[name] = tp_pp_state[key]
+                    layer_shift += _layer_shift + 1
+                merged_states.append(shifted_state)
+            return merged_states
+
+        """
+        Convert state_dict to hf format.
+
+        1. Load and merge state dict.
+        2. Convert to huggingface format ckpt.
+        """
+
+        # load and merge states
+        states = merge(load_source(src))
+        num_shards = len(states)
+
+        # load model_config
+        model_config = gpc.config.model
+        n_heads = model_config["num_attention_heads"]
+        dim = model_config["hidden_size"]
+
+        # convert internevo2hf state_dict
+        state_dict = {}
+        embedding_key_list = ["embedding.word_embeddings.weight", "embedding.weight", "tok_embeddings.weight", None]
+        for layer_i in tqdm(range(model_config["num_layers"])):
+            wqkvs = [
+                states[tp].pop(f"blocks.{layer_i}.mixer.Wqkv.weight").reshape(3, n_heads // num_shards, -1, dim)
+                for tp in range(num_shards)
+            ]
+            bqkvs = [
+                states[tp].pop(f"blocks.{layer_i}.mixer.Wqkv.bias").reshape(3, n_heads // num_shards, -1)
+                for tp in range(num_shards)
+            ]
+            state_dict.update(
+                {
+                    f"model.layers.{layer_i}.input_layernorm.weight": states[0][
+                        f"blocks.{layer_i}.norm1.weight"
+                    ].clone(),
+                    f"model.layers.{layer_i}.post_attention_layernorm.weight": states[0][
+                        f"blocks.{layer_i}.norm2.weight"
+                    ].clone(),
+                }
+            )
+            state_dict[f"model.layers.{layer_i}.self_attn.q_proj.weight"] = torch.cat(
+                [wqkvs[i][0] for i in range(num_shards)],
+                dim=0,
+            ).reshape(dim, dim)
+            state_dict[f"model.layers.{layer_i}.self_attn.q_proj.bias"] = torch.cat(
+                [bqkvs[i][0] for i in range(num_shards)],
+                dim=0,
+            ).reshape(-1)
+            state_dict[f"model.layers.{layer_i}.self_attn.k_proj.weight"] = torch.cat(
+                [wqkvs[i][1] for i in range(num_shards)],
+                dim=0,
+            ).reshape(dim, dim)
+            state_dict[f"model.layers.{layer_i}.self_attn.k_proj.bias"] = torch.cat(
+                [bqkvs[i][1] for i in range(num_shards)],
+                dim=0,
+            ).reshape(-1)
+            state_dict[f"model.layers.{layer_i}.self_attn.v_proj.weight"] = torch.cat(
+                [wqkvs[i][2] for i in range(num_shards)],
+                dim=0,
+            ).reshape(dim, dim)
+            state_dict[f"model.layers.{layer_i}.self_attn.v_proj.bias"] = torch.cat(
+                [bqkvs[i][2] for i in range(num_shards)],
+                dim=0,
+            ).reshape(-1)
+
+            state_dict[f"model.layers.{layer_i}.self_attn.o_proj.weight"] = torch.cat(
+                [states[i][f"blocks.{layer_i}.mixer.out_proj.weight"] for i in range(num_shards)], dim=1
+            )
+            state_dict[f"model.layers.{layer_i}.self_attn.o_proj.bias"] = states[0][
+                f"blocks.{layer_i}.mixer.out_proj.bias"
+            ]
+            state_dict[f"model.layers.{layer_i}.mlp.gate_proj.weight"] = torch.cat(
+                [states[i][f"blocks.{layer_i}.mlp.w1.weight"] for i in range(num_shards)], dim=0
+            )
+            state_dict[f"model.layers.{layer_i}.mlp.down_proj.weight"] = torch.cat(
+                [states[i][f"blocks.{layer_i}.mlp.w3.weight"] for i in range(num_shards)], dim=1
+            )
+            state_dict[f"model.layers.{layer_i}.mlp.up_proj.weight"] = torch.cat(
+                [states[i][f"blocks.{layer_i}.mlp.w2.weight"] for i in range(num_shards)], dim=0
+            )
+
+        # embedding
+        for embedding_key in embedding_key_list:
+            if embedding_key in states[0]:
+                break
+        if embedding_key is None:
+            raise KeyError("Cannot find embedding key!")
+        if model_config["embed_split_hidden"]:
+            embed_concat_dim = 1
+            tok_emb_list = [states[i][embedding_key] for i in range(num_shards)]
+        else:
+            embed_concat_dim = 0
+            _, size_1 = states[0][embedding_key].shape
+            embdim_pertp = size_1 // num_shards
+            tok_emb_list = [
+                torch.concat(
+                    [
+                        states[tp][embedding_key][:, embdim_pertp * local_rank : embdim_pertp * (local_rank + 1)]
+                        for tp in range(num_shards)
+                    ],
+                    dim=0,
+                )
+                for local_rank in range(num_shards)
+            ]
+        state_dict.update(
+            {
+                "model.norm.weight": states[0]["norm.weight"],
+                "model.embed_tokens.weight": torch.cat(tok_emb_list, dim=embed_concat_dim),
+                "lm_head.weight": torch.cat([states[i]["head.weight"] for i in range(num_shards)], dim=0),
+            },
+        )
+
+        # save state_dict to hf ckpt
+        shards, index = shard_checkpoint(state_dict, weights_name=SAFE_WEIGHTS_NAME)
+        for shard_file, shard in shards.items():
+            llm_save(save_path=os.path.join(tgt, shard_file), saved_obj=shard, metadata={"format": "pt"})
+        if index is not None:
+            # Save the index as well
+            llm_save(save_path=os.path.join(tgt, SAFE_WEIGHTS_INDEX_NAME), saved_obj=index)
