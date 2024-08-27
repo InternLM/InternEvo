@@ -2,7 +2,7 @@ from abc import ABCMeta, abstractmethod
 
 from torch import nn
 
-from internlm.model.utils import load_src_states, merge_src_states
+from internlm.model.utils import load_src_states, merge_pp_src_states
 
 
 class BaseModel(nn.Module, metaclass=ABCMeta):
@@ -22,6 +22,6 @@ class BaseModel(nn.Module, metaclass=ABCMeta):
 
     @staticmethod
     def load_sharded_states(src):
-        states = merge_src_states(load_src_states(src))
+        states = merge_pp_src_states(load_src_states(src))
         num_shards = len(states)
         return states, num_shards

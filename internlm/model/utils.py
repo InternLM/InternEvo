@@ -112,7 +112,7 @@ def load_src_states(src):
     return states
 
 
-def merge_src_states(states):
+def merge_pp_src_states(states):
     merged_states = []
     for tp_state in tqdm(states):
         layer_shift = 0
