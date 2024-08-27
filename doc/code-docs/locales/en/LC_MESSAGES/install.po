@@ -200,6 +200,7 @@ msgid ""
 "在搭载NPU的机器上安装环境的版本可参考GPU，在NPU上使用昇腾torch_npu代替torch，同时Flash-"
 "Attention和Apex不再支持安装，相应功能已由InternEvo代码内部实现。以下教程仅为torch_npu安装。"
 msgstr ""
+"The version for environment installation on machines with NPUs can refer to that of GPUs, using Ascend's torch_npu instead of torch on the NPU. Flash-Attention and Apex are no longer supported for installation, as the corresponding functionalities have been implemented internally by the InternEvo code. The following tutorial is only for the installation of torch_npu."
 
 #: ../../../install.md:129
 msgid "torch_npu官方文档：https://gitee.com/ascend/pytorch"

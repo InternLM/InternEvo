@@ -1,7 +1,7 @@
 模型加载与保存
 ===================
 
-InternEvo 使用 ``internlm.utils.model_checkpoint.CheckpointManager`` 来管理模型保存。其中，可以使用 ``CheckpointManager.try_save_checkpoint(train_state)`` 来保存指定 step 的模型状态。
+InternEvo 使用 ``internlm.checkpoint.checkpoint_manager.CheckpointManager`` 来管理模型保存。其中，可以使用 ``CheckpointManager.try_save_checkpoint(train_state)`` 来保存指定 step 的模型状态。
 
 InternEvo支持启动时自动加载最新的模型备份，并在接收信号退出训练时自动进行模型备份。
 
@@ -45,7 +45,7 @@ CheckpointManager
   )
 
 
-.. autoclass:: internlm.utils.model_checkpoint.CheckpointManager
+.. autoclass:: internlm.checkpoint.checkpoint_manager.CheckpointManager
     :members:
 
 
