@@ -6,7 +6,7 @@ from internlm.core.context import ParallelMode
 from internlm.core.context import global_context as gpc
 from internlm.core.parallel.shard import pipeline_parallel_sharding_wrapper
 from internlm.model.modules.embedding import Embedding1D
-from internlm.model.modules.linear import new_linear
+from internlm.model.modules.linear import ParallelLinearWithCommExt, new_linear
 from internlm.model.registry import model_initializer
 from internlm.utils.common import get_current_device
 from internlm.utils.logger import get_logger
@@ -41,7 +41,8 @@ def create_model(model_type) -> Union[nn.Module, List[nn.Module]]:
     else:
         model = pipeline_parallel_sharding_wrapper(num_layers, num_chunks, model_buidler, **kwargs)
 
-    check_model(model)
+    if gpc.get_local_rank(ParallelMode.DATA) == 0:
+        check_model(model)
 
     return model
 
@@ -49,10 +50,10 @@ def create_model(model_type) -> Union[nn.Module, List[nn.Module]]:
 def check_embed(model):
     def traverse(module):
         for name, child in module.named_children():
-            if isinstance(child, nn.Embedding):
+            if isinstance(child, nn.Embedding) and not isinstance(child, Embedding1D):
                 logger.warning(
-                    f"To get parallel setting enabled, {name} of type {nn.Embedding.__name__} \
-                        is suggested to be replaced with type {Embedding1D.__name__}"
+                    f"To get parallel setting enabled, module {name} of type {nn.Embedding.__name__} "
+                    f"is suggested to be replaced with {Embedding1D.__name__}"
                 )
             else:
                 traverse(child)
@@ -63,10 +64,10 @@ def check_embed(model):
 def check_linear(model):
     def traverse(module):
         for name, child in module.named_children():
-            if isinstance(child, nn.Linear):
+            if isinstance(child, nn.Linear) and not isinstance(child, ParallelLinearWithCommExt):
                 logger.warning(
-                    f"To get parallel setting enabled, {name} of type {nn.Linear.__name__} \
-                        is suggested to be replaced with type {new_linear.__name__}"
+                    f"To get parallel setting enabled, module {name} of type {nn.Linear.__name__} "
+                    f"is suggested to be replaced with {new_linear.__name__}"
                 )
             else:
                 traverse(child)
