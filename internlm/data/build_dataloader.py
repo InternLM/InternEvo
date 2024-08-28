@@ -122,27 +122,21 @@ def get_tokenized_valid_loader_items(data_cfg):
 def get_streaming_train_loader_items(data_cfg):
     assert not data_cfg.pack_sample_into_one, "streaming dataloader curently only supports pack_sample_into_one=False"
     train_ds = StreamingDataset(
-        dataset_name=data_cfg.train_folder,
-        tokenizer_name=data_cfg.tokenizer_path,
+        dataset_path=data_cfg.train_folder,
+        tokenizer_path=data_cfg.tokenizer_path,
         model_max_length=data_cfg.seq_len,
+        content_name=data_cfg.get("content_name", "text"),
         subset_name=data_cfg.get("subset_name", None),
     )
     train_ds = StreamingPackedDatasetWithCut(
         dataset=train_ds,
         seq_len=data_cfg.seq_len,
         micro_bsz=data_cfg.micro_bsz,
-        pad_token_id=gpc.config.model.get("pad_token_id", 0),
     )
     train_sampler = StreamingStaticBatchSampler(
         batch_size=data_cfg.micro_num, rampup_batch_size=data_cfg.rampup_batch_size
     )
-    train_collate_fn = partial(
-        streaming_packed_collate_fn,
-        micro_num=data_cfg.micro_num,
-        micro_bsz=data_cfg.micro_bsz,
-        seq_len=data_cfg.seq_len,
-    )
-    return train_ds, train_sampler, train_collate_fn
+    return train_ds, train_sampler, streaming_packed_collate_fn
 
 
 def build_train_loader_with_data_type():
@@ -182,6 +176,7 @@ def build_valid_loader_with_data_type():
 
     data_cfg = gpc.config.data
 
+    # TODO: support streaming dataset for validation
     if data_cfg.type in [DataType.tokenized.name, DataType.streaming.name]:
         valid_ds, valid_collate_fn = get_tokenized_valid_loader_items(data_cfg)
     else:

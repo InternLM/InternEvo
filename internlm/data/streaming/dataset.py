@@ -13,20 +13,28 @@ from transformers import AutoTokenizer
 
 class StreamingDataset(Dataset):
     """
-    Streaming and on-the-fly tokenized dataset
+    Streaming and on-the-fly tokenize dataset
     """
 
     def __init__(
-        self, dataset_name, tokenizer_name, model_max_length, split="train", buffer_size=1000, subset_name=None
+        self,
+        dataset_path,
+        tokenizer_path,
+        model_max_length,
+        content_name="text",
+        subset_name=None,
+        split="train",
+        buffer_size=1000,
     ):
-        self.dataset = datasets.load_dataset(dataset_name, data_dir=subset_name, split=split, streaming=True)
+        self.dataset = datasets.load_dataset(dataset_path, data_dir=subset_name, split=split, streaming=True)
         self.dataset = split_dataset_by_node(
             self.dataset, rank=gpc.get_local_rank(ParallelMode.DATA), world_size=gpc.get_world_size(ParallelMode.DATA)
         )
+        self.content_name = content_name
         self.buffer_size = buffer_size
         self.senior_iterator = iter(self)
 
-        self.tokenizer = AutoTokenizer.from_pretrained(tokenizer_name, trust_remote_code=True)
+        self.tokenizer = AutoTokenizer.from_pretrained(tokenizer_path, trust_remote_code=True)
         self.tokenizer.model_max_length = model_max_length
 
     def __iter__(self):
@@ -44,7 +52,7 @@ class StreamingDataset(Dataset):
         return sys.maxsize
 
     def _tokenize(self, samples):
-        texts = [sample["text"] for sample in samples]
+        texts = [sample[self.content_name] for sample in samples]
         tokenized_outputs = self.tokenizer(texts, truncation=True)
         for i in range(len(samples)):
             if len(tokenized_outputs["input_ids"][i]) > 0:
@@ -56,7 +64,7 @@ class StreamingDataset(Dataset):
 
 class StreamingPackedDatasetWithCut(Dataset):
     """
-    Packed dataset for streaming
+    Packed streaming dataset
     """
 
     def __init__(self, dataset, seq_len, micro_bsz, pad_token_id=0):
@@ -72,7 +80,6 @@ class StreamingPackedDatasetWithCut(Dataset):
         labels = []
         for sample in self.dataset:
             if len(input_ids + sample["input_ids"]) > self.micro_bsz * self.seq_len:
-                assert cu_seqlens[-1] <= self.micro_bsz * self.seq_len
                 input_ids = input_ids + [self.pad_token_id] * (self.micro_bsz * self.seq_len - len(input_ids))
                 cu_seqlens = (
                     cu_seqlens + [self.micro_bsz * self.seq_len]
@@ -87,6 +94,7 @@ class StreamingPackedDatasetWithCut(Dataset):
                         itertools.chain(*[np.arange(l2 - l1) for l1, l2 in zip(cu_seqlens[:-1], cu_seqlens[1:])])
                     ),
                     "labels": labels,
+                    "type_ids": [0] * (self.micro_bsz * self.seq_len),
                 }
                 input_ids = sample["input_ids"]
                 cu_seqlens = [0, len(sample["input_ids"])]
@@ -97,7 +105,6 @@ class StreamingPackedDatasetWithCut(Dataset):
                 labels = labels + [w if w > 0 else -100 for w in sample["input_ids"]][1:] + [-100]
 
         if input_ids:
-            assert cu_seqlens[-1] <= self.micro_bsz * self.seq_len
             input_ids = input_ids + [self.pad_token_id] * (self.micro_bsz * self.seq_len - len(input_ids))
             cu_seqlens = (
                 cu_seqlens + [self.micro_bsz * self.seq_len]
@@ -112,6 +119,7 @@ class StreamingPackedDatasetWithCut(Dataset):
                     itertools.chain(*[np.arange(l2 - l1) for l1, l2 in zip(cu_seqlens[:-1], cu_seqlens[1:])])
                 ),
                 "labels": labels,
+                "type_ids": [0] * (self.micro_bsz * self.seq_len),
             }
 
     def __len__(self):
