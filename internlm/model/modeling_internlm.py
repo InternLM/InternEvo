@@ -377,7 +377,12 @@ class InternLM1(BaseModel):
             logger.info(f"Loading pretrained model from {folder}")
 
         fns = get_fns(folder)
-        model_fns = [os.path.join(folder, fn) for fn in fns if fn.endswith(".bin") or fn.endswith(".safetensors")]
+        model_fns = [
+            os.path.join(folder, fn)
+            for fn in fns
+            if (fn.endswith(".bin") and fn.startswith("pytorch_model"))
+            or (fn.endswith(".safetensors") and fn.startswith("model"))
+        ]
         model_fns.sort()
 
         state_dict = {}
@@ -693,9 +698,10 @@ class InternLM1(BaseModel):
                 [states[i][f"blocks.{layer_i}.mixer.out_proj.weight"] for i in range(num_shards)], dim=row_dim
             )
             # attn wo bias
-            state_dict[f"model.layers.{layer_i}.self_attn.o_proj.bias"] = states[0][
-                f"blocks.{layer_i}.mixer.out_proj.bias"
-            ]
+            state_dict[f"model.layers.{layer_i}.self_attn.o_proj.bias"] = torch.cat(
+                [states[i][f"blocks.{layer_i}.mixer.out_proj.bias"] for i in range(num_shards)],
+                dim=0,
+            ).reshape(-1)
             # mlp
             state_dict[f"model.layers.{layer_i}.mlp.gate_proj.weight"] = torch.cat(
                 [states[i][f"blocks.{layer_i}.mlp.w1.weight"] for i in range(num_shards)], dim=0

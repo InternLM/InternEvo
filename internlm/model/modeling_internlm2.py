@@ -477,7 +477,12 @@ class InternLM2(BaseModel):
             logger.info(f"Loading pretrained model from {folder}")
 
         fns = get_fns(folder)
-        model_fns = [os.path.join(folder, fn) for fn in fns if fn.endswith(".bin") or fn.endswith(".safetensors")]
+        model_fns = [
+            os.path.join(folder, fn)
+            for fn in fns
+            if (fn.endswith(".bin") and fn.startswith("pytorch_model"))
+            or (fn.endswith(".safetensors") and fn.startswith("model"))
+        ]
         model_fns.sort()
 
         state_dict = {}

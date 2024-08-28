@@ -453,12 +453,18 @@ class Llama2(BaseModel):
     @staticmethod
     def load_hf_weights(folder: str, model: nn.Module):
         """NOTE: when loading huggingface's llama pretrained weights, you should set `adapt_hf=True` in your config."""
+        """NOTE: specified for meta-llama/Llama-2-7b-hf"""
         assert folder is not None, "Please specify the folder of the pretrained model"
         if gpc.is_rank_for_log():
             logger.info(f"Loading pretrained model from {folder}")
 
         fns = get_fns(folder)
-        model_fns = [os.path.join(folder, fn) for fn in fns if fn.endswith(".bin") and fn.startswith("pytorch_model")]
+        model_fns = [
+            os.path.join(folder, fn)
+            for fn in fns
+            if (fn.endswith(".bin") and fn.startswith("pytorch_model"))
+            or (fn.endswith(".safetensors") and fn.startswith("model"))
+        ]
         model_fns.sort()
 
         state_dict = {}
@@ -573,6 +579,8 @@ class Llama2(BaseModel):
 
     @staticmethod
     def load_llama_pretrained_weights(folder: str, model: nn.Module) -> None:
+        """NOTE: when loading huggingface's llama pretrained weights, you should set `adapt_hf=True` in your config."""
+        """NOTE: specified for meta-llama/Llama-2-7b"""
         assert folder is not None, "Please specify the folder of the pretrained model"
         if gpc.is_rank_for_log():
             logger.info(f"Loading pretrained model from {folder}")
