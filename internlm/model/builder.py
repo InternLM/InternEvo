@@ -79,6 +79,6 @@ def check_linear(model):
 def check_model(model):
     assert isinstance(
         model, BaseModel
-    ), f"To load_hf_weights and convert_internevo2hf_weights enabled, model must inherit from {BaseModel.__name__}"
+    ), f"To get load_hf_weights and convert_internevo2hf_weights enabled, model must inherit from {BaseModel.__name__}"
     check_embed(model)
     check_linear(model)

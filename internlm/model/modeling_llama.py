@@ -4,6 +4,7 @@ from typing import Optional
 
 import torch
 from torch import nn
+from tqdm import tqdm
 
 from internlm.accelerator import get_accelerator
 from internlm.core.context import ParallelMode
@@ -27,7 +28,12 @@ from internlm.model.utils import (
 )
 from internlm.solver.activation_checkpoint import activation_checkpoint
 from internlm.utils.logger import get_logger
-from internlm.utils.storage_manager import get_fns, llm_load
+from internlm.utils.storage_manager import get_fns, llm_load, llm_save
+from transformers.modeling_utils import (
+    SAFE_WEIGHTS_INDEX_NAME,
+    SAFE_WEIGHTS_NAME,
+    shard_checkpoint,
+)
 
 internlm_accelerator = get_accelerator()
 logger = get_logger(__file__)
@@ -636,4 +642,68 @@ class Llama2(BaseModel):
 
     @staticmethod
     def convert_internevo2hf_weights(src: str, tgt: str) -> None:
-        raise NotImplementedError
+        model_config = gpc.config.model
+        tp_mode = gpc.config.parallel.tensor["mode"]
+        row_dim = 0 if tp_mode == "isp" else 1
+        if model_config["embed_split_hidden"]:
+            embed_concat_dim = 1
+        else:
+            embed_concat_dim = 0
+
+        # load states
+        states, num_shards = Llama2.load_sharded_states(src)
+
+        # convert state_dict
+        state_dict = {}
+        for layer_i in tqdm(range(model_config["num_layers"])):
+            # attn norm, ffn norm
+            state_dict.update(
+                {
+                    f"model.layers.{layer_i}.input_layernorm.weight": states[0][
+                        f"layers.{layer_i}.attention_norm.weight"
+                    ].clone(),
+                    f"model.layers.{layer_i}.post_attention_layernorm.weight": states[0][
+                        f"layers.{layer_i}.ffn_norm.weight"
+                    ].clone(),
+                }
+            )
+            # attn
+            state_dict[f"model.layers.{layer_i}.self_attn.q_proj.weight"] = torch.cat(
+                [states[i][f"layers.{layer_i}.attention.wq.weight"] for i in range(num_shards)], dim=0
+            )
+            state_dict[f"model.layers.{layer_i}.self_attn.k_proj.weight"] = torch.cat(
+                [states[i][f"layers.{layer_i}.attention.wk.weight"] for i in range(num_shards)], dim=0
+            )
+            state_dict[f"model.layers.{layer_i}.self_attn.v_proj.weight"] = torch.cat(
+                [states[i][f"layers.{layer_i}.attention.wv.weight"] for i in range(num_shards)], dim=0
+            )
+            state_dict[f"model.layers.{layer_i}.self_attn.o_proj.weight"] = torch.cat(
+                [states[i][f"layers.{layer_i}.attention.wo.weight"] for i in range(num_shards)], dim=row_dim
+            )
+            # ffn
+            state_dict[f"model.layers.{layer_i}.mlp.gate_proj.weight"] = torch.cat(
+                [states[i][f"layers.{layer_i}.feed_forward.w1.weight"] for i in range(num_shards)], dim=0
+            )
+            state_dict[f"model.layers.{layer_i}.mlp.down_proj.weight"] = torch.cat(
+                [states[i][f"layers.{layer_i}.feed_forward.w2.weight"] for i in range(num_shards)], dim=row_dim
+            )
+            state_dict[f"model.layers.{layer_i}.mlp.up_proj.weight"] = torch.cat(
+                [states[i][f"layers.{layer_i}.feed_forward.w3.weight"] for i in range(num_shards)], dim=0
+            )
+        # embedding, output
+        state_dict.update(
+            {
+                "model.norm.weight": states[0]["norm.weight"],
+                "model.embed_tokens.weight": torch.cat(
+                    [states[i]["tok_embeddings.weight"] for i in range(num_shards)], dim=embed_concat_dim
+                ),
+                "lm_head.weight": torch.cat([states[i]["output.weight"] for i in range(num_shards)], dim=0),
+            },
+        )
+
+        # save state_dict to hf format
+        shards, index = shard_checkpoint(state_dict, weights_name=SAFE_WEIGHTS_NAME)
+        for shard_file, shard in shards.items():
+            llm_save(save_path=os.path.join(tgt, shard_file), saved_obj=shard, metadata={"format": "pt"})
+        if index is not None:
+            llm_save(save_path=os.path.join(tgt, SAFE_WEIGHTS_INDEX_NAME), saved_obj=index)
