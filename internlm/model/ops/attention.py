@@ -15,10 +15,7 @@ from torch import nn
 
 from internlm.accelerator import AcceleratorType, get_accelerator
 from internlm.core.context import global_context as gpc
-from internlm.core.parallel.comm.isp import (
-    auto_wrap_distributed_attention,
-    auto_wrap_func_distributed_attention,
-)
+from internlm.core.parallel.comm.isp import auto_wrap_distributed_attention
 from internlm.model.ops.utils import pack_output_after_attn, unpack_qkv_before_attn
 from internlm.utils.common import get_current_device
 from internlm.utils.utils import (
@@ -990,44 +987,3 @@ class CrossAttention(nn.Module):
                 causal,
                 key_padding_mask,
             )
-
-
-@auto_wrap_func_distributed_attention
-def hf_q_k_v_without_cu_seqlens(
-    query_states,
-    key_states,
-    value_states,
-    dropout_p=0.0,
-    softmax_scale=None,
-    causal=True,
-):
-    attn_output = _flash_fixedlen_qkvsplited_func(  # TODO: currently only support GPU environment
-        query_states, key_states, value_states, dropout_p=dropout_p, softmax_scale=softmax_scale, causal=causal
-    )
-    return attn_output
-
-
-@auto_wrap_func_distributed_attention
-def hf_q_k_v_with_cu_seqlens(
-    query_states,
-    key_states,
-    value_states,
-    cumulative_len,
-    max_seqlen,
-    dropout_p=0.0,
-    causal=True,
-):
-    q_unpad, k_unpad, v_unpad = query_states.flatten(0, 1), key_states.flatten(0, 1), value_states.flatten(0, 1)
-    attn_output = _flash_varlen_qkvsplited_func(  # TODO: currently only support GPU environment
-        q_unpad,
-        k_unpad,
-        v_unpad,
-        cumulative_len,
-        cumulative_len,
-        max_seqlen,
-        max_seqlen,
-        dropout_p=dropout_p,
-        return_attn_probs=False,
-        causal=causal,
-    )
-    return attn_output
