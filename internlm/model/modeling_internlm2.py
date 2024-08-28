@@ -590,6 +590,10 @@ class InternLM2(BaseModel):
         model_config = gpc.config.model
         tp_mode = gpc.config.parallel.tensor["mode"]
         row_dim = 0 if tp_mode == "isp" else 1
+        if model_config["embed_split_hidden"]:
+            embed_concat_dim = 1
+        else:
+            embed_concat_dim = 0
 
         # load states
         states, num_shards = InternLM2.load_sharded_states(src)
@@ -598,6 +602,7 @@ class InternLM2(BaseModel):
         state_dict = {}
         embedding_key_list = ["tok_embeddings.word_embeddings.weight", "tok_embeddings.weight", None]
         for layer_i in tqdm(range(model_config["num_layers"])):
+            # attn norm, ffn norm
             state_dict.update(
                 {
                     f"model.layers.{layer_i}.attention_norm.weight": states[0][
@@ -606,6 +611,7 @@ class InternLM2(BaseModel):
                     f"model.layers.{layer_i}.ffn_norm.weight": states[0][f"layers.{layer_i}.ffn_norm.weight"].clone(),
                 }
             )
+            # attn
             state_dict[f"model.layers.{layer_i}.attention.wqkv.weight"] = permute(
                 torch.cat([states[i][f"layers.{layer_i}.attention.wqkv.weight"] for i in range(num_shards)], dim=0),
                 num_heads=model_config["num_attention_heads"],
@@ -613,10 +619,10 @@ class InternLM2(BaseModel):
                 head_dim=model_config["hidden_size"] // model_config["num_attention_heads"],
                 adapt_hf=model_config.get("adapt_hf", True),
             )
-
             state_dict[f"model.layers.{layer_i}.attention.wo.weight"] = torch.cat(
                 [states[i][f"layers.{layer_i}.attention.wo.weight"] for i in range(num_shards)], dim=row_dim
             )
+            # ffn
             state_dict[f"model.layers.{layer_i}.feed_forward.w1.weight"] = torch.cat(
                 [states[i][f"layers.{layer_i}.feed_forward.w1.weight"] for i in range(num_shards)], dim=0
             )
@@ -626,10 +632,7 @@ class InternLM2(BaseModel):
             state_dict[f"model.layers.{layer_i}.feed_forward.w3.weight"] = torch.cat(
                 [states[i][f"layers.{layer_i}.feed_forward.w3.weight"] for i in range(num_shards)], dim=0
             )
-        if model_config["embed_split_hidden"]:
-            embed_concat_dim = 1
-        else:
-            embed_concat_dim = 0
+        # embedding, output
         for embedding_key in embedding_key_list:
             if embedding_key in states[0]:
                 break

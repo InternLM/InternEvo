@@ -450,11 +450,13 @@ class InternLM1(BaseModel):
                 split_size,
                 dim=0,
             )[local_rank]
+            # Be cautious that in InternLM1, down_proj is equivalent to w3
             state_dict[f"blocks.{i}.mlp.w3.weight"] = torch.chunk(
                 state_dict.pop(f"model.layers.{layer_ids}.mlp.down_proj.weight"),
                 split_size,
                 dim=row_dim,
             )[local_rank]
+            # Be cautious that in InternLM1, up_proj is equivalent to w2
             state_dict[f"blocks.{i}.mlp.w2.weight"] = torch.chunk(
                 state_dict.pop(f"model.layers.{layer_ids}.mlp.up_proj.weight"),
                 split_size,
@@ -641,14 +643,7 @@ class InternLM1(BaseModel):
         state_dict = {}
         embedding_key_list = ["embedding.word_embeddings.weight", "embedding.weight", "tok_embeddings.weight", None]
         for layer_i in tqdm(range(model_config["num_layers"])):
-            wqkvs = [
-                states[tp].pop(f"blocks.{layer_i}.mixer.Wqkv.weight").reshape(3, n_heads // num_shards, -1, h_dim)
-                for tp in range(num_shards)
-            ]
-            bqkvs = [
-                states[tp].pop(f"blocks.{layer_i}.mixer.Wqkv.bias").reshape(3, n_heads // num_shards, -1)
-                for tp in range(num_shards)
-            ]
+            # attn norm, mlp norm
             state_dict.update(
                 {
                     f"model.layers.{layer_i}.input_layernorm.weight": states[0][
@@ -659,6 +654,16 @@ class InternLM1(BaseModel):
                     ].clone(),
                 }
             )
+            # attn wqkv weight
+            wqkvs = [
+                states[tp].pop(f"blocks.{layer_i}.mixer.Wqkv.weight").reshape(3, n_heads // num_shards, -1, h_dim)
+                for tp in range(num_shards)
+            ]
+            # attn wqkv bias
+            bqkvs = [
+                states[tp].pop(f"blocks.{layer_i}.mixer.Wqkv.bias").reshape(3, n_heads // num_shards, -1)
+                for tp in range(num_shards)
+            ]
             state_dict[f"model.layers.{layer_i}.self_attn.q_proj.weight"] = torch.cat(
                 [wqkvs[i][0] for i in range(num_shards)],
                 dim=0,
@@ -683,22 +688,27 @@ class InternLM1(BaseModel):
                 [bqkvs[i][2] for i in range(num_shards)],
                 dim=0,
             ).reshape(-1)
-
+            # attn wo weight
             state_dict[f"model.layers.{layer_i}.self_attn.o_proj.weight"] = torch.cat(
                 [states[i][f"blocks.{layer_i}.mixer.out_proj.weight"] for i in range(num_shards)], dim=row_dim
             )
+            # attn wo bias
             state_dict[f"model.layers.{layer_i}.self_attn.o_proj.bias"] = states[0][
                 f"blocks.{layer_i}.mixer.out_proj.bias"
             ]
+            # mlp
             state_dict[f"model.layers.{layer_i}.mlp.gate_proj.weight"] = torch.cat(
                 [states[i][f"blocks.{layer_i}.mlp.w1.weight"] for i in range(num_shards)], dim=0
             )
+            # Be cautious that in InternLM1, down_proj is equivalent to w3
             state_dict[f"model.layers.{layer_i}.mlp.down_proj.weight"] = torch.cat(
                 [states[i][f"blocks.{layer_i}.mlp.w3.weight"] for i in range(num_shards)], dim=row_dim
             )
+            # Be cautious that in InternLM1, up_proj is equivalent to w2
             state_dict[f"model.layers.{layer_i}.mlp.up_proj.weight"] = torch.cat(
                 [states[i][f"blocks.{layer_i}.mlp.w2.weight"] for i in range(num_shards)], dim=0
             )
+        # embedding, head
         for embedding_key in embedding_key_list:
             if embedding_key in states[0]:
                 break
