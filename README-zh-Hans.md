@@ -2,17 +2,7 @@
 
 <div align="center">
 
-<img src="./doc/imgs/logo.svg" width="200"/>
-  <div> </div>
-  <div align="center">
-    <b><font size="5">InternEvo</font></b>
-    <sup>
-      <a href="https://internlm.intern-ai.org.cn/">
-        <i><font size="4">HOT</font></i>
-      </a>
-    </sup>
-    <div> </div>
-  </div>
+<img src="./doc/imgs/InternEvo_logo.png" width="200"/>
 
 [![使用文档](https://readthedocs.org/projects/internevo/badge/?version=latest)](https://internevo.readthedocs.io/zh_CN/latest/?badge=latest)
 [![license](./doc/imgs/license.svg)](./LICENSE)
@@ -28,12 +18,12 @@
 
 </div>
 
-<p align="center">
-    👋 加入我们的 <a href="https://discord.gg/xa29JuW87d" target="_blank">Discord</a> 和 <a href="https://github.com/InternLM/InternLM/assets/25839884/a6aad896-7232-4220-ac84-9e070c2633ce" target="_blank">微信群</a>
-</p>
-
 
 ### 新闻 🔥
+
+- 2024/08/29: InternEvo支持流式加载huggingface格式的数据集。新增详细数据流程说明的指导文档。
+
+- 2024/04/17: InternEvo支持在NPU-910B集群上训练模型。
 
 - 2024/01/17: 更多关于InternLM系列模型的内容，请查看组织内的 [InternLM](https://github.com/InternLM/InternLM)
 
@@ -46,13 +36,13 @@ InternEvo是一个开源的轻量级训练框架，旨在支持无需大量依�
 
 ## 快速开始
 
-请查看 [Usage Tutorial](./doc/en/usage.md) 来开始InternEvo的安装、数据处理、预训练与微调。
+请查看 [用户说明](./doc/usage.md) 来开始InternEvo的安装、数据处理、预训练与微调。
 
 更多细节请查看文档 [internevo.readthedocs.io](https://internevo.readthedocs.io/zh_CN/latest/?badge=latest)
 
 ## 系统架构
 
-Please refer to the [System Architecture document](./doc/en/structure.md) for architecture details.
+系统架构细节请参考：[系统架构文档](./doc/structure.md)
 
 ## 框架性能
 
@@ -63,7 +53,7 @@ InternEvo深度集成了Flash-Attention、Apex等高性能计算库，以提高�
 | TGS | 4078 | 3939 | 3919 | 3944 | 3928  | 3920  | 3835  | 3625   |
 | TFLOPS  | 193 | 191  | 188  | 188  | 187   | 185   | 186   | 184    |
 
-TGS表示每张GPU每秒可处理的平均Tokens数量。更多模型性能测试数据细节请查看 [Training Performance document](./doc/en/train_performance.md)
+TGS表示每张GPU每秒可处理的平均Tokens数量。更多模型性能测试数据细节请查看 [训练性能文档](./doc/train_performance.md)
 
 
 ## 贡献

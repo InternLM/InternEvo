@@ -2,17 +2,7 @@
 
 <div align="center">
 
-<img src="./doc/imgs/logo.svg" width="200"/>
-  <div> </div>
-  <div align="center">
-    <b><font size="5">InternEvo</font></b>
-    <sup>
-      <a href="https://internlm.intern-ai.org.cn/">
-        <i><font size="4">HOT</font></i>
-      </a>
-    </sup>
-    <div> </div>
-  </div>
+<img src="./doc/imgs/InternEvo_logo.png" width="200"/>
 
 [![Documentation Status](https://readthedocs.org/projects/internevo/badge/?version=latest)](https://internevo.readthedocs.io/zh_CN/latest/?badge=latest)
 [![license](./doc/imgs/license.svg)](./LICENSE)
@@ -28,12 +18,12 @@
 
 </div>
 
-<p align="center">
-    👋 join us on <a href="https://discord.gg/xa29JuW87d" target="_blank">Discord</a> and <a href="https://github.com/InternLM/InternLM/assets/25839884/a6aad896-7232-4220-ac84-9e070c2633ce" target="_blank">WeChat</a>
-</p>
-
 
 ### Latest News 🔥
+
+- 2024/08/29: InternEvo supports streaming dataset of huggingface format. Add detailed instructions of data flow.
+
+- 2024/04/17: InternEvo supports training model on NPU-910B cluster.
 
 - 2024/01/17: To delve deeper into the InternLM series of models, please check [InternLM](https://github.com/InternLM/InternLM) in our organization.
 
@@ -49,7 +39,7 @@ Based on the InternEvo training framework, we are continually releasing a variet
 
 Please refer to [Usage Tutorial](./doc/en/usage.md) to start InternEvo installation, data processing, pre-training and fine-tuning.
 
-For more details, please check [internevo.readthedocs.io](https://internevo.readthedocs.io/zh_CN/latest/?badge=latest)
+For more details, please check [internevo.readthedocs.io](https://internevo.readthedocs.io/en/latest/?badge=latest)
 
 ## System Architecture
 

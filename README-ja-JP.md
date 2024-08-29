@@ -2,17 +2,7 @@
 
 <div align="center">
 
-<img src="./doc/imgs/logo.svg" width="200"/>
-  <div> </div>
-  <div align="center">
-    <b><font size="5">InternEvo</font></b>
-    <sup>
-      <a href="https://internlm.intern-ai.org.cn/">
-        <i><font size="4">HOT</font></i>
-      </a>
-    </sup>
-    <div> </div>
-  </div>
+<img src="./doc/imgs/InternEvo_logo.png" width="200"/>
 
 [![Documentation Status](https://readthedocs.org/projects/internevo/badge/?version=latest)](https://internevo.readthedocs.io/zh_CN/latest/?badge=latest)
 [![license](./doc/imgs/license.svg)](./LICENSE)
@@ -28,12 +18,12 @@
 
 </div>
 
-<p align="center">
-    👋 <a href="https://discord.gg/xa29JuW87d" target="_blank">Discord</a> と <a href="https://github.com/InternLM/InternLM/assets/25839884/a6aad896-7232-4220-ac84-9e070c2633ce" target="_blank">WeChat</a> で私たちに参加してください
-</p>
-
 
 ### 最新ニュース 🔥
+
+- 2024/08/29: InternEvoは、huggingface形式のストリーミングデータセットをサポートしています。データフローの詳細な手順を追加しました。
+
+- 2024/04/17: InternEvoは、NPU-910Bクラスターでモデルのトレーニングをサポートしています。
 
 - 2024/01/17: InternLMシリーズのモデルについてさらに詳しく知りたい方は、当社の組織内の[InternLM](https://github.com/InternLM/InternLM)をご覧ください。
 
@@ -49,7 +39,7 @@ InternEvoトレーニングフレームワークを基に、当社はInternLM-7B
 
 InternEvoのインストール、データ処理、事前トレーニング、およびファインチューニングを開始するためには、[使用チュートリアル](./doc/en/usage.md) を参照してください。
 
-詳細については、以下をご確認ください: [internevo.readthedocs.io](https://internevo.readthedocs.io/zh_CN/latest/?badge=latest)
+詳細については、以下をご確認ください: [internevo.readthedocs.io](https://internevo.readthedocs.io/en/latest/?badge=latest)
 
 ## システムアーキテクチャ
 
