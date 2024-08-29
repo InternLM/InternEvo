@@ -23,12 +23,22 @@ pip install InternEvo
 ```
 
 安装 flash-attention (version v2.2.1)：
+
+如果需要使用flash-attention加速训练，且环境中支持，安装方式如下：
 ```bash
 pip install flash-attn==2.2.1
 ```
 
 安装 Apex (version 23.05)：
+
 apex为非必须安装包，如果安装，参考下述源码方式安装。
+
+安装megablocks（version 0.3.2）:
+
+如果是MoE相关模型，需要安装。
+```bash
+pip install git+https://github.com/databricks/megablocks@v0.3.2 # MOE相关
+```
 
 ### 源码方式安装
 #### 依赖包
@@ -85,10 +95,10 @@ pip install -v --disable-pip-version-check --no-cache-dir --no-build-isolation -
 cd ../../
 ```
 
-### 额外安装
+安装megablocks（version 0.3.2）:
 ```bash
 pip install git+https://github.com/databricks/megablocks@v0.3.2 # MOE相关
-```
+``` 
 
 ### 环境镜像
 用户可以使用提供的 dockerfile 结合 docker.Makefile 来构建自己的镜像，或者也可以从 https://hub.docker.com/r/internlm/internevo/tags 获取安装了 InternEvo 运行环境的镜像。
@@ -122,18 +132,18 @@ docker run --gpus all -it -m 500g --cap-add=SYS_PTRACE --cap-add=IPC_LOCK --shm-
 torchrun --nproc_per_node=8 --nnodes=1 train.py --config configs/7B_sft.py --launcher torch
 ```
 
-## 环境安装（NPU）
+### NPU环境安装
 在搭载NPU的机器上安装环境的版本可参考GPU，在NPU上使用昇腾torch_npu代替torch，同时Flash-Attention和Apex不再支持安装，相应功能已由InternEvo代码内部实现。以下教程仅为torch_npu安装。
 
 torch_npu官方文档：https://gitee.com/ascend/pytorch
 
-### 环境安装样例
+#### NPU环境准备
 - Linux OS
 - torch_npu: v2.1.0-6.0.rc1
 - NPU显卡：910B
 
 
-#### 安装torch_run
+##### 安装torch_run
 
 参考文档：https://gitee.com/ascend/pytorch/tree/v2.1.0-6.0.rc1/
 

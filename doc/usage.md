@@ -1,12 +1,15 @@
-# 使用教程
+## 使用教程
 
 启动一个 Demo 模型训练，需要进行三项准备，**安装**，**数据集准备**和**模型训练配置**。接下来，首先会介绍数据准备相关的操作，再简要描述模型训练配置相关的内容。
 
-## 安装
+### 安装
 请参考[安装文档](./install.md)进行安装。
 
-## 数据准备 （预训练）
-### 使用huggingface格式数据集
+### 数据准备
+
+#### 预训练
+
+##### 使用huggingface格式数据集
 
 如果使用huggingface数据集，需要先将数据集和需要使用的tokenizer下载到本地。
 
@@ -28,7 +31,7 @@ data = dict(
 ```
 type默认为"tokenized"，这里需要改为"streaming"类型。同时需要指定`tokenizer_path`, 如果使用下述tokenized之后的数据集，则不需要设置该字段。`TRAIN_FOLDER`指定本地数据集路径。
 
-### 使用tokenized之后数据集
+##### 使用tokenized之后数据集
 
 InternEvo训练任务的数据集包括一系列的`bin`和`meta`文件。使用`tokenizer`从原始文本文件生成训练用数据集。通过在`tools/tokenizer.py`中指定模型参数路径的方式来导入tokenizer模型。目前提供`V7_sft.model`来生成tokens。若想使用不同的模型，可直接修改`tokernizer.py`中的模型参数路径。
 
@@ -74,7 +77,7 @@ $ python tools/tokenizer.py --text_input_path raw_data.txt --bin_output_path cn/
 
 `json`和`jsonl`类型的文件的`bin`和`meta`文件格式和`txt`一致，此处不再赘叙。
 
-## 数据准备 （微调）
+#### 微调
 
 微调任务的数据集格式与预训练任务保持一致，生成的数据格式为一系列的`bin`和`meta`文件。以下以 Alpaca 数据集为例，介绍微调的数据准备流程。
 
@@ -88,7 +91,7 @@ python tools/alpaca_tokenizer.py /path/to/alpaca_dataset /path/to/output_dataset
 
 建议用户参考 alpaca_tokenizer.py 编写新的脚本对自己的数据集进行 tokenize
 
-## 训练配置
+### 训练配置
 
 以 7B Demo 的配置文件`configs/7B_sft.py`为例：
 ```python
@@ -305,7 +308,7 @@ monitor = dict(
 ```
 接下来将详细介绍启动一个模型训练所需要进行的数据、模型、并行和监控等相关的配置。
 
-### 数据配置
+#### 数据配置
 数据相关的关键参数配置及释义如下所示：
 ```python
 TRAIN_FOLDER = "/path/to/dataset"
@@ -355,7 +358,7 @@ data = dict(
 )
 ```
 
-### 模型配置
+#### 模型配置
 
 如果在启动训练时要加载模型 `checkpoint`，可进行如下相关配置：
 ```python
@@ -412,7 +415,7 @@ model = dict(
 
 *如果基于 InternLM 7B继续训练，可以参考 [ModelZoo](https://github.com/InternLM/InternLM/tree/main#model-zoo) 中 OpenXLab 链接下载权重*
 
-### 并行配置
+#### 并行配置
 
 训练并行配置样例如下：
 ```python
@@ -446,7 +449,7 @@ parallel = dict(
 
 注意：`数据并行大小 = 总的 GPU 数目 / 流水线并行大小 / 张量并行大小`
 
-## 启动训练
+### 启动训练
 
 完成了以上数据集准备和相关训练配置后，可启动 Demo 训练。接下来分别以 slurm 和 torch 环境为例，介绍训练启动方式。
 
@@ -460,7 +463,7 @@ $ srun -p internllm -N 2 -n 16 --ntasks-per-node=8 --gpus-per-task=1 python trai
 $ torchrun --nnodes=1 --nproc_per_node=8 train.py --config ./configs/7B_sft.py --launcher "torch"
 ```
 
-## 运行结果
+### 运行结果
 
 以 slurm 上单机 8 卡的 Demo 训练配置为例，训练结果日志展示如下：
 ```bash
@@ -483,7 +486,7 @@ $ torchrun --nnodes=1 --nproc_per_node=8 train.py --config ./configs/7B_sft.py -
 2023-07-07 12:29:16,994	INFO train.py:323 in record_current_batch_training_metrics -- tflops=189.3109313713174,step=5,loss=9.822169303894043,tgs (tokens/gpu/second)=4262.67,lr=1.4000000000000001e-06,loss_scale=65536.0,grad_norm=47.10386835560855,micro_num=4,num_consumed_tokens=786432,inf_nan_skip_batches=0,num_samples_in_batch=17,largest_length=2048,largest_batch=6,smallest_batch=3,adam_beta2=0.95,fwd_bwd_time=3.69
 ```
 
-## 加载训练的checkpoint并生成
+### 加载训练的checkpoint并生成
 
 若在 slurm 上启动分布式运行环境，多节点 16 卡的运行命令如下所示：
 ```bash
@@ -508,7 +511,7 @@ generation = dict(
 )
 ```
 
-## 长文本生成
+### 长文本生成
 
 在推理阶段，我们可以使用 Dynamic NTK RoPE 来代替原始的 RoPE，从而使得模型能够适应长文本的输入输出，达到 16K 的外推效果。
 目前 InternLM 支持在 huggingface 格式和 InternLM 本身格式的模型中使用 Dynamic NTK RoPE。

@@ -6,9 +6,11 @@ To start a demo model training, you need to prepare three things: **installation
 
 Please refer to the [installation guide](./install.md) for instructions on how to install the necessary dependencies.
 
-### Dataset Preparation (Pre-training)
+### Dataset Preparation
 
-#### Using Hugging Face Format Dataset
+#### Pre-training
+
+##### Using Hugging Face Format Dataset
 
 If you are using a Hugging Face dataset, you will first need to download the dataset and the required tokenizer to your local machine.
 
@@ -34,7 +36,7 @@ data = dict(
 
 The type defaults to "tokenized", but here it needs to be changed to "streaming". Also, you need to specify the `tokenizer_path`. If you are using the dataset after tokenization as described below, you do not need to set this field. `TRAIN_FOLDER` specifies the local path of the dataset.
 
-#### Using a Dataset After Tokenization
+##### Using a Dataset After Tokenization
 
 The dataset for the InternEvo training task includes a series of `bin` and `meta` files. A `tokenizer` is used to generate the training dataset from the original text files. The tokenizer model is imported by specifying the model parameter path in `tools/tokenizer.py`. Currently, `tokenizer_internlm.model` is provided to generate tokens. If you want to use a different model, you can directly modify the model parameter path in `tokenizer.py`.
 
@@ -86,7 +88,7 @@ For example, the first `sequence` starts at index 0 and has 16 `tokens`. The sec
 
 The `bin` and `meta` file formats for `json` and `jsonl` type files are the same as for `txt`, so we won't go over them here.
 
-### Data Preparation (Fine-tuning)
+#### Fine-tuning
 
 The data format for fine-tuning tasks is the same as for pre-training tasks, which consists of a series of `bin` and `meta` files. Let's take the Alpaca dataset as an example to explain the data preparation process for fine-tuning.
 
