@@ -3,12 +3,11 @@
 # This file is distributed under the same license as the InternLM package.
 # FIRST AUTHOR <EMAIL@ADDRESS>, 2023.
 #
-#, fuzzy
 msgid ""
 msgstr ""
 "Project-Id-Version: InternLM \n"
 "Report-Msgid-Bugs-To: \n"
-"POT-Creation-Date: 2024-01-23 18:01+0800\n"
+"POT-Creation-Date: 2024-08-23 14:49+0800\n"
 "PO-Revision-Date: YEAR-MO-DA HO:MI+ZONE\n"
 "Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
 "Language: en\n"
@@ -17,7 +16,7 @@ msgstr ""
 "MIME-Version: 1.0\n"
 "Content-Type: text/plain; charset=utf-8\n"
 "Content-Transfer-Encoding: 8bit\n"
-"Generated-By: Babel 2.12.1\n"
+"Generated-By: Babel 2.15.0\n"
 
 #: ../../source/moe.rst:2
 msgid "混合专家模型"
@@ -72,8 +71,8 @@ msgstr "Model related settings"
 #: ../../source/moe.rst:32
 msgid "num_experts：专家网络个数。在InternEvo中，每个专家有着相同的网络结构但维护着不同的训练参数。"
 msgstr ""
-"num_experts: The number of expert networks. In InternEvo, each expert has "
-"the same network structure but maintains different training parameters."
+"num_experts: The number of expert networks. In InternEvo, each expert has"
+" the same network structure but maintains different training parameters."
 
 #: ../../source/moe.rst:33
 msgid ""
@@ -146,76 +145,6 @@ msgstr ""
 "distributed training can start as the normal training process. please "
 "refer to :doc:`/usage`: Start Training"
 
-#: internlm.model.moe.MoE:1 of
-msgid "Initialize an MoE layer."
-msgstr ""
-
-#: internlm.model.moe.MoE of
-msgid "参数"
-msgstr "parameter"
-
-#: internlm.model.moe.MoE:3 of
-msgid ""
-"the hidden dimension of the model, importantly this is also the input and"
-" output dimension."
-msgstr ""
-
-#: internlm.model.moe.MoE:5 of
-msgid "default=1, the total number of experts per layer."
-msgstr ""
-
-#: internlm.model.moe.MoE:7 of
-msgid "default=1, number of ranks in the expert parallel world or group."
-msgstr ""
-
-#: internlm.model.moe.MoE:9 of
-msgid "default=1, top-k gating value, only supports k=1 or k=2."
-msgstr ""
-
-#: internlm.model.moe.MoE:11 of
-msgid "default=1.0, the capacity of the expert at training time."
-msgstr ""
-
-#: internlm.model.moe.MoE:13 of
-msgid "default=1.0, the capacity of the expert at eval time."
-msgstr ""
-
-#: internlm.model.moe.MoE:15 of
-msgid ""
-"default=4, the minimum capacity per expert regardless of the "
-"capacity_factor."
-msgstr ""
-
-#: internlm.model.moe.MoE:17 of
-msgid ""
-"default=None, noisy gate policy, valid options are 'Jitter', 'RSample' or"
-" 'None'."
-msgstr ""
-
-#: internlm.model.moe.MoE:20 of
-msgid "default=True, whether to use the default MoE layer."
-msgstr ""
-
-#: internlm.model.moe.MoE:22 of
-msgid ""
-"default=True, whether to drop tokens - (setting to False is equivalent to"
-" infinite capacity)."
-msgstr ""
-
-#: internlm.model.moe.MoE:25 of
-msgid "default=True, whether to use Random Token Selection."
-msgstr ""
-
-#: internlm.model.moe.MoE:27 of
-msgid ""
-"default=False, make this MoE layer a Residual MoE "
-"(https://arxiv.org/abs/2201.05596) layer."
-msgstr ""
-
-#: internlm.model.moe.MoE:30 of
-msgid "default=None, the torch module that defines the residual MLP."
-msgstr ""
-
 #: ../../source/moe.rst:65
 msgid "注意：InternEvo支持用户定义自己的MoE结构。internlm.model.moe.MoE是定义MoE网络的接口，目前使用SwiGLU网络实现了专家模型并支持top1gating和top2gating两种门控策略。用户可以在MoE接口中对专家网络和门控策略进行扩展。"
 msgstr ""
@@ -225,4 +154,63 @@ msgstr ""
 "supports two gating strategies: top1gating and top2gating. Users can "
 "extend the expert network and gating strategy in the MoE interface as "
 "needed."
+
+#~ msgid "Initialize an MoE layer."
+#~ msgstr ""
+
+#~ msgid "参数"
+#~ msgstr "parameter"
+
+#~ msgid ""
+#~ "the hidden dimension of the model, "
+#~ "importantly this is also the input "
+#~ "and output dimension."
+#~ msgstr ""
+
+#~ msgid "default=1, the total number of experts per layer."
+#~ msgstr ""
+
+#~ msgid "default=1, number of ranks in the expert parallel world or group."
+#~ msgstr ""
+
+#~ msgid "default=1, top-k gating value, only supports k=1 or k=2."
+#~ msgstr ""
+
+#~ msgid "default=1.0, the capacity of the expert at training time."
+#~ msgstr ""
+
+#~ msgid "default=1.0, the capacity of the expert at eval time."
+#~ msgstr ""
+
+#~ msgid ""
+#~ "default=4, the minimum capacity per "
+#~ "expert regardless of the capacity_factor."
+#~ msgstr ""
+
+#~ msgid ""
+#~ "default=None, noisy gate policy, valid "
+#~ "options are 'Jitter', 'RSample' or "
+#~ "'None'."
+#~ msgstr ""
+
+#~ msgid "default=True, whether to use the default MoE layer."
+#~ msgstr ""
+
+#~ msgid ""
+#~ "default=True, whether to drop tokens -"
+#~ " (setting to False is equivalent to"
+#~ " infinite capacity)."
+#~ msgstr ""
+
+#~ msgid "default=True, whether to use Random Token Selection."
+#~ msgstr ""
+
+#~ msgid ""
+#~ "default=False, make this MoE layer a "
+#~ "Residual MoE (https://arxiv.org/abs/2201.05596) "
+#~ "layer."
+#~ msgstr ""
+
+#~ msgid "default=None, the torch module that defines the residual MLP."
+#~ msgstr ""
 
