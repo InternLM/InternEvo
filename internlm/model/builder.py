@@ -40,8 +40,6 @@ def create_model(model_type) -> Union[nn.Module, List[nn.Module]]:
     else:
         model = pipeline_parallel_sharding_wrapper(num_layers, num_chunks, model_buidler, **kwargs)
 
-    assert isinstance(
-        model, BaseModel
-    ), f"To get load_hf_weights and convert_internevo2hf_weights enabled, model is suggested to be inherited from {BaseModel.__name__}"
+    assert isinstance(model, BaseModel), f"built-in model should inherited from {BaseModel.__name__}"
 
     return model
