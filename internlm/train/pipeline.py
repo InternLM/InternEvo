@@ -44,6 +44,7 @@ from internlm.core.parallel.comm.tensor import (
 from internlm.core.parallel.comm.zero import ParamAsyncBcastHandler
 from internlm.core.trainer import TrainState
 from internlm.data.utils import unpack_type_ids
+from internlm.model.base_model import BaseModel
 from internlm.model.builder import create_model
 from internlm.model.metrics import SchedulerMetricHook
 from internlm.model.modules.embedding import Embedding1D
@@ -53,6 +54,7 @@ from internlm.model.modules.linear import (
     RewardModelLinear,
     RowParallelLinear,
     ScaleColumnParallelLinear,
+    new_linear,
 )
 from internlm.model.modules.utils import is_moe_param
 from internlm.model.moe.megablock.mlp import (
@@ -72,7 +74,7 @@ from internlm.solver.optimizer import (
 from internlm.solver.optimizer.compatible_adamw import new_compatible_adamw
 from internlm.solver.schedulers.beta2_scheduler import Beta2Scheduler
 from internlm.solver.schedulers.lr_scheduler import FineTuneCosineAnnealingWarmupLR
-from internlm.train.utils import create_param_groups, map_param_block
+from internlm.train.utils import create_param_groups, map_param_block, timeout_input
 from internlm.utils.common import DummyProfile, SchedulerHook, get_current_device
 from internlm.utils.logger import get_logger
 from internlm.utils.megatron_timers import megatron_timer as timer
@@ -94,6 +96,17 @@ except (ImportError, ModuleNotFoundError):
     pass
 
 IS_INJECTED = "is_injected"
+
+LINEAR2NEWLINEAR_NAME_MAPPING = dict(
+    q_proj="wq",
+    k_proj="wk",
+    v_proj="wv",
+    o_proj="wo",
+    gate_proj="w1",
+    down_proj="w2",
+    up_proj="w3",
+    lm_head="head",
+)
 
 logger = get_logger(__file__)
 internlm_accelerator = get_accelerator()
@@ -197,6 +210,8 @@ def inject_model(model):
 
     if hasattr(model, IS_INJECTED) and getattr(model, IS_INJECTED):
         return model
+
+    inject_model_helper(model, inject_mode=gpc.config.model.get("inject_mode", None))
 
     # should be set before NaiveAMPModel
     set_fp32_attr_for_model(model)
@@ -690,4 +705,94 @@ def record_current_batch_training_metrics(
             alert_address=gpc.config.monitor.alert.feishu_alert_address,
             step_count=batch_count,
             cur_step_loss=loss.item(),
+        )
+
+
+def inject_embed(model: nn.Module, inject=False, interactive=False) -> None:
+    def traverse(module):
+        for name, child in module.named_children():
+            if isinstance(child, nn.Embedding) and not isinstance(child, Embedding1D):
+                msg = (
+                    f"To get parallel training enabled, module {name} of type {nn.Embedding.__name__} "
+                    + f"is suggested to be replaced with {Embedding1D.__name__}."
+                )
+                if inject:
+                    help_msg = f"Do you want to replace {name}? (y/n)"
+                    opt = timeout_input(
+                        f"{msg}\n{help_msg}",
+                        default="y",
+                        timeout=60,
+                        interactive=interactive,
+                    )
+                    if opt in ["y", "yes"]:
+                        child_new = Embedding1D(
+                            num_embeddings=child.num_embeddings,
+                            embedding_dim=child.embedding_dim,
+                            padding_idx=child.padding_idx,
+                        ).to(device=child.weight.device, dtype=child.weight.dtype)
+                        setattr(module, name, child_new)
+                    else:
+                        if gpc.is_rank_for_log():
+                            logger.warning(f"Skip replacing {name}")
+                else:
+                    if gpc.is_rank_for_log():
+                        logger.warning(msg)
+            else:
+                traverse(child)
+
+    traverse(model)
+
+
+def inject_linear(model: nn.Module, inject=False, interactive=False) -> None:
+    def traverse(module):
+        for name, child in module.named_children():
+            if isinstance(child, nn.Linear) and not isinstance(child, ParallelLinearWithCommExt):
+                msg = (
+                    f"To get parallel training enabled, module {name} of type {nn.Linear.__name__} "
+                    + f"is suggested to be replaced with {new_linear.__name__}"
+                )
+                if inject:
+                    help_msg = f"Do you want to replace {name}? (y/n)"
+                    opt = timeout_input(
+                        f"{msg}\n{help_msg}",
+                        default="y",
+                        timeout=60,
+                        interactive=interactive,
+                    )
+                    if opt in ["y", "yes"]:
+                        child_new = new_linear(
+                            name=LINEAR2NEWLINEAR_NAME_MAPPING.get(name, name),
+                            in_features=child.in_features,
+                            out_features=child.out_features,
+                            bias=child.bias is not None,
+                        ).to(device=child.weight.device, dtype=child.weight.dtype)
+                        setattr(module, name, child_new)
+                    else:
+                        if gpc.is_rank_for_log():
+                            logger.warning(f"Skip replacing {name}")
+                else:
+                    if gpc.is_rank_for_log():
+                        logger.warning(msg)
+            else:
+                traverse(child)
+
+    traverse(model)
+
+
+def inject_model_helper(model: nn.Module, inject_mode) -> None:
+    if inject_mode is not None:
+        inject = True
+        interactive = inject_mode == "interactive"
+    else:
+        inject = False
+        interactive = False
+
+    inject_embed(model, inject, interactive)
+    inject_linear(model, inject, interactive)
+
+    if inject and gpc.is_rank_for_log():
+        logger.info(
+            f"inject_mode is enabled, please check the model carefully, "
+            f"if there are any problems, please report issue to us. "
+            f"The injected model is \n {model}"
         )

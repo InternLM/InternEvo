@@ -94,3 +94,20 @@ def map_param_block(model):
             else:
                 for param in children.parameters():
                     setattr(param, "block_name", name)
+
+
+def timeout_input(printout, default, timeout=None, interactive=True):
+    if not interactive:
+        return default
+    import select
+    import sys
+
+    if gpc.is_rank_for_log():
+        print(printout)
+
+    i, _, _ = select.select([sys.stdin], [], [], timeout)
+    if i:
+        msg = sys.stdin.readline().strip()
+        return default if len(msg) == 0 else msg
+    else:
+        return default
