@@ -12,6 +12,8 @@ CheckpointManager
 
 - ``enable_save_ckpt`` : 是否开启检查点存储功能（不影响检查点加载）。参数类型 ``bool`` ，必选参数。
 
+- ``enable_internevo2hf_ckpt`` : 是否同时保存huggingface格式的权重。如果开启，会将被并行切分后的权重整合起来保存成huggingface格式，方便后续使用hf方式加载权重，避免因并行方式不同导致的权重转换问题。默认值为： ``False`` 。
+
 - ``save_ckpt_folder`` : 检查点存储路径，参数类型 ``str`` ，默认为： ``None`` ，在开启检查点存储功能时为必选参数。
 
 - ``checkpoint_every`` : 检查点存储频率，参数类型 ``int`` ，默认为： ``50`` 。
@@ -28,8 +30,6 @@ CheckpointManager
 
 - ``stop_file_path`` : 检查点存储控制文件的路径，默认值为： ``None`` ，详见 :ref: `stopfile` 。
 
-- ``enable_internevo2hf_ckpt`` : 是否同时保存huggingface格式的权重。如果开启，会将被并行切分后的权重整合起来保存成huggingface格式，方便后续使用hf方式加载权重，避免因并行方式不同导致的权重转换问题。默认值为： ``False`` 。
-
 
 下面给出config文件的参数设置例子：
 
@@ -37,6 +37,7 @@ CheckpointManager
 
   ckpt = dict(
       enable_save_ckpt=False,  # enable ckpt save.
+      enable_internevo2hf_ckpt=True,  # save huggingface format ckpt at the same time.
       save_ckpt_folder=SAVE_CKPT_FOLDER,  # Path to save training ckpt.
       load_ckpt_info=dict(path="local:/mnt/mfs/ckpt", content=("all",), ckpt_type="internevo"),
       auto_resume=False, # disable auto-resume, internlm will load model checkpoint from the path of 'load_ckpt_info'.
@@ -44,7 +45,6 @@ CheckpointManager
       async_upload=True,  # async ckpt upload. (only work for boto3, volc and oss2 ckpt)
       async_upload_tmp_folder="/dev/shm/internlm_tmp_ckpt/",  # path for temporarily files during asynchronous upload.
       oss_snapshot_freq=int(CHECKPOINT_EVERY / 2),  # snapshot ckpt save frequency.
-      enable_internevo2hf_ckpt=True,  # save huggingface format ckpt at the same time.
   )
 
 .. autoclass:: internlm.checkpoint.checkpoint_manager.CheckpointManager

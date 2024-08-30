@@ -7,7 +7,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: InternLM \n"
 "Report-Msgid-Bugs-To: \n"
-"POT-Creation-Date: 2024-08-29 16:25+0800\n"
+"POT-Creation-Date: 2024-08-30 15:51+0800\n"
 "PO-Revision-Date: YEAR-MO-DA HO:MI+ZONE\n"
 "Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
 "Language: en\n"
@@ -335,8 +335,8 @@ msgid ""
 "OpenXLab 链接下载权重*"
 msgstr ""
 "*If you want to start training based on InternLM 7B, you can refer to "
-"OpenXLab [ModelZoo](https://github.com/InternLM/InternLM/tree/main#model-"
-"zoo) to download weights*."
+"OpenXLab [ModelZoo](https://github.com/InternLM/InternLM/tree/main#model-zoo)"
+" to download weights*."
 
 #: ../../../usage.md:419
 msgid "并行配置"
@@ -469,7 +469,7 @@ msgstr ""
 "following examples demonstrate how to start the training in both slurm "
 "and torch environments."
 
-#: ../../../usage.md:457 ../../../usage.md:492
+#: ../../../usage.md:457 ../../../usage.md:494
 msgid "若在 slurm 上启动分布式运行环境，多节点 16 卡的运行命令如下所示："
 msgstr ""
 "If you want to start distributed training on slurm with 16 GPUs across "
@@ -482,28 +482,34 @@ msgstr ""
 "single node, use the following command:"
 
 #: ../../../usage.md:467
+msgid ""
+"其中，train.py文件的内容，请参考： [训练脚本](https://internevo.readthedocs.io/zh-"
+"cn/latest/training.html)"
+msgstr "The content of train.py, please refer to: [training script](https://internevo.readthedocs.io/en/latest/training.html) "
+
+#: ../../../usage.md:469
 msgid "运行结果"
 msgstr "Training Results"
 
-#: ../../../usage.md:469
+#: ../../../usage.md:471
 msgid "以 slurm 上单机 8 卡的 Demo 训练配置为例，训练结果日志展示如下："
 msgstr ""
 "Taking the configuration of the demo training on a single machine with 8 "
 "GPUs on slurm as an example, the training result log is shown below:"
 
-#: ../../../usage.md:490
+#: ../../../usage.md:492
 msgid "加载训练的checkpoint并生成"
 msgstr "Load the training checkpoint and generate."
 
-#: ../../../usage.md:497
+#: ../../../usage.md:499
 msgid "在配置文件中添加`generation`配置"
 msgstr "Add generation configuration to the configuration file."
 
-#: ../../../usage.md:515
+#: ../../../usage.md:517
 msgid "长文本生成"
 msgstr "Long Text Generation"
 
-#: ../../../usage.md:517
+#: ../../../usage.md:519
 msgid ""
 "在推理阶段，我们可以使用 Dynamic NTK RoPE 来代替原始的 RoPE，从而使得模型能够适应长文本的输入输出，达到 16K "
 "的外推效果。 目前 InternLM 支持在 huggingface 格式和 InternLM 本身格式的模型中使用 Dynamic NTK "
@@ -515,7 +521,7 @@ msgstr ""
 "the use of Dynamic NTK RoPE in models formatted in both Hugging Face "
 "format and InternLM's native format."
 
-#: ../../../usage.md:520
+#: ../../../usage.md:522
 msgid ""
 "对于 huggingface 格式的模型，dynamic ntk rope 目前是被默认使用的。如果用户想要关闭该行为，请将 "
 "`config.json` 中的 `rotary.type` 修改为 `origin`；"
@@ -524,7 +530,7 @@ msgstr ""
 "by default. If users wish to disable this behavior, they can modify "
 "`rotary.type` in the `config.json` file to `origin`."
 
-#: ../../../usage.md:521
+#: ../../../usage.md:523
 msgid ""
 "对于 InternLM "
 "本身格式的模型，在推理时，通过在初始化模型的配置字典中添加`use_dynamic_ntk_rope=True`来开启这一行为。"
@@ -533,7 +539,7 @@ msgstr ""
 "this behavior by adding use_dynamic_ntk_rope=True to the configuration "
 "dictionary when initializing the model."
 
-#: ../../../usage.md:523
+#: ../../../usage.md:525
 msgid ""
 "用户可以直接通过 web_demo 来直观地对比查看 Dynamic NTK RoPE "
 "是如何生效的。例如文件[长文本示例](../../aux_materials/long_text_example.txt)中存放着一个token长度超过2200的文本，如果不使用"
@@ -547,23 +553,23 @@ msgstr ""
 "text. However, after applying Dynamic NTK RoPE, the response from the "
 "InternLM Chat 7B v1.1 model is as follows:"
 
-#: ../../../usage.md:526
+#: ../../../usage.md:528
 msgid "![dynamic_ntk_answer](./imgs/dynamic_ntk_answer.png)"
 msgstr ""
 
-#: ../../../usage.md:526
+#: ../../../usage.md:528
 msgid "dynamic_ntk_answer"
 msgstr ""
 
-#: ../../../usage.md:528
+#: ../../../usage.md:530
 msgid "关于 Dyanmic NTK 的原理，详细请参考"
 msgstr "Regarding the principle of Dyanmic NTK, please refer to"
 
-#: ../../../usage.md:529
+#: ../../../usage.md:531
 msgid "[dynamically_scaled_rope_further_increases](https://www.reddit.com/r/LocalLLaMA/comments/14mrgpr/dynamically_scaled_rope_further_increases)"
 msgstr ""
 
-#: ../../../usage.md:530
+#: ../../../usage.md:532
 msgid "[https://kexue.fm/archives/9675](https://kexue.fm/archives/9675)"
 msgstr ""
 

@@ -1,4 +1,4 @@
-数据格式
+数据加载与流程
 ==================
 
 .. Introduction to how data is constructed in dataloader and how data changes in forward procedure
@@ -80,7 +80,6 @@ Dataloader加载数据
 
 从Dataloader中取出数据
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-
 .. code-block:: python
 
     batch_data, actual_batch_size = engine.load_batch(data_iter)
@@ -142,7 +141,6 @@ Dataloader加载数据
 
 处理数据
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-
 .. code-block:: python
 
     _data, _label = self._load_accum_batch(data, label)
@@ -274,8 +272,7 @@ Forward过程数据格式
 
 ISP并行模式下权重切分
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-
-ISP并行的具体原理请参见： `并行训练 <https://github.com/InternLM/InternEvo/blob/develop/doc/code-docs/source/parallel.rst>`_ 
+ISP并行的具体原理请参见： `并行训练 <https://internevo.readthedocs.io/zh-cn/latest/parallel.html#internlm-tensor-parallel>`_ 
 
 internlm2模型中，涉及weight切分的参数为："wqkv"、"wo"、"w1"、"w2"、"w3"、"output"，通过new_linear函数进行切分。
 
@@ -319,8 +316,7 @@ internlm2模型中，涉及weight切分的参数为："wqkv"、"wo"、"w1"、"w2
 
 MTP/MSP/FSP并行模式下权重切分
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-
-``MTP/MSP/FSP`` 并行的具体原理请参见： `并行训练 <https://github.com/InternLM/InternEvo/blob/develop/doc/code-docs/source/parallel.rst>`_
+``MTP/MSP/FSP`` 并行的具体原理请参见： `并行训练 <https://internevo.readthedocs.io/zh-cn/latest/parallel.html#internlm-tensor-parallel>`_
 
 与 ``ISP`` 并行模式相比， ``MSP`` 并行切分权重的参数是一样的，但是切分的方式不同，在 ``ISP`` 并行模式中，所有切分参数采用列切方式，而 ``MSP`` 并行模式中，"wo"和"w2"参数采用行切方式进行切分。
 
@@ -356,7 +352,6 @@ MTP/MSP/FSP并行模式下权重切分
 
 Forward整体流程
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-
 internlm2模型中，forward整体流程如下图所示：
 
 .. figure:: ../../imgs/forward_flow.png
@@ -367,7 +362,6 @@ internlm2模型中，forward整体流程如下图所示：
 
 ISP并行模式下数据流程
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-
 假设配置文件中设置的tensor并行大小为 ``sp_size`` （在ISP模式下，张量并行大小即为序列化并行大小）
 
 展开介绍每一步计算过程中，数据维度的变化情况。
@@ -375,7 +369,6 @@ ISP并行模式下数据流程
 
 tok_embeddings计算过程
 ````````````````````````````````````````
-
 在embedding的计算过程中，对数据的seq_len维度做了切分。
 
 输入参数及权重：
@@ -398,10 +391,8 @@ tok_embeddings计算过程
 
 attention计算过程
 ```````````````````````````````````````
-
 qkv准备
 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
-
 .. code-block:: python
 
     qkv = self.wqkv(x)
@@ -437,7 +428,6 @@ qkv准备
 
 计算attention
 ^^^^^^^^^^^^^^^^^^^^^^^^^^
-
 attention计算的过程如下：
 
 .. code-block:: python
@@ -471,7 +461,6 @@ attention计算的过程如下：
 
 输出变换
 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
-
 通过调用 "wo" 对attention计算的输出结果做变换，输出结果的维度如下：
 
 .. code-block:: python
@@ -480,7 +469,6 @@ attention计算的过程如下：
 
 feed_forward计算过程
 ``````````````````````````````````````
-
 在feed_forward前馈网络层，通过"w1"、"w2"、"w3"对输出结果做线性变换。变换之后的结果如下：
 
 .. code-block:: python
@@ -498,7 +486,6 @@ feed_forward计算过程
 
 norm计算过程
 `````````````````````````
-
 经过norm层计算之后的结果维度保持不变，为：
 
 .. code-block:: python
@@ -508,7 +495,6 @@ norm计算过程
 
 output计算过程
 `````````````````````````
-
 最后，经过output层将模型的最后一层输出转换为适合最终任务的格式，结果如下：
 
 .. code-block:: python
@@ -519,12 +505,10 @@ output计算过程
 
 MTP/MSP/FSP并行模式下数据流程
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-
 在 ``MTP`` 并行模式中，只有张量并行对模型权重进行切分，不涉及对数据的seq_len维度进行切分。而 ``MSP`` 和 ``FSP`` 并行模式中，均会涉及对数据进行序列化并行切分，且序列化并行与张量并行大小相同，两者共用通信组。
 
 tok_embeddings计算过程
 ````````````````````````````````
-
 在embedding的计算过程中，embedding的权重会进行切分：
 
 .. code-block:: python
@@ -552,14 +536,12 @@ tok_embeddings计算过程
 
 attention计算过程
 ``````````````````````````````````````
-
 在进入attention计算之前，如果是 ``MSP/FSP`` 并行模式，会通过 ``All-Gather`` 通信，将经过序列化并行切分后的数据聚集起来。因此，整个attention计算过程中， ``MTP/MSP/FSP`` 三种并行模式的参数维度一致。
 
 在attention计算完成之后， ``wo`` 层中做线性变换时，如果是 ``MSP/FSP`` 并行模式，会通过 ``Reduce-Scatter`` 通信，将linear变换行切的结果整合，同时做序列化并行操作。
 
 qkv准备
 ^^^^^^^^^^^^^^^^^^
-
 .. code-block:: python
 
     qkv = self.wqkv(x)
@@ -593,7 +575,6 @@ qkv准备
 
 计算attention
 ^^^^^^^^^^^^^^^^^^^^^^^^^^
-
 attention计算的过程如下：
 
 .. code-block:: python
@@ -611,7 +592,6 @@ attention计算的过程如下：
 
 输出变换
 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
-
 通过调用 "wo" 对attention计算的输出结果做变换
 
 ``MTP`` 并行模式，输出结果的维度如下：
@@ -628,7 +608,6 @@ attention计算的过程如下：
 
 feed_forward计算过程
 ``````````````````````````````````````
-
 在feed_forward前馈网络层，通过"w1"、"w2"、"w3"对输出结果做线性变换。
 
 ``MSP/FSP`` 并行模式下，在 ``w1`` 和 ``w3`` 线性变换层之前，需要进行 ``All-Gather`` 通信。因此， ``MTP/MSP/FSP`` :w
@@ -661,7 +640,6 @@ feed_forward计算过程
 
 norm计算过程
 `````````````````````````
-
 经过norm层计算之后的结果维度保持不变。
 
 ``MTP`` 并行模式，输出结果的维度如下：
@@ -680,7 +658,6 @@ norm计算过程
 
 output计算过程
 `````````````````````````
-
 最后，经过output层将模型的最后一层输出转换为适合最终任务的格式，结果如下：
 
 .. code-block:: python

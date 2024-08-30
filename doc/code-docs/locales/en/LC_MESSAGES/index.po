@@ -7,7 +7,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: InternLM \n"
 "Report-Msgid-Bugs-To: \n"
-"POT-Creation-Date: 2024-08-26 16:38+0800\n"
+"POT-Creation-Date: 2024-08-30 15:51+0800\n"
 "PO-Revision-Date: YEAR-MO-DA HO:MI+ZONE\n"
 "Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
 "Language: en\n"
@@ -34,59 +34,58 @@ msgstr "Quickstart Guide"
 msgid "训练构建"
 msgstr "Model Setup"
 
-#: ../../source/index.rst:35
-msgid "训练 API"
-msgstr "Training API"
-
-#: ../../source/index.rst:43
+#: ../../source/index.rst:40
 msgid "并行训练"
 msgstr "Parallel Training"
 
-#: ../../source/index.rst:51
+#: ../../source/index.rst:48
 msgid "数据格式"
 msgstr "Data Format"
 
-#: ../../source/index.rst:59
+#: ../../source/index.rst:56
 msgid "混合精度"
 msgstr "Mixed Precision"
 
-#: ../../source/index.rst:67
+#: ../../source/index.rst:64
 msgid "混合专家模型"
 msgstr "Mixture-of-Experts"
 
-#: ../../source/index.rst:75
+#: ../../source/index.rst:72
 msgid "模型备份"
 msgstr "Model Checkpointing"
 
-#: ../../source/index.rst:83
+#: ../../source/index.rst:80
 msgid "性能分析"
 msgstr "Profiler"
 
-#: ../../source/index.rst:91
+#: ../../source/index.rst:88
 msgid "训练监控"
 msgstr "Monitor"
 
-#: ../../source/index.rst:99
+#: ../../source/index.rst:96
 msgid "训练样例"
 msgstr "Example"
 
-#: ../../source/index.rst:107
+#: ../../source/index.rst:104
 msgid "常见问题"
 msgstr "Q&A"
 
-#: ../../source/index.rst:115
+#: ../../source/index.rst:112
 msgid "索引和表格"
 msgstr "Indices and tables"
 
-#: ../../source/index.rst:117
+#: ../../source/index.rst:114
 msgid ":ref:`genindex`"
 msgstr ""
 
-#: ../../source/index.rst:118
+#: ../../source/index.rst:115
 msgid ":ref:`modindex`"
 msgstr ""
 
-#: ../../source/index.rst:119
+#: ../../source/index.rst:116
 msgid ":ref:`search`"
 msgstr ""
+
+#~ msgid "训练 API"
+#~ msgstr "Training API"
 

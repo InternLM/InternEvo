@@ -463,6 +463,8 @@ $ srun -p internllm -N 2 -n 16 --ntasks-per-node=8 --gpus-per-task=1 python trai
 $ torchrun --nnodes=1 --nproc_per_node=8 train.py --config ./configs/7B_sft.py --launcher "torch"
 ```
 
+其中，train.py文件的内容，请参考： [训练脚本](https://internevo.readthedocs.io/zh-cn/latest/training.html)
+
 ### 运行结果
 
 以 slurm 上单机 8 卡的 Demo 训练配置为例，训练结果日志展示如下：

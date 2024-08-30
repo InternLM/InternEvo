@@ -414,6 +414,8 @@ If you want to start distributed training on torch with 8 GPUs on a single node,
 $ torchrun --nnodes=1 --nproc_per_node=8 train.py --config ./configs/7B_sft.py --launcher "torch"
 ```
 
+The content of train.py, please refer to [Training Scrip](https://internevo.readthedocs.io/en/latest/training.html)
+
 ### Training Results
 
 Taking the configuration of the demo training on a single machine with 8 GPUs on slurm as an example, the training result log is shown below:
