@@ -16,6 +16,7 @@ from internlm.initialize.legacy.launch import (
     auto_resume_sanity_check,
     ckpt_info_sanity_check,
 )
+from internlm.model.base_model import BaseModel
 from internlm.model.registry import model_initializer
 from internlm.monitor import send_alert_message
 from internlm.solver.optimizer import HybridZeroOptimizer, HybridZeroOptimizer_v2
@@ -285,14 +286,15 @@ class CheckpointManager:
             k: partial(try_load_internlm_ckpt_func, func=v) for k, v in LOAD_FUNC_DICT.items()
         }
         # Register huggingface ckpt load type
-        self.defalut_load_type_func.update(
-            {
-                "hf": partial(
-                    try_load_internlm_ckpt_func,
-                    func=model_initializer.get_module(module_name=gpc.config.model_type).load_hf_weights,
-                )
-            }
-        )
+        if isinstance(model, BaseModel):
+            self.defalut_load_type_func.update(
+                {
+                    "hf": partial(
+                        try_load_internlm_ckpt_func,
+                        func=model_initializer.get_module(module_name=gpc.config.model_type).load_hf_weights,
+                    )
+                }
+            )
 
         for ckpt_load_type, func in self.defalut_load_type_func.items():
             CheckpointLoadMethod.register_ckpt_load_type(ckpt_load_type, func)
@@ -421,7 +423,6 @@ now step_count is {train_state.step_count}",
         save_ckpts, save_type, now_break = self.is_now_to_save_ckpt(train_state, force=force)
 
         if save_ckpts:
-            save_hf_ckpt_folder = None
             # Wait for the previous round of asynchronous upload storage to complete.
             self.storage_manager.wait()
             if save_type == CheckpointSaveType.SNAPSHOT_CHECKPOINT:
@@ -430,7 +431,6 @@ now step_count is {train_state.step_count}",
                 save_ckpt_folder = os.path.join(self.snapshot_ckpt_folder, f"{self.snapshot_counter}")
             else:
                 save_ckpt_folder = os.path.join(self.save_ckpt_folder, str(train_state.step_count))
-                save_hf_ckpt_folder = os.path.join(self.save_ckpt_folder, f"{str(train_state.step_count)}_hf")
 
             self.save_checkpoint(
                 folder=save_ckpt_folder,
@@ -442,8 +442,14 @@ now step_count is {train_state.step_count}",
                 model_config_file=self.model_config_file,
             )
 
-            if self.enable_internevo2hf_ckpt and save_hf_ckpt_folder is not None and gpc.is_rank_for_log():
+            if (
+                isinstance(self.model, BaseModel)
+                and self.enable_internevo2hf_ckpt
+                and save_type == CheckpointSaveType.NORMAL_CHECKPOINT
+                and gpc.is_rank_for_log()
+            ):
                 # convert internevo2hf checkpoint
+                save_hf_ckpt_folder = os.path.join(self.save_ckpt_folder, f"{str(train_state.step_count)}_hf")
                 logger.info(
                     f"Start to convert internevo2hf checkpoint from {save_ckpt_folder} to {save_hf_ckpt_folder}."
                 )
@@ -453,8 +459,7 @@ now step_count is {train_state.step_count}",
                 logger.info(
                     f"Finish to convert internevo2hf checkpoint from {save_ckpt_folder} to {save_hf_ckpt_folder}."
                 )
-
-            torch.distributed.barrier()
+                torch.distributed.barrier()
 
         return now_break
 

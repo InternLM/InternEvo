@@ -780,6 +780,12 @@ def inject_linear(model: nn.Module, inject=False, interactive=False) -> None:
 
 
 def inject_model_helper(model: nn.Module, inject_mode) -> None:
+    if not isinstance(model, BaseModel):
+        logger.warning(
+            f"To get load_hf_weights and convert_internevo2hf_weights enabled, "
+            f"model is suggested to be inherited from {BaseModel.__name__}"
+        )
+
     if inject_mode is not None:
         inject = True
         interactive = inject_mode == "interactive"
