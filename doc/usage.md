@@ -89,7 +89,9 @@ $ python tools/tokenizer.py --text_input_path raw_data.txt --bin_output_path cn/
 python tools/alpaca_tokenizer.py /path/to/alpaca_dataset /path/to/output_dataset /path/to/tokenizer --split_ratio 0.1
 ```
 
-建议用户参考 alpaca_tokenizer.py 编写新的脚本对自己的数据集进行 tokenize
+建议用户参考 alpaca_tokenizer.py 编写新的脚本对自己的数据集进行 tokenize。
+
+微调任务中，也同样可以使用huggingface格式数据集，与预训练中的准备过程一致。
 
 ### 训练配置
 

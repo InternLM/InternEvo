@@ -100,7 +100,9 @@ The data format for fine-tuning tasks is the same as for pre-training tasks, whi
 python tools/alpaca_tokenizer.py /path/to/alpaca_dataset /path/to/output_dataset /path/to/tokenizer --split_ratio 0.1
 ```
 
-It is recommended that users refer to alpaca_tokenizer.py to write new scripts to tokenize their own datasets
+It is recommended that users refer to alpaca_tokenizer.py to write new scripts to tokenize their own datasets.
+
+In fine-tuning tasks, Hugging Face formatted datasets can also be used, consistent with the preparation process in pre-training.
 
 ### Training Configuration
 

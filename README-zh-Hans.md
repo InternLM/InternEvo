@@ -34,27 +34,142 @@ InternEvo是一个开源的轻量级训练框架，旨在支持无需大量依�
 
 基于InternEvo训练框架，我们累计发布了一系列大语言模型，包括InternLM-7B系列和InternLM-20B系列，这些模型在性能上显著超越了许多知名的开源LLMs，如LLaMA和其他模型。
 
+## 安装
+
+首先，安装指定版本的torch, torchvision, torchaudio, and torch-scatter.
+例如:
+```bash
+pip install --extra-index-url https://download.pytorch.org/whl/cu118 torch==2.1.0+cu118 torchvision==0.16.0+cu118 torchaudio==2.1.0+cu118
+pip install torch-scatter -f https://data.pyg.org/whl/torch-2.1.0+cu118.html
+```
+
+安装InternEvo:
+```bash
+pip install InternEvo
+```
+
+安装flash-attention (version v2.2.1):
+
+如果需要使用flash-attention加速训练, 并且环境中支持, 按如下方式安装:
+```bash
+pip install flash-attn==2.2.1
+```
+
+有关安装环境以及源码方式安装的更多详细信息，请参考[安装文档](https://internevo.readthedocs.io/zh-cn/latest/install.html#)
+
 ## 快速开始
 
-请查看 [用户说明](./doc/usage.md) 来开始InternEvo的安装、数据处理、预训练与微调。
+### 训练脚本
 
-更多细节请查看文档 [internevo.readthedocs.io](https://internevo.readthedocs.io/zh_CN/latest/?badge=latest)
+首先，准备训练脚本，参考：[train.py](https://github.com/InternLM/InternEvo/blob/develop/train.py)
+
+有关训练脚本的更多详细解释，请参考[训练文档](https://internevo.readthedocs.io/zh-cn/latest/training.html#)
+
+### 数据准备
+
+其次，准备训练或者微调的数据。
+
+从huggingface下载数据集，以 `roneneldan/TinyStories` 数据集为例:
+```bash
+huggingface-cli download --repo-type dataset --resume-download "roneneldan/TinyStories" --local-dir "/mnt/petrelfs/hf-TinyStories"
+```
+
+获取分词器到本地路径。例如，从 `https://huggingface.co/internlm/internlm2-7b/tree/main` 下载special_tokens_map.json、tokenizer.model、tokenizer_config.json、tokenization_internlm2.py和tokenization_internlm2_fast.py文件，并保存到本地路径： `/mnt/petrelfs/hf-internlm2-tokenizer` 。
+
+然后，修改配置文件：
+```bash
+TRAIN_FOLDER = "/mnt/petrelfs/hf-TinyStories"
+data = dict(
+    type="streaming",
+    tokenizer_path="/mnt/petrelfs/hf-internlm2-tokenizer",
+)
+```
+
+对于其他数据集类型的准备方式，请参考：[用户文档](https://internevo.readthedocs.io/zh-cn/latest/usage.html#)
+
+### 配置文件
+
+配置文件的内容，请参考：[7B_sft.py](https://github.com/InternLM/InternEvo/blob/develop/configs/7B_sft.py)
+
+关于配置文件更多详细的说明，请参考：[用户文档](https://internevo.readthedocs.io/zh-cn/latest/usage.html#)
+
+### 开启训练
+
+可以在 slurm 或者 torch 分布式环境中开始训练。
+
+slurm环境，双机16卡，启动训练命令如下：
+```bash
+$ srun -p internllm -N 2 -n 16 --ntasks-per-node=8 --gpus-per-task=1 python train.py --config ./configs/7B_sft.py
+```
+
+torch环境，单机8卡，启动训练命令如下：
+```bash
+$ torchrun --nnodes=1 --nproc_per_node=8 train.py --config ./configs/7B_sft.py --launcher "torch"
+```
 
 ## 系统架构
 
 系统架构细节请参考：[系统架构文档](./doc/structure.md)
 
-## 框架性能
+## 特性列表
 
-InternEvo深度集成了Flash-Attention、Apex等高性能计算库，以提高训练效率。通过构建Hybrid Zero技术，InternEvo可在训练过程中实现计算和通信的有效重叠，显著降低跨节点通信流量。InternEvo支持将7B模型从8个GPU扩展到1024个GPU，在千卡规模下可实现高达90%的加速效率，超过180 TFLOPS的训练吞吐量，平均每个GPU每秒可处理超过3600个tokens。下表展示了InternEvo在不同配置下的可扩展性测试数据：
-
-| GPU Number         | 8   | 16  | 32  | 64  | 128  | 256  | 512  | 1024  |
-| ---------------- | ---- | ---- | ---- | ---- | ----- | ----- | ----- | ------ |
-| TGS | 4078 | 3939 | 3919 | 3944 | 3928  | 3920  | 3835  | 3625   |
-| TFLOPS  | 193 | 191  | 188  | 188  | 187   | 185   | 186   | 184    |
-
-TGS表示每张GPU每秒可处理的平均Tokens数量。更多模型性能测试数据细节请查看 [训练性能文档](./doc/train_performance.md)
-
+<div align="center">
+  <b>InternEvo 特性列表</b>
+</div>
+<table align="center">
+  <tbody>
+    <tr align="center" valign="bottom">
+      <td>
+        <b>数据集</b>
+      </td>
+      <td>
+        <b>模型</b>
+      </td>
+      <td>
+        <b>并行模式</b>
+      </td>
+      <td>
+        <b>工具</b>
+      </td>
+    </tr>
+    <tr valign="top">
+      <td>
+      <ul>
+        <li>已分词数据集</li>
+        <li>流式数据集</li>
+      </ul>
+      </td>
+      <td>
+      <ul>
+        <li><a href="configs/_base_/models/internlm/internlm_7B.py">InternLM</a></li>
+        <li><a href="configs/_base_/models/internlm/internlm2_7B.py">InternLM2</a></li>
+      </ul>
+      </td>
+      <td>
+        <ul>
+          <li>ZeRO 1.5</li>
+          <li>1F1B 流水线并行</li>
+          <li>PyTorch FSDP 训练</li>
+          <li>Megatron-LM 张量并行 (MTP)</li>
+          <li>Megatron-LM 序列化并行 (MSP)</li>
+          <li>Flash-Attn 序列化并行 (FSP)</li>
+          <li>Intern 序列化并行 (ISP)</li>
+          <li>内存性能分析</li>
+        </ul>
+      </td>
+      <td>
+        <ul>
+          <li><a href="tools/transformers/README-zh-Hans.md">将ckpt转为huggingface格式</a></li>
+          <li><a href="tools/transformers/README-zh-Hans.md">将ckpt从huggingface格式转为InternEvo格式</a></li>
+          <li><a href="tools/tokenizer.py">原始数据分词器</a></li>
+          <li><a href="tools/alpaca_tokenizer.py">Alpaca数据分词器</a></li>
+        </ul>
+      </td>
+    </tr>
+</td>
+    </tr>
+  </tbody>
+</table>
 
 ## 贡献
 
