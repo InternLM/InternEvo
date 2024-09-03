@@ -3,14 +3,14 @@
 
 from typing import Callable
 
+from internlm.model.modeling_baichuan2 import Baichuan2
 from internlm.model.modeling_internlm import InternLM1
 from internlm.model.modeling_internlm2 import InternLM2
 from internlm.model.modeling_llama import Llama2
 from internlm.model.modeling_llava import Llava
 from internlm.model.modeling_moe import Internlm1MoE
-from internlm.utils.common import SingletonMeta
 from internlm.model.modeling_qwen2 import Qwen2
-from internlm.model.modeling_baichuan2 import Baichuan2
+from internlm.utils.common import SingletonMeta
 from internlm.utils.utils import ModelType
 
 

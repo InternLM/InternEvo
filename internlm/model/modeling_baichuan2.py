@@ -59,7 +59,6 @@ class Baichuan2Decoder(nn.Module):
         self,
         hidden_size: int = 768,
         num_attention_heads: int = 12,
-        num_kv_attention_heads: int = 12,
         mlp_ratio: int = 4,
         attn_drop_rate: float = 0,
         drop_rate: float = 0.0,
@@ -190,7 +189,7 @@ class Baichuan2Decoder(nn.Module):
         else:
             return self._forward(hidden_states, residual, **kwargs)
 
-    def _forward(self, hidden_states=None, residual=None, *args, **kwargs):
+    def _forward(self, hidden_states=None, residual=None, *args, **kwargs):  # pylint: disable=W1113
         r"""Pass the input through the encoder layer.
 
         Args:
@@ -302,7 +301,6 @@ class Baichuan2(nn.Module):
         num_layers: int = 12,
         hidden_size: int = 768,
         num_attention_heads: int = 12,
-        num_kv_attention_heads: int = 12,
         vocab_size: int = 50304,
         mlp_ratio: int = 4,
         attn_drop_rate: float = 0.0,
@@ -359,7 +357,6 @@ class Baichuan2(nn.Module):
                 Baichuan2Decoder(
                     hidden_size=hidden_size,
                     num_attention_heads=num_attention_heads,
-                    num_kv_attention_heads=num_kv_attention_heads,
                     mlp_ratio=mlp_ratio,
                     attn_drop_rate=attn_drop_rate,
                     drop_rate=drop_rate,

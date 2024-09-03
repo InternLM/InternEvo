@@ -7,7 +7,7 @@ SEQ_LEN = 2048
 HIDDEN_SIZE = 3584
 NUM_ATTENTION_HEAD = 28
 NUM_KV_ATTENTION_HEAD = 4
-MLP_RATIO = 3.5
+MLP_RATIO = 2.6875
 NUM_LAYER = 28
 
 
@@ -130,19 +130,20 @@ model = dict(
     checkpoint=False,
     num_chunks=1,
     num_attention_heads=NUM_ATTENTION_HEAD,
+    num_kv_attention_heads=NUM_KV_ATTENTION_HEAD,
     embed_split_hidden=True,
     vocab_size=VOCAB_SIZE,
     embed_grad_scale=1,
     parallel_output=True,
     hidden_size=HIDDEN_SIZE,
     num_layers=NUM_LAYER,
-    no_bias=True,
+    qkv_bias=True,
+    o_bias=False,
     mlp_ratio=MLP_RATIO,
     apply_post_layer_norm=False,
     dtype="torch.bfloat16",
     norm_type="rmsnorm",
     layer_norm_epsilon=1e-6,
-    num_kv_attention_heads=NUM_KV_ATTENTION_HEAD,
     use_flash_attn=True,
     # Whether the odd and even columns of the query and key in the model are normally interleaved.
     # If it's True, the model's odd and even columns are normally ordered; if it's False,
@@ -152,6 +153,10 @@ model = dict(
     # qk_interleaved = True: q[-1] = [q1,q2,q3,q4,q5,q6,...], k[-1] = [k1,k2,k3,k4,k5,k6,...]
     # qk_interleaved = False: q[-1] = [q1,q3,q5,...,q2,q4,q6,...], k[-1] = [k1,k3,k5,...,k2,k4,k6,...]
     qk_interleaved=False,
+    rope_base=1000000,
+    use_sliding_window=False,
+    sliding_window=32768,
+    max_window_layers=28,
 )
 
 """

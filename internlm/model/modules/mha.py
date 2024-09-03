@@ -630,6 +630,7 @@ class GQA(nn.Module):
 
 try:
     from flash_attn import flash_attn_func
+
     # flash_attn >= v2.3.0
     _flash_supports_window_size = "window_size" in list(inspect.signature(flash_attn_func).parameters)
 except (ModuleNotFoundError, ImportError):
@@ -670,8 +671,9 @@ class SWA(nn.Module):
         embed_dim: int,
         num_heads: int,
         num_kv_heads: int,
+        qkv_bias: bool = True,
+        o_bias: bool = False,
         max_position_embeddings: int = 2048,
-        bias: bool = True,
         dropout: float = 0.0,
         softmax_scale: float = None,
         causal: bool = False,
@@ -739,21 +741,21 @@ class SWA(nn.Module):
             "wq",
             embed_dim,
             embed_dim,
-            bias,
+            qkv_bias,
             **factory_kwargs,
         )
         self.wk = new_linear(
             "wk",
             embed_dim,
             self.kv_dim,
-            bias,
+            qkv_bias,
             **factory_kwargs,
         )
         self.wv = new_linear(
             "wv",
             embed_dim,
             self.kv_dim,
-            bias,
+            qkv_bias,
             **factory_kwargs,
         )
 
@@ -768,11 +770,11 @@ class SWA(nn.Module):
             "wo",
             embed_dim,
             embed_dim,
-            bias,
+            o_bias,
             **factory_kwargs,
         )
 
-    def forward(self, x, seqlen=None, inference_params=None, **kwargs):
+    def forward(self, x, inference_params=None, **kwargs):
         if inference_params is None:
             return self._training(x=x, **kwargs)
         else:
@@ -817,7 +819,7 @@ class SWA(nn.Module):
         kv = torch.concat([k.unsqueeze(2), v.unsqueeze(2)], dim=2)
 
         if use_window_circumstance:
-            kwargs['window_size'] = (self.sliding_window, 0)
+            kwargs["window_size"] = (self.sliding_window, 0)
 
         # self attention
         context = self.inner_attn(q, kv, **kwargs)

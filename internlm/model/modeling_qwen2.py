@@ -74,7 +74,9 @@ class Qwen2Decoder(nn.Module):
         device: Optional[torch.device] = None,
         apply_post_layer_norm: bool = False,
         fused_dropout_add_ln: bool = True,
-        no_bias: bool = False,
+        qkv_bias=True,
+        o_bias=False,
+        mlp_bias=False,
         norm_type: str = "rmsnorm",
         qk_interleaved: bool = False,
         adapt_hf: bool = False,
@@ -134,7 +136,8 @@ class Qwen2Decoder(nn.Module):
             dtype=dtype,
             qk_interleaved=qk_interleaved,
             rot_embed_HF_impl=adapt_hf,
-            bias=not no_bias,
+            qkv_bias=qkv_bias,
+            o_bias=o_bias,
             rope_type=rope_type,
             rope_base=rope_base,
             rope_scaling_factor=rope_scaling_factor,
@@ -152,7 +155,7 @@ class Qwen2Decoder(nn.Module):
             hidden_size,
             int(hidden_size * mlp_ratio),
             out_features=hidden_size,
-            bias=False,
+            bias=mlp_bias,
             device=device,
             dtype=dtype,
             mlp_layer_fusion=mlp_layer_fusion,
@@ -202,17 +205,14 @@ class Qwen2Decoder(nn.Module):
                             param.data
                         )
 
-    def forward(
-        self, hidden_states, residual=None, **kwargs):
+    def forward(self, hidden_states, residual=None, **kwargs):
         if self.checkpoint and self.training:
             args = convert_attn_kwargs_to_args(kwargs)
-            return activation_checkpoint(
-                self._forward, False, hidden_states, residual, *args)
+            return activation_checkpoint(self._forward, False, hidden_states, residual, *args)
         else:
             return self._forward(hidden_states, residual, **kwargs)
 
-    def _forward(
-        self, hidden_states=None, residual=None, *args, **kwargs):
+    def _forward(self, hidden_states=None, residual=None, *args, **kwargs):  # pylint: disable=W1113
         r"""Pass the input through the encoder layer.
 
         Args:
@@ -343,7 +343,9 @@ class Qwen2(nn.Module):
         use_dynamic_ntk_rope: bool = False,
         device: Optional[torch.device] = None,
         apply_post_layer_norm=False,
-        no_bias=False,
+        qkv_bias=True,
+        o_bias=False,
+        mlp_bias=False,
         residual_in_fp32: bool = False,
         norm_type: str = "rmsnorm",
         adapt_hf: bool = False,
@@ -405,7 +407,9 @@ class Qwen2(nn.Module):
                     device=device,
                     apply_post_layer_norm=apply_post_layer_norm,
                     fused_dropout_add_ln=False,
-                    no_bias=no_bias,
+                    qkv_bias=qkv_bias,
+                    o_bias=o_bias,
+                    mlp_bias=mlp_bias,
                     norm_type=norm_type,
                     dropout_selective_checkpoint=dropout_selective_checkpoint,
                     use_scaled_init=use_scaled_init,
