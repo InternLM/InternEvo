@@ -31,6 +31,9 @@ def create_model(model_type) -> Union[nn.Module, List[nn.Module]]:
     kwargs["checkpoint"] = float(kwargs.get("checkpoint", False))
     kwargs["device"] = get_current_device()
 
+    if "checkpoint_tp_no_comm" in kwargs:
+        kwargs.pop("checkpoint_tp_no_comm")
+
     model_buidler = model_initializer.get_module(module_name=model_type)
 
     if not gpc.is_using_parallel_mode(ParallelMode.PIPELINE):

@@ -346,7 +346,6 @@ class ParallelLinearWithCommExt(nn.Linear):
     def forward(self, input: torch.Tensor) -> torch.Tensor:  # pylint: disable=W0622
         _class_name = self.__class__.__name__
         assert self._communicator is not None, f"{_class_name} should register with a communicator first."
-
         return fused_dense_func(
             input,
             self.weight,
@@ -589,7 +588,7 @@ def new_linear(
             dtype,
         )
     elif split_mode == "row":
-        return RowParallelLinear(
+        linear = RowParallelLinear(
             in_features,
             out_features,
             bias,
@@ -597,6 +596,9 @@ def new_linear(
             device,
             dtype,
         )
+        if name == "w2":
+            setattr(linear, "last_block_layer", True)
+        return linear
     else:
         err_msg = (
             f"Parallel strategies for linear is unsupported, which is named as {name}.\n"

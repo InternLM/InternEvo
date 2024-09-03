@@ -128,6 +128,7 @@ beta2_scheduler = dict(
 use_fp32_norm = False
 model = dict(
     checkpoint=False,
+    # checkpoint_tp_no_comm=True,  # whether use TP recomputation communication optimization
     num_chunks=1,
     num_attention_heads=NUM_ATTENTION_HEAD,
     embed_split_hidden=True,

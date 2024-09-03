@@ -276,6 +276,15 @@ def initialize_parallel_communicator(model: Union[nn.Module, nn.ModuleList]):
         )
         _head_communicator = HeadTensorParallelCommunicator(ParallelMode.TENSOR, _retain_out_sharded)
         _embedding_communicator = EmbeddingTensorParallelCommunicator(ParallelMode.TENSOR)
+
+        # for tp recompute communication optimization, sign last block layer
+        for row_parallel_linear in _submodule_filter(model, RowParallelLinear):
+            if getattr(row_parallel_linear, "last_block_layer", False):
+                row_parallel_linear.register_communicator(
+                    TensorParallelCommunicator(
+                        process_group=gpc.get_group(ParallelMode.TENSOR), role=LinearRole.ROW, last_block_layer=True
+                    )
+                )
     # sequence parallel
     if gpc.config.parallel.tensor.mode in (TensorParallelMode.msp.name, TensorParallelMode.fsp.name):
         save_total_input_as_activation = gpc.config.parallel.tensor.mode == TensorParallelMode.msp.name
@@ -294,6 +303,18 @@ def initialize_parallel_communicator(model: Union[nn.Module, nn.ModuleList]):
                 save_total_input_as_activation=save_total_input_as_activation,
             )
         )
+
+        # for tp recompute communication optimization, sign last block layer
+        for row_parallel_linear in _submodule_filter(model, RowParallelLinear):
+            if getattr(row_parallel_linear, "last_block_layer", False):
+                row_parallel_linear.register_communicator(
+                    SequenceParallelCommunicator(
+                        gpc.get_group(ParallelMode.TENSOR),
+                        role=LinearRole.ROW,
+                        save_total_input_as_activation=save_total_input_as_activation,
+                        last_block_layer=True,
+                    )
+                )
 
         _head_communicator = HeadSequenceParallelCommunicator(
             ParallelMode.TENSOR, _retain_out_sharded, save_total_input_as_activation

@@ -1,7 +1,10 @@
 from typing import Any, Dict, List
 
+
+import torch
+
+from internlm.core.context import ParallelMode
 from internlm.core.context import global_context as gpc
-from internlm.model.modules.mha import MHA
 
 
 def internlm1_mha_pre_load_convert(
@@ -54,6 +57,23 @@ def convert_attn_args_to_kwargs(args, kwargs) -> Dict[str, Any]:
     return kwargs
 
 
+
+def padding_residual(residual):
+    requires_grad = residual.requires_grad
+    _GATHER_DIM = 1
+    total_size = gpc.get_world_size(ParallelMode.TENSOR) * residual.shape[_GATHER_DIM]
+    zero_padding_tensor = torch.zeros(
+        (*residual.shape[:_GATHER_DIM], total_size, *residual.shape[_GATHER_DIM + 1 :]),
+        dtype=residual.dtype,
+        device=residual.device,
+    )
+    start_idx = gpc.get_local_rank(ParallelMode.TENSOR) * residual.shape[_GATHER_DIM]
+    end_idx = start_idx + residual.shape[_GATHER_DIM]
+    zero_padding_tensor[:, start_idx:end_idx, :] = residual
+    residual = zero_padding_tensor.requires_grad_(requires_grad)
+
+    return residual
+
 def convert_hf_config(config):
     gpc.config.model.vocab_size = gpc.config.VOCAB_SIZE = config.vocab_size
     gpc.config.model.hidden_size = gpc.config.HIDDEN_SIZE = config.hidden_size
@@ -64,3 +84,4 @@ def convert_hf_config(config):
     # For models that use GQA
     if hasattr(config, "num_key_value_heads"):
         gpc.config.model.num_kv_attention_heads = gpc.config.NUM_KV_ATTENTION_HEAD = config.num_key_value_heads
+

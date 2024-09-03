@@ -21,9 +21,11 @@ from internlm.model.utils import (
     convert_attn_kwargs_to_args,
     internlm1_mha_pre_load_convert,
     internlm1_mha_save_convert,
+    padding_residual,
 )
 from internlm.solver.activation_checkpoint import activation_checkpoint
 from internlm.utils.logger import get_logger
+from internlm.utils.parallel import is_using_sequence_parallel
 
 logger = get_logger(__file__)
 
@@ -212,6 +214,10 @@ class InternLM1Decoder(nn.Module):
             residual = residual.to(torch.float32)
 
         hidden_states = self.mlp(hidden_states)
+
+        # pad residual
+        if gpc.recompute_forward_no_comm and is_using_sequence_parallel():
+            residual = padding_residual(residual)
 
         return hidden_states + residual
 

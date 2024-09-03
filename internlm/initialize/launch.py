@@ -296,10 +296,13 @@ def args_sanity_check():
             ]
 
     if "checkpoint" in model:
+        if "checkpoint_tp_no_comm" not in model:
+            gpc.config.model._add_item("checkpoint_tp_no_comm", True)
         if model.checkpoint is True:
             model.checkpoint = 1
         elif model.checkpoint is False:
             model.checkpoint = 0
+            model.checkpoint_tp_no_comm = False
         else:
             assert (
                 model.checkpoint >= 0 and model.checkpoint <= 1
@@ -422,6 +425,14 @@ def args_sanity_check():
         assert (
             gpc.config.parallel["pipeline"].get("interleaved_overlap", False) is True
         ), "only support interleaved pipeline scheduler with overlap"
+
+    # when not use tp or sp, checkpoint_tp_no_comm should always be False
+    if (
+        gpc.config.parallel["tensor"]["mode"] == "isp"
+        or gpc.config.parallel["tensor"]["size"] <= 1
+        or gpc.config.model_type not in ["INTERNLM", "INTERNLM2_PUBLIC"]
+    ) and getattr(gpc.config.model, "checkpoint_tp_no_comm", False):
+        gpc.config.model.checkpoint_tp_no_comm = False
 
     # monitoring default config
     monitor_default_config = {
