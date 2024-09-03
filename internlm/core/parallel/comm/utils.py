@@ -257,3 +257,68 @@ def apply_to_tensors_only(function, value):
         return touched_output
     else:
         return value
+
+
+class _ExpandKVPackedFunction(torch.autograd.Function):
+    """
+    Copy the KV head repeat times to support sequence parallel.
+
+    Args:
+        kv: input kv.
+        repeat_times: the repeat number of each head.
+        num_head_dim: the dimension of head number.
+    """
+
+    @staticmethod
+    def forward(ctx, kv, repeat_times, num_head_dim):
+
+        kv_shape = kv.shape
+        num_heads_kv = kv_shape[num_head_dim]
+
+        ctx.num_head_dim = num_head_dim
+        ctx.num_heads_kv = num_heads_kv
+
+        # here we construct a repeat index to indicate which dim should copy
+        repeat_index = [1] * kv.ndim
+        repeat_index[num_head_dim] = repeat_times
+
+        # split the kv into head num splits
+        kv_splits = torch.chunk(kv, chunks=num_heads_kv, dim=num_head_dim)
+        kv_repeats = []
+        # for each split, we copy it to repeat_times copys.
+        for kv_split in kv_splits:
+            kv_split_repeat = kv_split.repeat(repeat_index)
+            kv_repeats.append(kv_split_repeat)
+
+        # check the copy head whether is the same
+        # res = torch.cat(kv_repeats, dim=num_head_dim)
+
+        # chunks = torch.chunk(res, chunks=num_heads_kv, dim=num_head_dim)
+        # for chunk in chunks:
+        #     for i in range(1, repeat_times):
+        #         assert torch.equal(chunk[..., i-1, :], chunk[..., i, :])
+
+        # last we concat these repeats on the num_head_dim dimension.
+        return torch.cat(kv_repeats, dim=num_head_dim)
+
+    @staticmethod
+    def backward(ctx, grad_output):
+        """
+        For backward, we sum the copy head inside a query group.
+        """
+
+        num_head_dim = ctx.num_head_dim
+        num_heads_kv = ctx.num_heads_kv
+
+        # we split the grad into query groups splits.
+        grad_output_splits = torch.chunk(grad_output, chunks=num_heads_kv, dim=num_head_dim)
+        grad_output_sums = []
+        # for each split, we sum the head
+        for grad_output_split in grad_output_splits:
+            grad_output_sum = grad_output_split.sum(dim=num_head_dim, keepdim=True)
+            grad_output_sums.append(grad_output_sum)
+        # then we concat the split sums on the num_head_dim dimension.
+        return torch.cat(grad_output_sums, dim=num_head_dim), None, None
+
+
+expandKVPacked = _ExpandKVPackedFunction.apply

@@ -1,12 +1,15 @@
 JOB_NAME = "7b_train"
+# model_type = "INTERNLM2_PUBLIC"
 DO_ALERT = False
 
+VOCAB_SIZE = 103168
 SEQ_LEN = 2048
 HIDDEN_SIZE = 4096
 NUM_ATTENTION_HEAD = 32
+NUM_KV_ATTENTION_HEAD = 8
 MLP_RATIO = 8 / 3
 NUM_LAYER = 32
-VOCAB_SIZE = 103168
+
 
 MODEL_ONLY_FOLDER = "local:llm_ckpts/xxxx"
 # Ckpt folder format:
@@ -45,6 +48,7 @@ ckpt = dict(
     oss_snapshot_freq=int(CHECKPOINT_EVERY / 2),  # snapshot ckpt save frequency.
 )
 
+# TRAIN_FOLDER = "/mnt/petrelfs/share_data/llm_data/0715_llama_tokenized_refined_real/train/"
 TRAIN_FOLDER = None  # "/path/to/dataset"
 VALID_FOLDER = None  # "/path/to/dataset"
 data = dict(
@@ -72,6 +76,7 @@ data = dict(
     valid_folder=VALID_FOLDER,
     empty_cache_and_diag_interval=200,
     diag_outlier_ratio=1.1,
+    # use_packed_dataset=False,
 )
 
 grad_scaler = dict(
@@ -140,6 +145,7 @@ model = dict(
     parallel_output=True,
     hidden_size=HIDDEN_SIZE,
     num_layers=NUM_LAYER,
+    # no_bias=True,
     mlp_ratio=MLP_RATIO,
     apply_post_layer_norm=False,
     dtype="torch.bfloat16",  # Support: "torch.float16", "torch.half", "torch.bfloat16", "torch.float32", "torch.tf32"
@@ -156,6 +162,7 @@ model = dict(
     # qk_interleaved = False: q[-1] = [q1,q3,q5,...,q2,q4,q6,...], k[-1] = [k1,k3,k5,...,k2,k4,k6,...]
     qk_interleaved=False,
 )
+
 """
 zero1 parallel (dict):
     1. size: int
@@ -180,12 +187,33 @@ weight parallel (dict):
     1. size: int, the size of weight parallel.
     2. overlap: bool, enable/disable all_gather/reduce_scatter communication overlap, defaults to False.
     3. memory_pool: bool, enable/disable memory pool, defaults to False.
+sequence_2D (dict):
+    1. enable: bool, whether enable the 2D sequence parallel or not.
+    2. head_size: int, the parallel degree of head parallelism (DeepSpeed Ulysses). 
+                  head_size * context_size should be equal tensor size.
+    3. context_size: int, the parallel degree of context parallelism.
+                  head_size * context_size should be equal tensor size.
+    4. window_size: int, the sliding window size in context parallelism.
+    5. device_placement_strategy: dict,
+        head_first: bool, if `True`, ranks of the same head parallel group are 
+                              given high priority for colocation on the same node;
+                              if `False`, ranks of the same context parallel group are
+                              given high priority for colocation on the same node;
+        interleaved: bool, if `head_first` is `False` and `window_size` > 1, this config could 
+                           interleaved the ranks in the same window to make full use of NIC as much as possible.
 """
 parallel = dict(
     zero1=dict(size=-1),
     tensor=dict(size=2, mode="isp"),
     pipeline=dict(size=1, interleaved_overlap=True),
-    weight=dict(size=4, overlap=True, memory_pool=True),
+    weight=dict(size=4, overlap=True, memory_pool=False),
+    sequence_2D=dict(
+        enable=False,
+        head_size=2,
+        context_size=4,
+        window_size=1,
+        device_placement_strategy=dict(head_first=True, interleaved=False),
+    ),
 )
 
 cudnn_deterministic = False

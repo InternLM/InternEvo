@@ -191,6 +191,12 @@ class WPFusedDenseFunc(torch.autograd.Function):
         del total_weight
         del total_bias
 
+        # parallel strategy-specific communication callback 2.
+        # see more details in the communicator for different parallel strategies.
+        # gather seq dim when head parallel_output is False
+        if hasattr(communicator, "output_hook"):
+            output, _ = communicator.output_hook(output, async_op=False)
+
         saved_x = None if ctx.compute_weight_gradient is False else x
         ctx.save_for_backward(saved_x, weight)
 
@@ -202,6 +208,11 @@ class WPFusedDenseFunc(torch.autograd.Function):
         module: nn.Module = ctx.module
         communicator: WPCommunicator = ctx.communicator
         x, weight = ctx.saved_tensors
+
+        # parallel strategy-specific communication callback 3.
+        # see more details in the communicator for different parallel strategies.
+        if hasattr(communicator, "grad_output_hook"):
+            grad_output, _ = communicator.grad_output_hook(grad_output, async_op=False)
 
         grad_output = grad_output.contiguous()
         if ctx.return_residual:

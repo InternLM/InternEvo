@@ -6,7 +6,7 @@ communication for isp parallel.
 
 from abc import ABC, abstractmethod
 from functools import partial
-from typing import Any, Callable, Dict, List, Tuple, Union
+from typing import Any, Callable, Dict, List, Optional, Tuple, Union
 
 import torch
 from torch import distributed as dist
@@ -19,8 +19,10 @@ from internlm.core.parallel.comm.utils import (
     DUMMY_HANDLE_CONST,
     AsyncCommHandle,
     _gather,
+    _split,
     all_gather_raw,
     apply_to_tensors_only,
+    expandKVPacked,
     reduce_scatter_raw,
 )
 from internlm.model.modules.embedding import Embedding1D
@@ -68,8 +70,17 @@ class HeadWeightParallelCommunicator(WPCommunicator):
     Weight parallel communicator for Head module.
     """
 
-    def __init__(self, process_group: dist.ProcessGroup = None) -> None:
-        self.process_group = process_group
+    def __init__(
+        self,
+        weight_process_group: dist.ProcessGroup = None,
+        seq_process_group: dist.ProcessGroup = None,
+        retain_out_sharded: bool = True,
+    ) -> None:
+        self.weight_process_group = weight_process_group
+        self.seq_process_group = seq_process_group
+        self._seq_parallel_mode = ParallelMode.TENSOR
+        self._seq_dim = 1
+        self._retain_out_sharded = retain_out_sharded
 
     def communication_mode(self) -> str:
         return "wp"
@@ -81,10 +92,10 @@ class HeadWeightParallelCommunicator(WPCommunicator):
         module: nn.Module = None,  # pylint: disable=W0613
         is_bias: bool = False,  # pylint: disable=W0613
     ) -> torch.Tensor:
-        if dist.get_world_size(self.process_group) <= 1:
+        if dist.get_world_size(self.weight_process_group) <= 1:
             return tensor
 
-        result, _ = all_gather_raw(tensor, self.process_group, async_op=async_op)
+        result, _ = all_gather_raw(tensor, self.weight_process_group, async_op=async_op)
         return result
 
     def grad_hook(
@@ -95,11 +106,36 @@ class HeadWeightParallelCommunicator(WPCommunicator):
         reduce_op: dist.ReduceOp = dist.ReduceOp.AVG,
         is_bias: bool = False,  # pylint: disable=W0613
     ) -> Tuple[torch.Tensor, AsyncCommHandle]:
-        if dist.get_world_size(self.process_group) <= 1:
+        if dist.get_world_size(self.weight_process_group) <= 1:
             return tensor, DUMMY_HANDLE_CONST
 
-        result, handle = reduce_scatter_raw(tensor, self.process_group, op=reduce_op, async_op=async_op)
+        result, handle = reduce_scatter_raw(tensor, self.weight_process_group, op=reduce_op, async_op=async_op)
         return result, handle
+
+        # rewrite grad_output communication hook
+
+    def grad_output_hook(
+        self, grad_output: torch.Tensor, async_op: bool = False  # pylint: disable=W0613
+    ) -> Tuple[torch.Tensor, AsyncCommHandle]:
+        """
+        split grad_output if retain_out_sharded is False.
+        """
+        if self._retain_out_sharded or dist.get_world_size(self.seq_process_group) <= 1:
+            return grad_output, DUMMY_HANDLE_CONST
+
+        return _split(grad_output, parallel_mode=self._seq_parallel_mode, dim=self._seq_dim), DUMMY_HANDLE_CONST
+
+    # rewrite ouput communication hook
+    def output_hook(
+        self, output: torch.Tensor, async_op: bool = False  # pylint: disable=W0613
+    ) -> Tuple[torch.Tensor, AsyncCommHandle]:
+        """
+        all gather output for head layer if retain_out_sharded is False.
+        """
+        if self._retain_out_sharded or dist.get_world_size(self.seq_process_group) <= 1:
+            return output, DUMMY_HANDLE_CONST
+
+        return _gather(output, parallel_mode=self._seq_parallel_mode, dim=self._seq_dim), DUMMY_HANDLE_CONST
 
 
 class EmbeddingWeightParallelCommunicator:
@@ -755,33 +791,77 @@ class ISPCommunicatorSchedulerHook(SchedulerHook):
         pass
 
 
-# adpated from https://github.com/microsoft/DeepSpeed/blob/master/deepspeed/sequence/layer.py
+# adapted from https://github.com/microsoft/DeepSpeed/blob/master/deepspeed/sequence/layer.py
 class _SeqAllToAll(torch.autograd.Function):
     "sequence alltoall function"
 
     @staticmethod
-    def forward(ctx, group: dist.ProcessGroup, input_: torch.Tensor, scatter_idx: int, gather_idx: int) -> torch.Tensor:
+    def forward(
+        ctx,
+        group: dist.ProcessGroup,
+        scatter_idx: Optional[Union[List[int], int]],
+        gather_idx: Optional[Union[List[int], int]],
+        *input_: torch.Tensor,
+    ) -> torch.Tensor:
+
         ctx.group = group
         ctx.scatter_idx = scatter_idx
         ctx.gather_idx = gather_idx
-
-        if dist.get_world_size(group) <= 1:
-            return input_
-
         seq_world_size = dist.get_world_size(group)
 
-        input_list = [t.contiguous() for t in torch.tensor_split(input_, seq_world_size, scatter_idx)]
-        output_list = [torch.empty_like(input_list[0]) for _ in range(seq_world_size)]
-        # TODO: use all_to_all_single instead
-        dist.all_to_all(output_list, input_list, group=group)
-        return torch.cat(output_list, dim=gather_idx).contiguous()
+        if dist.get_world_size(group) <= 1:
+            if len(input_) == 1:
+                return input_[0]
+            return input_
+
+        if len(input_) == 1:
+            input_list = [t.contiguous() for t in torch.tensor_split(input_[0], seq_world_size, scatter_idx)]
+            output_list = [torch.empty_like(input_list[0]) for _ in range(seq_world_size)]
+            # TODO: use all_to_all_single instead
+            dist.all_to_all(output_list, input_list, group=group)
+            return torch.cat(output_list, dim=gather_idx).contiguous()
+
+        outputs = []
+
+        assert len(scatter_idx) == len(gather_idx)
+        assert len(gather_idx) == len(input_)
+
+        for i in range(len(input_)):
+
+            if i == 0:
+                input_list = [t.contiguous() for t in torch.tensor_split(input_[i], seq_world_size, scatter_idx[i])]
+                output_list = [torch.empty_like(input_list[0]) for _ in range(seq_world_size)]
+                handle_last = dist.all_to_all(output_list, input_list, group=group, async_op=True)
+
+            # conduct the next all2all
+            if i + 1 < len(input_):
+                input_list_next = [
+                    t.contiguous() for t in torch.tensor_split(input_[i + 1], seq_world_size, scatter_idx[i + 1])
+                ]
+                output_list_next = [torch.empty_like(input_list_next[0]) for _ in range(seq_world_size)]
+                handle_next = dist.all_to_all(output_list_next, input_list_next, group=group, async_op=True)
+
+            handle_last.wait()
+
+            outputs.append(torch.cat(output_list, dim=gather_idx[i]).contiguous())
+
+            if i + 1 < len(input_):
+                handle_last = handle_next
+                input_list = input_list_next
+                output_list = output_list_next
+
+        return tuple(outputs)
 
     @staticmethod
     def backward(ctx, *grad_output: torch.Tensor) -> Tuple[None, torch.Tensor, None, None]:
-        if dist.get_world_size(ctx.group) <= 1:
-            return (None, *grad_output, None, None)
 
-        return (None, _SeqAllToAll.apply(ctx.group, *grad_output, ctx.gather_idx, ctx.scatter_idx), None, None)
+        if dist.get_world_size(ctx.group) <= 1:
+            return (None, None, None, *grad_output)
+        res = _SeqAllToAll.apply(ctx.group, ctx.gather_idx, ctx.scatter_idx, *grad_output)
+        if len(grad_output) == 1:
+            return (None, None, None, res)
+
+        return (None, None, None, *res)
 
 
 # adpated from https://github.com/microsoft/DeepSpeed/blob/master/deepspeed/sequence/layer.py
@@ -801,6 +881,7 @@ class DistributedAttention(nn.Module):
         super().__init__()
         self.local_attn = local_attention
         self.spg = sequence_process_group
+        self.sp_size = dist.get_world_size(self.spg)
 
     @params_dispatch_with_condition(condition=check_attention_argument)
     def forward(self) -> torch.Tensor:
@@ -818,15 +899,16 @@ class DistributedAttention(nn.Module):
         Returns:
             * output (Tensor): context output
         """
+
         # qkv shape: [1, packlen, 3, n_head, head_dim] or [batch, seqlen, 3, n_head, head_dim]
         # scatter in n_head and gather in seqlen(packlen)
-        qkv = _SeqAllToAll.apply(self.spg, qkv, 3, 1)
+        qkv = _SeqAllToAll.apply(self.spg, 3, 1, qkv)
 
         context = self.local_attn(qkv, *args, **kwargs)
 
         # context shape: [1, packlen, n_head, head_dim] or [batch, seqlen, n_head, head_dim]
         # scatter in seqlen(packlen) and gather in n_head
-        context = _SeqAllToAll.apply(self.spg, context, 1, 2)
+        context = _SeqAllToAll.apply(self.spg, 1, 2, context)
 
         return context
 
@@ -845,16 +927,23 @@ class DistributedAttention(nn.Module):
         """
         # q shpae: [1, packlen, n_head, head_dim] or [batch, seqlen, n_head, head_dim]
         # scatter in n_head and gather in seqlen(packlen)
-        q = _SeqAllToAll.apply(self.spg, q, 2, 1)
+
         # kv shape: [1, packlen, 2, n_head, head_dim] or [batch, seqlen, 2, n_head, head_dim]
         # scatter in n_head and gather in seqlen(packlen)
-        kv = _SeqAllToAll.apply(self.spg, kv, 3, 1)
+        num_head_kv = kv.shape[3]
+        # if the num head of kv is not enough to be splitted by sp
+        # then we could copy the kv head
+        if self.sp_size > num_head_kv:
+            assert self.sp_size % num_head_kv == 0, "the num_head_kv should be divided by sp size."
+            kv = expandKVPacked(kv, self.sp_size // num_head_kv, 3)
 
+        q, kv = _SeqAllToAll.apply(self.spg, [2, 3], [1, 1], q, kv)
+
+        torch.cuda.synchronize()
         context = self.local_attn(q, kv, *args, **kwargs)
+        torch.cuda.synchronize()
 
-        # context shape: [1, packlen, n_head, head_dim] or [batch, seqlen, n_head, head_dim]
-        # scatter in seqlen(packlen) and gather in n_head
-        context = _SeqAllToAll.apply(self.spg, context, 1, 2)
+        context = _SeqAllToAll.apply(self.spg, 1, 2, context)
 
         return context
 
@@ -875,19 +964,19 @@ class DistributedAttention(nn.Module):
         # self._scatter_gather_idx["q"] = [1, 0]  # q/k/v shape: [sequence, head, head_dim]
         # q shpae: [1, packlen, n_head, head_dim] or [batch, seqlen, n_head, head_dim]
         # scatter in n_head and gather in seqlen(packlen)
-        q = _SeqAllToAll.apply(self.spg, q, 2, 1)
+        q = _SeqAllToAll.apply(self.spg, 2, 1, q)
         # k shpae: [1, packlen, n_head, head_dim] or [batch, seqlen, n_head, head_dim]
         # scatter in n_head and gather in seqlen(packlen)
-        k = _SeqAllToAll.apply(self.spg, k, 2, 1)
+        k = _SeqAllToAll.apply(self.spg, 2, 1, k)
         # v shpae: [1, packlen, n_head, head_dim] or [batch, seqlen, n_head, head_dim]
         # scatter in n_head and gather in seqlen(packlen)
-        v = _SeqAllToAll.apply(self.spg, v, 2, 1)
+        v = _SeqAllToAll.apply(self.spg, 2, 1, v)
 
         context = self.local_attn(q, k, v, *args, **kwargs)
 
         # context shape: [1, packlen, n_head, head_dim] or [batch, seqlen, n_head, head_dim]
         # scatter in seqlen(packlen) and gather in n_head
-        context = _SeqAllToAll.apply(self.spg, context, 1, 2)
+        context = _SeqAllToAll.apply(self.spg, 1, 2, context)
 
         return context
 
@@ -898,15 +987,19 @@ def auto_wrap_distributed_attention(attn_impl: nn.Module) -> Callable[[bool, Any
     """
 
     # should we impl distributed attention as a metaclass?
-    def _attetion_constructor(attn_impl: type, causal=False, softmax_scale=None, attention_dropout=0.0) -> nn.Module:
+    def _attetion_constructor(attn_impl: type, causal=False, softmax_scale=None, attention_dropout=0.0, layer_idx=0) -> nn.Module:
         tp_mode = gpc.config.parallel["tensor"].get("mode", TensorParallelMode.mtp.name)
 
         if tp_mode != TensorParallelMode.isp.name:
             return attn_impl(causal, softmax_scale, attention_dropout)
         else:
+            if gpc.config.parallel.sequence_2D.enable is True:
+                spg = gpc.get_group(ParallelMode.HEAD)
+            else:
+                spg = gpc.get_group(ParallelMode.TENSOR)
             return DistributedAttention(
-                local_attention=attn_impl(causal, softmax_scale, attention_dropout),
-                sequence_process_group=gpc.get_group(ParallelMode.TENSOR),
+                local_attention=attn_impl(causal, softmax_scale, attention_dropout, layer_idx),
+                sequence_process_group=spg,
             )
 
     return partial(_attetion_constructor, attn_impl=attn_impl)

@@ -66,6 +66,14 @@ class ParallelMode(Enum):
     # grouped query attention
     GQA = "gqa"
 
+    # sequence 2D parallel
+    HEAD = "head"
+    CONTEXT = "context"
+    INTER_WINDOW = "inter_window"
+    INTRA_WINDOW = "intra_window"
+    DKV_INTER_WINDOW = "dkv_inter_window"
+    DKV_INTRA_WINDOW = "dkv_intra_window"
+
 
 class ProcessGroupInitializer(ABC):
     """An object, knowing the parallelism configuration, that initializes parallel groups.
@@ -97,6 +105,7 @@ class ProcessGroupInitializer(ABC):
         zero1_parallel_size: int,
         nettest_parallel_size: int,
         expert_parallel_size: int,
+        sequence_2D_parallel: dict,
     ):
         self.rank = rank
         self.world_size = world_size
@@ -109,6 +118,7 @@ class ProcessGroupInitializer(ABC):
         self.zero1_parallel_size = zero1_parallel_size
         self.nettest_parallel_size = nettest_parallel_size
         self.expert_parallel_size = expert_parallel_size
+        self.sequence_2D_parallel = sequence_2D_parallel
 
         assert sequence_parallel_size == tensor_parallel_size
         super().__init__()
@@ -116,6 +126,18 @@ class ProcessGroupInitializer(ABC):
     @abstractmethod
     def init_dist_group(self, use_cpu: bool = False):
         pass
+
+    def init_cpu_group(self, group, ranks, use_cpu: bool = False):
+        if use_cpu:
+            group_cpu = (
+                dist.new_group(ranks, backend="gloo", timeout=LLM_NCCL_TIMEOUT)
+                if dist.get_backend() != "gloo"
+                else group
+            )
+        else:
+            group_cpu = None
+
+        return group_cpu
 
 
 class Initializer_Pipeline(ProcessGroupInitializer):
@@ -995,3 +1017,331 @@ class Initializer_GQA(ProcessGroupInitializer):
                     ranks_in_group = ranks
 
         return local_rank, group_world_size, process_group, cpu_group, ranks_in_group, mode
+
+
+class Initializer_2D_SEQUENCE_PARALLEL(ProcessGroupInitializer):
+    """
+    A ProcessGroupInitializer for 2D sequence parallel.
+
+    Args:
+        rank (int): The rank of current process.
+        world_size (int): Size of whole communication world.
+        weight_parallel_size (int): Size of model weight parallel.
+        weight_data_parallel_size (int): Size of data parallel for common weight.
+        sequence_parallel_size (int): Size of data sequence parallel.
+        data_parallel_size (int): Size of data parallel.
+        pipeline_parallel_size (int): Size of pipeline parallel.
+        tensor_parallel_size (int): Size of tensor parallel.
+        zero1_parallel_size (int): Size of zero1 parallel.
+        nettest_parallel_size (int): Size of net testing parallel.
+        expert_parallel_size (int): Size of expert parallel.
+        sequence_2D_parallel (dict): config of 2D sequence parallel.
+    """
+
+    def __init__(self, *args, **kwargs):
+
+        super().__init__(*args, **kwargs)
+
+        self.head_size = self.sequence_2D_parallel.head_size
+        self.context_size = self.sequence_2D_parallel.context_size
+        self.window_size = self.sequence_2D_parallel.window_size
+        self.head_first = self.sequence_2D_parallel.device_placement_strategy.head_first
+        self.interleaved = self.sequence_2D_parallel.device_placement_strategy.interleaved
+
+        assert self.context_size * self.head_size == self.sequence_parallel_size
+        assert self.world_size % self.sequence_parallel_size == 0
+
+        self.num_head_pgs = self.context_size
+        self.num_context_pgs = self.head_size
+
+        if self.window_size >= 8 or self.window_size == self.context_size:
+            self.interleaved = False
+
+        self.groups = []
+
+    def get_sliding_window_pg(self, window_num, context_ranks, use_cpu):
+
+        if self.interleaved is False:
+
+            # context_ranks = [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15]
+            # window_size = 4
+            # window_num = 4
+            # intra_window = [[0, 1, 2, 3], [4, 5, 6, 7], [8, 9, 10, 11], [12, 13, 14, 15]]
+            # inter_window = [[0, 4, 8, 12], [1, 5, 9, 13], [2, 6, 10, 14], [3, 7, 11, 15]]
+
+            # create the intra_window process group when using sliding window
+            for j in range(window_num):
+                intra_window_ranks = context_ranks[j * self.window_size : (j + 1) * self.window_size]
+
+                intra_window_group = dist.new_group(intra_window_ranks)
+                dkv_intra_window_group = dist.new_group(intra_window_ranks)
+
+                # intra_window
+                group_cpu = self.init_cpu_group(intra_window_group, intra_window_ranks, use_cpu)
+
+                if self.rank in intra_window_ranks:
+                    local_rank = intra_window_ranks.index(self.rank)
+                    self.groups.append(
+                        (
+                            local_rank,
+                            len(intra_window_ranks),
+                            intra_window_group,
+                            group_cpu,
+                            intra_window_ranks,
+                            ParallelMode.INTRA_WINDOW,
+                        )
+                    )
+
+                # dkv_intra_window
+                group_cpu = self.init_cpu_group(dkv_intra_window_group, intra_window_ranks, use_cpu)
+
+                if self.rank in intra_window_ranks:
+                    local_rank = intra_window_ranks.index(self.rank)
+                    self.groups.append(
+                        (
+                            local_rank,
+                            len(intra_window_ranks),
+                            dkv_intra_window_group,
+                            group_cpu,
+                            intra_window_ranks,
+                            ParallelMode.DKV_INTRA_WINDOW,
+                        )
+                    )
+
+            # create the inter_window process group when using sliding window
+            for j in range(self.window_size):
+                inter_window_ranks = []
+                for t in range(window_num):
+                    inter_window_ranks.append(context_ranks[t * self.window_size + j])
+                inter_window_group = dist.new_group(inter_window_ranks)
+                dkv_inter_window_group = dist.new_group(inter_window_ranks)
+
+                # inter_window
+                group_cpu = self.init_cpu_group(inter_window_group, inter_window_ranks, use_cpu)
+
+                if self.rank in inter_window_ranks:
+                    local_rank = inter_window_ranks.index(self.rank)
+                    self.groups.append(
+                        (
+                            local_rank,
+                            len(inter_window_ranks),
+                            inter_window_group,
+                            group_cpu,
+                            inter_window_ranks,
+                            ParallelMode.INTER_WINDOW,
+                        )
+                    )
+
+                # dkv_inter_window
+                group_cpu = self.init_cpu_group(dkv_inter_window_group, inter_window_ranks, use_cpu)
+
+                if self.rank in inter_window_ranks:
+                    local_rank = inter_window_ranks.index(self.rank)
+                    self.groups.append(
+                        (
+                            local_rank,
+                            len(inter_window_ranks),
+                            dkv_inter_window_group,
+                            group_cpu,
+                            inter_window_ranks,
+                            ParallelMode.DKV_INTER_WINDOW,
+                        )
+                    )
+
+        else:
+            # context_ranks = [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15]
+            # window_size = 4
+            # window_num = 4
+            # intra_window = [[0, 2, 4, 6], [1, 3, 5, 7], [8, 10, 12, 14], [9, 11, 13, 15]]
+            # inter_window = [[0, 1, 8, 9], [2, 3, 12, 13], [4, 5, 12, 13], [6, 7, 14, 15]]
+
+            # create the all-gather process group when using sliding window
+            even_ranks = []
+            odd_ranks = []
+
+            for r in context_ranks:
+                if r % 2 == 0:
+                    even_ranks.append(r)
+                else:
+                    odd_ranks.append(r)
+            assert len(even_ranks) == len(odd_ranks)
+
+            start_ranks = []
+            for i in range(len(even_ranks)):
+                if i % self.window_size == 0:
+                    start_ranks.append(even_ranks[i])
+                    start_ranks.append(odd_ranks[i])
+
+            for start_rank in start_ranks:
+                intra_window_ranks = []
+                offset = start_rank
+                for i in range(self.window_size):
+                    intra_window_ranks.append(offset)
+                    offset += 2
+
+                intra_window_group = dist.new_group(intra_window_ranks)
+                dkv_intra_window_group = dist.new_group(intra_window_ranks)
+
+                # intra_window
+                group_cpu = self.init_cpu_group(intra_window_group, intra_window_ranks, use_cpu)
+
+                if self.rank in intra_window_ranks:
+                    local_rank = intra_window_ranks.index(self.rank)
+                    self.groups.append(
+                        (
+                            local_rank,
+                            len(intra_window_ranks),
+                            intra_window_group,
+                            group_cpu,
+                            intra_window_ranks,
+                            ParallelMode.INTRA_WINDOW,
+                        )
+                    )
+
+                # dkv_intra_window
+                group_cpu = self.init_cpu_group(dkv_intra_window_group, intra_window_ranks, use_cpu)
+
+                if self.rank in intra_window_ranks:
+                    local_rank = intra_window_ranks.index(self.rank)
+                    self.groups.append(
+                        (
+                            local_rank,
+                            len(intra_window_ranks),
+                            dkv_intra_window_group,
+                            group_cpu,
+                            intra_window_ranks,
+                            ParallelMode.DKV_INTRA_WINDOW,
+                        )
+                    )
+
+            # create the inter_window process group when using sliding window
+            for i in range(self.window_size):
+                inter_window_ranks = []
+                for j in range(len(even_ranks)):
+                    if j % self.window_size == i:
+                        inter_window_ranks.append(even_ranks[j])
+                        inter_window_ranks.append(odd_ranks[j])
+
+                inter_window_group = dist.new_group(inter_window_ranks)
+                dkv_inter_window_group = dist.new_group(inter_window_ranks)
+
+                # inter_window
+                group_cpu = self.init_cpu_group(inter_window_group, inter_window_ranks, use_cpu)
+
+                if self.rank in inter_window_ranks:
+                    local_rank = inter_window_ranks.index(self.rank)
+                    self.groups.append(
+                        (
+                            local_rank,
+                            len(inter_window_ranks),
+                            inter_window_group,
+                            group_cpu,
+                            inter_window_ranks,
+                            ParallelMode.INTER_WINDOW,
+                        )
+                    )
+
+                # dkv_inter_window
+                group_cpu = self.init_cpu_group(dkv_inter_window_group, inter_window_ranks, use_cpu)
+
+                if self.rank in inter_window_ranks:
+                    local_rank = inter_window_ranks.index(self.rank)
+                    self.groups.append(
+                        (
+                            local_rank,
+                            len(inter_window_ranks),
+                            dkv_inter_window_group,
+                            group_cpu,
+                            inter_window_ranks,
+                            ParallelMode.DKV_INTER_WINDOW,
+                        )
+                    )
+
+    def init_dist_group(self, use_cpu: bool = False):
+
+        if self.head_first:
+            for dp_rank in range(self.data_parallel_size):
+                offset_dp = dp_rank * self.sequence_parallel_size
+                # head process group
+                for i in range(self.num_head_pgs):
+                    head_ranks = list(
+                        range(
+                            i * self.head_size + offset_dp,
+                            (i + 1) * self.head_size + offset_dp,
+                        )
+                    )
+
+                    group = dist.new_group(head_ranks)
+
+                    group_cpu = self.init_cpu_group(group, head_ranks, use_cpu)
+
+                    if self.rank in head_ranks:
+                        head_pg = group
+                        local_rank = head_ranks.index(self.rank)
+                        self.groups.append(
+                            (local_rank, len(head_ranks), head_pg, group_cpu, head_ranks, ParallelMode.HEAD)
+                        )
+
+                # context process group
+                for i in range(self.num_context_pgs):
+
+                    assert (
+                        self.context_size % self.window_size == 0
+                    ), "the window size should be divided by the context_size."
+                    window_num = self.context_size // self.window_size
+
+                    context_ranks = list(
+                        range(i + offset_dp, self.sequence_parallel_size + offset_dp, self.num_context_pgs)
+                    )
+                    group = dist.new_group(context_ranks)
+
+                    group_cpu = self.init_cpu_group(group, context_ranks, use_cpu)
+
+                    if self.rank in context_ranks:
+                        context_pg = group
+                        local_rank = context_ranks.index(self.rank)
+                        self.groups.append(
+                            (local_rank, len(context_ranks), context_pg, group_cpu, context_ranks, ParallelMode.CONTEXT)
+                        )
+
+                    self.get_sliding_window_pg(window_num, context_ranks, use_cpu)
+
+        else:
+            for dp_rank in range(self.data_parallel_size):
+                offset_dp = dp_rank * self.sequence_parallel_size
+                # context process group
+                for i in range(self.num_context_pgs):
+                    context_ranks = list(
+                        range(i * self.context_size + offset_dp, (i + 1) * self.context_size + offset_dp)
+                    )
+                    group = dist.new_group(context_ranks)
+                    group_cpu = self.init_cpu_group(group, context_ranks, use_cpu)
+
+                    if self.rank in context_ranks:
+                        context_pg = group
+                        local_rank = context_ranks.index(self.rank)
+                        self.groups.append(
+                            (local_rank, len(context_ranks), context_pg, group_cpu, context_ranks, ParallelMode.CONTEXT)
+                        )
+
+                    assert (
+                        self.context_size % self.window_size == 0
+                    ), "the window size should be divided by the context_size."
+                    window_num = self.context_size // self.window_size
+
+                    self.get_sliding_window_pg(window_num, context_ranks, use_cpu)
+
+                # head process group
+                for i in range(self.num_head_pgs):
+                    head_ranks = list(range(i + offset_dp, self.sequence_parallel_size + offset_dp, self.num_head_pgs))
+                    group = dist.new_group(head_ranks)
+                    group_cpu = self.init_cpu_group(group, head_ranks, use_cpu)
+
+                    if self.rank in head_ranks:
+                        head_pg = group
+                        local_rank = head_ranks.index(self.rank)
+                        self.groups.append(
+                            (local_rank, len(head_ranks), head_pg, group_cpu, head_ranks, ParallelMode.HEAD)
+                        )
+
+        return self.groups

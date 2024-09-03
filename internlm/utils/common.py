@@ -197,6 +197,7 @@ class SingletonMeta(type):
 def get_megatron_flops(
     elapsed_time_per_iter,
     checkpoint=False,
+    selective_checkpoint=False,
     seq_len=2048,
     hidden_size=12,
     num_layers=32,
@@ -211,17 +212,23 @@ def get_megatron_flops(
     """
 
     checkpoint_activations_factor = 4 if checkpoint else 3
+    if checkpoint:
+        attn_checkpoint_activation_factor = 3 if selective_checkpoint else 4
+    else:
+        attn_checkpoint_activation_factor = 3
 
     if use_swiglu:
         mlp_ratio = mlp_ratio * 3 / 2
 
     flops_per_iteration = (
-        checkpoint_activations_factor
-        * (
-            (8 + mlp_ratio * 4) * global_batch_size * seq_len * hidden_size**2
-            + 4 * global_batch_size * seq_len**2 * hidden_size
-        )
-    ) * num_layers + 6 * global_batch_size * seq_len * hidden_size * vocab_size
+        # wqkv wo mlp
+        (checkpoint_activations_factor * ((8 + mlp_ratio * 4) * global_batch_size * seq_len * hidden_size**2))
+        * num_layers
+        # attn
+        + attn_checkpoint_activation_factor * (4 * global_batch_size * seq_len**2 * hidden_size) * num_layers
+        # head
+        + 6 * global_batch_size * seq_len * hidden_size * vocab_size
+    )
 
     tflops = flops_per_iteration / (elapsed_time_per_iter * global_world_size * (10**12))
     return tflops
@@ -239,6 +246,11 @@ def enable_pytorch_expandable_segments():
         internlm_accelerator.memory._set_allocator_settings(_alloc_conf)
     else:
         logger.warning("To support the 'expandable_segments' configuration, please upgrade torch to version 2.1.0.")
+
+
+def check_cuda_env():
+    if os.getenv("CUDA_DEVICE_MAX_CONNECTIONS") is None:
+        logger.warning("Env var CUDA_DEVICE_MAX_CONNECTIONS has not be set, please note this!")
 
 
 class DummyProfile:

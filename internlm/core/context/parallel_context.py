@@ -484,6 +484,18 @@ class ParallelContext(metaclass=SingletonMeta):
                 parallel_config._add_item("tensor", dict(size=1, mode=TensorParallelMode.mtp.name))
             if "weight" not in parallel_config:
                 parallel_config._add_item("weight", dict(size=1, overlap=False, memory_pool=False))
+            # set default value for sequence_2D
+            if "sequence_2D" not in parallel_config:
+                parallel_config._add_item(
+                    "sequence_2D",
+                    {
+                        "enable": False,
+                        "head_size": 1,
+                        "context_size": 1,
+                        "window_size": 1,
+                        "device_placement_strategy": {"head_first": True, "interleaved": False},
+                    },
+                )
 
             # get value from config
             self._set_parallel_size_from_config(parallel_config, "weight", "weight_parallel_size")
@@ -560,6 +572,7 @@ class ParallelContext(metaclass=SingletonMeta):
             self.zero1_parallel_size,
             self.nettest_parallel_size,
             self.expert_parallel_size,
+            parallel_config.sequence_2D,
         ]
 
         # run initialization of different process groups
@@ -585,6 +598,9 @@ class ParallelContext(metaclass=SingletonMeta):
             initializers.append(pgroup_initializer.Initializer_Pipeline(*initializer_args))
         if self.config.model.get("num_experts", 1) > 1:
             initializers.append(pgroup_initializer.Initializer_Expert_Data(*initializer_args))
+        if parallel_config.sequence_2D.get("enable", False) is True:
+            initializers.append(pgroup_initializer.Initializer_2D_SEQUENCE_PARALLEL(*initializer_args))
+
         for initializer in initializers:
             parallel_setting = initializer.init_dist_group()
             if isinstance(parallel_setting, list):

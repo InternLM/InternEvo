@@ -103,6 +103,8 @@ def train(
         config.parallel.pipeline = dict(size=pp_size, interleaved_overlap=True)
         config.model.num_chunks = num_chunks
 
+    if "use_packed_dataset" not in config.data:
+        config.data.use_packed_dataset = True
     if tp_mode == "isp" and internlm_accelerator.get_accelerator_backend() in [
         AcceleratorType.NPU,
         AcceleratorType.DIPU,

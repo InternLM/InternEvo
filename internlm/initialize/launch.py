@@ -392,7 +392,11 @@ def args_sanity_check():
         assert (
             gpc.config.data.use_packed_dataset is False
         ), "only unpacked data is supported when tensor parallel mode is isp and accelerator type is NPU or DIPU"
-    else:
+
+    if internlm_accelerator.get_accelerator_backend() in [
+        AcceleratorType.NPU,
+        AcceleratorType.DIPU,
+    ]:
         assert (
             gpc.config.model.use_flash_attn == gpc.config.data.use_packed_dataset
         ), "use_packed_dataset should be set same value as use_flash_attn"
@@ -468,6 +472,9 @@ def args_sanity_check():
     if "moe_loss_coeff" not in gpc.config.loss:
         gpc.config.loss._add_item("moe_loss_coeff", 1.0)
 
+    if "selective_checkpoint" not in gpc.config:
+        gpc.config._add_item("selective_checkpoint", False)
+
     # moe not support overlap and zero1.5 for now
     if gpc.config.model.get("num_experts", 1) > 1:
         assert not gpc.config.parallel.zero1.fsdp, "FSDP does not support num_experts > 1"
@@ -478,6 +485,37 @@ def args_sanity_check():
             -1,
             gpc.get_world_size(ParallelMode.DATA),
         ), "moe only support zero1, set zero1=dict(size=-1,...) can fix this"
+
+    # sequence_2D
+    if "sequence_2D" not in gpc.config.parallel:
+        gpc.config.parallel._add_item(
+            "sequence_2D",
+            {
+                "enable": False,
+                "head_size": 1,
+                "context_size": 1,
+                "window_size": 1,
+                "device_placement_strategy": {"head_first": True, "interleaved": False},
+            },
+        )
+    else:
+        if gpc.config.parallel.sequence_2D.enable is True:
+            parallel_cfg = gpc.config.parallel
+            assert (
+                parallel_cfg.sequence_2D.head_size * parallel_cfg.sequence_2D.context_size == parallel_cfg.tensor.size
+            ), "the head_size * context_size should be equal to the tensor size."
+
+            if (
+                parallel_cfg.sequence_2D.device_placement_strategy.head_first is True
+                and parallel_cfg.sequence_2D.head_size > 1
+            ):
+                assert (
+                    parallel_cfg.sequence_2D.device_placement_strategy.interleaved is False
+                ), "if head_first is True, the interleaved should be False."
+
+            assert (
+                gpc.config.data.use_packed_dataset is False
+            ), "only unpacked data is supported when using 2D sequence parallel."
 
 
 def launch(

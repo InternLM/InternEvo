@@ -401,8 +401,12 @@ class GQA(nn.Module):
             self.wk = new_linear("wk", embed_dim, self.kv_dim, bias, **factory_kwargs)
             self.wv = new_linear("wv", embed_dim, self.kv_dim, bias, **factory_kwargs)
 
-        self.inner_attn = SelfAttention(causal=causal, softmax_scale=softmax_scale, attention_dropout=dropout)
-        self.inner_cross_attn = CrossAttention(causal=causal, softmax_scale=softmax_scale, attention_dropout=dropout)
+        self.inner_attn = SelfAttention(
+            causal=causal, softmax_scale=softmax_scale, attention_dropout=dropout, layer_idx=layer_idx
+        )
+        self.inner_cross_attn = CrossAttention(
+            causal=causal, softmax_scale=softmax_scale, attention_dropout=dropout, layer_idx=layer_idx
+        )
 
         self.wo = new_linear("wo", embed_dim, embed_dim, bias, **factory_kwargs)
 

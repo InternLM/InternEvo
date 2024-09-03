@@ -16,7 +16,7 @@ from internlm.utils.utils import TensorParallelMode
 logger = get_logger(__file__)
 
 
-def split_data_sequence_parallel(data, label):
+def _split_data_for_sequence_parallel(data, label):
     _seq_dim = 1  # [batch, seqlen, ...]
     _indexes_seq_dim = 0  # [seqlen, ...]
 
@@ -38,9 +38,87 @@ def split_data_sequence_parallel(data, label):
         data["position_ids"] = _split(data["position_ids"], ParallelMode.TENSOR, dim=_indexes_seq_dim)
 
     data["input_ids"] = _split(data["input_ids"], ParallelMode.TENSOR, dim=_seq_dim)
-    label = _split(label, ParallelMode.TENSOR, dim=_seq_dim)
+
+    if gpc.config.model.parallel_output:
+        label = _split(label, ParallelMode.TENSOR, dim=_seq_dim)
 
     return data, label
+
+
+def _split_data_for_2D_sequence_parallel(data, label):
+    if gpc.config.parallel.sequence_2D.enable is False or gpc.get_world_size(ParallelMode.TENSOR) <= 1:
+        return data, label
+
+    assert len(data.keys()) == 1 and "input_ids" in data
+
+    sp_size = gpc.get_world_size(ParallelMode.TENSOR)
+    hp_size = gpc.get_world_size(ParallelMode.HEAD)
+    cp_size = gpc.get_world_size(ParallelMode.CONTEXT)
+    hp_rank = gpc.get_local_rank(ParallelMode.HEAD)
+    cp_rank = gpc.get_local_rank(ParallelMode.CONTEXT)
+    stride = 2
+
+    assert len(data["input_ids"].shape) == 2
+    assert len(label.shape) == 2
+    seq_dim = 1
+    data["input_ids"] = data["input_ids"].view(
+        *data["input_ids"].shape[0:seq_dim],
+        2 * sp_size,
+        data["input_ids"].shape[seq_dim] // (2 * sp_size),
+    )
+    label = label.view(
+        *label.shape[0:seq_dim],
+        2 * sp_size,
+        label.shape[seq_dim] // (2 * sp_size),
+    )
+
+    # get selected index
+    if hp_size == sp_size:
+        # rank0:0,1 rank1:2,3 rank2:4,5 rank3:6,7 rank4:8,9 rank5:10,11 rank6:12,13 rank7:14,15
+        index = torch.tensor([hp_rank * stride, (hp_rank * stride + 1)], device="cpu", pin_memory=True).cuda(
+            non_blocking=True
+        )
+    elif cp_size == sp_size:
+        # rank0:0,15 rank1:1,14 rank2:2,13 rank3:3,12 rank4:4,11 rank5:5,10 rank6:6,9 rank7:7,8
+        index = torch.tensor([cp_rank, (2 * cp_size - cp_rank - 1)], device="cpu", pin_memory=True).cuda(
+            non_blocking=True
+        )
+    else:
+        """
+        hp_size=2 cp_size=4 head-first
+        rank0:0,1 rank1:14,15 rank2:2,3 rank3:12,13 rank4:4,5 rank5:10,11 rank6:6,7 rank7:8,9
+
+        hp_size=4 cp_size=2 head-first
+        rank0:0,1 rank1:2,3 rank2:12,13 rank3:14,15 rank4:4,5 rank5:6,7 rank6:8,9 rank7:10,11
+
+        hp_size=2 cp_size=4 context-first
+        rank0:0,1 rank1:2,3 rank2:4,5 rank3:6,7 rank4:14,15 rank5:12,13 rank6:10,11 rank7:8,9
+
+        hp_size=4 cp_size=2 context-first
+        rank0:0,1 rank1:4,5 rank2:2,3 rank3:6,7 rank4:12,13 rank5:8,9 rank6:14,15 rank7:10,11
+        """
+        if hp_rank < (hp_size // 2):
+            _index = hp_rank * stride + cp_rank * hp_size
+        else:
+            _index = (2 * sp_size - 2) - (hp_size - hp_rank - 1) * stride - cp_rank * hp_size
+
+        index = torch.tensor([_index, _index + 1], device="cpu", pin_memory=True).cuda(non_blocking=True)
+
+    data["input_ids"] = data["input_ids"].index_select(seq_dim, index)
+    data["input_ids"] = data["input_ids"].view(
+        *data["input_ids"].shape[0:seq_dim], -1, *data["input_ids"].shape[(seq_dim + 2) :]
+    )
+    label = label.index_select(seq_dim, index)
+    label = label.view(*label.shape[0:seq_dim], -1, *label.shape[(seq_dim + 2) :])
+
+    return data, label
+
+
+def split_data_for_sequence_parallel(data, label):
+    if gpc.config.parallel.sequence_2D.enable is False:
+        return _split_data_for_sequence_parallel(data, label)
+
+    return _split_data_for_2D_sequence_parallel(data, label)
 
 
 # The head layer in ISP mode is actually a special case,
