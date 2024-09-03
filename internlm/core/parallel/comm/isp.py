@@ -987,7 +987,9 @@ def auto_wrap_distributed_attention(attn_impl: nn.Module) -> Callable[[bool, Any
     """
 
     # should we impl distributed attention as a metaclass?
-    def _attetion_constructor(attn_impl: type, causal=False, softmax_scale=None, attention_dropout=0.0, layer_idx=0) -> nn.Module:
+    def _attetion_constructor(
+        attn_impl: type, causal=False, softmax_scale=None, attention_dropout=0.0, layer_idx=0
+    ) -> nn.Module:
         tp_mode = gpc.config.parallel["tensor"].get("mode", TensorParallelMode.mtp.name)
 
         if tp_mode != TensorParallelMode.isp.name:
