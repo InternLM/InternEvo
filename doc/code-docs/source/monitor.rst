@@ -4,9 +4,9 @@
 监控
 -----------------
 
-InternEvo 使用 ``internlm.monitor.monitor.initialize_monitor_manager()`` 来初始化上下文监控管理。其中，一个实例化的单例对象 ``internlm.monitor.monitor.MonitorManager`` 将管理监控线程并使用 ``internlm.monitor.monitor.MonitorTracker`` 来跟踪模型训练生命周期和训练状态。
+InternEvo 使用 ``internlm.monitor.initialize_monitor_manager()`` 来初始化上下文监控管理。其中，一个实例化的单例对象 ``internlm.monitor.monitor.MonitorManager`` 将管理监控线程并使用 ``internlm.monitor.monitor.MonitorTracker`` 来跟踪模型训练生命周期和训练状态。
 
-.. autofunction:: internlm.monitor.monitor.initialize_monitor_manager
+.. autofunction:: internlm.monitor.initialize_monitor_manager
 
 .. autoclass:: internlm.monitor.monitor.MonitorManager
     :members:
@@ -35,15 +35,11 @@ InternEvo轻量级监控工具采用心跳机制实时监测训练过程中的�
             enable_feishu_alert=False,
             feishu_alert_address=None,
             light_monitor_address=None,
+            alert_file_path=f"llm_alter/{JOB_NAME}_alert.log",
         ),
     )
 
 - enable_feishu_alert (bool)：是否启用飞书告警。默认值：False。
 - feishu_alert_address (str)：飞书告警的 Webhook 地址。默认值：None。
 - light_monitor_address (str)：轻量监控的地址。默认值：None。
-
-InternEvo 使用 ``internlm.monitor.alert.initialize_light_monitor`` 来初始化轻量监控客户端。一旦初始化完成，它会建立与监控服务器的连接。在训练过程中，使用 ``internlm.monitor.alert.send_heartbeat`` 来发送不同类型的心跳信息至监控服务器。监控服务器会根据这些心跳信息来检测训练是否出现异常，并在需要时发送警报消息。
-
-.. autofunction:: internlm.monitor.alert.initialize_light_monitor
-
-.. autofunction:: internlm.monitor.alert.send_heartbeat
+- alert_file_path (str)：告警存储路径。默认值：None。

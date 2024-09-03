@@ -5,18 +5,33 @@
 ### 安装
 请参考[安装文档](./install.md)进行安装。
 
-### 数据准备 （使用huggingface数据集）
+### 数据准备
 
-如果使用huggingface数据集进行在线加载并且在线tokenize的话，那么以`roneneldan/TinyStories`这个数据为例，数据准备阶段只需要将配置文件做如下改动：
-```python
-TRAIN_FOLDER = "roneneldan/TinyStories"
+#### 预训练
+
+##### 使用huggingface格式数据集
+
+如果使用huggingface数据集，需要先将数据集和需要使用的tokenizer下载到本地。
+
+以`roneneldan/TinyStories`这个数据为例，数据准备阶段需要通过如下命令将数据集下载到本地：
+```bash
+huggingface-cli download --repo-type dataset --resume-download "roneneldan/TinyStories" --local-dir "/mnt/petrelfs/hf-TinyStories"
+```
+其中，"/mnt/petrelfs/hf-TinyStories" 为需要将数据集保存的本地路径。
+
+然后将tokenizer下载到本地，例如，使用internlm2的tokenizer，则将`https://huggingface.co/internlm/internlm2-7b/tree/main`中的`special_tokens_map.json`、`tokenizer.model`、`tokenizer_config.json`、`tokenization_internlm2.py`和`tokenization_internlm2_fast.py`文件下载到本地路径，如"/mnt/petrelfs/hf-internlm2-tokenizer"中。
+
+将配置文件做如下改动：
+```bash
+TRAIN_FOLDER = "/mnt/petrelfs/hf-TinyStories"
 data = dict(
-    type="hf",
-    tokenizer_path="internlm/internlm-7b",
+    type="streaming",
+    tokenizer_path="/mnt/petrelfs/hf-internlm2-tokenizer",
 )
 ```
+type默认为"tokenized"，这里需要改为"streaming"类型。同时需要指定`tokenizer_path`, 如果使用下述tokenized之后的数据集，则不需要设置该字段。`TRAIN_FOLDER`指定本地数据集路径。
 
-### 数据准备 （预训练）
+##### 使用tokenized之后数据集
 
 InternEvo训练任务的数据集包括一系列的`bin`和`meta`文件。使用`tokenizer`从原始文本文件生成训练用数据集。通过在`tools/tokenizer.py`中指定模型参数路径的方式来导入tokenizer模型。目前提供`V7_sft.model`来生成tokens。若想使用不同的模型，可直接修改`tokernizer.py`中的模型参数路径。
 
@@ -62,7 +77,7 @@ $ python tools/tokenizer.py --text_input_path raw_data.txt --bin_output_path cn/
 
 `json`和`jsonl`类型的文件的`bin`和`meta`文件格式和`txt`一致，此处不再赘叙。
 
-### 数据准备 （微调）
+#### 微调
 
 微调任务的数据集格式与预训练任务保持一致，生成的数据格式为一系列的`bin`和`meta`文件。以下以 Alpaca 数据集为例，介绍微调的数据准备流程。
 
@@ -74,7 +89,9 @@ $ python tools/tokenizer.py --text_input_path raw_data.txt --bin_output_path cn/
 python tools/alpaca_tokenizer.py /path/to/alpaca_dataset /path/to/output_dataset /path/to/tokenizer --split_ratio 0.1
 ```
 
-建议用户参考 alpaca_tokenizer.py 编写新的脚本对自己的数据集进行 tokenize
+建议用户参考 alpaca_tokenizer.py 编写新的脚本对自己的数据集进行 tokenize。
+
+微调任务中，也同样可以使用huggingface格式数据集，与预训练中的准备过程一致。
 
 ### 训练配置
 
@@ -106,7 +123,8 @@ ckpt = dict(
     # 'load_ckpt_info' setting guide:
     # 1. the 'path' indicate ckpt path,
     # 2. the 'content‘ means what states will be loaded, support: "model", "sampler", "optimizer", "scheduler", "all"
-    # 3. the ’ckpt_type‘ means the type of checkpoint to be loaded, support: "internevo", "llama", "hf_llama", "hf_model".
+    # 3. the ’ckpt_type‘ means the type of checkpoint to be loaded, support: "internevo", "hf", or other custom-defined 
+    # load function such as "llama"
     load_ckpt_info=dict(path=MODEL_ONLY_FOLDER, content=("model",), ckpt_type="internevo"),
     # 'auto_resume' is designed to automatically load the latest checkpoint from 'save_ckpt_folder' when encountering
     # training interruptions/hangs caused by hardware failures, using a scheduling system (such as k8s/slurm)
@@ -321,14 +339,16 @@ data = dict(
 数据集的详细内容可参考``数据准备``模块相关的介绍。
 
 同时，也支持huggingface格式的数据集处理。
-train_folder设置为huggingface上可以通过load_dataset直接下载的数据集路径，如："roneneldan/TinyStories"
+
+train_folder设置为从huggingface上下载的本地数据集路径，如："/mnt/petrelfs/hf-TinyStories"
+
 在data中，需要新增type及tokenizer_path字段，标示数据集是huggingface格式，并指定tokenizer路径，如：
 ```python
-TRAIN_FOLDER = "roneneldan/TinyStories"
+TRAIN_FOLDER = "/mnt/petrelfs/hf-TinyStories"
 SEQ_LEN = 2048
 data = dict(
-    type="hf",
-    tokenizer_path="internlm/internlm-7b",
+    type="streaming",
+    tokenizer_path="/mnt/petrelfs/hf-internlm2-tokenizer",
     seq_len=SEQ_LEN,  # 数据样本长度，默认值为 2048
     micro_num=1,  # micro_num 是指在一次模型参数更新中会处理的 micro_batch 的数目，默认值为 1
     micro_bsz=1,  # packed_length = micro_bsz * SEQ_LEN，为一次处理的 micro_batch 的数据大小，默认值为 1
@@ -353,10 +373,8 @@ ckpt = dict(
     checkpoint_every=float("inf"),  # 每多少个 step 存储一次 checkpoint，默认值为 inf
     # 断点续训时，加载模型和优化器等权重的路径，将从指定的 step 恢复训练
     # content 表示哪些状态会被加载，支持： "model", "sampler", "optimizer", "scheduler", "all"
-    # ckpt_type 表示加载的模型类型，目前支持: "internevo", "llama", "hf_llama", "hf_model"
-    # 其中，"hf_model"类型表示从huggingface上下载模型加载ckpt，MODEL_ONLY_FOLDER需要设置为可以
-    # 通过AutoModel直接加载的模型路径，如："internlm/internlm-7b"
-    load_ckpt_info=dict(path=MODEL_ONLY_FOLDER, content=("model",), ckpt_type="internlm"),
+    # ckpt_type 表示加载的模型类型，目前支持: "internevo", "llama", "hf"
+    load_ckpt_info=dict(path=MODEL_ONLY_FOLDER, content=("model",), ckpt_type="internevo"),
     # 'auto_resume' 旨在在遇到由硬件故障引起的训练中断/挂起时，自动从 'save_ckpt_folder' 加载最新的检查点，
     # 使用调度系统（例如 k8s/slurm）在训练重启时自动重启机制。
     # 请注意，如果未设置 auto_resume（其默认值为 True），它将不会默认加载 load_ckpt_info 中指定的检查点路径。
@@ -447,6 +465,8 @@ $ srun -p internllm -N 2 -n 16 --ntasks-per-node=8 --gpus-per-task=1 python trai
 $ torchrun --nnodes=1 --nproc_per_node=8 train.py --config ./configs/7B_sft.py --launcher "torch"
 ```
 
+其中，train.py文件的内容，请参考： [训练脚本](https://internevo.readthedocs.io/zh-cn/latest/training.html)
+
 ### 运行结果
 
 以 slurm 上单机 8 卡的 Demo 训练配置为例，训练结果日志展示如下：
@@ -503,7 +523,7 @@ generation = dict(
 1. 对于 huggingface 格式的模型，dynamic ntk rope 目前是被默认使用的。如果用户想要关闭该行为，请将 `config.json` 中的 `rotary.type` 修改为 `origin`；
 2. 对于 InternLM 本身格式的模型，在推理时，通过在初始化模型的配置字典中添加`use_dynamic_ntk_rope=True`来开启这一行为。
 
-用户可以直接通过 web_demo 来直观地对比查看 Dynamic NTK RoPE 是如何生效的。例如文件[长文本示例](./aux_%20materials/long_text_example.txt)中存放着一个token长度超过2200的文本，如果不使用 Dynamic NTK，
+用户可以直接通过 web_demo 来直观地对比查看 Dynamic NTK RoPE 是如何生效的。例如文件[长文本示例](../../aux_materials/long_text_example.txt)中存放着一个token长度超过2200的文本，如果不使用 Dynamic NTK，
 模型是完全无法回答该文本对应的问题。而使用 Dynamic NTK RoPE 后 InternLM Chat 7B v1.1 模型的回答如下所示：
 
 ![dynamic_ntk_answer](./imgs/dynamic_ntk_answer.png)

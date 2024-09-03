@@ -5,7 +5,7 @@
 
 
 InternEvo
-========
+=============
 
 环境构建
 -------------------
@@ -31,9 +31,6 @@ InternEvo
 
    initialize
 
-训练 API
--------------------
-
 .. toctree::
    :maxdepth: 2
 
@@ -46,6 +43,14 @@ InternEvo
    :maxdepth: 2
 
    parallel
+
+数据格式
+-------------------
+
+.. toctree::
+   :maxdepth: 2
+
+   data_flow
 
 混合精度
 -------------------

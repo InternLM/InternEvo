@@ -316,11 +316,13 @@ class TensorBucket:
     def flatten(self):
         self._flat_tensor = _flatten_dense_tensors(self._bucket)
 
-    def unflatten_and_copy(self):
+    def unflatten_and_copy(self, dp_group_size: int = -1):
         if self._unflatten_and_copy_flag:
             unflattened_tensor_list = _unflatten_dense_tensors(self._flat_tensor, self._bucket)
             for old, new in zip(self._bucket, unflattened_tensor_list):
                 old.copy_(new)
+                if dp_group_size != -1:
+                    old.div_(dp_group_size)
 
 
 class BucketStore_v2(BaseStore):
@@ -409,7 +411,7 @@ class BucketStore_v2(BaseStore):
             grad = param.grad.clone().detach().flatten()
             if padding_size > 0:
                 with torch.no_grad():
-                    grad = torch.nn.functional.pad(grad.view(-1), [0, padding_size])
+                    grad = torch.nn.functional.pad(grad.view(-1), [0, padding_size])  # pylint: disable=E1102
             grad_list = grad.split(grad.numel() // self.zero_world_size)
             for rank in range(self.zero_world_size):
                 grad_current_rank = grad_list[rank].clone().detach()

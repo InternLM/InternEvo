@@ -244,7 +244,7 @@ class PipelineScheduler(BaseScheduler):
             label = micro_batch_data.pop("label", None)
             data = {"stage_output": stage_output, **micro_batch_data}
 
-        return data, label
+        return data, label  # pylint: disable=E0606
 
     def _call_hooks(self, func_name: str, *args, **kwargs) -> None:
         for hook in self._hooks:
@@ -309,13 +309,14 @@ class PipelineScheduler(BaseScheduler):
                 output_obj = loss_reduced
 
         moe_loss = (
-            sum(moe_losses) * gpc.config.loss.moe_loss_coeff
+            sum(moe_losses) * gpc.config.loss.moe_loss_coeff  # pylint: disable=E0606
             if hasattr(gpc.config.model, "num_experts") and gpc.config.model.num_experts > 1
             else torch.tensor(0.0, device=get_current_device(), dtype=gpc.config.model.get("dtype"))
         )
         # the moe_loss is computed among the "tensor" group if sequence parallel is enabled, so we need to do allreduce
         if gpc.config.parallel.sequence_parallel:
-            dist.all_reduce(moe_loss, op=dist.ReduceOp.AVG, group=gpc.get_group(ParallelMode.TENSOR))
+            dist.all_reduce(moe_loss, op=dist.ReduceOp.SUM, group=gpc.get_group(ParallelMode.TENSOR))
+            moe_loss.div_(gpc.get_world_size(ParallelMode.TENSOR))
         moe_loss /= self.num_microbatches
         accum_moe_loss.add_(moe_loss.detach())
 
@@ -866,7 +867,7 @@ class InterleavedPipelineScheduler(PipelineScheduler):
                 output_obj = loss_reduced
 
         moe_loss = (
-            sum(moe_losses) * gpc.config.loss.moe_loss_coeff
+            sum(moe_losses) * gpc.config.loss.moe_loss_coeff  # pylint: disable=E0606
             if hasattr(gpc.config.model, "num_experts") and gpc.config.model.num_experts > 1
             else torch.tensor(0.0, device=get_current_device(), dtype=gpc.config.model.get("dtype"))
         )

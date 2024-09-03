@@ -79,7 +79,14 @@ def split_half_float_double(tensor_list):
     return buckets
 
 
-def reduce_tensor(tensor, dtype=None, dst_rank=None, parallel_mode=ParallelMode.DATA):
+def reduce_tensor(
+    tensor,
+    dtype=None,
+    dst_rank=None,
+    parallel_mode=ParallelMode.DATA,
+    op_type=torch.distributed.ReduceOp.AVG,
+    async_op=True,
+):
     """
     Reduce the tensor in the data parallel process group
 
@@ -114,13 +121,11 @@ def reduce_tensor(tensor, dtype=None, dst_rank=None, parallel_mode=ParallelMode.
     use_all_reduce = dst_rank is None
 
     if use_all_reduce:
-        handle = dist.all_reduce(tensor=tensor, group=group, op=torch.distributed.ReduceOp.AVG, async_op=True)
+        handle = dist.all_reduce(tensor=tensor, group=group, op=op_type, async_op=async_op)
     else:
         ranks_in_group = gpc.get_ranks_in_group(parallel_mode)
         global_rank = ranks_in_group[dst_rank]
-        handle = dist.reduce(
-            tensor=tensor, dst=global_rank, group=group, op=torch.distributed.ReduceOp.AVG, async_op=True
-        )
+        handle = dist.reduce(tensor=tensor, dst=global_rank, group=group, op=op_type, async_op=async_op)
 
     return handle
 
@@ -436,6 +441,7 @@ class DynamicGradScaler(BaseGradScaler):
         min_scale: Optional[float] = None,
         max_scale: Optional[float] = None,
         hysteresis: int = 2,
+        dtype=torch.bfloat16,
     ):
         super().__init__(initial_scale)
         if min_scale:
@@ -454,17 +460,42 @@ class DynamicGradScaler(BaseGradScaler):
         self._growth_step = 0
         self._hysteresis = hysteresis
         self._hysteresis_step = 0
+        self._dtype = dtype
         self._sanity_checks()
 
     def _sanity_checks(self) -> None:
         """Check if the arguments are correct."""
 
-        if self._min_scale:
-            assert self._min_scale > 0, "The minimum gradient scale cannot be zero or negative"
+        assert self._dtype in [torch.float16, torch.bfloat16, torch.float32]
+
+        if self._min_scale is not None:
+            min_scale = self._min_scale.item()
+            assert min_scale > 0, "The minimum gradient scale cannot be zero or negative"
+
+            if self._dtype != torch.float16 and min_scale != 1.0 and gpc.is_rank_for_log():
+                logger.warning(f"Detect you use {self._dtype}, but min_scale: {min_scale} != 1.0")
+
         if self._max_scale:
-            assert self._min_scale > 0, "The maximum gradient scale cannot be zero or negative"
-        assert self._growth_factor > 1, "The growth factor cannot be equal or smaller than 1"
-        assert self._backoff_factor < 1 and self._backoff_factor > 0, "The backoff factor must be between 0 and 1"
+            max_scale = self._max_scale.item()
+            assert max_scale > 0, "The maximum gradient scale cannot be zero or negative"
+
+            if self._dtype != torch.float16 and max_scale != 1.0 and gpc.is_rank_for_log():
+                logger.warning(f"Detect you use {self._dtype}, but max_scale: {max_scale} != 1.0")
+
+        if self._dtype == torch.float16:
+            assert self._growth_factor > 1.0, "The growth factor cannot be equal or smaller than 1"
+            assert self._backoff_factor < 1.0 and self._backoff_factor > 0, "The backoff factor must be between 0 and 1"
+        else:
+            assert self._growth_factor >= 1.0, "The growth factor cannot be smaller than 1"
+            assert (
+                self._backoff_factor <= 1.0 and self._backoff_factor > 0
+            ), "The backoff factor must be between 0 and 1"
+
+            if self._growth_factor != 1.0 and gpc.is_rank_for_log():
+                logger.warning(f"Detect you use {self._dtype}, but growth_factor: {self._growth_factor} != 1.0")
+            if self._backoff_factor != 1.0 and gpc.is_rank_for_log():
+                logger.warning(f"Detect you use {self._dtype}, but backoff_factor: {self._backoff_factor} != 1.0")
+
         assert self._hysteresis >= 0, "The hysteresis cannot be negative"
 
     def update(self, overflow: bool) -> None:

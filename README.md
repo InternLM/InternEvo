@@ -2,17 +2,7 @@
 
 <div align="center">
 
-<img src="./doc/imgs/logo.svg" width="200"/>
-  <div> </div>
-  <div align="center">
-    <b><font size="5">InternEvo</font></b>
-    <sup>
-      <a href="https://internlm.intern-ai.org.cn/">
-        <i><font size="4">HOT</font></i>
-      </a>
-    </sup>
-    <div> </div>
-  </div>
+<img src="./doc/imgs/InternEvo_logo.png" width="200"/>
 
 [![Documentation Status](https://readthedocs.org/projects/internevo/badge/?version=latest)](https://internevo.readthedocs.io/zh_CN/latest/?badge=latest)
 [![license](./doc/imgs/license.svg)](./LICENSE)
@@ -28,12 +18,12 @@
 
 </div>
 
-<p align="center">
-    👋 join us on <a href="https://discord.gg/xa29JuW87d" target="_blank">Discord</a> and <a href="https://github.com/InternLM/InternLM/assets/25839884/a6aad896-7232-4220-ac84-9e070c2633ce" target="_blank">WeChat</a>
-</p>
-
 
 ### Latest News 🔥
+
+- 2024/08/29: InternEvo supports streaming dataset of huggingface format. Add detailed instructions of data flow.
+
+- 2024/04/17: InternEvo supports training model on NPU-910B cluster.
 
 - 2024/01/17: To delve deeper into the InternLM series of models, please check [InternLM](https://github.com/InternLM/InternLM) in our organization.
 
@@ -44,27 +34,142 @@ InternEvo is an open-sourced lightweight training framework aims to support mode
 
 Based on the InternEvo training framework, we are continually releasing a variety of large language models, including the InternLM-7B series and InternLM-20B series, which significantly outperform numerous renowned open-source LLMs such as LLaMA and other leading models in the field.
 
+## Installation
+
+First, install the specified versions of torch, torchvision, torchaudio, and torch-scatter.
+For example:
+```bash
+pip install --extra-index-url https://download.pytorch.org/whl/cu118 torch==2.1.0+cu118 torchvision==0.16.0+cu118 torchaudio==2.1.0+cu118
+pip install torch-scatter -f https://data.pyg.org/whl/torch-2.1.0+cu118.html
+```
+
+Install InternEvo:
+```bash
+pip install InternEvo
+```
+
+Install flash-attention (version v2.2.1):
+
+If you need to use flash-attention to accelerate training, and it is supported in your environment, install as follows:
+```bash
+pip install flash-attn==2.2.1
+```
+
+For more detailed information about installation environment or source code installation, please refer to [Install Tutorial](https://internevo.readthedocs.io/en/latest/install.html#)
 
 ## Quick Start
 
-Please refer to [Usage Tutorial](./doc/en/usage.md) to start InternEvo installation, data processing, pre-training and fine-tuning.
+### Train Script
 
-For more details, please check [internevo.readthedocs.io](https://internevo.readthedocs.io/zh_CN/latest/?badge=latest)
+Firstly, prepare training script as [train.py](https://github.com/InternLM/InternEvo/blob/develop/train.py)
+
+For more detailed explanation, please refer to [Training Tutorial](https://internevo.readthedocs.io/en/latest/training.html#)
+
+### Data Preparation
+
+Secondly, prepare data for training or fine-tuning.
+
+Download dataset from huggingface, take `roneneldan/TinyStories` dataset as example:
+```bash
+huggingface-cli download --repo-type dataset --resume-download "roneneldan/TinyStories" --local-dir "/mnt/petrelfs/hf-TinyStories"
+```
+
+Achieve tokenizer to local path. For example, download special_tokens_map.json、tokenizer.model、tokenizer_config.json、tokenization_internlm2.py and tokenization_internlm2_fast.py from `https://huggingface.co/internlm/internlm2-7b/tree/main` to local `/mnt/petrelfs/hf-internlm2-tokenizer` .
+
+Then modify configuration file as follows:
+```bash
+TRAIN_FOLDER = "/mnt/petrelfs/hf-TinyStories"
+data = dict(
+    type="streaming",
+    tokenizer_path="/mnt/petrelfs/hf-internlm2-tokenizer",
+)
+```
+
+For other type dataset preparation, please refer to [Usage Tutorial](https://internevo.readthedocs.io/en/latest/usage.html#)
+
+### Configuration File
+
+The content of configuration file is as [7B_sft.py](https://github.com/InternLM/InternEvo/blob/develop/configs/7B_sft.py)
+
+For more detailed introduction, please refer to [Usage Tutorial](https://internevo.readthedocs.io/en/latest/usage.html#)
+
+### Train Start
+
+Training can be started on slurm or torch distributed environment.
+
+On slurm, using 2 nodes and 16 cards, the command is as follows:
+```bash
+$ srun -p internllm -N 2 -n 16 --ntasks-per-node=8 --gpus-per-task=1 python train.py --config ./configs/7B_sft.py
+```
+
+On torch, using 1 node and 8 cards, the command is as follows:
+```bash
+$ torchrun --nnodes=1 --nproc_per_node=8 train.py --config ./configs/7B_sft.py --launcher "torch"
+```
 
 ## System Architecture
 
 Please refer to the [System Architecture document](./doc/en/structure.md) for architecture details.
 
-## Performance
+## Feature Zoo
 
-InternEvo deeply integrates Flash-Attention, Apex and other high-performance model operators to improve training efficiency. By building the Hybrid Zero technique, it achieves efficient overlap of computation and communication, significantly reducing cross-node communication traffic during training. InternEvo supports expanding the 7B model from 8 GPUs to 1024 GPUs, with an acceleration efficiency of up to 90% at the thousand-GPU scale, a training throughput of over 180 TFLOPS, and an average of over 3600 tokens per GPU per second. The following table shows InternEvo's scalability test data at different configurations:
-
-| GPU Number         | 8   | 16  | 32  | 64  | 128  | 256  | 512  | 1024  |
-| ---------------- | ---- | ---- | ---- | ---- | ----- | ----- | ----- | ------ |
-| TGS | 4078 | 3939 | 3919 | 3944 | 3928  | 3920  | 3835  | 3625   |
-| TFLOPS  | 193 | 191  | 188  | 188  | 187   | 185   | 186   | 184    |
-
-TGS represents the average number of tokens processed per GPU per second. For more performance test data, please refer to the [Training Performance document](./doc/en/train_performance.md) for further details.
+<div align="center">
+  <b>InternEvo Feature Zoo</b>
+</div>
+<table align="center">
+  <tbody>
+    <tr align="center" valign="bottom">
+      <td>
+        <b>Data</b>
+      </td>
+      <td>
+        <b>Model</b>
+      </td>
+      <td>
+        <b>Parallel</b>
+      </td>
+      <td>
+        <b>Tool</b>
+      </td>
+    </tr>
+    <tr valign="top">
+      <td>
+      <ul>
+        <li>Tokenized</li>
+        <li>Streaming</li>
+      </ul>
+      </td>
+      <td>
+      <ul>
+        <li><a href="configs/_base_/models/internlm/internlm_7B.py">InternLM</a></li>
+        <li><a href="configs/_base_/models/internlm/internlm2_7B.py">InternLM2</a></li>
+      </ul>
+      </td>
+      <td>
+        <ul>
+          <li>ZeRO 1.5</li>
+          <li>1F1B Pipeline Parallel</li>
+          <li>PyTorch FSDP Training</li>
+          <li>Megatron-LM Tensor Parallel (MTP)</li>
+          <li>Megatron-LM Sequence Parallel (MSP)</li>
+          <li>Flash-Attn Sequence Parallel (FSP)</li>
+          <li>Intern Sequence Parallel (ISP)</li>
+          <li>Memory Profiling</li>
+        </ul>
+      </td>
+      <td>
+        <ul>
+          <li><a href="tools/transformers/README.md">Convert ckpt to HF</a></li>
+          <li><a href="tools/transformers/README.md">Revert ckpt from HF</a></li>
+          <li><a href="tools/tokenizer.py">Raw Data Tokenizer</a></li>
+          <li><a href="tools/alpaca_tokenizer.py">Alpaca data Tokenizer</a></li>
+        </ul>
+      </td>
+    </tr>
+</td>
+    </tr>
+  </tbody>
+</table>
 
 ## Contribution
 

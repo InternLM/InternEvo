@@ -23,12 +23,22 @@ pip install InternEvo
 ```
 
 Install flash-attention (version v2.2.1):
+
+If you need to use flash-attention to accelerate training, and it is supported in your environment, install as follows:
 ```bash
 pip install flash-attn==2.2.1
 ```
 
 Install Apex (version 23.05):
+
 Apex is an optional package; If you choose to install it, follow the instructions in Install through source code.
+
+Install megablocks（version 0.3.2）:
+
+If the model you are training is MoE releated, install as follows:
+```bash
+pip install git+https://github.com/databricks/megablocks@v0.3.2 # MOE相关
+```
 
 ### Install through source code
 #### Required Packages
@@ -85,10 +95,10 @@ pip install -v --disable-pip-version-check --no-cache-dir --no-build-isolation -
 cd ../../
 ```
 
-### Additional Installation
+Install megablocks（version 0.3.2）:
 ```bash
-pip install git+https://github.com/databricks/megablocks@v0.3.2 # MOE need
-```
+pip install git+https://github.com/databricks/megablocks@v0.3.2 # MOE releated
+``` 
 
 ### Environment Image
 Users can use the provided dockerfile combined with docker.Makefile to build their own images, or obtain images with InternEvo runtime environment installed from https://hub.docker.com/r/internlm/internevo/tags.
@@ -122,17 +132,17 @@ The default directory in the container is `/InternEvo`, please start training ac
 torchrun --nproc_per_node=8 --nnodes=1 train.py --config configs/7B_sft.py --launcher torch
 ```
 
-## Environment Installation (NPU)
+### NPU Environment Installation
 For machines with NPU, the version of the installation environment can refer to that of GPU. Use Ascend's torch_npu instead of torch on NPU machines. Additionally, Flash-Attention and Apex are no longer supported for installation on NPU. The corresponding functionalities have been internally implemented in the InternEvo codebase. The following tutorial is only for installing torch_npu.
 
 Official documentation for torch_npu: https://gitee.com/ascend/pytorch
 
-### Example Installation of Environment
+#### NPU Environment Preparation
 - Linux OS
 - torch_npu: v2.1.0-6.0.rc1
 - NPU card: 910B
 
-#### Installing torch_run
+##### Installing torch_run
 Refer to the documentation: https://gitee.com/ascend/pytorch/tree/v2.1.0-6.0.rc1/
 
 You can try installing according to the methods in the documentation or download the specified version of torch_npu from https://gitee.com/ascend/pytorch/releases for installation, as shown below:

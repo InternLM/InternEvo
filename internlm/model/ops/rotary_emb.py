@@ -23,7 +23,7 @@ except (ModuleNotFoundError, ImportError):
     flash_rotary_impl = False
 
 try:
-    from deeplink_ext.internlm_ops import ApplyRotaryEmb as DeeplinkApplyRotaryEmb
+    from deeplink_ext.internevo_ops import ApplyRotaryEmb as DeeplinkApplyRotaryEmb
 
     deeplink_rotary_impl = True
 except (ModuleNotFoundError, ImportError):
@@ -143,13 +143,14 @@ def rotary_emb_in_rotate_half_style(
         cos (Tensor): cos, shape is [S, D//2].
         sin (Tensor): sin, shape is [S, D//2].
     """
+    assert False, "This function has some bugs. You should not arrive here."
     # reformat cos/sin shape.
     cos = torch.cat((cos, cos), dim=-1)[None, :, None, :]
     sin = torch.cat((sin, sin), dim=-1)[None, :, None, :]
 
     if len(x.shape) == 5:
         q, k, _ = x.unbind(dim=2)
-
+        q, k = q.squeeze(dim=2), k.squeeze(dim=2)
         if interleaved:
             q = torch.cat([q[..., ::2], q[..., 1::2]], dim=-1)
             k = torch.cat([k[..., ::2], k[..., 1::2]], dim=-1)
@@ -300,6 +301,7 @@ def apply_rotary_emb(
         # TODO: to support in_place argument
         return DeeplinkApplyRotaryEmb.apply(x, cos, sin, interleaved, use_fused_rope)
     if internlm_accelerator.get_accelerator_backend() == AcceleratorType.NPU:
-        return rotary_emb_in_rotate_half_style(x, cos, sin, interleaved, use_fused_rope)
+        # return rotary_emb_in_rotate_half_style(x, cos, sin, interleaved, use_fused_rope)
+        return ApplyRotaryEmb.apply(x, cos, sin, interleaved, in_place)
     else:
         return ApplyRotaryEmb.apply(x, cos, sin, interleaved, in_place)

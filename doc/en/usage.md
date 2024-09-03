@@ -6,17 +6,37 @@ To start a demo model training, you need to prepare three things: **installation
 
 Please refer to the [installation guide](./install.md) for instructions on how to install the necessary dependencies.
 
-### Dataset Preparation (HuggingFace Datasets)
-If you are using the HuggingFace datasets for on-the-fly streaming load and tokenize, taking the `roneneldan/TinyStories`` dataset as an example, the data preparation stage only requires the following adjustments in the configuration file:
-```python
-TRAIN_FOLDER = "roneneldan/TinyStories"
+### Dataset Preparation
+
+#### Pre-training
+
+##### Using Hugging Face Format Dataset
+
+If you are using a Hugging Face dataset, you will first need to download the dataset and the required tokenizer to your local machine.
+
+Take the dataset `roneneldan/TinyStories` as an example. During the data preparation phase, you need to download the dataset to your local machine using the following command:
+
+```bash
+huggingface-cli download --repo-type dataset --resume-download "roneneldan/TinyStories" --local-dir "/mnt/petrelfs/hf-TinyStories"
+```
+
+here, "/mnt/petrelfs/hf-TinyStories" is the local path where you want to save the dataset.
+
+Then, download the tokenizer to your local machine. For example, if you are using the internlm2 tokenizer, download the files special_tokens_map.json, tokenizer.model, tokenizer_config.json, tokenization_internlm2.py, and tokenization_internlm2_fast.py from the URL "https://huggingface.co/internlm/internlm2-7b/tree/main" to a local path such as "/mnt/petrelfs/hf-internlm2-tokenizer".
+
+Make the following changes to the configuration file:
+
+```bash
+TRAIN_FOLDER = "/mnt/petrelfs/hf-TinyStories"
 data = dict(
-    type="hf",
-    tokenizer_path="internlm/internlm-7b",
+    type="streaming",
+    tokenizer_path="/mnt/petrelfs/hf-internlm2-tokenizer",
 )
 ```
 
-### Dataset Preparation (Pre-training)
+The type defaults to "tokenized", but here it needs to be changed to "streaming". Also, you need to specify the `tokenizer_path`. If you are using the dataset after tokenization as described below, you do not need to set this field. `TRAIN_FOLDER` specifies the local path of the dataset.
+
+##### Using a Dataset After Tokenization
 
 The dataset for the InternEvo training task includes a series of `bin` and `meta` files. A `tokenizer` is used to generate the training dataset from the original text files. The tokenizer model is imported by specifying the model parameter path in `tools/tokenizer.py`. Currently, `tokenizer_internlm.model` is provided to generate tokens. If you want to use a different model, you can directly modify the model parameter path in `tokenizer.py`.
 
@@ -68,7 +88,7 @@ For example, the first `sequence` starts at index 0 and has 16 `tokens`. The sec
 
 The `bin` and `meta` file formats for `json` and `jsonl` type files are the same as for `txt`, so we won't go over them here.
 
-### Data Preparation (Fine-tuning)
+#### Fine-tuning
 
 The data format for fine-tuning tasks is the same as for pre-training tasks, which consists of a series of `bin` and `meta` files. Let's take the Alpaca dataset as an example to explain the data preparation process for fine-tuning.
 
@@ -80,7 +100,9 @@ The data format for fine-tuning tasks is the same as for pre-training tasks, whi
 python tools/alpaca_tokenizer.py /path/to/alpaca_dataset /path/to/output_dataset /path/to/tokenizer --split_ratio 0.1
 ```
 
-It is recommended that users refer to alpaca_tokenizer.py to write new scripts to tokenize their own datasets
+It is recommended that users refer to alpaca_tokenizer.py to write new scripts to tokenize their own datasets.
+
+In fine-tuning tasks, Hugging Face formatted datasets can also be used, consistent with the preparation process in pre-training.
 
 ### Training Configuration
 
@@ -117,7 +139,7 @@ ckpt = dict(
     # 1. the 'path' indicate ckpt path,
     # 2. the 'content‘ means what states will be loaded, support: "model", "sampler", "optimizer", "scheduler", "all"
     # 3. the ’ckpt_type‘ means the type of checkpoint to be loaded, now only 'normal' type is supported.
-    load_ckpt_info=dict(path=MODEL_ONLY_FOLDER, content=("model",), ckpt_type="internlm"),
+    load_ckpt_info=dict(path=MODEL_ONLY_FOLDER, content=("model",), ckpt_type="internevo"),
     checkpoint_every=CHECKPOINT_EVERY,
     async_upload=True,  # async ckpt upload. (only work for boto3 ckpt)
     async_upload_tmp_folder="/dev/shm/internlm_tmp_ckpt/",  # path for temporarily files during asynchronous upload.
@@ -282,6 +304,28 @@ Currently, it supports passing the dataset file path `train_folder`, and the fil
 
 For detailed information about the dataset, please refer to the "Data Preparation" section.
 
+Additionally, it also supports processing datasets in the Hugging Face format.
+
+Set train_folder to the local path of the dataset downloaded from Hugging Face, such as: "/mnt/petrelfs/hf-TinyStories".
+
+In the data dictionary, you need to add new fields type and tokenizer_path to indicate that the dataset is in the Hugging Face format and to specify the path of the tokenizer, for example:
+
+```python
+TRAIN_FOLDER = "/mnt/petrelfs/hf-TinyStories"
+SEQ_LEN = 2048
+data = dict(
+    type="streaming",
+    tokenizer_path="/mnt/petrelfs/hf-internlm2-tokenizer",
+    seq_len=SEQ_LEN,  # Length of the data samples, default value is 2048
+    micro_num=1,  # Number of micro_batches processed in one model parameter update, default value is 1
+    micro_bsz=1,  # Packed_length = micro_bsz * SEQ_LEN, the size of data processed in one micro_batch, default value is 1
+    total_steps=50000,  # Total number of steps to be executed, default value is 50000
+    min_length=50,  # If the number of lines in the dataset file is less than 50, it will be discarded
+    train_folder=TRAIN_FOLDER,  # Dataset file path, default value is None; if train_folder is empty, training will be done using randomly generated datasets
+    pack_sample_into_one=False, # Logic for data arrangement, determines whether to calculate attention based on the seq_len dimension or the actual length of the sequence
+)
+```
+
 #### Model Configuration
 
 If you want to load a model checkpoint when starting the training, you can configure it as follows:
@@ -295,8 +339,8 @@ ckpt = dict(
     # When resuming training from a breakpoint,:
     # (1) 'path' is the path of the loaded checkpoint.
     # (2) 'content' indicates which state will be loaded, support: "model", "sampler", "optimizer", "scheduler", "all"
-    # (3) 'ckpt_type' indicates which type ckpt will be loaded, currently supported: "internlm"
-    load_ckpt_info=dict(path=MODEL_ONLY_FOLDER, content=("model",), ckpt_type="internlm"),
+    # (3) 'ckpt_type' indicates which type ckpt will be loaded, currently supported: "internevo"
+    load_ckpt_info=dict(path=MODEL_ONLY_FOLDER, content=("model",), ckpt_type="internevo"),
 )
 ```
 
@@ -371,6 +415,8 @@ If you want to start distributed training on torch with 8 GPUs on a single node,
 ```bash
 $ torchrun --nnodes=1 --nproc_per_node=8 train.py --config ./configs/7B_sft.py --launcher "torch"
 ```
+
+The content of train.py, please refer to [Training Scrip](https://internevo.readthedocs.io/en/latest/training.html)
 
 ### Training Results
 

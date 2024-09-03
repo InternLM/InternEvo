@@ -97,7 +97,9 @@ class RotaryEmbedding(torch.nn.Module):
         if max_seqlen is not None:
             seqlen = max_seqlen
         elif isinstance(indexes, int):
-            seqlen = indexes + x.shape[1] + 1
+            # logic changed temporaryly
+            # seqlen = indexes + x.shape[1] + 1
+            seqlen = gpc.config.data.seq_len
         else:
             # Note that this statement may cause synchronization between CPU and GPU,
             # so it's best to precompute and pass in max_seqlen ahead of time

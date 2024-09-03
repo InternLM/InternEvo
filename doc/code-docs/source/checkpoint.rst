@@ -1,7 +1,7 @@
 模型加载与保存
 ===================
 
-InternEvo 使用 ``internlm.utils.model_checkpoint.CheckpointManager`` 来管理模型保存。其中，可以使用 ``CheckpointManager.try_save_checkpoint(train_state)`` 来保存指定 step 的模型状态。
+InternEvo 使用 ``internlm.checkpoint.checkpoint_manager.CheckpointManager`` 来管理模型保存。其中，可以使用 ``CheckpointManager.try_save_checkpoint(train_state)`` 来保存指定 step 的模型状态。
 
 InternEvo支持启动时自动加载最新的模型备份，并在接收信号退出训练时自动进行模型备份。
 
@@ -10,23 +10,25 @@ CheckpointManager
 
 ``CheckpointManager`` 是InternEvo负责进行模型加载和保存的工具类，其会使用config文件中的ckpt字段的初始化参数字典初始化自身的参数，目前相关的参数有：
 
-- ``enable_save_ckpt``: 是否开启检查点存储功能（不影响检查点加载）。参数类型 ``bool``，必选参数。
+- ``enable_save_ckpt`` : 是否开启检查点存储功能（不影响检查点加载）。参数类型 ``bool`` ，必选参数。
 
-- ``save_ckpt_folder``: 检查点存储路径，参数类型 ``str``，默认为： ``None``，在开启检查点存储功能时为必选参数。
+- ``enable_internevo2hf_ckpt`` : 是否同时保存huggingface格式的权重。如果开启，会将被并行切分后的权重整合起来保存成huggingface格式，方便后续使用hf方式加载权重，避免因并行方式不同导致的权重转换问题。默认值为： ``False`` 。
 
-- ``checkpoint_every``: 检查点存储频率，参数类型 ``int``，默认为： ``50``。
+- ``save_ckpt_folder`` : 检查点存储路径，参数类型 ``str`` ，默认为： ``None`` ，在开启检查点存储功能时为必选参数。
 
-- ``load_ckpt_info``: 初始化检查点/权重加载信息。参数类型 ``dict``，默认为： ``None``，详见 :ref:`load-ckpt-info`。
+- ``checkpoint_every`` : 检查点存储频率，参数类型 ``int`` ，默认为： ``50`` 。
 
-- ``async_upload``: 是否开启异步上传，默认值为：``False``，详见 :ref:`asyncupload`。
+- ``load_ckpt_info`` : 初始化检查点/权重加载信息。参数类型 ``dict`` ，默认为： ``None`` ，详见 :ref: `load-ckpt-info` 。
 
-- ``async_upload_tmp_folder``: 异步上传临时存储路径。
+- ``async_upload`` : 是否开启异步上传，默认值为： ``False`` ，详见 :ref: `asyncupload` 。
 
-- ``oss_snapshot_freq``: 快照存储频率，默认值为：``checkpoint_every``的一半。详见 :ref:`snapshot`。
+- ``async_upload_tmp_folder`` : 异步上传临时存储路径。
 
-- ``auto_resume``: 是否开启检查点自动恢复，默认值为：``True``，详见 :ref:`autoresume`。
+- ``oss_snapshot_freq`` : 快照存储频率，默认值为： ``checkpoint_every`` 的一半。详见 :ref: `snapshot` 。
 
-- ``stop_file_path`` : 检查点存储控制文件的路径，默认值为：``None``，详见 :ref:`stopfile`。
+- ``auto_resume`` : 是否开启检查点自动恢复，默认值为： ``True`` ，详见 :ref: `autoresume` 。
+
+- ``stop_file_path`` : 检查点存储控制文件的路径，默认值为： ``None`` ，详见 :ref: `stopfile` 。
 
 
 下面给出config文件的参数设置例子：
@@ -35,8 +37,9 @@ CheckpointManager
 
   ckpt = dict(
       enable_save_ckpt=False,  # enable ckpt save.
+      enable_internevo2hf_ckpt=True,  # save huggingface format ckpt at the same time.
       save_ckpt_folder=SAVE_CKPT_FOLDER,  # Path to save training ckpt.
-      load_ckpt_info=dict(path="local:/mnt/mfs/ckpt", content=["all",], ckpt_type="internlm"), 
+      load_ckpt_info=dict(path="local:/mnt/mfs/ckpt", content=("all",), ckpt_type="internevo"),
       auto_resume=False, # disable auto-resume, internlm will load model checkpoint from the path of 'load_ckpt_info'.
       checkpoint_every=CHECKPOINT_EVERY,
       async_upload=True,  # async ckpt upload. (only work for boto3, volc and oss2 ckpt)
@@ -44,8 +47,7 @@ CheckpointManager
       oss_snapshot_freq=int(CHECKPOINT_EVERY / 2),  # snapshot ckpt save frequency.
   )
 
-
-.. autoclass:: internlm.utils.model_checkpoint.CheckpointManager
+.. autoclass:: internlm.checkpoint.checkpoint_manager.CheckpointManager
     :members:
 
 
@@ -93,9 +95,8 @@ load_ckpt_info 由三个字段组成， ``path`` 、 ``content`` 和 ``ckpt_type
 - ``ckpt_type``：表示加载的模型权重类型，目前支持的字段包括：
 
   - ``internevo``：internevo约定的checkpoint存储格式。
-  - ``llama``：llama约定的checkpoint存储格式。
-  - ``hf_llama``：huggingface llama约定的checkpoint存储格式。
-  - ``hf_model``：适用于加载huggingface所有模型的checkpoint存储格式。
+  - ``llama``：huggingface llama约定的checkpoint存储格式。
+  - ``hf``：huggingface 模型约定的checkpoint存储格式。
 
 下面给出两个例子：
 
@@ -106,10 +107,6 @@ load_ckpt_info 由三个字段组成， ``path`` 、 ``content`` 和 ``ckpt_type
 
   # 从文件存储相对路径 ckpt_model 中加载所有的状态，适合断点续训的场景
   load_ckpt_info = dict(path="local:ckpt_model", content=("all",), ckpt_type="internevo")
-
-  # 从 huggingface 下载指定模型，加载checkpoint
-  load_ckpt_info = dict(path="internlm/internlm-7b", content=("model",), ckpt_type="hf_model")
-
 
 .. _asyncupload:
 
@@ -179,4 +176,3 @@ config.ckpt 中相关的参数：
   # 如果存入的step>0，则任务会在存储ckpt后自动退出
   # 如果存入的step<0，则任务会在存储ckpt后会继续训练
   echo "999" > ./llm_alter/1006_pr.log
-

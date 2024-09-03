@@ -129,14 +129,15 @@ class NonPipelineScheduler(BaseScheduler):
                 loss = self._call_engine_criterion(engine, output, label)
                 self._call_hooks("after_criterion", loss)
                 moe_loss = (
-                    sum(moe_losses) * gpc.config.loss.moe_loss_coeff
+                    sum(moe_losses) * gpc.config.loss.moe_loss_coeff  # pylint: disable=E0606
                     if hasattr(gpc.config.model, "num_experts") and gpc.config.model.num_experts > 1
                     else torch.tensor(0.0, device=get_current_device(), dtype=gpc.config.model.get("dtype"))
                 )
                 # the moe_loss is computed among the "tensor" group if sequence parallel is enabled,
                 # so we need to do allreduce
                 if gpc.config.parallel.sequence_parallel:
-                    dist.all_reduce(moe_loss, op=dist.ReduceOp.AVG, group=gpc.get_group(ParallelMode.TENSOR))
+                    dist.all_reduce(moe_loss, op=dist.ReduceOp.SUM, group=gpc.get_group(ParallelMode.TENSOR))
+                    moe_loss.div_(gpc.get_world_size(ParallelMode.TENSOR))
                 moe_loss /= scale_loss
                 loss /= scale_loss
                 loss += moe_loss

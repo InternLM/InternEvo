@@ -10,7 +10,7 @@ import torch
 import torch.distributed as dist
 from torch.optim import Optimizer
 
-from internlm.accelerator import get_accelerator
+from internlm.accelerator import AcceleratorType, get_accelerator
 from internlm.core.context import Config, ParallelMode
 from internlm.core.context import global_context as gpc
 from internlm.core.context.parallel_context import (
@@ -117,6 +117,7 @@ class HybridZeroOptimizer(BaseOptimizer):
             growth_interval=growth_interval,
             hysteresis=hysteresis,
             max_scale=max_scale,
+            dtype=gpc.config.model.dtype,
         )
         self._found_overflow = torch.tensor([0], device=get_current_device(), dtype=torch.float32)
 
@@ -317,13 +318,25 @@ class HybridZeroOptimizer(BaseOptimizer):
                     )
 
                     def reduction_layernorm_func():
-                        handle = reduce_tensor(
+                        # BUG: 8.0.RC1.alpha003 hccl allreduce AVG op will not perform averaging operation.
+                        # So we use sum + div here when training on Ascend machines.
+                        op_type = (
+                            torch.distributed.ReduceOp.SUM
+                            if internlm_accelerator.get_accelerator_backend()
+                            in [AcceleratorType.NPU, AcceleratorType.DIPU]
+                            else torch.distributed.ReduceOp.AVG
+                        )
+                        parallel_mode = ParallelMode.WEIGHT if self.use_isp else ParallelMode.TENSOR
+                        reduce_tensor(
                             param.grad,
                             dtype=None,
                             dst_rank=reduce_rank,
-                            parallel_mode=ParallelMode.WEIGHT if self.use_isp else ParallelMode.TENSOR,
+                            parallel_mode=parallel_mode,
+                            op_type=op_type,
+                            async_op=False,
                         )
-                        handle.wait()
+                        if op_type == torch.distributed.ReduceOp.SUM:
+                            param.grad.div_(gpc.get_world_size(parallel_mode))
 
                     # define hook
                     # NOT IMPORTANT BUT GOOD TO KNOW:
@@ -500,6 +513,14 @@ class HybridZeroOptimizer(BaseOptimizer):
     def _reduce_grads_by_rank(self, reduce_rank, grads, bucket_size, group_id, dp_parallel_mode):
         grad_buckets_by_dtype = split_half_float_double(grads)
         next_bucket_list = []
+
+        if internlm_accelerator.get_accelerator_backend() in [AcceleratorType.NPU, AcceleratorType.DIPU]:
+            op_type = torch.distributed.ReduceOp.SUM
+            avg_size = gpc.get_world_size(dp_parallel_mode)
+        else:
+            op_type = torch.distributed.ReduceOp.AVG
+            avg_size = -1
+
         # add parameters into bucket for reduction
         for tensor_list in grad_buckets_by_dtype:
             param_bucket = TensorBucket(size=bucket_size)
@@ -507,7 +528,11 @@ class HybridZeroOptimizer(BaseOptimizer):
                 param_bucket.add_to_bucket(tensor, allow_oversize=True)
             if not param_bucket.is_empty():
                 self._reduce_and_copy(
-                    bucket=param_bucket, reduce_rank=reduce_rank, group_id=group_id, dp_parallel_mode=dp_parallel_mode
+                    bucket=param_bucket,
+                    reduce_rank=reduce_rank,
+                    group_id=group_id,
+                    dp_parallel_mode=dp_parallel_mode,
+                    op_type=op_type,
                 )
             next_bucket_list.append(param_bucket)
 
@@ -515,7 +540,7 @@ class HybridZeroOptimizer(BaseOptimizer):
         # here we can also overlap the communication with some memcpy operation caused by bucket.flatten()
         for bucket in self._bucket_in_progress:
             bucket.commu_handle.wait()
-            bucket.unflatten_and_copy()
+            bucket.unflatten_and_copy(dp_group_size=avg_size)
             bucket.empty()
         self._bucket_in_progress = []
         self._param_store.clear_grads_of_previous_reduced_params()
@@ -523,7 +548,7 @@ class HybridZeroOptimizer(BaseOptimizer):
         # after the completion of bucket list reduction, add new buckets into _bucket_in_progress
         self._bucket_in_progress = next_bucket_list.copy()
 
-    def _reduce_and_copy(self, bucket: TensorBucket, reduce_rank, group_id, dp_parallel_mode):
+    def _reduce_and_copy(self, bucket: TensorBucket, reduce_rank, group_id, dp_parallel_mode, op_type):
         # flatten the tensors and do allreduce
         bucket.flatten()
         bucket.commu_handle = reduce_tensor(
@@ -531,6 +556,7 @@ class HybridZeroOptimizer(BaseOptimizer):
             dtype=None,
             dst_rank=reduce_rank,
             parallel_mode=dp_parallel_mode,
+            op_type=op_type,
         )
 
         # update the reduced tensor
@@ -674,10 +700,15 @@ class HybridZeroOptimizer(BaseOptimizer):
         for group_id in range(self.num_param_groups):
             self._reduce_grads_stored_in_bucket(self._bucket_store[group_id], reduce_rank=None)
 
+        if internlm_accelerator.get_accelerator_backend() in [AcceleratorType.NPU, AcceleratorType.DIPU]:
+            avg_size = gpc.get_world_size(ParallelMode.DATA)
+        else:
+            avg_size = -1
+
         # wait grads reduced and clear reduced grads
         for bucket in self._bucket_in_progress:
             bucket.commu_handle.wait()
-            bucket.unflatten_and_copy()
+            bucket.unflatten_and_copy(dp_group_size=avg_size)
             bucket.empty()
         self._bucket_in_progress = []
         self._param_store.clear_grads_of_previous_reduced_params()

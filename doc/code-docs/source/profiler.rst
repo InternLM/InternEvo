@@ -1,12 +1,12 @@
-性能分析
-========
+性能分析工具
+==================
 
 .. Mainly about the usage of torch profiler and memory profiler
 
 Torch Profiler
 -----------------
 
-InternEvo 使用 ``internlm.train.initialize_llm_profile()`` 来收集和分析模型训练或推理期间的性能数据，如 CPU/CUDA/memory 等性能数据。这个实现基于 `torch.profiler <https://pytorch.org/docs/stable/profiler.html>`_ ，输出的性能分析 trace 文件可以使用 `tensorboard <https://www.tensorflow.org/tensorboard?hl=en>`_ 进行可视化。
+InternEvo 使用 ``internlm.train.pipeline.initialize_llm_profile()`` 来收集和分析模型训练或推理期间的性能数据，如 CPU/CUDA/memory 等性能数据。这个实现基于 `torch.profiler <https://pytorch.org/docs/stable/profiler.html>`_ ，输出的性能分析 trace 文件可以使用 `tensorboard <https://www.tensorflow.org/tensorboard?hl=en>`_ 进行可视化。
 
 用户如果想使用这个 torch 性能分析工具，需要在启动训练时传递 ``--profiling`` 参数以启用性能分析。完成 torch 性能分析后，用户可以在 ``{JOB_NAME}/{start_time}/traces/rank{}_dp{}_tp{}_pp{}`` 文件夹中看到性能分析结果。
 
@@ -32,7 +32,7 @@ InternEvo 使用 ``internlm.train.initialize_llm_profile()`` 来收集和分析�
   :scale: 45%
   :class: with-border
 
-.. autofunction:: internlm.train.initialize_llm_profile
+.. autofunction:: internlm.train.pipeline.initialize_llm_profile
 
 Memory Profiler
 -----------------
