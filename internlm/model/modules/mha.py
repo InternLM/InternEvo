@@ -84,6 +84,7 @@ class MHA(nn.Module):
         self.embed_dim = embed_dim
         self.num_heads = num_heads
         self.head_dim = self.embed_dim // num_heads
+        self.kv_dim = self.head_dim * num_heads  # num_kv_heads equals to num_heads in MHA
         self.enable_qkv_fusion = enable_qkv_fusion
 
         self.use_dynamic_ntk_rope = use_dynamic_ntk_rope

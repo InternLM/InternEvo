@@ -10,6 +10,7 @@ from internlm.model.modeling_llava import Llava
 from internlm.model.modeling_moe import Internlm1MoE
 from internlm.utils.common import SingletonMeta
 from internlm.model.modeling_qwen2 import Qwen2
+from internlm.model.modeling_baichuan2 import Baichuan2
 from internlm.utils.utils import ModelType
 
 
@@ -85,6 +86,7 @@ def register_model_initializer() -> None:
     model_initializer.register_module(ModelType.INTERNLM_MoE.name, Internlm1MoE)
     model_initializer.register_module(ModelType.LLAVA.name, Llava)
     model_initializer.register_module(ModelType.QWEN2.name, Qwen2)
+    model_initializer.register_module(ModelType.BAICHUAN2.name, Baichuan2)
 
 
 register_model_initializer()
