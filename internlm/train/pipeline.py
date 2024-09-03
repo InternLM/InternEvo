@@ -3,7 +3,7 @@
 
 import math
 import time
-from typing import Callable, Iterable, List, Optional, Tuple, TypeVar, Union
+from typing import Callable, Dict, Iterable, List, Optional, Tuple, TypeVar, Union
 
 import torch
 from torch import nn
@@ -826,7 +826,7 @@ def inject_config(model: nn.Module) -> None:
         gpc.config.model.num_kv_attention_heads = gpc.config.NUM_KV_ATTENTION_HEAD = model.config.num_key_value_heads
 
 
-def inject_model_helper(model: nn.Module, inject_info) -> None:
+def inject_model_helper(model: nn.Module, inject_info: Optional[Dict] = None) -> None:
     inject = False
     interactive = False
     modules = []
