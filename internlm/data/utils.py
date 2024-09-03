@@ -6,6 +6,7 @@ import re
 import torch
 
 from internlm.core.context import global_context as gpc
+from internlm.core.context.process_group_initializer import ParallelMode
 
 
 def get_dataset_type_ids_map(path):
@@ -67,5 +68,11 @@ def packed_data_normalizer(data, label):
     data["indexes"] = data["indexes"][0]
     data["cu_seqlens"] = data["cu_seqlens"][0].squeeze(0)
     data["max_seqlen"] = (data["cu_seqlens"][1:] - data["cu_seqlens"][:-1]).max().item()
+
+    # If model has inject_info and data_helper is enabled, we provide cu_seqlens and max_seqlen in gpc
+    if gpc.config.model.inject_info is not None and gpc.config.model.inject_info.get("data_helper", False):
+        gpc.config.data[f"cu_seqlens_data_rank{gpc.get_local_rank(ParallelMode.DATA)}"] = data.pop("cu_seqlens")
+        gpc.config.data[f"max_seqlen_data_rank{gpc.get_local_rank(ParallelMode.DATA)}"] = data.pop("max_seqlen")
+        data["position_ids"] = data.pop("indexes")
 
     return data, label

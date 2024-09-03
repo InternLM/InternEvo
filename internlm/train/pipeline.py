@@ -44,7 +44,6 @@ from internlm.core.parallel.comm.tensor import (
 from internlm.core.parallel.comm.zero import ParamAsyncBcastHandler
 from internlm.core.trainer import TrainState
 from internlm.data.utils import unpack_type_ids
-from internlm.model.base_model import BaseModel
 from internlm.model.builder import create_model
 from internlm.model.metrics import SchedulerMetricHook
 from internlm.model.modules.embedding import Embedding1D
@@ -56,6 +55,7 @@ from internlm.model.modules.linear import (
     ScaleColumnParallelLinear,
     new_linear,
 )
+from internlm.model.modules.norm import new_layer_norm
 from internlm.model.modules.utils import is_moe_param
 from internlm.model.moe.megablock.mlp import (
     MegaBlockFeedForward,
@@ -211,7 +211,7 @@ def inject_model(model):
     if hasattr(model, IS_INJECTED) and getattr(model, IS_INJECTED):
         return model
 
-    inject_model_helper(model, inject_mode=gpc.config.model.get("inject_mode", None))
+    inject_model_helper(model, inject_info=gpc.config.model.get("inject_info", None))
 
     # should be set before NaiveAMPModel
     set_fp32_attr_for_model(model)
@@ -714,7 +714,7 @@ def inject_embed(model: nn.Module, inject=False, interactive=False) -> None:
             if isinstance(child, nn.Embedding) and not isinstance(child, Embedding1D):
                 msg = (
                     f"To get parallel training enabled, module {name} of type {nn.Embedding.__name__} "
-                    + f"is suggested to be replaced with {Embedding1D.__name__}."
+                    + f"is required to be replaced with {Embedding1D.__name__}."
                 )
                 if inject:
                     help_msg = f"Do you want to replace {name}? (y/n)"
@@ -749,7 +749,7 @@ def inject_linear(model: nn.Module, inject=False, interactive=False) -> None:
             if isinstance(child, nn.Linear) and not isinstance(child, ParallelLinearWithCommExt):
                 msg = (
                     f"To get parallel training enabled, module {name} of type {nn.Linear.__name__} "
-                    + f"is suggested to be replaced with {new_linear.__name__}"
+                    + f"is required to be replaced with {new_linear.__name__}"
                 )
                 if inject:
                     help_msg = f"Do you want to replace {name}? (y/n)"
@@ -779,26 +779,83 @@ def inject_linear(model: nn.Module, inject=False, interactive=False) -> None:
     traverse(model)
 
 
-def inject_model_helper(model: nn.Module, inject_mode) -> None:
-    if not isinstance(model, BaseModel):
-        logger.warning(
-            f"To get load_hf_weights and convert_internevo2hf_weights enabled, "
-            f"model is suggested to be inherited from {BaseModel.__name__}"
-        )
+def inject_norm(model: nn.Module, inject=False, interactive=False) -> None:
+    def traverse(module):
+        for name, child in module.named_children():
+            cls_name = type(child).__name__
+            if "RMSNorm" in cls_name:
+                msg = (
+                    f"To re-use unified RMSNorm implementation, {cls_name} "
+                    + f"is suggested to be replaced with {new_layer_norm.__name__}"
+                )
+                if inject:
+                    help_msg = f"Do you want to replace {name}? (y/n)"
+                    opt = timeout_input(
+                        f"{msg}\n{help_msg}",
+                        default="y",
+                        timeout=60,
+                        interactive=interactive,
+                    )
+                    if opt in ["y", "yes"]:
+                        child_new = new_layer_norm(
+                            norm_type="rmsnorm",
+                            normalized_shape=child.weight.shape,
+                            eps=child.variance_epsilon,
+                        ).to(device=child.weight.device, dtype=child.weight.dtype)
+                        setattr(module, name, child_new)
+                    else:
+                        if gpc.is_rank_for_log():
+                            logger.warning(f"Skip replacing {name}")
+                else:
+                    if gpc.is_rank_for_log():
+                        logger.warning(msg)
+            else:
+                traverse(child)
 
-    if inject_mode is not None:
-        inject = True
-        interactive = inject_mode == "interactive"
-    else:
-        inject = False
-        interactive = False
+    traverse(model)
 
-    inject_embed(model, inject, interactive)
-    inject_linear(model, inject, interactive)
 
-    if inject and gpc.is_rank_for_log():
-        logger.info(
-            f"inject_mode is enabled, please check the model carefully, "
-            f"if there are any problems, please report issue to us. "
-            f"The injected model is \n {model}"
-        )
+def inject_config(model: nn.Module) -> None:
+    gpc.config.model.vocab_size = gpc.config.VOCAB_SIZE = model.config.vocab_size
+    gpc.config.model.hidden_size = gpc.config.HIDDEN_SIZE = model.config.hidden_size
+    gpc.config.model.num_layers = gpc.config.NUM_LAYER = model.config.num_hidden_layers
+    gpc.config.model.num_attention_heads = gpc.config.NUM_ATTENTION_HEAD = model.config.num_attention_heads
+    gpc.config.model.mlp_ratio = gpc.config.MLP_RATIO = model.config.intermediate_size / model.config.hidden_size
+    # For models that use GQA
+    if hasattr(model.config, "num_key_value_heads"):
+        gpc.config.model.num_kv_attention_heads = gpc.config.NUM_KV_ATTENTION_HEAD = model.config.num_key_value_heads
+
+
+def inject_model_helper(model: nn.Module, inject_info) -> None:
+    inject = False
+    interactive = False
+    modules = []
+    reset_params = False
+
+    if inject_info is not None:
+        inject = inject_info.get("inject", False)
+        interactive = inject_info.get("interactive", False)
+        modules = inject_info.get("modules", [])
+        reset_params = inject_info.get("reset_params", False)
+
+    inject_funcs = {
+        "embed": inject_embed,
+        "linear": inject_linear,
+        "norm": inject_norm,
+    }
+
+    for mod in modules:
+        inject_funcs[mod](model, inject, interactive)
+
+    if inject:
+        if reset_params:
+            model.reset_parameters()
+
+        inject_config(model)
+
+        if gpc.is_rank_for_log():
+            logger.info(
+                f"inject is enabled, please check the model carefully, "
+                f"if there are any problems, please report issue to us. "
+                f"The injected model is \n {model}"
+            )

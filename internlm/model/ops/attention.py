@@ -993,42 +993,56 @@ class CrossAttention(nn.Module):
 
 
 @auto_wrap_func_distributed_attention
-def attn_q_k_v_without_cu_seqlens(
-    query_states,
-    key_states,
-    value_states,
-    dropout_p=0.0,
+def isp_flash_attn_varlen_func(
+    q,
+    k,
+    v,
+    cu_seqlens_q,
+    cu_seqlens_k,
+    max_seqlen_q,
+    max_seqlen_k,
+    causal=False,
     softmax_scale=None,
-    causal=True,
+    attention_dropout=0.0,
+    return_attn_probs=False,
 ):
-    attn_output = _flash_fixedlen_qkvsplited_func(  # TODO: currently only support GPU environment
-        query_states, key_states, value_states, dropout_p=dropout_p, softmax_scale=softmax_scale, causal=causal
-    )
-    return attn_output
+    assert (
+        device_backend == AcceleratorType.GPU and gpu_flash_attn_impl
+    ), "isp_flash_attn_varlen_func currently only support GPU."
+    return _flash_varlen_qkvsplited_func(
+        q.flatten(0, 1),
+        k.flatten(0, 1),
+        v.flatten(0, 1),
+        cu_seqlens_q,
+        cu_seqlens_k,
+        max_seqlen_q,
+        max_seqlen_k,
+        dropout_p=attention_dropout,
+        softmax_scale=softmax_scale,
+        causal=causal,
+        return_attn_probs=return_attn_probs,
+    ).unsqueeze(0)
 
 
 @auto_wrap_func_distributed_attention
-def attn_q_k_v_with_cu_seqlens(
-    query_states,
-    key_states,
-    value_states,
-    cumulative_len,
-    max_seqlen,
-    dropout_p=0.0,
-    causal=True,
+def isp_flash_attn_func(
+    q,
+    k,
+    v,
+    causal=False,
+    softmax_scale=None,
+    attention_dropout=0.0,
+    return_attn_probs=False,
 ):
-    q_unpad, k_unpad, v_unpad = query_states.flatten(0, 1), key_states.flatten(0, 1), value_states.flatten(0, 1)
-    attn_output = _flash_varlen_qkvsplited_func(  # TODO: currently only support GPU environment
-        q_unpad,
-        k_unpad,
-        v_unpad,
-        cumulative_len,
-        cumulative_len,
-        max_seqlen,
-        max_seqlen,
-        dropout_p=dropout_p,
-        return_attn_probs=False,
+    assert (
+        device_backend == AcceleratorType.GPU and gpu_flash_attn_impl
+    ), "isp_flash_attn_func currently only support GPU."
+    return _flash_fixedlen_qkvsplited_func(
+        q,
+        k,
+        v,
+        dropout_p=attention_dropout,
+        softmax_scale=softmax_scale,
         causal=causal,
+        return_attn_probs=return_attn_probs,
     )
-    attn_output = attn_output.unsqueeze(0)
-    return attn_output
