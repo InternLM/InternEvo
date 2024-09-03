@@ -753,7 +753,7 @@ def inject_linear(model: nn.Module, inject=False, interactive=False) -> None:
             if isinstance(child, nn.Linear) and not isinstance(child, ParallelLinearWithCommExt):
                 msg = (
                     f"To get parallel training enabled, module {name} of type {nn.Linear.__name__} "
-                    + f"is required to be replaced with {new_linear.__name__}"
+                    + f"is required to be replaced with {new_linear.__name__}."
                 )
                 if inject:
                     help_msg = f"Do you want to replace {name}? (y/n)"
@@ -790,7 +790,7 @@ def inject_norm(model: nn.Module, inject=False, interactive=False) -> None:
             if "RMSNorm" in cls_name:
                 msg = (
                     f"To re-use unified RMSNorm implementation, {cls_name} "
-                    + f"is suggested to be replaced with {new_layer_norm.__name__}"
+                    + f"is suggested to be replaced with {new_layer_norm.__name__}."
                 )
                 if inject:
                     help_msg = f"Do you want to replace {name}? (y/n)"
