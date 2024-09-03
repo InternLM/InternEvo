@@ -299,7 +299,11 @@ def initialize_parallel_communicator(model: Union[nn.Module, nn.ModuleList]):
         ColumnParallelLinear.register_cls_communicator(isp_communicator)
         # row parallel linear will not be used.
         RowParallelLinear.register_cls_communicator(None)
-        _head_communicator = HeadWeightParallelCommunicator(gpc.get_group(ParallelMode.WEIGHT))
+        _head_communicator = HeadWeightParallelCommunicator(
+            weight_process_group=gpc.get_group(ParallelMode.WEIGHT),
+            seq_process_group=gpc.get_group(ParallelMode.TENSOR),
+            retain_out_sharded=_retain_out_sharded,
+        )
         _embedding_communicator = EmbeddingWeightParallelCommunicator(ParallelMode.WEIGHT)
 
     # register communictor for mtp/msp/fsp linear.
