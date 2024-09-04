@@ -1,10 +1,14 @@
 # Copyright (c) InternLM. All rights reserved.
 import math
+import os
 from typing import Optional
 
 import torch
+from einops import rearrange
 from torch import nn
+from tqdm import tqdm
 
+from internlm.accelerator import get_accelerator
 from internlm.core.context import ParallelMode
 from internlm.core.context.parallel_context import global_context as gpc
 from internlm.initialize.initialize_tensor import (
@@ -13,6 +17,7 @@ from internlm.initialize.initialize_tensor import (
     scaled_init_method_uniform,
     uniform_,
 )
+from internlm.model.base_model import BaseModel
 from internlm.model.modules.embedding import Embedding1D
 from internlm.model.modules.linear import new_linear
 from internlm.model.modules.mha import MHA
@@ -24,7 +29,14 @@ from internlm.model.utils import (
 )
 from internlm.solver.activation_checkpoint import activation_checkpoint
 from internlm.utils.logger import get_logger
+from internlm.utils.storage_manager import get_fns, llm_load, llm_save
+from transformers.modeling_utils import (
+    SAFE_WEIGHTS_INDEX_NAME,
+    SAFE_WEIGHTS_NAME,
+    shard_checkpoint,
+)
 
+internlm_accelerator = get_accelerator()
 logger = get_logger(__file__)
 
 
@@ -136,7 +148,7 @@ class Baichuan2Decoder(nn.Module):
             mlp_layer_fusion=mlp_layer_fusion,
             multiple_of=multiple_of,
             # TODO: to support more activation functions
-            activation_type="swiglu" if use_swiglu else "swiglu",
+            activation_type="swiglu" if use_swiglu else "gelu",
         )
 
         self.use_swiglu = use_swiglu
@@ -189,7 +201,7 @@ class Baichuan2Decoder(nn.Module):
         else:
             return self._forward(hidden_states, residual, **kwargs)
 
-    def _forward(self, hidden_states=None, residual=None, *args, **kwargs):  # pylint: disable=W1113
+    def _forward(self, hidden_states, residual, *args, **kwargs):
         r"""Pass the input through the encoder layer.
 
         Args:
@@ -258,7 +270,7 @@ class Baichuan2Decoder(nn.Module):
             return hidden_states
 
 
-class Baichuan2(nn.Module):
+class Baichuan2(BaseModel):
     """
     1D Packed Flash Llama.
 
@@ -429,3 +441,11 @@ class Baichuan2(nn.Module):
             hidden_states = self.output(hidden_states)
 
         return hidden_states
+
+    @staticmethod
+    def load_hf_weights(folder: str, model: nn.Module) -> None:
+        raise NotImplementedError
+
+    @staticmethod
+    def convert_internevo2hf_weights(src: str, tgt: str) -> None:
+        raise NotImplementedError

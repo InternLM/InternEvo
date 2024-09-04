@@ -1,12 +1,9 @@
 # Copyright (c) InternLM. All rights reserved.
 import math
-import os
 from typing import Optional
 
 import torch
-from einops import rearrange
 from torch import nn
-from tqdm import tqdm
 
 from internlm.accelerator import get_accelerator
 from internlm.core.context import ParallelMode
@@ -20,7 +17,7 @@ from internlm.initialize.initialize_tensor import (
 from internlm.model.base_model import BaseModel
 from internlm.model.modules.embedding import Embedding1D
 from internlm.model.modules.linear import new_linear
-from internlm.model.modules.mha import SWA
+from internlm.model.modules.mha import GQA
 from internlm.model.modules.mlp import new_feed_forward
 from internlm.model.modules.norm import new_layer_norm
 from internlm.model.utils import (
@@ -29,24 +26,26 @@ from internlm.model.utils import (
 )
 from internlm.solver.activation_checkpoint import activation_checkpoint
 from internlm.utils.logger import get_logger
-from internlm.utils.storage_manager import get_fns, llm_load, llm_save
-from transformers.modeling_utils import (
-    SAFE_WEIGHTS_INDEX_NAME,
-    SAFE_WEIGHTS_NAME,
-    shard_checkpoint,
-)
 
-internlm_accelerator = get_accelerator()
+try:
+    from flash_attn.modules.mlp import ParallelFusedMLP
+except ImportError:
+    pass
+
+MODEL_TYPE = "GEMMA"
+
 logger = get_logger(__file__)
+internlm_accelerator = get_accelerator()
 
 
-class Qwen2Decoder(nn.Module):
+class GemmaDecoder(nn.Module):
     """
-    1D Packed Flash Qwen Layer.
+    1D Packed Flash Llama Layer.
 
     Args:
         hidden_size (int): The hidden size of model. 768 by default.
         num_attention_heads (int): The number of attention heads. 12 by default.
+        head_dim (int): The dimention of attention head dimention. hidden_size divided by num_heads by default.
         mlp_ratio (int): The ratio of MLP layers. 4 by default.
         attn_drop_rate (float): The dropout rate of attention module. 0 by default.
         drop_rate (float): The dropout rate of the input hidden state. 0.0 by default.
@@ -56,7 +55,9 @@ class Qwen2Decoder(nn.Module):
         layer_idx (int): The index of current layer. 0 by default.
         residual_in_fp32 (bool): Whether to use residual in fp32. False by default.
         device (Optional[Union[str, torch.device]]): The device will be used.
-        norm_type (str): Use RMS norm or layernorm."rmsnorm" by default.
+        add_unit_offset(bool): Add one to RMSNorm weight multiply by normed input. False by default.
+        use_glu (bool): Whether to use glu. True by default.
+        use_swiglu (bool): Whether to use swiglu. True by default.
         attn_wqkv_init_std (float): std used to init attn_wqkv weight. 0.02 by default,
         attn_other_init_std (float): std used to init attn_other weight. 0.02 by default,
         ffn_uplayer_init_std (float): std used to init w1, w2 weight in ffn when using glu
@@ -65,6 +66,8 @@ class Qwen2Decoder(nn.Module):
         init_type (str): Initialization type. Use uniform or normal. "normal" by default,
         rope_base (int): The value of `base` for rotary position embeddings. 10000 by default.
         multiple_of (int): The value to make SwiGLU hidden layer size multiple of large power of 2.
+        tp_mode (str): The string value of tensor parallel mode, should be in ["mtp", "msp", "fsp", "isp"],
+                       "mtp" by default.
     """
 
     def __init__(
@@ -72,6 +75,7 @@ class Qwen2Decoder(nn.Module):
         hidden_size: int = 768,
         num_attention_heads: int = 12,
         num_kv_attention_heads: int = 12,
+        head_dim: int = None,
         mlp_ratio: int = 4,
         attn_drop_rate: float = 0,
         drop_rate: float = 0.0,
@@ -85,28 +89,23 @@ class Qwen2Decoder(nn.Module):
         device: Optional[torch.device] = None,
         apply_post_layer_norm: bool = False,
         fused_dropout_add_ln: bool = True,
-        qkv_bias=True,
-        o_bias=False,
-        mlp_bias=False,
+        no_bias: bool = False,
         norm_type: str = "rmsnorm",
         qk_interleaved: bool = False,
+        add_unit_offset: bool = False,
         dropout_selective_checkpoint: bool = True,
         use_scaled_init: bool = True,
+        use_glu: bool = True,
         use_swiglu: bool = True,
         attn_wqkv_init_std: float = 0.02,
         attn_other_init_std: float = 0.02,
         ffn_uplayer_init_std: float = 0.02,
         ffn_other_init_std: float = 0.02,
         init_type: str = "normal",
-        rope_type: str = "normal",
         rope_base: int = 10000,
-        rope_scaling_factor: float = 1.0,
-        use_sliding_window: bool = False,
-        sliding_window: int = None,
         mlp_layer_fusion: bool = False,
         multiple_of: int = 256,
-        scale_attn_weights: bool = False,  # Qwen1
-        use_logn_attn: bool = False,  # Qwen1
+        tp_mode: str = "mtp",
     ):
         super().__init__()
         self.checkpoint = checkpoint
@@ -121,19 +120,17 @@ class Qwen2Decoder(nn.Module):
         self.ffn_uplayer_init_std = ffn_uplayer_init_std
         self.ffn_other_init_std = ffn_other_init_std
 
-        head_dim = hidden_size // num_attention_heads
+        if not head_dim:
+            head_dim = hidden_size // num_attention_heads
 
-        if scale_attn_weights:
-            softmax_scale = None
-        else:
-            softmax_scale = 1 / math.sqrt(head_dim)
-        self.attention = SWA(
+        self.attention = GQA(
             embed_dim=hidden_size,
             num_heads=num_attention_heads,
             num_kv_heads=num_kv_attention_heads,
+            head_dim=head_dim,
             dropout=attn_drop_rate,
             max_position_embeddings=max_position_embeddings,
-            softmax_scale=softmax_scale,
+            softmax_scale=1 / math.sqrt(head_dim),
             causal=True,
             layer_idx=layer_idx,
             use_dynamic_ntk_rope=use_dynamic_ntk_rope,
@@ -142,33 +139,49 @@ class Qwen2Decoder(nn.Module):
             device=device,
             dtype=dtype,
             qk_interleaved=qk_interleaved,
-            qkv_bias=qkv_bias,
-            o_bias=o_bias,
-            rope_type=rope_type,
+            bias=not no_bias,
             rope_base=rope_base,
-            rope_scaling_factor=rope_scaling_factor,
-            use_sliding_window=use_sliding_window,
-            sliding_window=sliding_window,
-            use_logn_attn=use_logn_attn,
+            enable_qkv_fusion=False,
         )
 
         self.dropout1 = nn.Dropout(drop_rate)
         self.dropout2 = nn.Dropout(drop_rate)
-        self.attention_norm = new_layer_norm(norm_type, hidden_size, eps=layer_norm_epsilon)
-        self.ffn_norm = new_layer_norm(norm_type, hidden_size, eps=layer_norm_epsilon)
+        self.attention_norm = new_layer_norm(norm_type, hidden_size, eps=layer_norm_epsilon, add_unit_offset=add_unit_offset)
+        self.ffn_norm = new_layer_norm(norm_type, hidden_size, eps=layer_norm_epsilon, add_unit_offset=add_unit_offset)
 
-        self.feed_forward = new_feed_forward(
-            hidden_size,
-            int(hidden_size * mlp_ratio),
-            out_features=hidden_size,
-            bias=mlp_bias,
-            device=device,
-            dtype=dtype,
-            mlp_layer_fusion=mlp_layer_fusion,
-            multiple_of=multiple_of,
-            activation_type="swiglu" if use_swiglu else "gelu",
-        )
+        sequence_parallel = gpc.config.parallel.get("sequence_parallel", False)
+        parallel_mode = ParallelMode.WEIGHT if tp_mode == "isp" else ParallelMode.TENSOR
 
+        if use_glu:
+            self.feed_forward = new_feed_forward(
+                hidden_size,
+                int(hidden_size * mlp_ratio),
+                out_features=hidden_size,
+                bias=False,
+                device=device,
+                dtype=dtype,
+                mlp_layer_fusion=mlp_layer_fusion,
+                multiple_of=multiple_of,
+                activation_type="swiglu" if use_swiglu else "gelu",
+            )
+        else:
+            self.feed_forward = ParallelFusedMLP(
+                hidden_size,
+                int(hidden_size * mlp_ratio),
+                out_features=hidden_size,
+                activation="gelu_approx",
+                process_group=gpc.get_group(parallel_mode),
+                bias1=False,
+                bias2=False,
+                sequence_parallel=sequence_parallel,
+                checkpoint_lvl=0,
+                heuristic="auto",
+                device=device,
+                dtype=dtype,
+            )
+
+        
+        self.use_glu = use_glu
         self.use_swiglu = use_swiglu
         self.use_scaled_init = use_scaled_init
         self.residual_in_fp32 = residual_in_fp32  # only make sense when using prenorm
@@ -196,11 +209,10 @@ class Qwen2Decoder(nn.Module):
                     self.init_func(std=self.attn_other_init_std)(param.data)
 
             for name, param in self.feed_forward.named_parameters():
-                if self.use_swiglu:
+                if self.use_glu:
                     if self.use_scaled_init and "w2" in name:
                         self.scaled_init_func(sigma=self.ffn_other_init_std, num_layers=self.layer_idx + 1)(param.data)
                     else:
-                        # candidate: w1, w3, fused_w1_w3
                         self.init_func(
                             std=self.ffn_uplayer_init_std if "w1" in name or "w3" in name else self.ffn_other_init_std
                         )(param.data)
@@ -212,7 +224,8 @@ class Qwen2Decoder(nn.Module):
                             param.data
                         )
 
-    def forward(self, hidden_states, residual=None, **kwargs):
+    def forward(
+        self, hidden_states, residual=None, **kwargs):
         if self.checkpoint and self.training:
             args = convert_attn_kwargs_to_args(kwargs)
             return activation_checkpoint(self._forward, False, hidden_states, residual, *args)
@@ -289,20 +302,23 @@ class Qwen2Decoder(nn.Module):
             return hidden_states
 
 
-class Qwen2(BaseModel):
+class Gemma(BaseModel):
     """
-    1D Packed Flash Qwen.
+    1D Packed Flash Llama.
 
     Args:
         num_layers (int): The number of layer. 12 by default.
         hidden_size (int): The size of hidden state. 768 by default.
         num_attention_heads (int): The number of attention head. 12 by default.
+        head_dim (int): The dimention of attention head dimention. hidden_size divided by num_heads by default.
         vocab_size (int): The size of vocabulary. 50304 by default.
         mlp_ratio (int): The ratio of MLP layers. 4 by default.
         attn_drop_rate (float): The dropout rate of attention module. 0.0 by default.
         drop_rate (float): The dropout rate of input hidden state. 0.0 by default.
         dtype (torch.dtype): The type of data. torch.float by default.
         checkpoint (bool): Whether to use checkpointing to save VRAM. True by default.
+        checkpoint_fraction (float): The proportion of layers that need to be checkpointed compared to the total number
+                                    of layers. 1.0 by default.
         layer_norm_epsilon (float): A value added to the denominator for numerical stability. 1e-6 by default.
         first (bool): Whether input embedding layer or not. False by default.
         last (bool): Whether output embedding layer or not. False by default.
@@ -311,7 +327,9 @@ class Qwen2(BaseModel):
         start_layer_idx (int): The index of start layer in the pipeline. 0 by default.
         device (Optional[Union[str, torch.device]]): The device will be used. None by default.
         residual_in_fp32 (bool): Whether to use residual in fp32. False by default.
-        norm_type (str): Normalization type. Use RMSNorm or LayerNorm. "rmsnorm" by default.
+        add_unit_offset(bool): Add one to RMSNorm weight multiply by normed input. False by default.
+        use_glu (bool): Whether to use glu. True by default.
+        use_swiglu (bool): Whether to use swiglu. True by default.
         embedding_init_std (float): std used to init embedding weight. 0.02 by default,
         attn_wqkv_init_std (float): std used to init attn_wqkv weight. 0.02 by default,
         attn_other_init_std (float): std used to init attn_other weight. 0.02 by default,
@@ -331,6 +349,7 @@ class Qwen2(BaseModel):
         hidden_size: int = 768,
         num_attention_heads: int = 12,
         num_kv_attention_heads: int = 12,
+        head_dim: int = None,
         vocab_size: int = 50304,
         mlp_ratio: int = 4,
         attn_drop_rate: float = 0.0,
@@ -347,16 +366,16 @@ class Qwen2(BaseModel):
         use_dynamic_ntk_rope: bool = False,
         device: Optional[torch.device] = None,
         apply_post_layer_norm=False,
-        qkv_bias=True,
-        o_bias=False,
-        mlp_bias=False,
+        no_bias=False,
         residual_in_fp32: bool = False,
         norm_type: str = "rmsnorm",
         qk_interleaved: bool = False,
+        add_unit_offset: bool = False,
         is_reward: bool = False,
         dropout_selective_checkpoint: bool = True,
         use_scaled_init: bool = True,
-        use_swiglu: bool = True,
+        use_glu: bool = True,
+        use_swiglu: bool = False,
         embedding_init_std: float = 0.02,
         attn_wqkv_init_std: float = 0.02,
         attn_other_init_std: float = 0.02,
@@ -365,22 +384,20 @@ class Qwen2(BaseModel):
         out_head_init_std: float = 0.02,
         init_type: str = "normal",
         extra_pred_tokens: int = 0,
-        rope_type: str = "normal",
         rope_base: int = 10000,
-        rope_scaling_factor: float = 1.0,
-        use_sliding_window: bool = False,
-        max_window_layers: int = 0,
-        sliding_window: int = None,
+        norm_head: bool = False,
         mlp_layer_fusion: bool = False,
         multiple_of: int = 256,
-        scale_attn_weights: bool = False,  # Qwen1
-        use_logn_attn: bool = False,  # Qwen1
     ):
         super().__init__()
 
-        self.embed_grad_scale = embed_grad_scale
-
         checkpoint_layer_num = int(num_layers * checkpoint)
+        self.hidden_size = hidden_size
+        self.embed_grad_scale = embed_grad_scale
+        self.parallel_output = parallel_output
+        self.tp_mode = "mtp"
+        if isinstance(gpc.config.parallel["tensor"], dict):
+            self.tp_mode = gpc.config.parallel["tensor"].get("mode", "mtp")
 
         if first:
             self.tok_embeddings = Embedding1D(num_embeddings=vocab_size, embedding_dim=hidden_size)
@@ -392,13 +409,15 @@ class Qwen2(BaseModel):
 
         self.layers = nn.ModuleList(
             [
-                Qwen2Decoder(
+                GemmaDecoder(
                     hidden_size=hidden_size,
                     num_attention_heads=num_attention_heads,
                     num_kv_attention_heads=num_kv_attention_heads,
+                    head_dim=head_dim,
                     mlp_ratio=mlp_ratio,
                     attn_drop_rate=attn_drop_rate,
                     drop_rate=drop_rate,
+                    max_position_embeddings=max_position_embeddings,
                     dtype=dtype,
                     layer_norm_epsilon=layer_norm_epsilon,
                     checkpoint=lid < checkpoint_layer_num,
@@ -408,12 +427,12 @@ class Qwen2(BaseModel):
                     device=device,
                     apply_post_layer_norm=apply_post_layer_norm,
                     fused_dropout_add_ln=False,
-                    qkv_bias=qkv_bias,
-                    o_bias=o_bias,
-                    mlp_bias=mlp_bias,
+                    no_bias=no_bias,
                     norm_type=norm_type,
+                    add_unit_offset=add_unit_offset,
                     dropout_selective_checkpoint=dropout_selective_checkpoint,
                     use_scaled_init=use_scaled_init,
+                    use_glu=use_glu,
                     use_swiglu=use_swiglu,
                     qk_interleaved=qk_interleaved,
                     attn_wqkv_init_std=attn_wqkv_init_std,
@@ -421,16 +440,10 @@ class Qwen2(BaseModel):
                     ffn_uplayer_init_std=ffn_uplayer_init_std,
                     ffn_other_init_std=ffn_other_init_std,
                     init_type=init_type,
-                    rope_type=rope_type,
                     rope_base=rope_base,
-                    rope_scaling_factor=rope_scaling_factor,
-                    use_sliding_window=use_sliding_window and lid >= max_window_layers,
-                    sliding_window=sliding_window,
                     mlp_layer_fusion=mlp_layer_fusion,
                     multiple_of=multiple_of,
-                    max_position_embeddings=max_position_embeddings,
-                    scale_attn_weights=scale_attn_weights,
-                    use_logn_attn=use_logn_attn,
+                    tp_mode=self.tp_mode,
                 )
                 for lid in range(num_layers)
             ]
@@ -438,7 +451,7 @@ class Qwen2(BaseModel):
 
         if last:
             if not apply_post_layer_norm:
-                self.norm = new_layer_norm(norm_type, hidden_size, eps=layer_norm_epsilon)
+                self.norm = new_layer_norm(norm_type, hidden_size, eps=layer_norm_epsilon, add_unit_offset=add_unit_offset)
 
             self.output = new_linear(
                 name="output",
@@ -446,11 +459,11 @@ class Qwen2(BaseModel):
                 out_features=gpc.get_world_size(ParallelMode.TENSOR) if is_reward else vocab_size,
                 bias=False,
                 device=device,
-                dtype=dtype,
                 is_reward=is_reward,
+                dtype=dtype,
                 weight_scale=embed_grad_scale,
+                norm_head=norm_head,
             )
-
             for _, param in self.output.named_parameters():
                 if init_type == "normal":
                     normal_(std=out_head_init_std)(param)
@@ -468,9 +481,10 @@ class Qwen2(BaseModel):
                             out_features=vocab_size,
                             bias=False,
                             device=device,
-                            dtype=dtype,
                             is_reward=is_reward,
+                            dtype=dtype,
                             weight_scale=embed_grad_scale,
+                            norm_head=norm_head,
                         )
                         for _ in range(self.extra_pred_tokens)
                     ]
@@ -481,8 +495,6 @@ class Qwen2(BaseModel):
                     else:
                         uniform_(std=out_head_init_std)(param)
 
-        self.parallel_output = parallel_output
-
     def forward(self, hidden_states=None, input_ids=None, **kwargs):
         # attention_mask: compute attention on the places where the value is 1
         if hasattr(self, "tok_embeddings"):
@@ -491,13 +503,10 @@ class Qwen2(BaseModel):
                 hidden_states = (
                     self.embed_grad_scale * hidden_states + (1 - self.embed_grad_scale) * hidden_states.detach()
                 )
+            hidden_states = hidden_states * (self.hidden_size**0.5)
 
         for _, block in enumerate(self.layers):
-            hidden_states = block(
-                hidden_states,
-                residual=None,
-                **kwargs,
-            )
+            hidden_states = block(hidden_states, residual=None, **kwargs)
 
         if hasattr(self, "norm"):
             hidden_states = self.norm(hidden_states.to(self.norm.weight.dtype))
@@ -512,7 +521,7 @@ class Qwen2(BaseModel):
             return (hidden_states, extra_hidden_states_list)
 
         return hidden_states
-
+    
     @staticmethod
     def load_hf_weights(folder: str, model: nn.Module) -> None:
         raise NotImplementedError

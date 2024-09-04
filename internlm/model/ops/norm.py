@@ -35,7 +35,7 @@ except (ModuleNotFoundError, ImportError):
     torchnpu_rmsnorm_impl = False
 
 
-def manual_rms_norm(my_input, weight, normalized_shape, eps):
+def manual_rms_norm(my_input, weight, normalized_shape, eps, add_unit_offset=False):
     # layer norm should always be calculated in float32
     dims = tuple(i for i in range(-1, -len(normalized_shape) - 1, -1))
     variance = my_input.to(torch.float32).pow(2).mean(dims, keepdim=True)
@@ -48,13 +48,16 @@ def manual_rms_norm(my_input, weight, normalized_shape, eps):
     if weight.dtype in [torch.float16, torch.bfloat16]:
         my_input = my_input.to(weight.dtype)
 
-    return weight * my_input
+    if add_unit_offset:
+        return (1 + weight) * my_input
+    else:
+        return weight * my_input
 
 
 class _RMSNorm(torch.nn.Module):
     """A generic module for RMS normalization."""
 
-    def __init__(self, normalized_shape, eps=1e-5):
+    def __init__(self, normalized_shape, eps=1e-5, add_unit_offset=False):
         super().__init__()
 
         if isinstance(normalized_shape, numbers.Integral):
@@ -62,18 +65,22 @@ class _RMSNorm(torch.nn.Module):
         self.normalized_shape = torch.Size(normalized_shape)
         self.eps = eps
         self.weight = Parameter(torch.empty(*normalized_shape))
+        self.add_unit_offset = add_unit_offset
         self.reset_parameters()
 
     def forward(self, _input: torch.Tensor):
         if apex_rmsnorm_impl:
             _norm_func = mixed_dtype_fused_rms_norm_affine
+            return _norm_func(_input, self.weight, self.normalized_shape, self.eps)
         else:
             _norm_func = manual_rms_norm
-
-        return _norm_func(_input, self.weight, self.normalized_shape, self.eps)
+            return _norm_func(_input, self.weight, self.normalized_shape, self.eps, self.add_unit_offset)
 
     def reset_parameters(self):
-        init.ones_(self.weight)
+        if self.add_unit_offset:
+            init.zeros_(self.weight)
+        else:
+            init.ones_(self.weight)
 
     def extra_repr(self):
         return f"{self.normalized_shape}, eps={self.eps}, "

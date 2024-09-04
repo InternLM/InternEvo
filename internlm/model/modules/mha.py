@@ -357,6 +357,7 @@ class GQA(nn.Module):
         num_heads: int,
         num_kv_heads: int,
         max_position_embeddings: int = 2048,
+        head_dim: int = None,
         bias: bool = False,
         dropout: float = 0.0,
         softmax_scale: float = None,
@@ -377,9 +378,15 @@ class GQA(nn.Module):
 
         self.embed_dim = embed_dim
         self.num_heads = num_heads
+
+        if head_dim:
+            self.head_dim = head_dim
+            q_dim = head_dim * num_heads
+        else:
+            self.head_dim = self.embed_dim // num_heads
+            q_dim = embed_dim
         self.num_kv_heads = num_kv_heads
         self.q_per_kv = num_heads // num_kv_heads
-        self.head_dim = self.embed_dim // num_heads
         self.kv_dim = self.head_dim * num_kv_heads
         self.enable_qkv_fusion = enable_qkv_fusion
 
@@ -407,7 +414,7 @@ class GQA(nn.Module):
         if enable_qkv_fusion:
             self.wqkv = new_linear("wqkv", embed_dim, embed_dim + 2 * self.kv_dim, bias, **factory_kwargs)
         else:
-            self.wq = new_linear("wq", embed_dim, embed_dim, bias, **factory_kwargs)
+            self.wq = new_linear("wq", embed_dim, q_dim, bias, **factory_kwargs)
             self.wk = new_linear("wk", embed_dim, self.kv_dim, bias, **factory_kwargs)
             self.wv = new_linear("wv", embed_dim, self.kv_dim, bias, **factory_kwargs)
 
@@ -418,7 +425,7 @@ class GQA(nn.Module):
             causal=causal, softmax_scale=softmax_scale, attention_dropout=dropout, layer_idx=layer_idx
         )
 
-        self.wo = new_linear("wo", embed_dim, embed_dim, bias, **factory_kwargs)
+        self.wo = new_linear("wo", q_dim, embed_dim, bias, **factory_kwargs)
 
     def register_checkpoint_compatibility_hooks(
         self, pre_load_hook: Optional[Callable] = None, pre_save_hook: Optional[Callable] = None
@@ -655,11 +662,8 @@ class SWA(nn.Module):
         rotary_emb_dim (int): The dimention of Rotary Embedding. 0 by default.
         rotary_emb_scale_base (int): The scaling factor of Rotary Embedding. If scale_base > 0, this implements
                                     XPos(Sun et al., https://arxiv.org/abs/2212.10554). 0 by default.
-        use_flash_attn (boolean): Whether to use flash attention or not.If False, vanilla attention module will be used.
-                                    False by default.
         device (Optional[Union[str, torch.device]]): The device will be used.
         dtype (Optional[torch.dtype]): The type of data.
-        use_flash_attn (bool): Whether to use flash-attn. True by default.
         rope_base (int): The value of `base` for rotary position embeddings. 10000 by default.
         tp_mode (str): The string value of tensor parallel mode, should be in ["mtp", "msp", "fsp", "isp"],
                        "mtp" by default.
@@ -684,10 +688,8 @@ class SWA(nn.Module):
         rope_scaling_factor: float = 1.0,
         rotary_emb_dim: int = 0,
         rotary_emb_scale_base: int = 0,
-        use_flash_attn: bool = True,
         device: Optional[torch.device] = None,
         dtype: Optional[torch.dtype] = None,
-        rot_embed_HF_impl: Optional[bool] = False,
         use_sliding_window: bool = False,
         sliding_window: int = None,
         tp_mode: str = "mtp",
@@ -710,7 +712,6 @@ class SWA(nn.Module):
         self.layer_idx = layer_idx
         self.use_dynamic_ntk_rope = use_dynamic_ntk_rope
         self.rotary_emb_dim = rotary_emb_dim
-        self.use_flash_attn = use_flash_attn
         self.use_sliding_window = use_sliding_window
         self.sliding_window = sliding_window
         self.dtype = dtype
@@ -718,7 +719,6 @@ class SWA(nn.Module):
         self.rope_type = rope_type
         self.use_logn_attn = use_logn_attn
         self.interleaved = qk_interleaved
-        self.rot_embed_HF_impl = rot_embed_HF_impl
 
         factory_kwargs = {"device": device, "dtype": dtype}
 
@@ -785,13 +785,6 @@ class SWA(nn.Module):
         q = rearrange(q, "b t (h d) -> b t h d", d=self.head_dim)
         k = rearrange(k, "b t (h d) -> b t h d", d=self.head_dim)
         v = rearrange(v, "b t (h d) -> b t h d", d=self.head_dim)
-
-        # qkv shift
-        # the rotary embedding in flash attention module in performed by separating the front and back parts, while
-        # most of others are done by odd-even methods.
-        if not self.rot_embed_HF_impl:
-            q = torch.cat([q[..., ::2], q[..., 1::2]], dim=-1)
-            k = torch.cat([k[..., ::2], k[..., 1::2]], dim=-1)
 
         kv_seq_len = k.size(0)
         use_window_circumstance = (
@@ -868,10 +861,6 @@ class SWA(nn.Module):
         q = rearrange(q, "b s (h d) -> b s h d", d=self.head_dim)
         k = rearrange(k, "b s (h d) -> b s h d", d=self.head_dim)
         v = rearrange(v, "b s (h d) -> b s h d", d=self.head_dim)
-
-        if not self.rot_embed_HF_impl:
-            q = torch.cat([q[..., ::2], q[..., 1::2]], dim=-1)
-            k = torch.cat([k[..., ::2], k[..., 1::2]], dim=-1)
 
         kv_seq_len = k.size(0)
         use_window_circumstance = (
