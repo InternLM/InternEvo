@@ -305,7 +305,7 @@ def main(args):
                 train_state=train_state,
                 optimizer=optimizer,
                 beta2_scheduler=beta2_scheduler,
-                trainer=trainer,
+                engine=trainer.engine,
                 very_begining_time=very_begining_time,
                 start_time=start_time,
                 loss=loss,
