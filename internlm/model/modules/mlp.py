@@ -3,13 +3,13 @@
 
 from typing import Dict, Optional
 
-from internlm.utils.utils import ActivationType
 import torch
 from torch import nn
 
 from internlm.model.modules.linear import new_linear
 from internlm.model.modules.utils import Gelu, Silu
 from internlm.utils.logger import get_logger
+from internlm.utils.utils import ActivationType
 
 logger = get_logger(__file__)
 
@@ -72,7 +72,10 @@ class FeedForward(nn.Module):
     ):
         super().__init__()
 
-        assert activation_type in (ActivationType.swiglu.name, ActivationType.gelu.name), f"Unsupported activation type: {activation_type}"
+        assert activation_type in (
+            ActivationType.swiglu.name,
+            ActivationType.gelu.name,
+        ), f"Unsupported activation type: {activation_type}"
 
         self.mlp_layer_fusion = mlp_layer_fusion
         self.activation_type = activation_type

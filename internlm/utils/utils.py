@@ -68,6 +68,7 @@ class ActivationType(Enum):
     swiglu = 1
     gelu = 2
 
+
 def check_attention_argument(*args, **kwargs) -> str:
     # self, qkv, ...
     # self, q, kv, ....
