@@ -22,8 +22,8 @@ SAVE_CKPT_FOLDER = "local:llm_ckpts_qwen2"
 # SAVE_CKPT_FOLDER = f"boto3:s3://model_weights.{BOTO3_IP}/internlm"
 CHECKPOINT_EVERY = 50
 ckpt = dict(
-    enable_save_ckpt=True,  # enable ckpt save.
-    enable_internevo2hf_ckpt=True, # enable ckpt save for huggingface format.
+    enable_save_ckpt=False,  # enable ckpt save.
+    enable_internevo2hf_ckpt=False, # enable ckpt save for huggingface format.
     save_ckpt_folder=SAVE_CKPT_FOLDER,  # Path to save training ckpt.
     # 'load_ckpt_info' setting guide:
     # 1. the 'path' indicate ckpt path,

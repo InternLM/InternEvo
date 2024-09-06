@@ -12,7 +12,7 @@ MLP_RATIO = 8
 NUM_LAYER = 28
 
 
-MODEL_ONLY_FOLDER = "local:llm_ckpts_gemma/2_hf"#"/mnt/petrelfs/geruijun/hf-gemma-7b-ckpt/"
+MODEL_ONLY_FOLDER = "local:llm_ckpts_gemma/xxxx"
 # Ckpt folder format:
 # fs: 'local:/mnt/nfs/XXX'
 SAVE_CKPT_FOLDER = "local:llm_ckpts_gemma"
@@ -23,8 +23,8 @@ SAVE_CKPT_FOLDER = "local:llm_ckpts_gemma"
 # SAVE_CKPT_FOLDER = f"boto3:s3://model_weights.{BOTO3_IP}/internlm"
 CHECKPOINT_EVERY = 50
 ckpt = dict(
-    enable_save_ckpt=True,  # enable ckpt save.
-    enable_internevo2hf_ckpt=True, # enable ckpt save for huggingface format.
+    enable_save_ckpt=False,  # enable ckpt save.
+    enable_internevo2hf_ckpt=False, # enable ckpt save for huggingface format.
     save_ckpt_folder=SAVE_CKPT_FOLDER,  # Path to save training ckpt.
     # 'load_ckpt_info' setting guide:
     # 1. the 'path' indicate ckpt path,
@@ -59,7 +59,7 @@ data = dict(
     # defaults to 0, means disable evaluate
     valid_every=0,
     pack_sample_into_one=False,
-    total_steps=4,
+    total_steps=20,
     skip_batches="",
     # rampup_batch_size (str): A string with three space-separated integers representing the
     #       starting batch size, the increment, and the number of steps between
@@ -137,6 +137,7 @@ model = dict(
     num_chunks=1,
     num_attention_heads=NUM_ATTENTION_HEAD,
     num_kv_attention_heads=NUM_KV_ATTENTION_HEAD,
+    max_position_embeddings=8192,
     embed_split_hidden=True,
     vocab_size=VOCAB_SIZE,
     embed_grad_scale=1,
@@ -190,9 +191,9 @@ weight parallel (dict):
 """
 parallel = dict(
     zero1=dict(size=-1),
-    tensor=dict(size=2, mode="isp"),
+    tensor=dict(size=1, mode="mtp"),
     pipeline=dict(size=1, interleaved_overlap=True),
-    weight=dict(size=2, overlap=True, memory_pool=True),
+    weight=dict(size=1, overlap=True, memory_pool=True),
 )
 
 cudnn_deterministic = False

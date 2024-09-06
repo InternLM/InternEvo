@@ -630,9 +630,9 @@ class Gemma(BaseModel):
 
         # output
         if gpc.is_last_rank(ParallelMode.PIPELINE):
-            if "model.lm_head.weight" in state_dict:
+            if "lm_head.weight" in state_dict:
                 new_state_dict["output.weight"] = torch.chunk(
-                    state_dict.pop("model.lm_head.weight"),  # we do not tie lm head with embedding
+                    state_dict.pop("lm_head.weight"),  # we do not tie lm head with embedding
                     split_size,
                     dim=0,
                 )[local_rank]

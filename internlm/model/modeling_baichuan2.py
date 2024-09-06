@@ -131,6 +131,7 @@ class Baichuan2Decoder(nn.Module):
             dtype=dtype,
             qk_interleaved=qk_interleaved,
             enable_qkv_fusion=True,
+            out_bias=False,
         )
 
         self.dropout1 = nn.Dropout(drop_rate)
@@ -554,8 +555,8 @@ class Baichuan2(BaseModel):
 
     @staticmethod
     def convert_internevo2hf_weights(src: str, tgt: str) -> None:
-        def permute(qkv, num_heads, num_kv_heads, head_dim, adapt_hf=True):
-            if adapt_hf:
+        def permute(qkv, num_heads, num_kv_heads, head_dim, qk_interleaved=False):
+            if not qk_interleaved:
                 return qkv
             q_per_kv = num_heads // num_kv_heads
             qkv = rearrange(qkv.T, "o (g n i) -> o g n i", n=q_per_kv + 2, i=head_dim)
@@ -599,7 +600,7 @@ class Baichuan2(BaseModel):
                 # num_kv_attention_heads equals to num_attention_heads in MHA
                 num_kv_heads=model_config["num_attention_heads"],
                 head_dim=model_config["hidden_size"] // model_config["num_attention_heads"],
-                adapt_hf=model_config.get("adapt_hf", True),
+                qk_interleaved=model_config.get("qk_interleaved", False),
             )
             state_dict[f"model.layers.{layer_i}.self_attn.o_proj.weight"] = torch.cat(
                 [states[i][f"layers.{layer_i}.attention.out_proj.weight"] for i in range(num_shards)], dim=row_dim

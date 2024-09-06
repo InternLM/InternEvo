@@ -2,7 +2,7 @@
 
 <div align="center">
 
-<img src="./doc/imgs/InternEvo_logo.png" width="200"/>
+<img src="./doc/imgs/InternEvo_logo.png" width="800"/>
 
 [![Documentation Status](https://readthedocs.org/projects/internevo/badge/?version=latest)](https://internevo.readthedocs.io/zh_CN/latest/?badge=latest)
 [![license](./doc/imgs/license.svg)](./LICENSE)
@@ -143,6 +143,10 @@ Please refer to the [System Architecture document](./doc/en/structure.md) for ar
       <ul>
         <li><a href="configs/_base_/models/internlm/internlm_7B.py">InternLM</a></li>
         <li><a href="configs/_base_/models/internlm/internlm2_7B.py">InternLM2</a></li>
+        <li><a href="configs/7B_llama2.py">Llama2</a></li>
+        <li><a href="configs/7B_qwen2.py">Qwen2</a></li>
+        <li><a href="configs/7B_baichuan2.py">Baichuan2</a></li>
+        <li><a href="configs/7B_gemma.py">gemma</a></li>
       </ul>
       </td>
       <td>

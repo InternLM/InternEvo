@@ -76,6 +76,7 @@ class MHA(nn.Module):
         dtype: Optional[torch.dtype] = None,
         qk_interleaved: Optional[bool] = True,
         enable_qkv_fusion: bool = True,
+        out_bias: bool = True,
     ) -> None:
         super().__init__()
         self.layer_idx = layer_idx
@@ -118,8 +119,8 @@ class MHA(nn.Module):
         self.inner_attn = SelfAttention(causal=causal, softmax_scale=softmax_scale, attention_dropout=dropout)
         self.inner_cross_attn = CrossAttention(causal=causal, softmax_scale=softmax_scale, attention_dropout=dropout)
 
-        # output projection always have the bias (for now)
-        self.out_proj = new_linear("out_proj", embed_dim, embed_dim, bias=True, **factory_kwargs)
+        # output projection always have the bias (for now) (except for baichuan2 model)
+        self.out_proj = new_linear("out_proj", embed_dim, embed_dim, bias=out_bias, **factory_kwargs)
 
     def register_checkpoint_compatibility_hooks(
         self, pre_load_hook: Optional[Callable] = None, pre_save_hook: Optional[Callable] = None
