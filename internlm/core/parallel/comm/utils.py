@@ -117,6 +117,17 @@ def _gather(input_, parallel_mode, dim=-1):
     return output
 
 
+def _reduce(input_, parallel_mode):
+    # skip if only one rank involved
+    if gpc.get_world_size(parallel_mode) == 1:
+        return input_
+
+    group = gpc.get_cpu_group(parallel_mode) if input_.device.type == "cpu" else gpc.get_group(parallel_mode)
+    dist.all_reduce(input_, group=group)
+
+    return input_
+
+
 class _GatherForwardSplitBackward(torch.autograd.Function):
     """Gather the input from model parallel region and concatenate.
 
@@ -172,6 +183,32 @@ class _SplitForwardGatherBackward(torch.autograd.Function):
 
 def split_forward_gather_backward(input_, parallel_mode, dim):
     return _SplitForwardGatherBackward.apply(input_, parallel_mode, dim)
+
+
+class _ReduceForward(torch.autograd.Function):
+    """
+    All-reduce the input from the model parallel region.
+
+    Args:
+        input_: input matrix.
+        parallel_mode: parallel mode.
+    """
+
+    @staticmethod
+    def symbolic(input_):
+        return _reduce(input_, parallel_mode=None)
+
+    @staticmethod
+    def forward(ctx, input_, parallel_mode):  # pylint: disable=W0613
+        return _reduce(input_, parallel_mode)
+
+    @staticmethod
+    def backward(ctx, grad_output):  # pylint: disable=W0613
+        return grad_output, None
+
+
+def reduce_forward(input_, parallel_mode):
+    return _ReduceForward.apply(input_, parallel_mode)
 
 
 def all_gather_raw(

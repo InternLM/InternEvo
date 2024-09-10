@@ -459,7 +459,7 @@ now step_count is {train_state.step_count}",
                 logger.info(
                     f"Finish to convert internevo2hf checkpoint from {save_ckpt_folder} to {save_hf_ckpt_folder}."
                 )
-                torch.distributed.barrier()
+            torch.distributed.barrier()
 
         return now_break
 

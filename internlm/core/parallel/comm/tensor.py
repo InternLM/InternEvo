@@ -19,6 +19,7 @@ from internlm.core.parallel.comm.utils import (
     all_gather_raw,
     all_reduce_raw,
     gather_forward_split_backward,
+    reduce_forward,
     reduce_scatter_raw,
     split_forward_gather_backward,
 )
@@ -341,7 +342,12 @@ class EmbeddingTensorParallelCommunicator:
         """
         _emb_dim = 2  # [bsz, seqlen, emb_dim]
 
-        return gather_forward_split_backward(output, self._parallel_mode, dim=_emb_dim)
+        if module.vocab_parallel:
+            output = reduce_forward(output, self._parallel_mode)
+        else:
+            output = gather_forward_split_backward(output, self._parallel_mode, dim=_emb_dim)
+
+        return output
 
 
 class EmbeddingSequenceParallelCommunicator:
@@ -363,7 +369,12 @@ class EmbeddingSequenceParallelCommunicator:
         """
         _emb_dim, _seq_dim = 2, 1  # [bsz, seqlen, emb_dim]
 
-        output = gather_forward_split_backward(output, self._parallel_mode, dim=_emb_dim)
+        # tp:
+        if module.vocab_parallel:
+            output = reduce_forward(output, self._parallel_mode)
+        else:
+            output = gather_forward_split_backward(output, self._parallel_mode, dim=_emb_dim)
+        # sp:
         output = split_forward_gather_backward(output, self._parallel_mode, dim=_seq_dim)
 
         return output
