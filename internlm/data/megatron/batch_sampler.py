@@ -1,3 +1,4 @@
+import copy
 import math
 from internlm.core.context import ParallelMode
 from internlm.core.context import global_context as gpc
@@ -50,3 +51,7 @@ class MegatronBatchSampler:
         if len(batch) > 0 and not self.drop_last:
             start_idx, end_idx = self.get_start_end_idx()
             yield batch[start_idx:end_idx]
+
+    # TODO: implement copy method that compatible with InternEvo trainstate
+    def copy(self):
+        return copy.deepcopy(self)

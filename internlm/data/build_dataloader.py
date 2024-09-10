@@ -1,5 +1,6 @@
 # Copyright (c) InternLM. All rights reserved.
 from functools import partial
+import subprocess
 
 import torch.distributed as dist
 from torch.utils.data import ConcatDataset, DataLoader
@@ -143,6 +144,16 @@ def get_streaming_train_loader_items(data_cfg):
 
 
 def get_megatron_train_loader_items(data_cfg):
+    try:
+        from internlm.data.megatron import helpers
+    except ImportError:
+        if gpc.is_rank_for_log():
+            subprocess.run(
+                ["g++", "-O3", "-shared", "-std=c++11", "-fPIC", "-fdiagnostics-color", \
+                    "-I$(python3-config --includes)", "-I$(python3 -m pybind11 --includes)", \
+                    "internlm/data/megatron/helpers.cpp", \
+                    "-o", "internlm/data/megatron/helpers.so"], 
+            )
     train_ds = build_megatron_dataset(
         data_prefix=data_cfg.train_folder,
         data_impl=data_cfg.get("data_impl", "infer"),
@@ -181,7 +192,7 @@ def build_train_loader_with_data_type():
         train_ds, train_sampler, train_collate_fn = get_streaming_train_loader_items(data_cfg)
         # TODO: support more dataset_types
         dataset_types = ["en"]
-    elif data_cfg.type == DataType.packed.name:
+    elif data_cfg.type == DataType.megatron.name:
         train_ds, train_sampler, train_collate_fn = get_megatron_train_loader_items(data_cfg)
         # TODO: support more dataset_types
         dataset_types = ["en"]
@@ -207,7 +218,7 @@ def build_valid_loader_with_data_type():
     data_cfg = gpc.config.data
 
     # TODO: support streaming dataset for validation
-    if data_cfg.type in [DataType.tokenized.name, DataType.streaming.name]:
+    if data_cfg.type in [DataType.tokenized.name, DataType.streaming.name, DataType.megatron.name]:
         valid_ds, valid_collate_fn = get_tokenized_valid_loader_items(data_cfg)
     else:
         raise ValueError(f"dataset type {data_cfg.type} is not supported")

@@ -57,7 +57,7 @@ class TrainState:
         self.lr = config.adam.lr
 
         # smapler state
-        if batch_sampler:
+        if batch_sampler is not None:
             self.init_batch_sampler(batch_sampler)
 
         # tgs statistic
