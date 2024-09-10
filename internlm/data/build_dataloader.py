@@ -1,15 +1,15 @@
 # Copyright (c) InternLM. All rights reserved.
-from functools import partial
 import subprocess
+from functools import partial
 
 import torch.distributed as dist
 from torch.utils.data import ConcatDataset, DataLoader
 
 from internlm.core.context import ParallelMode
 from internlm.core.context import global_context as gpc
+from internlm.data.megatron.batch_sampler import MegatronBatchSampler
 from internlm.data.megatron.collaters import megatron_collate_fn
 from internlm.data.megatron.dataset import build_megatron_dataset
-from internlm.data.megatron.batch_sampler import MegatronBatchSampler
 from internlm.data.streaming.batch_sampler import StreamingStaticBatchSampler
 from internlm.data.streaming.collaters import streaming_packed_collate_fn
 from internlm.data.streaming.dataset import (
@@ -145,14 +145,23 @@ def get_streaming_train_loader_items(data_cfg):
 
 def get_megatron_train_loader_items(data_cfg):
     try:
-        from internlm.data.megatron import helpers
+        from internlm.data.megatron import helpers  # noqa # pylint: disable=W0611
     except ImportError:
         if gpc.is_rank_for_log():
             subprocess.run(
-                ["g++", "-O3", "-shared", "-std=c++11", "-fPIC", "-fdiagnostics-color", \
-                    "-I$(python3-config --includes)", "-I$(python3 -m pybind11 --includes)", \
-                    "internlm/data/megatron/helpers.cpp", \
-                    "-o", "internlm/data/megatron/helpers.so"], 
+                [
+                    "g++",
+                    "-O3",
+                    "-shared",
+                    "-std=c++11",
+                    "-fPIC",
+                    "-fdiagnostics-color",
+                    "-I$(python3-config --includes)",
+                    "-I$(python3 -m pybind11 --includes)",
+                    "internlm/data/megatron/helpers.cpp",
+                    "-o",
+                    "internlm/data/megatron/helpers.so",
+                ]
             )
     train_ds = build_megatron_dataset(
         data_prefix=data_cfg.train_folder,
@@ -171,8 +180,10 @@ def get_megatron_train_loader_items(data_cfg):
         drop_last=True,
     )
 
-    train_collate_fn = partial(megatron_collate_fn, micro_num=data_cfg.micro_num, micro_bsz=data_cfg.micro_bsz, seq_len=data_cfg.seq_len)
-    
+    train_collate_fn = partial(
+        megatron_collate_fn, micro_num=data_cfg.micro_num, micro_bsz=data_cfg.micro_bsz, seq_len=data_cfg.seq_len
+    )
+
     return train_ds, train_sampler, train_collate_fn
 
 
