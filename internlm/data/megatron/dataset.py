@@ -1,4 +1,3 @@
-import shutil
 from internlm.core.context import ParallelMode
 from internlm.core.context import global_context as gpc
 
@@ -10,7 +9,52 @@ import time
 import struct
 
 from itertools import accumulate
-from functools import lru_cache, partial
+from functools import lru_cache
+
+
+dtypes = {
+    1: np.uint8,
+    2: np.int8,
+    3: np.int16,
+    4: np.int32,
+    5: np.int64,
+    6: np.float64,
+    7: np.float32,
+    8: np.uint16,
+}
+
+
+def print_rank_0(message):
+    """If distributed is initialized, print only on rank 0."""
+    if gpc.is_rank_for_log():
+            print(message, flush=True)
+
+
+def code(dtype):
+    for k in dtypes.keys():
+        if dtypes[k] == dtype:
+            return k
+    raise ValueError(dtype)
+
+
+def index_file_path(prefix_path):
+    return prefix_path + '.idx'
+
+
+def data_file_path(prefix_path):
+    return prefix_path + '.bin'
+
+
+def read_longs(f, n):
+    a = np.empty(n, dtype=np.int64)
+    f.readinto(a)
+    return a
+
+
+def _warmup_mmap_file(path):
+    with open(path, 'rb') as stream:
+        while stream.read(100 * 1024 * 1024):
+            pass
 
 
 def _build_shuffle_idx(num_samples, total_size, np_rng):
@@ -188,7 +232,7 @@ def _build_index_mappings(name, data_prefix, documents, sizes,
             start_time = time.time()
             # Use C++ implementation for speed.
             # First compile and then import.
-            from internlm.data import helpers
+            from internlm.data.megatron import helpers
             assert doc_idx.dtype == np.int32
             assert sizes.dtype == np.int32
             sample_idx = helpers.build_sample_idx(sizes, doc_idx, seq_length,
@@ -218,9 +262,12 @@ def _build_index_mappings(name, data_prefix, documents, sizes,
             data_cache_success = False
 
     counts = torch.cuda.LongTensor([data_cache_success])
-    torch.distributed.all_reduce(counts, group=gpc.get_group(ParallelMode.DATA))
+    
+    if gpc.is_using_parallel_mode(ParallelMode.DATA):
+        torch.distributed.all_reduce(counts, group=gpc.get_group(ParallelMode.DATA))
 
-    torch.distributed.all_reduce(counts, group=gpc.get_group(ParallelMode.PIPELINE))
+    if gpc.is_using_parallel_mode(ParallelMode.PIPELINE):
+        torch.distributed.all_reduce(counts, group=gpc.get_group(ParallelMode.PIPELINE))
     
     if counts[0].item() != (
         gpc.get_world_size(ParallelMode.GLOBAL) //
@@ -246,92 +293,6 @@ def _build_index_mappings(name, data_prefix, documents, sizes,
     print_rank_0('    total number of epochs: {}'.format(num_epochs))
 
     return doc_idx, sample_idx, shuffle_idx, desc, desc_hash
-
-
-
-
-class IndexedDataset(torch.utils.data.Dataset):
-    """Loader for IndexedDataset"""
-    _HDR_MAGIC = b'TNTIDX\x00\x00'
-
-    def __init__(self, path):
-        super().__init__()
-        self.path = path
-        self.data_file = None
-        self.read_index(path)
-
-    def read_index(self, path):
-        with open(index_file_path(path), 'rb') as f:
-            magic = f.read(8)
-            assert magic == self._HDR_MAGIC, (
-                'Index file doesn\'t match expected format. '
-                'Make sure that --dataset-impl is configured properly.'
-            )
-            version = f.read(8)
-            assert struct.unpack('<Q', version) == (1,)
-            code, self.element_size = struct.unpack('<QQ', f.read(16))
-            self.dtype = dtypes[code]
-            self._len, self.s = struct.unpack('<QQ', f.read(16))
-            self.doc_count = struct.unpack('<Q', f.read(8))
-            self.dim_offsets = read_longs(f, self._len + 1)
-            self.data_offsets = read_longs(f, self._len + 1)
-            self.sizes = read_longs(f, self.s)
-            self.doc_idx = read_longs(f, self.doc_count)
-
-    def read_data(self, path):
-        self.data_file = open(data_file_path(path), 'rb', buffering=0)
-
-    def check_index(self, i):
-        if i < 0 or i >= self._len:
-            raise IndexError('index out of range')
-
-    def __del__(self):
-        if self.data_file:
-            self.data_file.close()
-
-    # @lru_cache(maxsize=8)
-    def __getitem__(self, idx):
-        if not self.data_file:
-            self.read_data(self.path)
-        if isinstance(idx, int):
-            i = idx
-            self.check_index(i)
-            tensor_size = self.sizes[self.dim_offsets[i]:self.dim_offsets[i + 1]]
-            a = np.empty(tensor_size, dtype=self.dtype)
-            self.data_file.seek(self.data_offsets[i] * self.element_size)
-            self.data_file.readinto(a)
-            return a
-        elif isinstance(idx, slice):
-            start, stop, step = idx.indices(len(self))
-            if step != 1:
-                raise ValueError("Slices into indexed_dataset must be contiguous")
-            sizes = self.sizes[self.dim_offsets[start]:self.dim_offsets[stop]]
-            size = sum(sizes)
-            a = np.empty(size, dtype=self.dtype)
-            self.data_file.seek(self.data_offsets[start] * self.element_size)
-            self.data_file.readinto(a)
-            offsets = list(accumulate(sizes))
-            sents = np.split(a, offsets[:-1])
-            return sents
-
-    def __len__(self):
-        return self._len
-
-    def num_tokens(self, index):
-        return self.sizes[index]
-
-    def size(self, index):
-        return self.sizes[index]
-
-    @staticmethod
-    def exists(path):
-        return (
-            os.path.exists(index_file_path(path)) and os.path.exists(data_file_path(path))
-        )
-
-    @property
-    def supports_prefetch(self):
-        return False  # avoid prefetching to save memory
 
 
 class GPTDataset(torch.utils.data.Dataset):
@@ -400,72 +361,6 @@ class GPTDataset(torch.utils.data.Dataset):
             return {'text': np.array(sample, dtype=np.int64)}
 
 
-class MegatronPretrainingSampler:
-
-    def __init__(self, total_samples, consumed_samples, micro_batch_size,
-                 data_parallel_rank, data_parallel_size, drop_last=True):
-        # Keep a copy of input params for later use.
-        self.total_samples = total_samples
-        self.consumed_samples = consumed_samples
-        self.micro_batch_size = micro_batch_size
-        self.data_parallel_rank = data_parallel_rank
-        self.micro_batch_times_data_parallel_size = \
-            self.micro_batch_size * data_parallel_size
-        self.drop_last = drop_last
-
-        # Sanity checks.
-        assert self.total_samples > 0, \
-            'no sample to consume: {}'.format(self.total_samples)
-        assert self.consumed_samples < self.total_samples, \
-            'no samples left to consume: {}, {}'.format(self.consumed_samples,
-                                                        self.total_samples)
-        assert self.micro_batch_size > 0
-        assert data_parallel_size > 0
-        assert self.data_parallel_rank < data_parallel_size, \
-            'data_parallel_rank should be smaller than data size: {}, ' \
-            '{}'.format(self.data_parallel_rank, data_parallel_size)
-
-    def __len__(self):
-        return self.total_samples
-
-    def get_start_end_idx(self):
-        start_idx = self.data_parallel_rank * self.micro_batch_size
-        end_idx = start_idx + self.micro_batch_size
-        return start_idx, end_idx
-
-    def __iter__(self):
-        batch = []
-        # Last batch will be dropped if drop_last is not set False
-        for idx in range(self.consumed_samples, self.total_samples):
-            batch.append(idx)
-            if len(batch) == self.micro_batch_times_data_parallel_size:
-                start_idx, end_idx = self.get_start_end_idx()
-                yield batch[start_idx:end_idx]
-                batch = []
-
-        # Check the last partial batch and see drop_last is set
-        if len(batch) > 0 and not self.drop_last:
-            start_idx, end_idx = self.get_start_end_idx()
-            yield batch[start_idx:end_idx]
-
-
-def print_rank_0(message):
-    """If distributed is initialized, print only on rank 0."""
-    if gpc.is_rank_for_log():
-            print(message, flush=True)
-
-
-def __best_fitting_dtype(vocab_size=None):
-    if vocab_size is not None and vocab_size < 65500:
-        return np.uint16
-    else:
-        return np.int32
-
-
-def get_available_dataset_impl():
-    return ['lazy', 'cached', 'mmap']
-
-
 def infer_dataset_impl(path):
     if IndexedDataset.exists(path):
         with open(index_file_path(path), 'rb') as f:
@@ -480,13 +375,6 @@ def infer_dataset_impl(path):
         print(f"Dataset does not exist: {path}")
         print("Path should be a basename that both .idx and .bin can be appended to get full filenames.")
         return None
-
-
-def make_builder(out_file, impl, vocab_size=None):
-    if impl == 'mmap':
-        return MMapIndexedDatasetBuilder(out_file, dtype=__best_fitting_dtype(vocab_size))
-    else:
-        return IndexedDatasetBuilder(out_file)
 
 
 def make_dataset(path, impl, skip_warmup=False):
@@ -504,58 +392,6 @@ def make_dataset(path, impl, skip_warmup=False):
         return MMapIndexedDataset(path, skip_warmup)
     print(f"Unknown dataset implementation: {impl}")
     return None
-
-
-def dataset_exists(path, impl):
-    if impl == 'mmap':
-        return MMapIndexedDataset.exists(path)
-    else:
-        return IndexedDataset.exists(path)
-
-
-def read_longs(f, n):
-    a = np.empty(n, dtype=np.int64)
-    f.readinto(a)
-    return a
-
-
-def write_longs(f, a):
-    f.write(np.array(a, dtype=np.int64))
-
-
-dtypes = {
-    1: np.uint8,
-    2: np.int8,
-    3: np.int16,
-    4: np.int32,
-    5: np.int64,
-    6: np.float64,
-    7: np.float32,
-    8: np.uint16,
-}
-
-
-def code(dtype):
-    for k in dtypes.keys():
-        if dtypes[k] == dtype:
-            return k
-    raise ValueError(dtype)
-
-
-def index_file_path(prefix_path):
-    return prefix_path + '.idx'
-
-
-def data_file_path(prefix_path):
-    return prefix_path + '.bin'
-
-
-def create_doc_idx(sizes):
-    doc_idx = [0]
-    for i, s in enumerate(sizes):
-        if s == 0:
-            doc_idx.append(i + 1)
-    return doc_idx
 
 
 class IndexedDataset(torch.utils.data.Dataset):
@@ -693,82 +529,6 @@ class IndexedCachedDataset(IndexedDataset):
             for i in range(*idx.indices(len(self))):
                 sents.append(self[i])
             return sents
-
-
-class IndexedDatasetBuilder(object):
-    element_sizes = {
-        np.uint8: 1,
-        np.int8: 1,
-        np.int16: 2,
-        np.int32: 4,
-        np.int64: 8,
-        np.float32: 4,
-        np.float64: 8,
-    }
-
-    def __init__(self, out_file, dtype=np.int32):
-        self.out_file = open(out_file, 'wb')
-        self.dtype = dtype
-        self.data_offsets = [0]
-        self.dim_offsets = [0]
-        self.sizes = []
-        self.element_size = self.element_sizes[self.dtype]
-        self.doc_idx = [0]
-
-    def add_item(self, tensor):
-        bytes = self.out_file.write(np.array(tensor.numpy(), dtype=self.dtype))
-        self.data_offsets.append(self.data_offsets[-1] + bytes / self.element_size)
-        for s in tensor.size():
-            self.sizes.append(s)
-        self.dim_offsets.append(self.dim_offsets[-1] + len(tensor.size()))
-
-    def end_document(self):
-        self.doc_idx.append(len(self.sizes))
-
-    def merge_file_(self, another_file):
-        index = IndexedDataset(another_file)
-        assert index.dtype == self.dtype
-
-        doc_offset = len(self.sizes)
-
-        begin = self.data_offsets[-1]
-        for data_offset in index.data_offsets[1:]:
-            self.data_offsets.append(begin + data_offset)
-        self.sizes.extend(index.sizes)
-
-        begin = self.dim_offsets[-1]
-        for dim_offset in index.dim_offsets[1:]:
-            self.dim_offsets.append(begin + dim_offset)
-
-        self.doc_idx.extend((doc_offset + index.doc_idx)[1:])
-
-        with open(data_file_path(another_file), 'rb') as f:
-            while True:
-                data = f.read(1024)
-                if data:
-                    self.out_file.write(data)
-                else:
-                    break
-
-    def finalize(self, index_file):
-        self.out_file.close()
-        index = open(index_file, 'wb')
-        index.write(b'TNTIDX\x00\x00')
-        index.write(struct.pack('<Q', 1))
-        index.write(struct.pack('<QQ', code(self.dtype), self.element_size))
-        index.write(struct.pack('<QQ', len(self.data_offsets) - 1, len(self.sizes)))
-        index.write(struct.pack('<Q', len(self.doc_idx)))
-        write_longs(index, self.dim_offsets)
-        write_longs(index, self.data_offsets)
-        write_longs(index, self.sizes)
-        write_longs(index, self.doc_idx)
-        index.close()
-
-
-def _warmup_mmap_file(path):
-    with open(path, 'rb') as stream:
-        while stream.read(100 * 1024 * 1024):
-            pass
 
 
 class MMapIndexedDataset(torch.utils.data.Dataset):
@@ -977,48 +737,6 @@ class MMapIndexedDataset(torch.utils.data.Dataset):
         )
 
 
-class MMapIndexedDatasetBuilder(object):
-    def __init__(self, out_file, dtype=np.int64):
-        self._data_file = open(out_file, 'wb')
-        self._dtype = dtype
-        self._sizes = []
-        self._doc_idx = [0]
-
-    def add_item(self, tensor):
-        np_array = np.array(tensor.numpy(), dtype=self._dtype)
-        self._data_file.write(np_array.tobytes(order='C'))
-        self._sizes.append(np_array.size)
-
-    def add_doc(self, tensor, sizes):
-        np_array = np.array(tensor, dtype=self._dtype)
-        self._data_file.write(np_array.tobytes(order='C'))
-        self._sizes.extend(sizes)
-        self._doc_idx.append(len(self._sizes))
-
-    def end_document(self):
-        self._doc_idx.append(len(self._sizes))
-
-    def merge_file_(self, another_file):
-        # Concatenate index
-        index = MMapIndexedDataset.Index(index_file_path(another_file))
-        assert index.dtype == self._dtype
-
-        offset = len(self._sizes)
-        self._sizes.extend(index.sizes)
-        self._doc_idx.extend((offset + index.doc_idx)[1:])
-
-        # Concatenate data
-        with open(data_file_path(another_file), 'rb') as f:
-            shutil.copyfileobj(f, self._data_file)
-
-    def finalize(self, index_file):
-        self._data_file.close()
-
-        with MMapIndexedDataset.Index.writer(index_file, self._dtype) as index:
-            index.write(self._sizes, self._doc_idx)
-
-
-
 def get_indexed_dataset_(data_prefix, data_impl, skip_warmup):
     """Build indexed dataset."""
     print_rank_0(' > building dataset index ...')
@@ -1033,6 +751,7 @@ def get_indexed_dataset_(data_prefix, data_impl, skip_warmup):
         indexed_dataset.sizes.shape[0]))
 
     return indexed_dataset
+
 
 def get_train_valid_test_split_(splits_string, size):
     """ Get dataset splits from comma or '/' separated string list."""
@@ -1062,12 +781,11 @@ def get_train_valid_test_split_(splits_string, size):
     return splits_index
 
 
-def _build_train_valid_test_datasets(data_prefix, data_impl, splits_string,
+def build_megatron_dataset(data_prefix, data_impl, splits_string,
                                      train_valid_test_num_samples,
-                                     seq_length, seed, skip_warmup,
+                                     seq_len, seed, skip_warmup,
                                      return_doc_ids=False, *,
                                      data_cache_path=None):
-    """Build train, valid, and test datasets."""
 
     # Indexed dataset.
     indexed_dataset = get_indexed_dataset_(data_prefix,
@@ -1080,14 +798,13 @@ def _build_train_valid_test_datasets(data_prefix, data_impl, splits_string,
     # Print stats about the splits.
     print_rank_0(' > dataset split:')
 
-    def print_split_stats(name, index):
+    def print_split_stats(index, name):
         print_rank_0('    {}:'.format(name))
         print_rank_0('     document indices in [{}, {}) total of {} '
                      'documents'.format(splits[index], splits[index + 1],
                                         splits[index + 1] - splits[index]))
-    print_split_stats('train', 0)
-    print_split_stats('validation', 1)
-    print_split_stats('test', 2)
+
+    print_split_stats(0, 'train')
 
     def build_dataset(index, name):
         dataset = None
@@ -1097,97 +814,11 @@ def _build_train_valid_test_datasets(data_prefix, data_impl, splits_string,
             dataset = GPTDataset(name, data_prefix, documents, indexed_dataset,
                                  splits_string,
                                  train_valid_test_num_samples[index],
-                                 seq_length, seed,
+                                 seq_len, seed,
                                  return_doc_ids,
                                  data_cache_path=data_cache_path)
         return dataset
 
     train_dataset = build_dataset(0, 'train')
-    valid_dataset = build_dataset(1, 'valid')
-    test_dataset = build_dataset(2, 'test')
 
-    return (train_dataset, valid_dataset, test_dataset)
-
-
-def train_collate_fn(batch, micro_num, micro_bsz, seq_len):
-
-    input_ids_result = [[] for _ in range(micro_num)]
-    labels_result = [[] for _ in range(micro_num)]
-    cu_seqlens = []
-    cu_seqlens_list = []
-    indexes = []
-    indexes_list = []
-    
-    for i, item in enumerate(batch):
-        assert i < micro_num * micro_bsz
-        seq_len_list = item['text']
-        assert len(seq_len_list) == seq_len+1
-        
-        micro_bsz_index = i % micro_bsz
-        micro_num_index = i // micro_bsz
-        
-        input_ids_result[micro_num_index].append(seq_len_list[:-1])
-        labels_result[micro_num_index].append(seq_len_list[1:])
-
-        cu_seqlens.append(seq_len*micro_bsz_index)
-        indexes = indexes + list(range(seq_len))
-
-        if micro_bsz_index == micro_bsz - 1:
-            input_ids_result[micro_num_index] = torch.cat([torch.from_numpy(arr).long() for arr in input_ids_result[micro_num_index]], dim=0)
-            labels_result[micro_num_index] = torch.cat([torch.from_numpy(arr).long() for arr in labels_result[micro_num_index]], dim=0)
-            cu_seqlens.append(seq_len*micro_bsz)
-            cu_seqlens_list.append(torch.IntTensor(cu_seqlens))
-            cu_seqlens = []
-            indexes_list.append(torch.IntTensor(indexes))
-            indexes = []
-
-    input_ids = torch.stack(input_ids_result)
-    labels = torch.stack(labels_result)
-    indexes = torch.stack(indexes_list)
-    
-    return {
-        "input_ids": input_ids,
-        "cu_seqlens": cu_seqlens_list,
-        "indexes": indexes,
-        "type_ids": torch.zeros(micro_num, micro_bsz * seq_len, dtype=torch.int64),
-    }, labels
-
-
-
-def get_megatron_train_data_loader():
-    data_cfg = gpc.config.data
-
-    train_ds, _, _ = _build_train_valid_test_datasets(
-        data_prefix=data_cfg.train_folder,
-        data_impl="infer",
-        splits_string="969, 30, 1",
-        train_valid_test_num_samples=[9437184, 9600000, 320000],
-        seq_length=data_cfg.seq_len,
-        seed=24,
-        skip_warmup=True,
-        data_cache_path=None,
-    )
-
-    global_batch_size = gpc.config.data.micro_bsz * gpc.config.data.micro_num * gpc.get_world_size(ParallelMode.DATA)
-    consumed_samples = global_batch_size * gpc.config.data.step_count_megatron
-
-    batch_sampler = MegatronPretrainingSampler(
-        total_samples=len(train_ds),
-        consumed_samples=consumed_samples,
-        micro_batch_size=data_cfg.micro_bsz * data_cfg.micro_num,
-        data_parallel_rank=gpc.get_local_rank(ParallelMode.DATA),
-        data_parallel_size=gpc.get_world_size(ParallelMode.DATA),
-    )
-    
-    # import pdb;pdb.set_trace()
-    num_workers = data_cfg.get("num_workers", 0)
-    train_dl =  torch.utils.data.DataLoader(train_ds,
-                                       batch_sampler=batch_sampler,
-                                       num_workers=num_workers,
-                                       collate_fn=partial(train_collate_fn, micro_num=data_cfg.micro_num, micro_bsz=data_cfg.micro_bsz, seq_len=data_cfg.seq_len),
-                                       pin_memory=True,
-                                       persistent_workers=num_workers > 0
-                                       )
-    
-    dataset_types = ["en"]
-    return train_dl, dataset_types
+    return train_dataset
