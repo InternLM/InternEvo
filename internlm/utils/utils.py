@@ -53,6 +53,7 @@ class DataType(Enum):
     streaming = 1
     tokenized = 2
     megatron = 3
+    mocked = 4
 
 
 class TensorParallelMode(Enum):

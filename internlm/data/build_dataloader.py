@@ -10,6 +10,8 @@ from internlm.core.context import global_context as gpc
 from internlm.data.megatron.batch_sampler import MegatronBatchSampler
 from internlm.data.megatron.collaters import megatron_collate_fn
 from internlm.data.megatron.dataset import build_megatron_dataset
+from internlm.data.mocked.batch_sampler import MockedSequentialBatchSampler
+from internlm.data.mocked.dataset import MockedDataset
 from internlm.data.streaming.batch_sampler import StreamingStaticBatchSampler
 from internlm.data.streaming.collaters import streaming_packed_collate_fn
 from internlm.data.streaming.dataset import (
@@ -148,7 +150,7 @@ def get_megatron_train_loader_items(data_cfg):
         from internlm.data.megatron import helpers  # noqa # pylint: disable=W0611
     except ImportError:
         if gpc.is_rank_for_log():
-            subprocess.run(
+            subprocess.run(  # noqa # pylint: disable=W1510
                 [
                     "g++",
                     "-O3",
@@ -187,6 +189,18 @@ def get_megatron_train_loader_items(data_cfg):
     return train_ds, train_sampler, train_collate_fn
 
 
+def get_mock_train_loader_items(data_cfg):
+    train_ds = MockedDataset(
+        data_dir=data_cfg.train_folder,  # defined the path of mocked data
+        micro_bsz=data_cfg.micro_bsz,
+        seq_len=data_cfg.seq_len,
+        mocked_steps=data_cfg.mocked_steps,  # defined the steps of mocked data
+    )
+    train_sampler = MockedSequentialBatchSampler(train_ds, data_cfg.micro_num)
+    train_collate_fn = partial(packed_collate_fn, packed_length=data_cfg.seq_len * data_cfg.micro_bsz)
+    return train_ds, train_sampler, train_collate_fn
+
+
 def build_train_loader_with_data_type():
     """
     Build and return the training data loader based on data type.
@@ -205,6 +219,10 @@ def build_train_loader_with_data_type():
         dataset_types = ["en"]
     elif data_cfg.type == DataType.megatron.name:
         train_ds, train_sampler, train_collate_fn = get_megatron_train_loader_items(data_cfg)
+        # TODO: support more dataset_types
+        dataset_types = ["en"]
+    elif data_cfg.type == DataType.mocked.name:
+        train_ds, train_sampler, train_collate_fn = get_mock_train_loader_items(data_cfg)
         # TODO: support more dataset_types
         dataset_types = ["en"]
     else:
@@ -228,8 +246,13 @@ def build_valid_loader_with_data_type():
 
     data_cfg = gpc.config.data
 
-    # TODO: support streaming dataset for validation
-    if data_cfg.type in [DataType.tokenized.name, DataType.streaming.name, DataType.megatron.name]:
+    # TODO: For validation, currenlt we only support dummy dataset for streaming/megatron/mocked DataType.
+    if data_cfg.type in [
+        DataType.tokenized.name,
+        DataType.streaming.name,
+        DataType.megatron.name,
+        DataType.mocked.name,
+    ]:
         valid_ds, valid_collate_fn = get_tokenized_valid_loader_items(data_cfg)
     else:
         raise ValueError(f"dataset type {data_cfg.type} is not supported")

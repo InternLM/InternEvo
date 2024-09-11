@@ -30,8 +30,8 @@ def print_rank_0(message):
 
 
 def code(dtype):
-    for k in dtypes.keys():
-        if dtypes[k] == dtype:
+    for k, v in dtypes.items():
+        if v == dtype:
             return k
     raise ValueError(dtype)
 

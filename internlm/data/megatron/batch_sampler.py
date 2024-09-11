@@ -1,30 +1,35 @@
 import copy
 import math
+
 from internlm.core.context import ParallelMode
 from internlm.core.context import global_context as gpc
 
+
 class MegatronBatchSampler:
+    """
+    MegatronBatchSampler
+    """
+
     def __init__(self, total_samples, consumed_samples, batch_size, drop_last=True):
         # Keep a copy of input params for later use.
         self.total_samples = total_samples
         self.consumed_samples = consumed_samples
         self.batch_size = batch_size
         self.drop_last = drop_last
-        
+
         self.dp_rank = gpc.get_local_rank(ParallelMode.DATA)
         self.dp_size = gpc.get_world_size(ParallelMode.DATA)
 
         # Sanity checks.
-        assert self.total_samples > 0, \
-            'no sample to consume: {}'.format(self.total_samples)
-        assert self.consumed_samples < self.total_samples, \
-            'no samples left to consume: {}, {}'.format(self.consumed_samples,
-                                                        self.total_samples)
+        assert self.total_samples > 0, "no sample to consume: {}".format(self.total_samples)
+        assert self.consumed_samples < self.total_samples, "no samples left to consume: {}, {}".format(
+            self.consumed_samples, self.total_samples
+        )
         assert self.batch_size > 0
         assert self.dp_size > 0
-        assert self.dp_rank < self.dp_size, \
-            'dp_rank should be smaller than dp_size: {}, ' \
-            '{}'.format(self.dp_rank, self.dp_size)
+        assert self.dp_rank < self.dp_size, "dp_rank should be smaller than dp_size: {}, " "{}".format(
+            self.dp_rank, self.dp_size
+        )
 
     def __len__(self):
         if self.drop_last and self.total_samples % self.dp_size != 0:
