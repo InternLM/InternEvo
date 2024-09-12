@@ -25,7 +25,8 @@ def main(args):
     val_dls = build_valid_loader_with_data_type()
 
     # build trainer
-    trainer = TrainerBuilder(model, train_dl, val_dls, **(vars(args) | {"dataset_types": dataset_types}))
+    merged_args = {**vars(args), "dataset_types": dataset_types}
+    trainer = TrainerBuilder(model, train_dl, val_dls, **merged_args)
 
     # training
     trainer.fit()

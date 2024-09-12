@@ -42,6 +42,10 @@ class CuSeqlenType(Enum):
 
 
 class ModelType(Enum):
+    """
+    model types supported in InternEvo
+    """
+
     INTERNLM = 1
     INTERNLM2_PUBLIC = 2
     LLAMA2 = 3
@@ -50,6 +54,8 @@ class ModelType(Enum):
     QWEN2 = 6
     BAICHUAN2 = 7
     GEMMA = 8
+    QWEN2MOE = 9
+    MIXTRALMOE = 10
 
 
 class DataType(Enum):

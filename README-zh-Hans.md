@@ -147,6 +147,8 @@ $ torchrun --nnodes=1 --nproc_per_node=8 train.py --config ./configs/7B_sft.py -
         <li><a href="configs/7B_qwen2.py">Qwen2</a></li>
         <li><a href="configs/7B_baichuan2.py">Baichuan2</a></li>
         <li><a href="configs/7B_gemma.py">gemma</a></li>
+        <li><a href="configs/57B_qwen2_MoE.py">Qwen2-MoE</a></li>
+        <li><a href="configs/8x7B_mixtral.py">Mixtral</a></li>
       </ul>
       </td>
       <td>

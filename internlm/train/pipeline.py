@@ -60,6 +60,7 @@ from internlm.model.modules.linear import (
 )
 from internlm.model.modules.norm import new_layer_norm
 from internlm.model.moe import Experts, MoE
+from internlm.model.moe.moe import Qwen2MoE
 from internlm.model.ops.norm import RMSNorm
 from internlm.model.registry import register_model_initializer
 from internlm.monitor import set_env_var
@@ -129,9 +130,12 @@ def set_parallel_attr_for_param_groups(model: Union[nn.Module, nn.ModuleList]):
             for param in module.parameters():
                 setattr(param, IS_REPLICA_ZERO_PARALLEL, True)
 
-        if isinstance(module, MoE):
+        if isinstance(module, (MoE, Qwen2MoE)):
             for param in module.moe_layer.gate.parameters():
                 setattr(param, IS_REPLICA_ZERO_PARALLEL, True)
+            if hasattr(module, "coefficient"):
+                for param in module.coefficient.parameters():
+                    setattr(param, IS_REPLICA_ZERO_PARALLEL, True)
 
         # embedding and head
         if isinstance(module, (Embedding1D, ScaleColumnParallelLinear)):
@@ -216,7 +220,6 @@ def inject_model(model):
         torch.nn.Module:
             The injected neural network model to be trained or evaluated.
     """
-
     if hasattr(model, IS_INJECTED) and getattr(model, IS_INJECTED):
         return model
 
