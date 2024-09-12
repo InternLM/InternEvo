@@ -106,6 +106,7 @@ LINEAR2NEWLINEAR_NAME_MAPPING = dict(
     down_proj="w2",
     up_proj="w3",
     lm_head="head",
+    W_pack="wqkv",
 )
 
 logger = get_logger(__file__)
@@ -878,17 +879,21 @@ def inject_config(model: nn.Module) -> None:
         gpc.config.model.num_kv_attention_heads = gpc.config.NUM_KV_ATTENTION_HEAD = model.config.num_key_value_heads
 
 
-def inject_model_helper(model: nn.Module, inject_info: Optional[Dict] = None) -> None:
-    inject = False
-    interactive = False
-    modules = []
-    reset_params = False
-
+def inject_model_helper(model: Union[nn.Module, nn.ModuleList], inject_info: Optional[Dict] = None) -> None:
     if inject_info is not None:
         inject = inject_info.get("inject", False)
         interactive = inject_info.get("interactive", False)
         modules = inject_info.get("modules", [])
         reset_params = inject_info.get("reset_params", False)
+        extra_linear2newlinear = inject_info.get("extra_linear2newlinear", {})
+    else:
+        inject = False
+        interactive = False
+        modules = []
+        reset_params = False
+        extra_linear2newlinear = {}
+    
+    LINEAR2NEWLINEAR_NAME_MAPPING.update(extra_linear2newlinear)
 
     inject_funcs = {
         "embed": inject_embed,
@@ -896,15 +901,19 @@ def inject_model_helper(model: nn.Module, inject_info: Optional[Dict] = None) ->
         "norm": inject_norm,
     }
 
-    for mod in modules:
-        inject_funcs[mod](model, inject, interactive)
+    if not isinstance(model, nn.ModuleList):
+        model = [model]
+
+    for _chunk in model:
+        for mod in modules:
+            inject_funcs[mod](_chunk, inject, interactive)
+
+        if inject and reset_params:
+            _chunk.reset_parameters()
 
     if inject:
-        if reset_params:
-            model.reset_parameters()
-
-        inject_config(model)
-
+        inject_config(model[0])
+        
         if gpc.is_rank_for_log():
             logger.info(
                 f"inject is enabled, please check the model carefully, "
