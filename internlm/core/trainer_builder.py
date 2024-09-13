@@ -2,7 +2,7 @@ import gc
 import logging
 import time
 from functools import partial
-from typing import Dict, Optional
+from typing import Dict, List, Optional, Union
 
 import torch
 import torch.distributed as dist
@@ -59,7 +59,7 @@ class TrainerBuilder(Trainer):
     for seamless management of training, evaluation, and checkpointing.
 
     Args:
-        model (torch.nn.Module): The model to be trained.
+        model (Union[torch.nn.Module, List[torch.nn.Module]]): The model to be trained.
         train_dl (DataLoader): DataLoader for training data.
         val_dls (Optional[Dict[str, DataLoader]], optional): DataLoaders for validation data.
         **kwargs: Additional keyword arguments including:
@@ -74,7 +74,7 @@ class TrainerBuilder(Trainer):
 
     def __init__(
         self,
-        model: torch.nn.Module,
+        model: Union[torch.nn.Module, List[torch.nn.Module]],
         train_dl: DataLoader,
         val_dls: Optional[Dict[str, DataLoader]] = None,
         **kwargs,
@@ -83,7 +83,7 @@ class TrainerBuilder(Trainer):
         Initialize TrainerBuilder with necessary components for training.
 
         Args:
-            model (torch.nn.Module): The model to be trained.
+            model (Union[torch.nn.Module, List[torch.nn.Module]]): The model to be trained.
             train_dl (DataLoader): DataLoader for training data.
             val_dls (Optional[Dict[str, DataLoader]], optional): DataLoaders for validation data.
             **kwargs: Additional keyword arguments including:

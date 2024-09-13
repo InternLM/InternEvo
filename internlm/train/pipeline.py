@@ -922,15 +922,15 @@ def inject_model_helper(model: Union[nn.Module, nn.ModuleList], inject_info: Opt
             continue
         for mod in modules:
             inject_funcs[mod](_chunk, inject, interactive)
+
+    for _chunk in model:
         if inject and reset_params:
             _chunk.reset_parameters()
+        inject_config(_chunk)
 
-    if inject:
-        inject_config(model[0])
-
-        if gpc.is_rank_for_log():
-            logger.info(
-                f"inject is enabled, please check the model carefully, "
-                f"if there are any problems, please report issue to us. "
-                f"The injected model is \n {model}"
-            )
+    if inject and gpc.is_rank_for_log():
+        logger.info(
+            f"inject is enabled, please check the model carefully, "
+            f"if there are any problems, please report issue to us. "
+            f"The injected model is \n {model}"
+        )
