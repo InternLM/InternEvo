@@ -2,6 +2,7 @@
 # -*- encoding: utf-8 -*-
 
 from abc import ABC, abstractmethod
+from enum import IntEnum
 from typing import Callable
 
 import torch
@@ -359,3 +360,9 @@ class _ExpandKVPackedFunction(torch.autograd.Function):
 
 
 expandKVPacked = _ExpandKVPackedFunction.apply
+
+
+# used in isp and zero
+class CommunicatorType(IntEnum):
+    Non_MoE = 0
+    MoE = 1

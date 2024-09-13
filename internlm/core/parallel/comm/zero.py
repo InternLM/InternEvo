@@ -12,8 +12,10 @@ from internlm.core.context import ParallelMode
 from internlm.core.context import global_context as gpc
 from internlm.core.naive_amp import unwrap_naive_amp
 from internlm.core.parallel.comm.isp import ISPCommunicatorWrapper
+from internlm.core.parallel.comm.utils import CommunicatorType
 from internlm.model.modules.embedding import Embedding1D
 from internlm.model.modules.linear import ScaleColumnParallelLinear
+from internlm.model.modules.utils import is_moe_param
 from internlm.solver.optimizer.utils import flatten
 
 
@@ -27,6 +29,7 @@ class ParamAsyncBcastHandler:
         zero1_mode: ParallelMode,
         model: Union[nn.Module, nn.ModuleList],
         isp_communicator: ISPCommunicatorWrapper = None,
+        is_moe: bool = False,
     ) -> None:
         self._block_to_param: Dict[nn.Module, List[nn.Parameter]] = OrderedDict()
         self._param_to_rank: Dict[nn.Parameter, int] = {}
@@ -35,8 +38,7 @@ class ParamAsyncBcastHandler:
         self._block_to_name: Dict[nn.Module, str] = {}
 
         zero1_size = gpc.get_world_size(zero1_mode)
-        total_param_num = sum(p.numel() for p in model.parameters())
-        avg_param_num = total_param_num * 1.0 // zero1_size
+        total_param_num = 0
 
         # initialize an empty list for _bcast_handles of each rank
         self._bcast_handles = {rank: [] for rank in range(zero1_size)}
@@ -56,16 +58,25 @@ class ParamAsyncBcastHandler:
                     for idx, block in enumerate(children):
                         block_name = name + f"_{idx}"
                         # self._block_to_param[f"{name}.{idx}"] = list(block.parameters())
-                        self._block_to_param[block] = list(block.parameters())
-                        self._block_to_name[block] = block_name
+                        self._block_to_param[block] = []
+                        for param in block.parameters():
+                            if is_moe_param(param) == is_moe:
+                                total_param_num += param.numel()
+                                self._block_to_param[block].append(param)
+                                self._block_to_name[block] = block_name
                 else:
                     # record the block that a parameter belongs to
                     # self._block_to_param[name] = list(children.parameters())
-                    self._block_to_param[children] = list(children.parameters())
-                    self._block_to_name[children] = name
+                    self._block_to_param[children] = []
+                    for param in children.parameters():
+                        if is_moe_param(param) == is_moe:
+                            total_param_num += param.numel()
+                            self._block_to_param[children].append(param)
+                            self._block_to_name[children] = name
 
         alloc_num = 0
         rank_to_go = 0
+        avg_param_num = total_param_num * 1.0 // zero1_size
 
         # process the parameters in block_to_param sequencially,
         # allocate each parameter to a local rank of ParallelMode.ZERO1,
@@ -76,14 +87,14 @@ class ParamAsyncBcastHandler:
             # allocate a model block to a local rank of ParallelMode.ZERO1
             self._block_to_rank[block] = [rank_to_go]
             for p in params:
+                # allocate a parameter to a local rank of ParallelMode.ZERO1
+                self._param_to_rank[p] = rank_to_go
                 alloc_num = alloc_num + p.numel()
                 # in this case, allocate the param to next rank if possible
                 if alloc_num > avg_param_num * 1.01 and rank_to_go < zero1_size - 1:
                     rank_to_go = rank_to_go + 1
                     alloc_num = 0
                     self._block_to_rank[block].append(rank_to_go)
-                # allocate a parameter to a local rank of ParallelMode.ZERO1
-                self._param_to_rank[p] = rank_to_go
 
         for block_name in self._block_to_name.values():
             self._block_allgather_handles[block_name] = None
@@ -188,3 +199,35 @@ class ParamAsyncBcastHandler:
         self._block_working_params[block_name] = working_param
         self._block_gathered_params[block_name] = gatherd_param
         self._block_allgather_order[block_name] = 1
+
+
+class ParamAsyncBcastHandlerWrapper:
+    """
+    Wrapper for multiple ISPCommunicators.
+    TODO: check all isp communicator external interfaces and wrap them.
+    """
+
+    def __init__(
+        self,
+    ) -> None:
+        self.param_bcast_sync_handlers = [None for _ in range(len(CommunicatorType))]
+
+    def set_handle(self, index, handler):
+        assert index < len(CommunicatorType)
+        self.param_bcast_sync_handlers[index] = handler
+
+    def get_handle(self, index):
+        assert index < len(CommunicatorType)
+        return self.param_bcast_sync_handlers[index]
+
+    def get_rank_by_param(self, param) -> int:
+        idx = CommunicatorType.MoE if is_moe_param(param) else CommunicatorType.Non_MoE
+        return self.get_handle(idx).get_rank_by_param(param)
+
+    def add_bcast_handle(self, rank, handle, bcast_mode) -> None:
+        idx = CommunicatorType.MoE if bcast_mode == ParallelMode.EXPERT_DATA else CommunicatorType.Non_MoE
+        self.get_handle(idx).add_bcast_handle(rank, handle)
+
+    def add_allgather_handle(self, handle, master_param, working_param, gatherd_param, block_name, bcast_mode) -> None:
+        idx = CommunicatorType.MoE if bcast_mode == ParallelMode.EXPERT_DATA else CommunicatorType.Non_MoE
+        self.get_handle(idx).add_allgather_handle(handle, master_param, working_param, gatherd_param, block_name)

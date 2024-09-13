@@ -710,6 +710,7 @@ class HybridZeroOptimizer_v2(BaseOptimizer):
                 all_gather_working_params,
                 gathered_params,
                 all_gather_working_params[0].block_name,
+                self._zero_parallel_mode[group_id],
             )
         else:
             gathered_params_list.append(gathered_params)

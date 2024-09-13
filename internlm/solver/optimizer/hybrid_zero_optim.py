@@ -884,7 +884,7 @@ class HybridZeroOptimizer(BaseOptimizer):
             )
 
             if self._overlap_sync_param:
-                self._param_bcast_sync_handler.add_bcast_handle(rank, handle)
+                self._param_bcast_sync_handler.add_bcast_handle(rank, handle, self._broadcast_parallel_mode[group_id])
             else:
                 handles.append(handle)
 

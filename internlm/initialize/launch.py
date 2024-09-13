@@ -508,9 +508,6 @@ def args_sanity_check():
     # moe not support overlap and zero1.5 for now
     if gpc.config.model.get("num_experts", 1) > 1:
         assert not gpc.config.parallel.zero1.fsdp, "FSDP does not support num_experts > 1"
-        assert (
-            not optim_ckpt.overlap_sync_grad & optim_ckpt.overlap_sync_param
-        ), "not support overlap and moe at the same time"
         assert gpc.config.parallel.zero1.size in (
             -1,
             gpc.get_world_size(ParallelMode.DATA),
