@@ -880,17 +880,13 @@ def inject_norm(model: nn.Module, inject=False, interactive=False) -> None:
 
 
 def inject_config(model: nn.Module) -> None:
-    gpc.config.model.vocab_size = gpc.config.VOCAB_SIZE = model.config.vocab_size
-    gpc.config.model.hidden_size = gpc.config.HIDDEN_SIZE = model.config.hidden_size
-    gpc.config.model.num_layers = gpc.config.NUM_LAYER = model.config.num_hidden_layers
-    gpc.config.model.num_attention_heads = gpc.config.NUM_ATTENTION_HEAD = model.config.num_attention_heads
-    gpc.config.model.mlp_ratio = gpc.config.MLP_RATIO = model.config.intermediate_size / model.config.hidden_size
-    # For models that use GQA
-    if hasattr(model.config, "num_key_value_heads"):
-        gpc.config.model.num_kv_attention_heads = gpc.config.NUM_KV_ATTENTION_HEAD = model.config.num_key_value_heads
+    gpc.config.model.vocab_size = model.config.vocab_size
+    gpc.config.model.hidden_size = model.config.hidden_size
+    gpc.config.model.num_layers = model.config.num_hidden_layers
 
 
 def inject_model_helper(model: Union[nn.Module, nn.ModuleList], inject_info: Optional[Dict] = None) -> None:
+    # get inject_info
     if inject_info is not None:
         inject = inject_info.get("inject", False)
         interactive = inject_info.get("interactive", False)
@@ -915,6 +911,7 @@ def inject_model_helper(model: Union[nn.Module, nn.ModuleList], inject_info: Opt
     if not isinstance(model, nn.ModuleList):
         model = [model]
 
+    # inject modules
     for _chunk in model:
         if gpc.get_world_size(ParallelMode.DATA) == gpc.get_world_size(ParallelMode.GLOBAL) or gpc.get_world_size(
             ParallelMode.WEIGHT_DATA
@@ -923,14 +920,17 @@ def inject_model_helper(model: Union[nn.Module, nn.ModuleList], inject_info: Opt
         for mod in modules:
             inject_funcs[mod](_chunk, inject, interactive)
 
+    # reset parameters
     for _chunk in model:
         if inject and reset_params:
             _chunk.reset_parameters()
-        inject_config(_chunk)
 
-    if inject and gpc.is_rank_for_log():
-        logger.info(
-            f"inject is enabled, please check the model carefully, "
-            f"if there are any problems, please report issue to us. "
-            f"The injected model is \n {model}"
-        )
+    # inject configs
+    if inject:
+        inject_config(model[0])
+        if gpc.is_rank_for_log():
+            logger.info(
+                f"inject is enabled, please check the model carefully, "
+                f"if there are any problems, please report issue to us. "
+                f"The injected model is \n {model}"
+            )

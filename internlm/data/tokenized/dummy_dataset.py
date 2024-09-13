@@ -30,7 +30,7 @@ class RandomDataset(Dataset):
                 while len(d) < max_len:
                     r *= 2
                     d = list(range(n)) * r
-            # r = r % gpc.config.VOCAB_SIZE
+            # r = r % gpc.config.model.vocab_size
             d = [n, r] + d
             d = d[:max_len]
             data.append(d)

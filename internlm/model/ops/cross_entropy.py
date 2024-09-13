@@ -34,7 +34,7 @@ class _VocabSequenceParallelCrossEntropy(torch.autograd.Function):
         # vocab_seq_parallel_logits: [B * (S/P), V] -> [B, S/P, V]
         # target: [B * S/P] -> [B, S/P]
         bsz = gpc.config.data.micro_bsz if gpc.config.data.use_packed_dataset is False else 1
-        vocab_seq_parallel_logits = vocab_seq_parallel_logits.view(bsz, -1, gpc.config.VOCAB_SIZE)
+        vocab_seq_parallel_logits = vocab_seq_parallel_logits.view(bsz, -1, gpc.config.model.vocab_size)
         target = target.view(bsz, -1)
 
         # transpose
