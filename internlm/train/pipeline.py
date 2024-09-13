@@ -880,9 +880,14 @@ def inject_norm(model: nn.Module, inject=False, interactive=False) -> None:
 
 
 def inject_config(model: nn.Module) -> None:
-    gpc.config.model.vocab_size = model.config.vocab_size
-    gpc.config.model.hidden_size = model.config.hidden_size
-    gpc.config.model.num_layers = model.config.num_hidden_layers
+    gpc.config.model.vocab_size = gpc.config.VOCAB_SIZE = model.config.vocab_size
+    gpc.config.model.hidden_size = gpc.config.HIDDEN_SIZE = model.config.hidden_size
+    gpc.config.model.num_layers = gpc.config.NUM_LAYER = model.config.num_hidden_layers
+    gpc.config.model.num_attention_heads = gpc.config.NUM_ATTENTION_HEAD = model.config.num_attention_heads
+    gpc.config.model.mlp_ratio = gpc.config.MLP_RATIO = model.config.intermediate_size / model.config.hidden_size
+    # For models that use GQA
+    if hasattr(model.config, "num_key_value_heads"):
+        gpc.config.model.num_kv_attention_heads = gpc.config.NUM_KV_ATTENTION_HEAD = model.config.num_key_value_heads
 
 
 def inject_model_helper(model: Union[nn.Module, nn.ModuleList], inject_info: Optional[Dict] = None) -> None:
