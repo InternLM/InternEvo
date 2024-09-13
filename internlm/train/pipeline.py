@@ -124,6 +124,10 @@ def set_fp32_attr_for_model(model: Union[nn.Module, nn.ModuleList]):
 
 
 def set_parallel_attr_for_param_groups(model: Union[nn.Module, nn.ModuleList]):
+    def _check_module_pure_dp_wdp(name, module):  # pylint: disable=W0613
+        for param in module.parameters():
+            setattr(param, IS_REPLICA_ZERO_PARALLEL, True)
+
     def _check_module(name, module):
         # layer_norm
         if isinstance(module, (RMSNorm, nn.LayerNorm)):
@@ -169,9 +173,16 @@ def set_parallel_attr_for_param_groups(model: Union[nn.Module, nn.ModuleList]):
                 setattr(param, IS_REPLICA_ZERO_PARALLEL, True)
 
     for _chunk in unwrap_naive_amp(model):
+        # special case for pure dp or pure wdp mode
+        if gpc.get_world_size(ParallelMode.DATA) == gpc.get_world_size(ParallelMode.GLOBAL) or gpc.get_world_size(
+            ParallelMode.WEIGHT_DATA
+        ) == gpc.get_world_size(ParallelMode.GLOBAL):
+            _check_module_func = _check_module_pure_dp_wdp
+        else:
+            _check_module_func = _check_module
         # set param parallel attribute
         for name, module in _chunk.named_modules():
-            _check_module(name, module)
+            _check_module_func(name, module)
 
         for name, param in _chunk.named_parameters():
             assert (
@@ -905,9 +916,12 @@ def inject_model_helper(model: Union[nn.Module, nn.ModuleList], inject_info: Opt
         model = [model]
 
     for _chunk in model:
+        if gpc.get_world_size(ParallelMode.DATA) == gpc.get_world_size(ParallelMode.GLOBAL) or gpc.get_world_size(
+            ParallelMode.WEIGHT_DATA
+        ) == gpc.get_world_size(ParallelMode.GLOBAL):
+            continue
         for mod in modules:
             inject_funcs[mod](_chunk, inject, interactive)
-
         if inject and reset_params:
             _chunk.reset_parameters()
 
