@@ -63,7 +63,7 @@ def unpack_data(data, label):
     # per batch's index should be equal, so we select first batch
     data["indexes"] = data["indexes"][0]
 
-    # If model has inject_info and data_helper is enabled, we drop max_seqlen, and rename indexes to position_ids
+    # If model has inject_info and data_helper is enabled, we provide position_ids
     if "inject_info" in gpc.config.model and gpc.config.model.inject_info.get("data_helper", False):
         data.pop("max_seqlen")
         data["position_ids"] = data.pop("indexes").unsqueeze(0)  # [batch, seqlen]
@@ -80,7 +80,7 @@ def packed_data_normalizer(data, label):
     data["cu_seqlens"] = data["cu_seqlens"][0].squeeze(0)
     data["max_seqlen"] = (data["cu_seqlens"][1:] - data["cu_seqlens"][:-1]).max().item()
 
-    # If model has inject_info and data_helper is enabled, we provide cu_seqlens and max_seqlen in gpc, and rename indexes to position_ids
+    # If model has inject_info and data_helper is enabled, we provide position_ids, cu_seqlens, max_seqlen
     if "inject_info" in gpc.config.model and gpc.config.model.inject_info.get("data_helper", False):
         gpc.config.data[f"cu_seqlens_data_rank{gpc.get_local_rank(ParallelMode.DATA)}"] = data.pop("cu_seqlens")
         gpc.config.data[f"max_seqlen_data_rank{gpc.get_local_rank(ParallelMode.DATA)}"] = data.pop("max_seqlen")

@@ -892,7 +892,7 @@ def inject_model_helper(model: Union[nn.Module, nn.ModuleList], inject_info: Opt
         modules = []
         reset_params = False
         extra_linear2newlinear = {}
-    
+
     LINEAR2NEWLINEAR_NAME_MAPPING.update(extra_linear2newlinear)
 
     inject_funcs = {
@@ -913,7 +913,7 @@ def inject_model_helper(model: Union[nn.Module, nn.ModuleList], inject_info: Opt
 
     if inject:
         inject_config(model[0])
-        
+
         if gpc.is_rank_for_log():
             logger.info(
                 f"inject is enabled, please check the model carefully, "
