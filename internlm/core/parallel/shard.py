@@ -31,16 +31,13 @@ def _split_data_for_sequence_parallel(data, label):
         and gpc.config.parallel["tensor"].get("mode", TensorParallelMode.mtp.name) == TensorParallelMode.isp.name
     ):
         data["indexes"] = _split(data["indexes"], ParallelMode.TENSOR, dim=_indexes_seq_dim)
-    if (
-        "position_ids" in data
-        and gpc.config.parallel["tensor"].get("mode", TensorParallelMode.mtp.name) == TensorParallelMode.isp.name
-    ):
-        data["position_ids"] = _split(data["position_ids"], ParallelMode.TENSOR, dim=_indexes_seq_dim)
+
+    # NOTICE: For compatibility where the shape of position_ids is [batch, seqlen, ...]
+    if "inject_info" in gpc.config.model and gpc.config.model.inject_info.get("data_helper", False):
+        _position_ids_seq_dim = 1
+        data["position_ids"] = _split(data["position_ids"], ParallelMode.TENSOR, dim=_position_ids_seq_dim)
 
     data["input_ids"] = _split(data["input_ids"], ParallelMode.TENSOR, dim=_seq_dim)
-
-    # if gpc.config.model.parallel_output:
-    #     label = _split(label, ParallelMode.TENSOR, dim=_seq_dim)
 
     return data, label
 
