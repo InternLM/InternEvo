@@ -279,9 +279,6 @@ class TrainerBuilder(Trainer):
         loss, moe_loss = self._forward_backward(batch)
         timer("fwd-bwd").stop()
 
-        if self.isp_communicator and self.isp_communicator.enable_memory_pool:
-            self.isp_communicator.reset_lazy_pools()
-
         success_update, grad_norm_groups = self._update_parameters()
         self._record_metrics(batch_count, batch, start_time, loss, moe_loss, success_update, grad_norm_groups)
         timer("one-batch").stop()

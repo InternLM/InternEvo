@@ -506,11 +506,11 @@ class ParallelContext(metaclass=SingletonMeta):
             if "tensor" not in parallel_config:
                 parallel_config._add_item("tensor", dict(size=1, mode=TensorParallelMode.mtp.name))
             if "weight" not in parallel_config:
-                parallel_config._add_item("weight", dict(size=1, overlap=False, memory_pool=False))
+                parallel_config._add_item("weight", dict(size=1, overlap=False))
             if "expert" not in parallel_config:
                 parallel_config._add_item("expert", dict(size=-1, no_tp=False))
             if "expert_weight" not in parallel_config:
-                parallel_config._add_item("expert_weight", dict(size=1, overlap=False, memory_pool=False))
+                parallel_config._add_item("expert_weight", dict(size=1, overlap=False))
             # set default value for sequence_2D
             if "sequence_2D" not in parallel_config:
                 parallel_config._add_item(

@@ -2,7 +2,6 @@
 # -*- encoding: utf-8 -*-
 
 from abc import ABC, abstractmethod
-from typing import Callable
 
 import torch
 import torch.distributed as dist
@@ -216,18 +215,14 @@ def all_gather_raw(
     process_group: ProcessGroup,
     async_op: bool = False,
     gather_dim: int = 0,
-    memory_pool_allocator: Callable = None,
 ):
     world_size = dist.get_world_size(process_group)
     if world_size <= 1:
         return input_, None
 
-    if memory_pool_allocator is not None:
-        output = memory_pool_allocator()
-    else:
-        shape = list(input_.shape)
-        shape[gather_dim] = shape[gather_dim] * world_size
-        output = torch.empty(shape, dtype=input_.dtype, device=input_.device)
+    shape = list(input_.shape)
+    shape[gather_dim] = shape[gather_dim] * world_size
+    output = torch.empty(shape, dtype=input_.dtype, device=input_.device)
 
     handle = dist.all_gather_into_tensor(output, input_.contiguous(), group=process_group, async_op=async_op)
     return output, handle
@@ -239,7 +234,6 @@ def reduce_scatter_raw(
     op=dist.ReduceOp.SUM,
     async_op: bool = False,
     reduce_dim: int = 0,
-    memory_pool_allocator: Callable = None,
 ):
     world_size = dist.get_world_size(process_group)
     assert input_.shape[reduce_dim] % world_size == 0
@@ -250,14 +244,11 @@ def reduce_scatter_raw(
     shape_list = list(input_.shape)
     shape_list[reduce_dim] = shape_list[reduce_dim] // world_size
 
-    if memory_pool_allocator is not None:
-        output = memory_pool_allocator(tuple(shape_list))
-    else:
-        output = torch.empty(
-            shape_list,
-            dtype=input_.dtype,
-            device=input_.device,
-        ).contiguous()
+    output = torch.empty(
+        shape_list,
+        dtype=input_.dtype,
+        device=input_.device,
+    ).contiguous()
 
     handle = dist.reduce_scatter_tensor(output, input_.contiguous(), op=op, group=process_group, async_op=async_op)
     return output, handle

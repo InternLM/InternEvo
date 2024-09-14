@@ -44,7 +44,7 @@ def train_check(args):
     config.model.num_chunks = num_chunks
     config.parallel.tensor = dict(size=2, mode=f"{mode}")
     if mode == "isp":
-        config.parallel.weight = dict(size=4, overlap=True, memory_pool=True)
+        config.parallel.weight = dict(size=4, overlap=True)
 
     build_environment(rank, world_size, free_port, config)
 
@@ -107,9 +107,6 @@ def train_check(args):
             return_loss=True,
             return_output_label=False,
         )
-
-        if isp_communicator and isp_communicator.enable_memory_pool:
-            isp_communicator.memory_pool.reset_lazy_pools()
 
         trainer.step()
         internlm_accelerator.reset_peak_memory_stats()

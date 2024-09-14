@@ -58,11 +58,10 @@ pipeline parallel (dict):
 weight parallel (dict):
     1. size: int, the size of weight parallel.
     2. overlap: bool, enable/disable all_gather/reduce_scatter communication overlap, defaults to False.
-    3. memory_pool: bool, enable/disable memory pool, defaults to False.
 """
 parallel = dict(
     zero1=dict(size=8),
     tensor=dict(size=1, mode="mtp"),
     pipeline=dict(size=1, interleaved_overlap=True),
-    weight=dict(size=1, overlap=True, memory_pool=True),
+    weight=dict(size=1, overlap=True),
 )

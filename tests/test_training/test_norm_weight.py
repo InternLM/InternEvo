@@ -63,7 +63,7 @@ def train_check_norm_weight(args):
     config.lr_scheduler.total_steps = total_steps
     config.parallel.tensor = dict(size=2, mode=f"{sp}")
     if sp == "isp":
-        config.parallel.weight = dict(size=4, overlap=True, memory_pool=True)
+        config.parallel.weight = dict(size=4, overlap=True)
     config.data.train_folder = os.path.join(share_data_path, "quality_assurance/0715_data/train")
 
     build_environment(rank, world_size, free_port, config)
@@ -130,9 +130,6 @@ def train_check_norm_weight(args):
             return_loss=True,
             return_output_label=False,
         )
-
-        if isp_communicator and isp_communicator.enable_memory_pool:
-            isp_communicator.memory_pool.reset_lazy_pools()
 
         trainer.step()
 

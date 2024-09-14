@@ -167,7 +167,7 @@ parallel = dict(
     zero1=dict(size=-1),
     tensor=dict(size=1, mode="mtp"),
     pipeline=dict(size=1, interleaved_overlap=True),
-    weight=dict(size=1, overlap=True, memory_pool=True),
+    weight=dict(size=1, overlap=True),
 )
 
 cudnn_deterministic = False

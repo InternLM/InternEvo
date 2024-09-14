@@ -283,13 +283,12 @@ pipeline parallel (dict):
 weight parallel (dict):
     1. size: int, the size of weight parallel.
     2. overlap: bool, enable/disable all_gather/reduce_scatter communication overlap, defaults to False.
-    3. memory_pool: bool, enable/disable memory pool, defaults to False.
 """
 parallel = dict(
     zero1=dict(size=-1),
     tensor=dict(size=1, mode="mtp"),
     pipeline=dict(size=1, interleaved_overlap=True),
-    weight=dict(size=1, overlap=True, memory_pool=True),
+    weight=dict(size=1, overlap=True),
 )
 
 cudnn_deterministic = False
@@ -425,7 +424,7 @@ parallel = dict(
     zero1=dict(size=-1),
     tensor=dict(size=1, mode="mtp"),
     pipeline=dict(size=1, interleaved_overlap=True),
-    weight=dict(size=1, overlap=True, memory_pool=True),
+    weight=dict(size=1, overlap=True),
 )
 ```
 - zero1（字典）：
@@ -447,7 +446,6 @@ parallel = dict(
 - weight（字典）：
   1. size: 整数，权重并行的大小。
   2. overlap: 布尔值，启用/禁用all_gather/reduce_scatter通信重叠，默认为False。
-  3. memory_pool: 布尔值，启用/禁用内存池，默认为False。
 
 注意：`数据并行大小 = 总的 GPU 数目 / 流水线并行大小 / 张量并行大小`
 

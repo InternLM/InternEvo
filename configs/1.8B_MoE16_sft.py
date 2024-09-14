@@ -185,7 +185,6 @@ pipeline parallel (dict):
 weight parallel (dict):
     1. size: int, the size of weight parallel.
     2. overlap: bool, enable/disable all_gather/reduce_scatter communication overlap, defaults to False.
-    3. memory_pool: bool, enable/disable memory pool, defaults to False.
 expert parallel (dict):
     1. size: int
         * if size <= 0, ep size equals to dp size, but if the number of experts is smaller than dp size, set ep size
@@ -196,15 +195,14 @@ expert parallel (dict):
 expert weight parallel (dict):
     1. size: int, the size of weight parallel for expert module, distinct with global weight parallel size.
     2. overlap: bool, enable/disable all_gather/reduce_scatter communication overlap, defaults to False.
-    3. memory_pool: bool, enable/disable memory pool, defaults to False.
 """
 parallel = dict(
     zero1=dict(size=-1, fsdp=False),
     tensor=dict(size=1, mode="mtp"),
     pipeline=dict(size=1, interleaved_overlap=True),
-    weight=dict(size=1, overlap=True, memory_pool=True),
+    weight=dict(size=1, overlap=True),
     expert=dict(size=-1, no_tp=False),
-    expert_weight=dict(size=1, overlap=True, memory_pool=True),
+    expert_weight=dict(size=1, overlap=True),
 )
 
 cudnn_deterministic = False

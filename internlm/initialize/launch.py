@@ -88,13 +88,13 @@ def args_sanity_check():
         gpc.config.parallel._add_item("tensor", dict(size=1, mode=TensorParallelMode.mtp.name))
 
     if "weight" not in gpc.config.parallel:
-        gpc.config.parallel._add_item("weight", dict(size=1, overlap=False, memory_pool=False))
+        gpc.config.parallel._add_item("weight", dict(size=1, overlap=False))
 
     if "expert" not in gpc.config.parallel:
         gpc.config.parallel._add_item("expert", dict(size=-1, no_tp=False))
 
     if "expert_weight" not in gpc.config.parallel:
-        gpc.config.parallel._add_item("expert_weight", dict(size=1, overlap=False, memory_pool=False))
+        gpc.config.parallel._add_item("expert_weight", dict(size=1, overlap=False))
 
     if isinstance(gpc.config.parallel.pipeline, int):
         pp = gpc.config.parallel.pipeline
@@ -424,15 +424,11 @@ def args_sanity_check():
     # set default value for weight parallel
     if gpc.config.parallel["weight"].get("overlap", None) is None:
         gpc.config.parallel["weight"]["overlap"] = False
-    if gpc.config.parallel["weight"].get("memory_pool", None) is None:
-        gpc.config.parallel["weight"]["memory_pool"] = False
     if gpc.config.parallel["tensor"]["mode"] != TensorParallelMode.isp.name:
         assert gpc.config.parallel["weight"]["size"] <= 1, "weight parallel is only supported with isp"
     # set default value for expert_weight parallel
     if gpc.config.parallel["expert_weight"].get("overlap", None) is None:
         gpc.config.parallel["expert_weight"]["overlap"] = False
-    if gpc.config.parallel["expert_weight"].get("memory_pool", None) is None:
-        gpc.config.parallel["expert_weight"]["memory_pool"] = False
     if gpc.config.parallel["expert"].get("no_tp", None) is None:
         gpc.config.parallel["expert"]["no_tp"] = False
     # currently only interleaved pipeline scheduler with overlap can guarantee loss accuracy

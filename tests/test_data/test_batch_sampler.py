@@ -155,7 +155,7 @@ def test_warmup(use_flash_atten_case, group_case, micro_bsz_case):
                 zero1=dict(size=1, fsdp=False),
                 tensor=dict(size=1, mode="mtp"),
                 pipeline=dict(size=1, interleaved_overlap=True),
-                weight=dict(size=1, overlap=True, memory_pool=True),
+                weight=dict(size=1, overlap=True),
             ),
             data=dict(
                 type="tokenized",

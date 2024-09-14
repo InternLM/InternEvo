@@ -102,7 +102,7 @@ def train(
         config.parallel.pipeline = dict(size=pp_size, zero_bubble=True)
     else:
         config.parallel.pipeline = dict(size=pp_size)
-    config.parallel.weight = dict(size=wp_size, overlap=True, memory_pool=True)
+    config.parallel.weight = dict(size=wp_size, overlap=True)
     if interleaved is True:
         config.parallel.pipeline = dict(size=pp_size, interleaved_overlap=True)
         config.model.num_chunks = num_chunks
@@ -261,9 +261,6 @@ def train(
             global cur_loss_list  # pylint: disable=W0602
             cur_loss_list.append((loss.item() - moe_loss.item() if moe_loss is not None else loss.item()))
         timer("fwd-bwd").stop()
-
-        if isp_communicator and isp_communicator.enable_memory_pool:
-            isp_communicator.reset_lazy_pools()
 
         # update parameters, and returns (success_update, grad_norm)
         trainer_result = trainer.step()

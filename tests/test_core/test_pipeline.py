@@ -24,7 +24,7 @@ config = Config(
             zero1=dict(size=1, fsdp=False),
             tensor=dict(size=1, mode="mtp"),
             pipeline=dict(size=8, interleaved_overlap=True),
-            weight=dict(size=1, overlap=True, memory_pool=True),
+            weight=dict(size=1, overlap=True),
         ),
         model_type="INTERNLM",
         data=dict(

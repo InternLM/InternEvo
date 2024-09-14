@@ -276,99 +276,6 @@ class ISPCommModelConfig:
         self.module_shapes = module_shapes
 
 
-class MemoryPool:
-    """
-    memory pool for isp communication.
-    """
-
-    def __init__(
-        self,
-        model_conf: ISPCommModelConfig,
-        with_bias: bool = False,
-    ) -> None:
-        self._dtype = model_conf.dtype
-        self._device = model_conf.device
-        self._module_shapes = model_conf.module_shapes
-
-        # due to intern sequence parallel communication overlap, we need
-        # **two** memory pools for current block weights and the next block weights.
-        self.__all_gather_pool_len = 2
-        # memory pool for weight all gather communications.
-        self._all_gather_weight_memory_pool = [
-            {
-                name: torch.zeros(shape, dtype=self._dtype, device=self._device).contiguous()
-                for name, shape in self._module_shapes.items()
-            }
-            for _ in range(self.__all_gather_pool_len)
-        ]
-        # memory pool for bias all gather communications.
-        if not with_bias:
-            self._all_gather_bias_memory_pool = None
-        else:
-            self._all_gather_bias_memory_pool = [
-                {
-                    name: torch.zeros(shape[0], dtype=self._dtype, device=self._device).contiguous()
-                    for name, shape in self._module_shapes.items()
-                }
-                for _ in range(self.__all_gather_pool_len)
-            ]
-
-        # memory pool for reduce scatter communications, allocated lazily.
-        self._reduce_scatter_memory_pool = {}
-        # memory pool for constant zero tensors, allocated lazily.
-        self._zero_const_pool = {}
-
-    def allocate_constant_zero(self, size: tuple) -> torch.Tensor:
-        if size not in self._zero_const_pool:
-            self._zero_const_pool[size] = torch.zeros(*size, dtype=self._dtype, device=self._device).contiguous()
-
-        return self._zero_const_pool[size]
-
-    def allocate_all_gather_memory(self, block_index: int, module_name: str, is_bias: bool = False) -> torch.Tensor:
-        # TODO: should we trace the usage of each memory block to avoid reusing
-        # same memory block, which will hides some potential bugs.
-        if not is_bias:
-            mem = self._all_gather_weight_memory_pool[block_index % 2][module_name]
-        else:
-            enable_bias = self._all_gather_bias_memory_pool is not None
-            assert enable_bias, "memory bool for bias is disabled."
-
-            mem = self._all_gather_bias_memory_pool[block_index % 2][module_name]
-
-        return mem
-
-    def allocate_reduce_scatter_memory(self, key: tuple) -> torch.Tensor:
-        # if key not in dict
-        if key not in self._reduce_scatter_memory_pool:
-            self._reduce_scatter_memory_pool[key] = []
-
-        for index, mem_item in enumerate(self._reduce_scatter_memory_pool[key]):
-            if mem_item.idle is True:
-                self._reduce_scatter_memory_pool[key][index].idle = False
-                return self._reduce_scatter_memory_pool[key][index]
-
-        # if the memory pool is all used
-        new_item = torch.zeros(
-            key,
-            dtype=self._dtype,
-            device=self._device,
-        ).contiguous()
-        setattr(new_item, "idle", False)
-        setattr(new_item, "index", len(self._reduce_scatter_memory_pool[key]))
-        self._reduce_scatter_memory_pool[key].append(new_item)
-
-        return new_item
-
-    def free_reduce_scatter_memory(self, key, index):
-        self._reduce_scatter_memory_pool[key][index].idle = True
-
-    def reset_lazy_pools(self) -> None:
-        # Should memory pool re-allocate all gather memory for every interation?
-        # Currently, it just clear the memory pool for reduce scatter communication.
-        self._zero_const_pool = {}
-        self._reduce_scatter_memory_pool = {}
-
-
 class ISPOverlapState:
     """
     Overlap state for isp.
@@ -398,12 +305,10 @@ class ISPCommunicator(WPCommunicator):
         model: Union[nn.Module, nn.ModuleList],
         model_conf: ISPCommModelConfig,
         overlap: bool = False,
-        enable_memory_pool: bool = False,
         process_group: dist.ProcessGroup = None,
     ) -> None:
         self.process_group = process_group
         self.overlap = overlap
-        self.enable_memory_pool = overlap and enable_memory_pool
         self.model_conf = model_conf
         self.is_forward = True
         self.reduce_scatter_handlers = {}
@@ -444,12 +349,6 @@ class ISPCommunicator(WPCommunicator):
             # switch to chunk 0 at first.
             self.switch_current_model_chunk(0)
             self.model_conf.module_shapes = self._module_shapes
-
-            # init memory pool if necessary.
-            if self.enable_memory_pool:
-                self.memory_pool = MemoryPool(self.model_conf, with_bias=True)
-            else:
-                self.memory_pool = None
 
     def _parse_model_structure(self, cid: int, model: nn.Module) -> None:
         self._overlap_states[cid] = ISPOverlapState()
@@ -500,27 +399,6 @@ class ISPCommunicator(WPCommunicator):
 
     def _all_gather_module_weight(self, module):
         with_bias = module.bias is not None
-        block_index = self._module_to_index[module]
-
-        # prepare memory pool allocator for weight and bias.
-        if self.enable_memory_pool:
-            weight_memory_pool_allocator = partial(
-                self.memory_pool.allocate_all_gather_memory,
-                block_index,
-                module.isp_name,
-            )
-        else:
-            weight_memory_pool_allocator = None
-
-        if self.enable_memory_pool and with_bias:
-            bias_memory_pool_allocator = partial(
-                self.memory_pool.allocate_all_gather_memory,
-                block_index,
-                module.isp_name,
-                is_bias=True,
-            )
-        else:
-            bias_memory_pool_allocator = None
 
         # submit the all-gather communication for weight and bias.
         if with_bias:
@@ -528,7 +406,6 @@ class ISPCommunicator(WPCommunicator):
                 module.bias,
                 self.process_group,
                 async_op=True,
-                memory_pool_allocator=bias_memory_pool_allocator,
             )
             self._bias_global_handle[module] = bias_handle
             self._bias_global_output[module] = bias_output
@@ -537,7 +414,6 @@ class ISPCommunicator(WPCommunicator):
             module.weight,
             self.process_group,
             async_op=True,
-            memory_pool_allocator=weight_memory_pool_allocator,
         )
         self._weight_global_handle[module] = weight_handle
         self._weight_global_output[module] = weight_output
@@ -665,14 +541,11 @@ class ISPCommunicator(WPCommunicator):
             module.register_full_backward_hook(self._post_backward_hook_for_module)
 
     def _get_constant_zero(self, size: tuple) -> torch.Tensor:
-        if self.enable_memory_pool:
-            return self.memory_pool.allocate_constant_zero(size)
-        else:
-            return torch.zeros(
-                *size,
-                dtype=self.model_conf.dtype,
-                device=self.model_conf.device,
-            ).contiguous()
+        return torch.zeros(
+            *size,
+            dtype=self.model_conf.dtype,
+            device=self.model_conf.device,
+        ).contiguous()
 
     def communication_mode(self) -> str:
         return "wp"
@@ -764,9 +637,6 @@ class ISPCommunicator(WPCommunicator):
                 self.process_group,
                 op=reduce_op,
                 async_op=async_op,
-                memory_pool_allocator=(
-                    self.memory_pool.allocate_reduce_scatter_memory if self.enable_memory_pool else None
-                ),
             )
 
             result, handle = (
@@ -816,9 +686,6 @@ class ISPCommunicatorSchedulerHook(SchedulerHook):
         # accumulate left gradients in last bucket after backward.
         if self._isp_communicator and self._isp_communicator.overlap:
             self._zero_optim.accumulate_left_grads_after_backward()
-        # reset lazy memory pools for reduce scatter after every micro step.
-        if self._isp_communicator and self._isp_communicator.enable_memory_pool:
-            self._isp_communicator.memory_pool.reset_lazy_pools()
 
     def post_helper_func(self, scheduler, outputs, label) -> None:  # pylint: disable=W0613
         pass
@@ -837,28 +704,9 @@ class ISPCommunicatorWrapper:
         self.isp_communicators = isp_communicators
         self.reduce_scatter_handlers = {}
 
-        self.memory_pools = [
-            isp_communicator.memory_pool
-            for isp_communicator in self.isp_communicators
-            if isp_communicator.enable_memory_pool
-        ]
         self.reduce_scatter_handlers = UniqueChainMap(
             *(isp_communicator.reduce_scatter_handlers for isp_communicator in self.isp_communicators)
         )
-
-        if self.memory_pools:
-            self.enable_memory_pool = True
-        else:
-            self.enable_memory_pool = False
-
-    def free_reduce_scatter_memory(self, key, index):
-        for memory_pool in self.memory_pools:
-            if key in memory_pool._reduce_scatter_memory_pool:
-                memory_pool.free_reduce_scatter_memory(key, index)
-
-    def reset_lazy_pools(self) -> None:
-        for memory_pool in self.memory_pools:
-            memory_pool.reset_lazy_pools()
 
     def register_prerequisite_for_forward_prefetch_hooks(self, prerequisite_func: Callable) -> None:
         for isp_communicator in self.isp_communicators:

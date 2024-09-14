@@ -299,7 +299,7 @@ def initialize_parallel_communicator(model: Union[nn.Module, nn.ModuleList]):
         model (:class:`torch.nn.Module`): Your model instance to be trained or evaluated.
 
     Returns:
-        An isp communicator for managing comp/comm overlap and memory pool.
+        An isp communicator for managing comp/comm overlap.
     """
     isp_communicator_wrapper = None
     _retain_out_sharded = gpc.config.model.get("parallel_output", True)
@@ -313,7 +313,6 @@ def initialize_parallel_communicator(model: Union[nn.Module, nn.ModuleList]):
                 gpc.config.model.checkpoint,
             ),
             gpc.config.parallel.weight.overlap,
-            gpc.config.parallel.weight.memory_pool,
             gpc.get_group(ParallelMode.WEIGHT),
         )
         # register communicator for isp column parallel linear.
@@ -338,7 +337,6 @@ def initialize_parallel_communicator(model: Union[nn.Module, nn.ModuleList]):
                     gpc.config.model.checkpoint,
                 ),
                 gpc.config.parallel.expert_weight.overlap,
-                gpc.config.parallel.expert_weight.memory_pool,
                 gpc.get_group(ParallelMode.EXPERT_WEIGHT),
             )
             for moe in _submodule_filter(model, Experts):
