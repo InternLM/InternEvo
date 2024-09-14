@@ -16,7 +16,8 @@ from internlm.data.streaming.batch_sampler import StreamingStaticBatchSampler
 from internlm.data.streaming.collaters import streaming_packed_collate_fn
 from internlm.data.streaming.dataset import (
     StreamingDataset,
-    StreamingPackedDatasetWithCut,
+    StreamingDatasetPackSampleWithPad,
+    StreamingDatasetPackSampleIntoOneWithCut,
 )
 from internlm.data.tokenized.batch_sampler import (
     StaticBatchSampler,
@@ -128,7 +129,6 @@ def get_tokenized_valid_loader_items(data_cfg):
 
 
 def get_streaming_train_loader_items(data_cfg):
-    assert not data_cfg.pack_sample_into_one, "streaming dataloader curently only supports pack_sample_into_one=False"
     train_ds = StreamingDataset(
         dataset_path=data_cfg.train_folder,
         tokenizer_path=data_cfg.tokenizer_path,
@@ -136,11 +136,18 @@ def get_streaming_train_loader_items(data_cfg):
         content_name=data_cfg.get("content_name", "text"),
         subset_name=data_cfg.get("subset_name", None),
     )
-    train_ds = StreamingPackedDatasetWithCut(
-        dataset=train_ds,
-        seq_len=data_cfg.seq_len,
-        micro_bsz=data_cfg.micro_bsz,
-    )
+    if data_cfg.get("pack_sample_into_one", False):  
+        train_ds = StreamingDatasetPackSampleIntoOneWithCut(
+            dataset=train_ds,
+            seq_len=data_cfg.seq_len,
+            micro_bsz=data_cfg.micro_bsz,
+        )
+    else:
+        train_ds = StreamingDatasetPackSampleWithPad(
+            dataset=train_ds,
+            seq_len=data_cfg.seq_len,
+            micro_bsz=data_cfg.micro_bsz,
+        )
     train_sampler = StreamingStaticBatchSampler(
         batch_size=data_cfg.micro_num, rampup_batch_size=data_cfg.rampup_batch_size
     )
