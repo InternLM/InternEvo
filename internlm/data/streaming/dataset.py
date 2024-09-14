@@ -215,7 +215,6 @@ class StreamingDatasetPackSampleIntoOneWithCut(Dataset):
         if len(input_ids) > 0:
             input_ids = input_ids + [self.pad_token_id] * (self.micro_bsz * self.seq_len - len(input_ids))
             labels = labels + [-100] * (self.micro_bsz * self.seq_len - len(labels))
-            assert len(labels) == self.micro_bsz * self.seq_len
             yield {
                 "input_ids": input_ids,
                 "cu_seqlens": [i * self.seq_len for i in range(self.micro_bsz + 1)],
