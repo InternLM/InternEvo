@@ -66,13 +66,13 @@ class StreamingDatasetPackSampleWithPad(Dataset):
     """
     Streaming dataset with pack_sample_into_one=False
 
-    StreamingDatasetPackSampleWithPad streaming and on-the-fly consumes data samples, then aggregates 
+    StreamingDatasetPackSampleWithPad streaming and on-the-fly consumes data samples, then aggregates
     samples of different lengths together based on the packed_length=seq_len*micro_bsz using pad mode.
 
     seq_len = 5
     micro_bsz = 2
     packed_length = 5 * 2 = 10
-    
+
     Original dataset:
     [1, 2]
     [3, 4]
@@ -81,7 +81,7 @@ class StreamingDatasetPackSampleWithPad(Dataset):
     [13, 14]
 
     --->
-    
+
     Packed dataset:
     input_ids=[1, 2, 3, 4, 5, 6, 7, 0, 0, 0], cu_seqlens=[0, 2, 4, 7, 10]
     input_ids=[8, 9, 10, 11, 12, 13, 14, 0, 0, 0], cu_seqlens=[0, 5, 7, 10]
@@ -126,7 +126,7 @@ class StreamingDatasetPackSampleWithPad(Dataset):
                 cu_seqlens.append(len(sample["input_ids"]) + cu_seqlens[-1])
                 labels = labels + [w if w > 0 else -100 for w in sample["input_ids"]][1:] + [-100]
 
-        if len(input_ids)>0:
+        if len(input_ids) > 0:
             input_ids = input_ids + [self.pad_token_id] * (self.micro_bsz * self.seq_len - len(input_ids))
             cu_seqlens = (
                 cu_seqlens + [self.micro_bsz * self.seq_len]
@@ -155,14 +155,14 @@ class StreamingDatasetPackSampleIntoOneWithCut(Dataset):
 
     """
     Streaming dataset with pack_sample_into_one=True
-    
-    StreamingDatasetPackSampleIntoOneWithCut streaming and on-the-fly consumes data samples, then aggregates 
+
+    StreamingDatasetPackSampleIntoOneWithCut streaming and on-the-fly consumes data samples, then aggregates
     samples of different lengths together based on the packed_length=seq_len*micro_bsz using cut mode.
 
     seq_len = 5
     micro_bsz = 2
     packed_length = 5 * 2 = 10
-    
+
     Original dataset:
     [1, 2]
     [3, 4]
@@ -171,13 +171,13 @@ class StreamingDatasetPackSampleIntoOneWithCut(Dataset):
     [13, 14]
 
     --->
-    
+
     Packed dataset:
     input_ids=[1, 2, 3, 4, 5, 6, 7, 8, 9, 10], cu_seqlens=[0, 5, 10]
     input_ids=[11, 12, 13, 14, 0, 0, 0, 0, 0, 0], cu_seqlens=[0, 5, 10]
-    
+
     """
-    
+
     def __init__(self, dataset, seq_len, micro_bsz, pad_token_id=0):
         self.dataset = dataset
         self.seq_len = seq_len
@@ -190,7 +190,7 @@ class StreamingDatasetPackSampleIntoOneWithCut(Dataset):
         labels = []
         for sample in self.dataset:
             if len(input_ids + sample["input_ids"]) > self.micro_bsz * self.seq_len:
-                cut_input_ids = sample["input_ids"][:self.micro_bsz * self.seq_len - len(input_ids)]
+                cut_input_ids = sample["input_ids"][: self.micro_bsz * self.seq_len - len(input_ids)]
                 if len(cut_input_ids) > 0:
                     input_ids = input_ids + cut_input_ids
                     labels = labels + [w if w > 0 else -100 for w in cut_input_ids][1:] + [-100]
@@ -201,7 +201,7 @@ class StreamingDatasetPackSampleIntoOneWithCut(Dataset):
                     "labels": labels,
                     "type_ids": [0] * (self.micro_bsz * self.seq_len),
                 }
-                cut_residual_input_ids = sample["input_ids"][self.micro_bsz * self.seq_len - len(input_ids):]
+                cut_residual_input_ids = sample["input_ids"][self.micro_bsz * self.seq_len - len(input_ids) :]
                 if len(cut_residual_input_ids) > 0:
                     input_ids = cut_residual_input_ids
                     labels = [w if w > 0 else -100 for w in cut_residual_input_ids][1:] + [-100]
@@ -212,7 +212,7 @@ class StreamingDatasetPackSampleIntoOneWithCut(Dataset):
                 input_ids = input_ids + sample["input_ids"]
                 labels = labels + [w if w > 0 else -100 for w in sample["input_ids"]][1:] + [-100]
 
-        if len(input_ids)>0:
+        if len(input_ids) > 0:
             input_ids = input_ids + [self.pad_token_id] * (self.micro_bsz * self.seq_len - len(input_ids))
             labels = labels + [-100] * (self.micro_bsz * self.seq_len - len(labels))
             assert len(labels) == self.micro_bsz * self.seq_len

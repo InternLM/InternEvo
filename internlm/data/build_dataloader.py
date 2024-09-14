@@ -16,8 +16,8 @@ from internlm.data.streaming.batch_sampler import StreamingStaticBatchSampler
 from internlm.data.streaming.collaters import streaming_packed_collate_fn
 from internlm.data.streaming.dataset import (
     StreamingDataset,
-    StreamingDatasetPackSampleWithPad,
     StreamingDatasetPackSampleIntoOneWithCut,
+    StreamingDatasetPackSampleWithPad,
 )
 from internlm.data.tokenized.batch_sampler import (
     StaticBatchSampler,
@@ -136,7 +136,7 @@ def get_streaming_train_loader_items(data_cfg):
         content_name=data_cfg.get("content_name", "text"),
         subset_name=data_cfg.get("subset_name", None),
     )
-    if data_cfg.get("pack_sample_into_one", False):  
+    if data_cfg.get("pack_sample_into_one", False):
         train_ds = StreamingDatasetPackSampleIntoOneWithCut(
             dataset=train_ds,
             seq_len=data_cfg.seq_len,

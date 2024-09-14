@@ -46,9 +46,11 @@ ckpt = dict(
     oss_snapshot_freq=int(CHECKPOINT_EVERY / 2),  # snapshot ckpt save frequency.
 )
 
-TRAIN_FOLDER = None  # "/path/to/dataset"
-VALID_FOLDER = None  # "/path/to/dataset"
+TRAIN_FOLDER = "roneneldan/TinyStories"
+VALID_FOLDER = None
 data = dict(
+    type="streaming",
+    tokenizer_path="internlm/internlm-7b",
     seq_len=SEQ_LEN,
     # micro_num means the number of micro_batch contained in one gradient update
     micro_num=4,
