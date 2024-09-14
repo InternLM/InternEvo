@@ -39,6 +39,9 @@ def _split_data_for_sequence_parallel(data, label):
 
     data["input_ids"] = _split(data["input_ids"], ParallelMode.TENSOR, dim=_seq_dim)
 
+    # if gpc.config.model.parallel_output:
+    #     label = _split(label, ParallelMode.TENSOR, dim=_seq_dim)
+
     return data, label
 
 
