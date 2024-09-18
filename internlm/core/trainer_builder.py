@@ -235,7 +235,7 @@ class TrainerBuilder(Trainer):
 
     def _initialize_batch_skipper(self, train_state) -> BatchSkipper:
         skip_batches = gpc.config.data.skip_batches
-        if gpc.config.data.type == DataType.tokenized.name and gpc.config.ckpt.auto_resume:
+        if gpc.config.data.type == DataType.streaming.name and gpc.config.ckpt.auto_resume:
             skip_batches = streaming_simple_resume(train_state)
         return BatchSkipper(skip_batches)
 
