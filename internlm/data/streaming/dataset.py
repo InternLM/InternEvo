@@ -18,15 +18,15 @@ class StreamingDataset(Dataset):
 
     def __init__(
         self,
-        dataset_path,
+        train_folder,
         tokenizer_path,
         model_max_length,
         content_name="text",
         subset_name=None,
         split="train",
-        buffer_size=1000,
+        buffer_size=1024,
     ):
-        self.dataset = datasets.load_dataset(dataset_path, data_dir=subset_name, split=split, streaming=True)
+        self.dataset = datasets.load_dataset(train_folder, data_dir=subset_name, split=split, streaming=True)
         self.dataset = split_dataset_by_node(
             self.dataset, rank=gpc.get_local_rank(ParallelMode.DATA), world_size=gpc.get_world_size(ParallelMode.DATA)
         )

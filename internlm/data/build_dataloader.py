@@ -130,7 +130,7 @@ def get_tokenized_valid_loader_items(data_cfg):
 
 def get_streaming_train_loader_items(data_cfg):
     train_ds = StreamingDataset(
-        dataset_path=data_cfg.train_folder,
+        train_folder=data_cfg.train_folder,
         tokenizer_path=data_cfg.tokenizer_path,
         model_max_length=data_cfg.seq_len,
         content_name=data_cfg.get("content_name", "text"),
