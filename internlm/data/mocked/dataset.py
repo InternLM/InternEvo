@@ -67,17 +67,22 @@ class MockedDataset(Dataset):
 
     """
 
-    def __init__(self, data_dir: str, micro_bsz: int, micro_num: int, seq_len: int):
+    def __init__(self, train_folder: str, micro_bsz: int, micro_num: int, seq_len: int):
+
+        self.micro_bsz = micro_bsz
+        self.micro_num = micro_num
+        self.seq_len = seq_len
+
         dp_size = gpc.get_world_size(ParallelMode.DATA)
         dp_rank = gpc.get_local_rank(ParallelMode.DATA)
-        mocked_steps = get_mocked_steps(data_dir)
+        mocked_steps = get_mocked_steps(train_folder)
 
         tokens_list = []
         labels_list = []
         for i in range(mocked_steps):
             # define fn pattern
-            tokens_fn_pattern = f"{data_dir}/tokens_step{i}_dp*"
-            labels_fn_pattern = f"{data_dir}/labels_step{i}_dp*"
+            tokens_fn_pattern = f"{train_folder}/tokens_step{i}_dp*"
+            labels_fn_pattern = f"{train_folder}/labels_step{i}_dp*"
 
             # merge per-step mocked data and chunk across dp ranks
             tokens = torch.chunk(merge_tensors(tokens_fn_pattern), dp_size)[dp_rank]  # (micro_num * micro_bsz, seq_len)
@@ -102,24 +107,8 @@ class MockedDataset(Dataset):
             item.tolist() for item in split_tensors([db_labels[i] for i in range(db_labels.size(0))], micro_bsz)
         ]
 
-        self.micro_bsz = micro_bsz
-        self.seq_len = seq_len
-
         # simple sanity check: ensure loaded per-step data is equivalent to saved per-step data
-        tokens_list_tocheck = []
-        for i in range(len(self.db_tokens)):
-            tokens_list_tocheck += self.db_tokens[i]
-            if (i + 1) % micro_num == 0:
-                tokens_list_ref = tokens_list[i // micro_num].flatten(0, 1).tolist()
-                assert tokens_list_tocheck == tokens_list_ref
-                tokens_list_tocheck = []
-        labels_list_tocheck = []
-        for i in range(len(self.db_labels)):
-            labels_list_tocheck += self.db_labels[i]
-            if (i + 1) % micro_num == 0:
-                labels_list_ref = labels_list[i // micro_num].flatten(0, 1).tolist()
-                assert labels_list_tocheck == labels_list_ref
-                labels_list_tocheck = []
+        self.sanity_check(tokens_list, labels_list)
 
     def __len__(self) -> int:
         return len(self.db_tokens)
@@ -132,3 +121,20 @@ class MockedDataset(Dataset):
             "labels": self.db_labels[idx],
             "type_ids": [0] * (self.micro_bsz * self.seq_len),
         }
+
+    def sanity_check(self, tokens_list: List[torch.Tensor], labels_list: List[torch.Tensor]):
+        tokens_list_tocheck = []
+        for i in range(len(self.db_tokens)):
+            tokens_list_tocheck += self.db_tokens[i]
+            if (i + 1) % self.micro_num == 0:
+                tokens_list_ref = tokens_list[i // self.micro_num].flatten(0, 1).tolist()
+                assert tokens_list_tocheck == tokens_list_ref, "loaded tokens not equivalent to saved tokens"
+                tokens_list_tocheck = []
+
+        labels_list_tocheck = []
+        for i in range(len(self.db_labels)):
+            labels_list_tocheck += self.db_labels[i]
+            if (i + 1) % self.micro_num == 0:
+                labels_list_ref = labels_list[i // self.micro_num].flatten(0, 1).tolist()
+                assert labels_list_tocheck == labels_list_ref, "loaded labels not equivalent to saved labels"
+                labels_list_tocheck = []

@@ -199,8 +199,11 @@ def get_megatron_train_loader_items(data_cfg):
 
 
 def get_mock_train_loader_items(data_cfg):
+    assert data_cfg.get(
+        "pack_sample_into_one", False
+    ), "mocked dataloader curently only supports pack_sample_into_one=True"
     train_ds = MockedDataset(
-        data_dir=data_cfg.train_folder,
+        train_folder=data_cfg.train_folder,
         micro_bsz=data_cfg.micro_bsz,
         micro_num=data_cfg.micro_num,
         seq_len=data_cfg.seq_len,
