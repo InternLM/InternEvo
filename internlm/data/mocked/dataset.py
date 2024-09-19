@@ -1,4 +1,7 @@
 import glob
+import os
+import re
+from typing import Dict, List
 
 import torch
 from torch.utils.data import Dataset
@@ -7,85 +10,112 @@ from internlm.core.context import ParallelMode
 from internlm.core.context import global_context as gpc
 
 
-def merge_tensors(file_pattern):
-    files = sorted(glob.glob(file_pattern))
-    tensors = []
-    for file in files:
-        tensor = torch.load(file)
-        tensors.append(tensor)
-    merged_tensor = torch.cat(tensors, dim=0)
-    return merged_tensor
+def merge_tensors(fn_pattern: str) -> torch.Tensor:
+    """
+    Merge per-step saved tensors into one, across all dp ranks.
+
+    Args:
+        fn_pattern: glob pattern for saved tensors, such like tokens_step{}_dp* or labels_step{}_dp*
+
+    Returns:
+        merged tensor
+
+    """
+    return torch.cat([torch.load(fn) for fn in sorted(glob.glob(fn_pattern))], dim=0)
 
 
-def process_raw_data(raw_data, micro_bsz):
-    num_groups = len(raw_data) // micro_bsz
-    result = []
-    for i in range(num_groups):
-        start_idx = i * micro_bsz
-        end_idx = start_idx + micro_bsz
-        group = raw_data[start_idx:end_idx]
-        concatenated = torch.cat(group, dim=0)
-        result.append(concatenated)
-    return result
+def split_tensors(raw_data: List[torch.Tensor], micro_bsz: int) -> List[torch.Tensor]:
+    """
+    Split saved tensors into list of tensors where each element is micro batch with shape (micro_bsz, seq_len)
+
+    Args:
+        raw_data: list of tensors, where length is mocked_steps * micro_num * micro_bsz,
+                    and each element is a tensor with shape (seq_len)
+        micro_bsz: micro batch size
+
+    Returns:
+        list of tensors, where length is mocked_steps * micro_num,
+                    and each element is micro batch with shape (micro_bsz, seq_len)
+
+    """
+    return [torch.cat(raw_data[i : i + micro_bsz], dim=0) for i in range(0, len(raw_data), micro_bsz)]
+
+
+def get_mocked_steps(data_dir: str) -> int:
+    step_pattern = r"_step(\d+)_dp"
+    mocked_steps = 0
+
+    for fn in os.listdir(data_dir):
+        step_match = re.search(step_pattern, fn)
+        if step_match:
+            step = int(step_match.group(1))
+            mocked_steps = max(mocked_steps, step)
+
+    return mocked_steps
 
 
 class MockedDataset(Dataset):
     """
-    MockedDataset
+    Mocked dataset for easier precision alignment.
+
+    Suppose the saved data is with below format:
+    tokens_step{}_dp{}.pt, where {} is the saved step number (start from 0) and the dp rank (start from 0).
+    labels_step{}_dp{}.pt, where {} is the saved step number (start from 0) and the dp rank (start from 0).
+
+    Each of the saved data is a micro_num accumucalted tensor, where micro batch is (micro_bsz, seq_len).
+    Hence, the shape of tokens_step{}_dp{}.pt and labels_step{}_dp{}.pt is (micro_num * micro_bsz, seq_len).
+
     """
 
-    def __init__(self, data_dir, micro_bsz, seq_len, mocked_steps):
-        db_input_ids = []
+    def __init__(self, data_dir: str, micro_bsz: int, micro_num: int, seq_len: int):
+        db_tokens = []
         db_labels = []
 
-        # load all saved data
+        dp_size = gpc.get_world_size(ParallelMode.DATA)
+        dp_rank = gpc.get_local_rank(ParallelMode.DATA)
+
+        mocked_steps = get_mocked_steps(data_dir)
+
         for i in range(mocked_steps):
-            # define load pattern
-            input_ids_pattern = data_dir + f"_tokens_step{i+1}_dp*"
-            labels_pattern = data_dir + f"_labels_step{i+1}_dp*"
-            # merge input_ids, labels, and then chunk across dp
-            input_ids = torch.chunk(merge_tensors(input_ids_pattern), gpc.get_world_size(ParallelMode.DATA))[
-                gpc.get_local_rank(ParallelMode.DATA)
-            ]
-            labels = torch.chunk(merge_tensors(labels_pattern), gpc.get_world_size(ParallelMode.DATA))[
-                gpc.get_local_rank(ParallelMode.DATA)
-            ]
-            # load one step
-            db_input_ids.append(input_ids)
+            # define fn pattern
+            tokens_fn_pattern = f"{data_dir}/tokens_step{i}_dp*"
+            labels_fn_pattern = f"{data_dir}/labels_step{i}_dp*"
+
+            # merge per-step mocked data and chunk across dp ranks
+            tokens = torch.chunk(merge_tensors(tokens_fn_pattern), dp_size)[dp_rank]
+            labels = torch.chunk(merge_tensors(labels_fn_pattern), dp_size)[dp_rank]
+
+            # check and append
+            assert tokens.size() == labels.size(), "Mismatch for tokens and labels"
+            assert tokens.size(1) == seq_len, "Mismatch for seq_len"
+            assert tokens.size(0) == micro_bsz * micro_num, "Mismatch for global_bsz"
+            db_tokens.append(tokens)
             db_labels.append(labels)
 
-        # transform db
-        db_input_ids = torch.concat(db_input_ids, dim=0)
+        db_tokens = torch.concat(db_tokens, dim=0)
         db_labels = torch.concat(db_labels, dim=0)
-        db_input_ids = [db_input_ids[i] for i in range(db_input_ids.size(0))]
+        db_tokens = [db_tokens[i] for i in range(db_tokens.size(0))]
         db_labels = [db_labels[i] for i in range(db_labels.size(0))]
 
-        # gen data for internevo format
-        db_input_ids = process_raw_data(db_input_ids, micro_bsz)
-        db_labels = process_raw_data(db_labels, micro_bsz)
-        self.db_input_ids = [item.tolist() for item in db_input_ids]
+        db_tokens = split_tensors(db_tokens, micro_bsz)
+        db_labels = split_tensors(db_labels, micro_bsz)
+        self.db_tokens = [item.tolist() for item in db_tokens]
         self.db_labels = [item.tolist() for item in db_labels]
 
-        assert len(self.db_input_ids) == len(self.db_labels)
-        self.dataset_len = len(self.db_input_ids)
         self.micro_bsz = micro_bsz
         self.seq_len = seq_len
 
-    def __len__(self):
-        return self.dataset_len
+        # check
+        assert len(self.db_tokens) == len(self.db_labels)
 
-    def __getitem__(self, idx):
-        tokens = self.db_input_ids[idx]
-        cu_seqlens = list(range(self.micro_bsz + 1))
-        cu_seqlens = [i * self.seq_len for i in cu_seqlens]
-        indexes = list(range(self.seq_len)) * self.micro_bsz
-        labels = self.db_labels[idx]
-        type_ids = [0] * self.micro_bsz * self.seq_len
+    def __len__(self) -> int:
+        return len(self.db_tokens)
 
+    def __getitem__(self, idx: int) -> Dict[str, List[int]]:
         return {
-            "tokens": tokens,
-            "cu_seqlens": cu_seqlens,
-            "indexes": indexes,
-            "labels": labels,
-            "type_ids": type_ids,
+            "tokens": self.db_tokens[idx],
+            "cu_seqlens": [i * self.seq_len for i in range(self.micro_bsz + 1)],
+            "indexes": list(range(self.seq_len)) * self.micro_bsz,
+            "labels": self.db_labels[idx],
+            "type_ids": [0] * (self.micro_bsz * self.seq_len),
         }

@@ -200,10 +200,10 @@ def get_megatron_train_loader_items(data_cfg):
 
 def get_mock_train_loader_items(data_cfg):
     train_ds = MockedDataset(
-        data_dir=data_cfg.train_folder,  # defined the path of mocked data
+        data_dir=data_cfg.train_folder,
         micro_bsz=data_cfg.micro_bsz,
+        micro_num=data_cfg.micro_num,
         seq_len=data_cfg.seq_len,
-        mocked_steps=data_cfg.mocked_steps,  # defined the steps of mocked data
     )
     train_sampler = MockedSequentialBatchSampler(train_ds, data_cfg.micro_num)
     train_collate_fn = partial(packed_collate_fn, packed_length=data_cfg.seq_len * data_cfg.micro_bsz)
