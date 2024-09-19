@@ -82,8 +82,8 @@ class MockedDataset(Dataset):
             labels_fn_pattern = f"{data_dir}/labels_step{i}_dp*"
 
             # merge per-step mocked data and chunk across dp ranks
-            tokens = torch.chunk(merge_tensors(tokens_fn_pattern), dp_size)[dp_rank]
-            labels = torch.chunk(merge_tensors(labels_fn_pattern), dp_size)[dp_rank]
+            tokens = torch.chunk(merge_tensors(tokens_fn_pattern), dp_size)[dp_rank]  # (micro_num * micro_bsz, seq_len)
+            labels = torch.chunk(merge_tensors(labels_fn_pattern), dp_size)[dp_rank]  # (micro_num * micro_bsz, seq_len)
 
             # check and append
             assert tokens.size() == labels.size(), "Mismatch for tokens and labels"
@@ -91,22 +91,24 @@ class MockedDataset(Dataset):
             assert tokens.size(0) == micro_bsz * micro_num, "Mismatch for global_bsz"
             db_tokens.append(tokens)
             db_labels.append(labels)
+            
+            if i == 0:
+                ref = tokens
 
-        db_tokens = torch.concat(db_tokens, dim=0)
-        db_labels = torch.concat(db_labels, dim=0)
-        db_tokens = [db_tokens[i] for i in range(db_tokens.size(0))]
-        db_labels = [db_labels[i] for i in range(db_labels.size(0))]
+        # concatenate across mocked_steps 
+        db_tokens = torch.cat(db_tokens, dim=0)  # (mocked_steps * micro_num * micro_bsz, seq_len)
+        db_labels = torch.cat(db_labels, dim=0)  # (mocked_steps * micro_num * micro_bsz, seq_len)
 
-        db_tokens = split_tensors(db_tokens, micro_bsz)
-        db_labels = split_tensors(db_labels, micro_bsz)
-        self.db_tokens = [item.tolist() for item in db_tokens]
-        self.db_labels = [item.tolist() for item in db_labels]
+        # split into (mocked_steps * micro_num, packed_length), where packed_length = micro_bsz, seq_len
+        self.db_tokens = [item.tolist() for item in split_tensors([db_tokens[i] for i in range(db_tokens.size(0))], micro_bsz)]
+        self.db_labels = [item.tolist() for item in split_tensors([db_labels[i] for i in range(db_labels.size(0))], micro_bsz)]
 
         self.micro_bsz = micro_bsz
         self.seq_len = seq_len
-
-        # check
-        assert len(self.db_tokens) == len(self.db_labels)
+        
+        result = self.db_tokens[0] + self.db_tokens[1]
+        ref = ref.flatten(0,1).tolist()
+        import pdb;pdb.set_trace()
 
     def __len__(self) -> int:
         return len(self.db_tokens)
