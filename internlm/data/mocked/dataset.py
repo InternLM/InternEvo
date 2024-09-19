@@ -68,14 +68,12 @@ class MockedDataset(Dataset):
     """
 
     def __init__(self, data_dir: str, micro_bsz: int, micro_num: int, seq_len: int):
-        db_tokens = []
-        db_labels = []
-
         dp_size = gpc.get_world_size(ParallelMode.DATA)
         dp_rank = gpc.get_local_rank(ParallelMode.DATA)
-
         mocked_steps = get_mocked_steps(data_dir)
 
+        tokens_list = []
+        labels_list = []
         for i in range(mocked_steps):
             # define fn pattern
             tokens_fn_pattern = f"{data_dir}/tokens_step{i}_dp*"
@@ -89,26 +87,39 @@ class MockedDataset(Dataset):
             assert tokens.size() == labels.size(), "Mismatch for tokens and labels"
             assert tokens.size(1) == seq_len, "Mismatch for seq_len"
             assert tokens.size(0) == micro_bsz * micro_num, "Mismatch for global_bsz"
-            db_tokens.append(tokens)
-            db_labels.append(labels)
-            
-            if i == 0:
-                ref = tokens
+            tokens_list.append(tokens)
+            labels_list.append(labels)
 
-        # concatenate across mocked_steps 
-        db_tokens = torch.cat(db_tokens, dim=0)  # (mocked_steps * micro_num * micro_bsz, seq_len)
-        db_labels = torch.cat(db_labels, dim=0)  # (mocked_steps * micro_num * micro_bsz, seq_len)
+        # concatenate across mocked_steps
+        db_tokens = torch.cat(tokens_list, dim=0)  # (mocked_steps * micro_num * micro_bsz, seq_len)
+        db_labels = torch.cat(labels_list, dim=0)  # (mocked_steps * micro_num * micro_bsz, seq_len)
 
         # split into (mocked_steps * micro_num, packed_length), where packed_length = micro_bsz, seq_len
-        self.db_tokens = [item.tolist() for item in split_tensors([db_tokens[i] for i in range(db_tokens.size(0))], micro_bsz)]
-        self.db_labels = [item.tolist() for item in split_tensors([db_labels[i] for i in range(db_labels.size(0))], micro_bsz)]
+        self.db_tokens = [
+            item.tolist() for item in split_tensors([db_tokens[i] for i in range(db_tokens.size(0))], micro_bsz)
+        ]
+        self.db_labels = [
+            item.tolist() for item in split_tensors([db_labels[i] for i in range(db_labels.size(0))], micro_bsz)
+        ]
 
         self.micro_bsz = micro_bsz
         self.seq_len = seq_len
-        
-        result = self.db_tokens[0] + self.db_tokens[1]
-        ref = ref.flatten(0,1).tolist()
-        import pdb;pdb.set_trace()
+
+        # simple sanity check: ensure loaded per-step data is equivalent to saved per-step data
+        tokens_list_tocheck = []
+        for i in range(len(self.db_tokens)):
+            tokens_list_tocheck += self.db_tokens[i]
+            if (i + 1) % micro_num == 0:
+                tokens_list_ref = tokens_list[i // micro_num].flatten(0, 1).tolist()
+                assert tokens_list_tocheck == tokens_list_ref
+                tokens_list_tocheck = []
+        labels_list_tocheck = []
+        for i in range(len(self.db_labels)):
+            labels_list_tocheck += self.db_labels[i]
+            if (i + 1) % micro_num == 0:
+                labels_list_ref = labels_list[i // micro_num].flatten(0, 1).tolist()
+                assert labels_list_tocheck == labels_list_ref
+                labels_list_tocheck = []
 
     def __len__(self) -> int:
         return len(self.db_tokens)
