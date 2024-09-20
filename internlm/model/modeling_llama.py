@@ -107,6 +107,7 @@ class Llama2Decoder(nn.Module):
         rope_base: int = 10000,
         mlp_layer_fusion: bool = False,
         multiple_of: int = 256,
+        enable_qkv_fusion: bool = False,
     ):
         super().__init__()
         self.checkpoint = checkpoint
@@ -138,7 +139,7 @@ class Llama2Decoder(nn.Module):
             qk_interleaved=qk_interleaved,
             bias=not no_bias,
             rope_base=rope_base,
-            enable_qkv_fusion=True,
+            enable_qkv_fusion=enable_qkv_fusion,
         )
 
         self.dropout1 = nn.Dropout(drop_rate)
@@ -363,6 +364,7 @@ class Llama2(BaseModel):
         rope_base: int = 10000,
         mlp_layer_fusion: bool = False,
         multiple_of: int = 256,
+        enable_qkv_fusion: bool = False,
     ):
         super().__init__()
 
@@ -410,6 +412,7 @@ class Llama2(BaseModel):
                     rope_base=rope_base,
                     mlp_layer_fusion=mlp_layer_fusion,
                     multiple_of=multiple_of,
+                    enable_qkv_fusion=enable_qkv_fusion,
                 )
                 for lid in range(num_layers)
             ]

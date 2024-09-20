@@ -2,6 +2,7 @@
 # -*- encoding: utf-8 -*-
 import inspect
 import math
+from functools import partial
 from typing import Callable, Dict, Optional
 
 import torch
@@ -32,6 +33,49 @@ def _convert_cu_seqlens_for_qksplited(kwargs: Dict):
         kwargs["max_seqlen_k"] = max_seqlen
 
     return kwargs
+
+
+def split_fused_wqkv_weight(wqkv, *args, **kwargs):  # pylint: disable=W0613
+    q_dim = kwargs["q_dim"]
+    kv_dim = kwargs["kv_dim"]
+    wq, wk, wv = torch.split(wqkv, [q_dim, kv_dim, kv_dim], dim=0)
+    return wq, wk, wv
+
+
+def _qkv_pre_load_convert(module: "GQA", state_dict, prefix: str, *args, **kwargs) -> None:  # pylint: disable=W0613
+    wq_name, wk_name, wv_name, fused_name = (
+        f"{prefix}wq.weight",
+        f"{prefix}wk.weight",
+        f"{prefix}wv.weight",
+        f"{prefix}wqkv.weight",
+    )
+
+    if module.enable_qkv_fusion and fused_name not in state_dict:
+        wq, wk, wv = state_dict.pop(wq_name), state_dict.pop(wk_name), state_dict.pop(wv_name)
+        state_dict[fused_name] = torch.cat([wq, wk, wv], dim=0)
+
+    if not module.enable_qkv_fusion and (
+        wq_name not in state_dict or wk_name not in state_dict or wv_name not in state_dict
+    ):
+        state_dict[wq_name], state_dict[wk_name], state_dict[wv_name] = split_fused_wqkv_weight(
+            state_dict.pop(fused_name), *args, **kwargs
+        )
+
+
+def _qkv_save_convert(module: "GQA", state_dict, prefix: str, *args, **kwargs) -> Dict:  # pylint: disable=W0613
+    wq_name, wk_name, wv_name, fused_name = (
+        f"{prefix}wq.weight",
+        f"{prefix}wk.weight",
+        f"{prefix}wv.weight",
+        f"{prefix}wqkv.weight",
+    )
+
+    if module.enable_qkv_fusion:
+        state_dict[wq_name], state_dict[wk_name], state_dict[wv_name] = split_fused_wqkv_weight(
+            state_dict.pop(fused_name), *args, **kwargs
+        )
+
+    return state_dict
 
 
 class MHA(nn.Module):
@@ -413,7 +457,12 @@ class GQA(nn.Module):
             )
 
         if enable_qkv_fusion:
-            self.wqkv = new_linear("wqkv", embed_dim, embed_dim + 2 * self.kv_dim, bias, **factory_kwargs)
+            assert bias is False, "Fuesd wqkv only support bias is False."
+            self.wqkv = new_linear("wqkv", embed_dim, q_dim + 2 * self.kv_dim, bias, **factory_kwargs)
+            self._register_load_state_dict_pre_hook(
+                partial(_qkv_pre_load_convert, q_dim=q_dim, kv_dim=self.kv_dim), with_module=True
+            )
+            self._register_state_dict_hook(partial(_qkv_save_convert, q_dim=q_dim, kv_dim=self.kv_dim))
         else:
             self.wq = new_linear("wq", embed_dim, q_dim, bias, **factory_kwargs)
             self.wk = new_linear("wk", embed_dim, self.kv_dim, bias, **factory_kwargs)
