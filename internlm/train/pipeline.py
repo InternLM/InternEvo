@@ -934,10 +934,12 @@ def inject_model_helper(model: Union[nn.Module, nn.ModuleList], inject_info: Opt
         for mod in modules:
             inject_funcs[mod](_chunk, inject, interactive)
 
-    # reset parameters
+    # reset parameters and move model to device
     for _chunk in model:
-        if inject and reset_params:
-            _chunk.reset_parameters()
+        if inject:
+            if reset_params:
+                _chunk.reset_parameters()
+            _chunk.to(get_current_device())
 
     # inject configs
     if inject:
