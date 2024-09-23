@@ -11,7 +11,6 @@ from torch import nn
 from torch.nn import functional as F
 
 from internlm.core.context import global_context as gpc
-from internlm.core.context.process_group_initializer import ParallelMode
 from internlm.model.modules.embedding import new_rotary_embedding
 from internlm.model.modules.linear import new_linear
 from internlm.model.modules.utils import update_kv_cache
@@ -37,12 +36,12 @@ def _convert_cu_seqlens_for_qksplited(kwargs: Dict):
 
 
 def split_fused_wqkv_weight(wqkv, *args, **kwargs):  # pylint: disable=W0613
-    tp_size = gpc.get_world_size(ParallelMode.TENSOR)
-    assert kwargs["q_dim"] % tp_size == 0
-    assert kwargs["kv_dim"] % tp_size == 0
-    q_dim = kwargs["q_dim"] // tp_size
-    kv_dim = kwargs["kv_dim"] // tp_size
-    wq, wk, wv = torch.split(wqkv, [q_dim, kv_dim, kv_dim], dim=0)
+    q_dim = kwargs["q_dim"]
+    kv_dim = kwargs["kv_dim"]
+    split_size = [q_dim, kv_dim, kv_dim]
+    assert (q_dim + 2 * kv_dim) % wqkv.size(0) == 0
+    divisor = (q_dim + 2 * kv_dim) // wqkv.size(0)
+    wq, wk, wv = torch.split(wqkv, [x // divisor for x in split_size], dim=0)
     return wq, wk, wv
 
 
