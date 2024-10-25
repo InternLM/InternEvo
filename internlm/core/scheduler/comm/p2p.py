@@ -169,9 +169,7 @@ def _communicate(
         filling_ops_queue(object_send_next, dist.isend, next_rank, ops)
     # import pdb; pdb.set_trace()
     if len(ops) > 0:
-        print(f"before batch_isend_irecv {gpc.get_global_rank()}", flush=True)
         reqs = dist.batch_isend_irecv(ops)
-        print(f"after batch_isend_irecv {gpc.get_global_rank()}", flush=True)
         for req in reqs:
             req.wait()
         # To protect against race condition when using batch_isend_irecv().

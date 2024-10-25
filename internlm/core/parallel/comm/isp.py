@@ -691,6 +691,9 @@ class ISPCommunicatorSchedulerHook(SchedulerHook):
         # accumulate left gradients in last bucket after backward.
         if self._isp_communicator and self._isp_communicator.overlap:
             self._zero_optim.accumulate_left_grads_after_backward()
+        
+            if not self._zero_optim.skip_grad_reduce:
+                self._zero_optim.reduce_left_grads_after_backward()
 
     def post_helper_func(self, scheduler, outputs, label) -> None:  # pylint: disable=W0613
         pass

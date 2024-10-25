@@ -253,7 +253,7 @@ class WPFusedDenseFunc(torch.autograd.Function):
                 from internlm.core.scheduler.pipeline_scheduler import WeightGradStore
 
                 WeightGradStore.put(
-                    weight, bias, x, grad_output, ctx.needs_input_grad[2], linear_backward_op, communicator.grad_hook
+                    weight, bias, x, grad_output, ctx.needs_input_grad[2], linear_backward_op, communicator.grad_hook, module
                 )
                 grad_weight, grad_bias = None, None
             else:

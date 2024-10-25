@@ -159,7 +159,6 @@ class WeightGradStore:
         # Collect all stored computations during backward as a W for each micro batch.
         cls._weight_grad_queue.put(cls._cache)
         cls._cache = []
-        cls.temp = []
 
     @classmethod
     def pop(cls):
@@ -171,27 +170,36 @@ class WeightGradStore:
         for weight, bias, input_tensor, grad_output, has_d_bias, grad_compute_func, *args in stored_w_grad_computation:
             assert weight.requires_grad
             grad_weight, grad_bias = grad_compute_func(input_tensor, grad_output, has_d_bias)
+            
+            assert not torch.isnan(grad_weight).any(), f"before {gpc.get_global_rank()}, {getattr(grad_weight, 'debug_name', 'no_name')}, {getattr(grad_weight, 'debug_name2', 'no_name')}, {module}, {weight.shape}, {weight.name}, {weight}, {torch.isnan(input_tensor).any()}, {torch.isnan(grad_output).any()}"
+
             if is_using_isp():
                 isp_grad_hook = args[0]
-                grad_weight, _ = isp_grad_hook(grad_weight, async_op=False, is_bias=False)
+                module = args[1]
+                grad_weight, handle_weight = isp_grad_hook(grad_weight, async_op=True, is_bias=False, module=module)
+                handle_weight.wait()
                 if grad_bias is not None:
-                    grad_bias, _ = isp_grad_hook(grad_bias, async_op=False, is_bias=True)
-            
+                    grad_bias, handle_bias = isp_grad_hook(grad_bias, async_op=True, is_bias=True, module=module)
+                    handle_bias.wait()
+                    
+            assert not torch.isnan(grad_weight).any(), f"after {gpc.get_global_rank()}, {getattr(grad_weight, 'debug_name', 'no_name')}, {getattr(grad_weight, 'debug_name2', 'no_name')}, {module}, {weight.shape}, {weight.name}, {weight}, {torch.isnan(input_tensor).any()}, {torch.isnan(grad_output).any()}"
+                    
             # Gradient Accumulation
             weight.grad = weight.grad.data + grad_weight if weight.grad is not None else grad_weight
             if has_d_bias:
                 bias.grad = bias.grad.data + grad_bias if bias.grad is not None else grad_bias
-            
-            print(f"cls._hooks {gpc.get_global_rank()}: {len(cls._hooks)}", flush=True)
-            assert weight in cls._hooks
-            assert id(weight) not in cls.temp
-            print(f"weight in cls._hooks {gpc.get_global_rank()}", flush=True)
-            cls._hooks[weight]()
-            cls.temp.append(id(weight))
+
+            if weight in cls._hooks: 
+                for hook in cls._hooks[weight]:
+                    hook()
+                if has_d_bias:
+                    assert bias in cls._hooks
+                    for hook in cls._hooks[bias]:
+                        hook() 
     
     @classmethod
-    def register_hook(cls, param, func):
-        cls._hooks[param] = func
+    def register_hook(cls, param, hooks):
+        cls._hooks[param] = hooks
 
 
 class PipelineScheduler(BaseScheduler):
@@ -1152,34 +1160,18 @@ class InterleavedPipelineScheduler(PipelineScheduler):
         self.microbatch_offset = [0 for _ in range(self._num_chunks)]
 
     def load_micro_batch(self, model_chunk_id):
-        print(f"load_micro_batch_1 {gpc.get_global_rank()}", flush=True)
         micro_batch_data, micro_batch_label = self._load_micro_batch(
             data=self.batch_data,
             label=self.batch_label,
             offset=self.microbatch_offset[model_chunk_id],
             bsz_stride=self.bsz_stride,
         )
-        print(f"load_micro_batch_2 {gpc.get_global_rank()}", flush=True)
         if self.data_process_func:
             micro_batch_data, micro_batch_label = self.data_process_func(micro_batch_data, micro_batch_label)
-        print(f"load_micro_batch_3 {gpc.get_global_rank()}", flush=True)
         micro_batch_data["label"] = micro_batch_label
         self.microbatch_offset[model_chunk_id] += self.bsz_stride
-        print(f"load_micro_batch_4 {gpc.get_global_rank()}", flush=True)
-        # print(f"micro_batch_data {gpc.get_global_rank()}: {micro_batch_data}, {type(micro_batch_data)}, {len(micro_batch_data.items())}", flush=True)
-        # internlm_accelerator.synchronize()
-        # for k, v in micro_batch_data.items():
-        #     print(f"{gpc.get_global_rank()} {k}: {type(v)}", flush=True)
-        #     if isinstance(v, torch.Tensor):
-        #         print(f"{gpc.get_global_rank()} {k}: {type(v)}, {v.device.type}, {get_current_device()}", flush=True)
-        #         internlm_accelerator.synchronize()
-        #         v = v.to(get_current_device())
-        #         internlm_accelerator.synchronize()
-        #         print(f"{gpc.get_global_rank()} finish move1", flush=True)
-        #         v = v.detach()
-        #         print(f"{gpc.get_global_rank()} finish move2", flush=True)
+
         result = move_to_device(micro_batch_data)
-        print(f"load_micro_batch_5 {gpc.get_global_rank()}", flush=True)
         return result
 
     def _forward_step(self, engine, chunk_id, input_obj=None):
@@ -1207,17 +1199,7 @@ class InterleavedPipelineScheduler(PipelineScheduler):
         
         if not gpc.is_pipeline_first_stage():
             assert input_obj is not None, f"{gpc.get_global_rank()} input is None"
-        print(f"before load_micro_batch {gpc.get_global_rank()}", flush=True)
         micro_batch_data = self.load_micro_batch(chunk_id)
-        # {'input_ids': tensor([[ 25, 166,   0,  ...,  18,  19,  20]]), 'cu_seqlens': tensor([   0, 2048], dtype=torch.int32), 'indexes': tensor([   0,    1,    2,  ..., 2045, 2046, 2047]), 'max_seqlen': 2048, 'label': torch.tensor([[ 166, -100,    1,  ...,   19,   20, -100]])}
-        # micro_batch_data = {
-        #     'input_ids': torch.randint(5, 10, (1, 2048), device=get_current_device(), ),
-        #     'cu_seqlens': torch.tensor([   0, 2048], dtype=torch.int32, device=get_current_device()),
-        #     'indexes': torch.randint(0, 10, (2048,), device=get_current_device()),
-        #     'max_seqlen': 2048,
-        #     'label': torch.randint(5, 10, (1, 2048), device=get_current_device()),
-        # }
-        print(f"after load_micro_batch {gpc.get_global_rank()}", flush=True)
         data, label = self._get_data_label_for_current_step(input_obj, micro_batch_data)
 
         self._call_hooks("before_forward", data)
@@ -1297,9 +1279,6 @@ class InterleavedPipelineScheduler(PipelineScheduler):
         microbatch_id_in_group = step_id % (self._pp_size * self._num_chunks)
         chunk_id = microbatch_id_in_group // self._pp_size
         
-        if gpc.get_global_rank() == 0:
-            print(f"step_id: {step_id}, self._pp_size * self._num_chunks: {self._pp_size * self._num_chunks}, microbatch_id_in_group: {microbatch_id_in_group}, chunk_id: {chunk_id}", flush=True)
-
 
         if backward:
             chunk_id = self._num_chunks - chunk_id - 1
@@ -1360,7 +1339,6 @@ class InterleavedPipelineScheduler(PipelineScheduler):
 
         for k in range(num_warmup_microsteps):
             chunk_id = self._get_chunk_by_microbatch(k)
-            print(f"chunk_id: {chunk_id}", flush=True)
 
             output_obj = self._forward_step(engine, chunk_id)
 
@@ -1782,14 +1760,12 @@ class InterleavedPipelineScheduler(PipelineScheduler):
             self._forward_only_step(engine)
         else:
             self._forward_backward_step(engine)
-        print(f"after _forward_backward_step {gpc.get_global_rank()}", flush=True)
 
         if return_output_label and len(self._return_tensors) > 0:
             output, label = pack_return_tensors(self._return_tensors)
         else:
             output, label = (None, None)
         
-        print(f"after _forward_backward_step1 {gpc.get_global_rank()}", flush=True)
 
         if hasattr(gpc.config.model, "num_experts") and gpc.config.model.num_experts > 1:
             dist.all_reduce(self._accum_moe_loss, group=gpc.get_group(ParallelMode.PIPELINE))
@@ -1797,11 +1773,9 @@ class InterleavedPipelineScheduler(PipelineScheduler):
 
         accum_loss = self._accum_loss
         if accum_loss is not None:
-            print(f"accum_loss {gpc.get_global_rank()}", flush=True)
             accum_loss += self._accum_moe_loss
 
         self._clear_state()
-        print(f"after _forward_backward_step2 {gpc.get_global_rank()}", flush=True)
 
         # Compatible for non-moe
         if hasattr(gpc.config.model, "num_experts"):
@@ -1872,6 +1846,8 @@ class ZeroBubblePipelineVShapeScheduler(InterleavedPipelineScheduler):
         
         self._micro_step = [0, 0]
         self.map_input_output = [{}, {}]
+        self._backward_step_num = [0, 0]
+        self._num_microbatches = num_microbatches
                 
     def _clear_state(self) -> None:
         super()._clear_state()
@@ -1880,6 +1856,7 @@ class ZeroBubblePipelineVShapeScheduler(InterleavedPipelineScheduler):
         
         self._micro_step = [0, 0]
         self.map_input_output = [{}, {}]
+        self._backward_step_num = [0, 0]
         
     
     def _backward_step(self, engine, input_obj, output_obj, output_obj_grad, skip_grad_sync=True, moe_loss=None):
@@ -1952,7 +1929,7 @@ class ZeroBubblePipelineVShapeScheduler(InterleavedPipelineScheduler):
 
         return input_obj_grad
     
-    def _schedule_backward(self, engine, chunk_id, skip_grad_sync=True):
+    def _schedule_backward(self, engine, chunk_id):
         """
         Backward step for passed-in model. If it is the last stage, the input tensor
         is obtained from the previous forward step, otherwise the passed-in input_obj is used.
@@ -1967,6 +1944,12 @@ class ZeroBubblePipelineVShapeScheduler(InterleavedPipelineScheduler):
             Union[:class:`torch.Tensor`, List[:class:`torch.Tensor`]]: input tensor gradient.
         """
         gpc.set_virtual_pipeline_parallel_rank(chunk_id)
+        
+        self._backward_step_num[chunk_id] += 1
+        if self._backward_step_num[chunk_id] == self._num_microbatches:
+            skip_grad_sync = False
+        else:
+            skip_grad_sync = True
 
         if gpc.is_pipeline_last_stage() and len(self._output_obj_grads[chunk_id]) == 0:
             self._output_obj_grads[chunk_id].append(None)
@@ -1997,7 +1980,6 @@ class ZeroBubblePipelineVShapeScheduler(InterleavedPipelineScheduler):
     
     def _schedule_1f1b_F(self, engine, chunk_id):
         self._micro_step[chunk_id] += 1
-        print(f"_schedule_1f1b_F self._micro_step {gpc.get_global_rank()} chunk{chunk_id}: {self._micro_step[chunk_id]}", flush=True)
         output_obj = self._forward_step(engine, chunk_id)
         if self._input_objs[chunk_id][-1] is not None:
             self.map_input_output[chunk_id][id(self._input_objs[chunk_id][-1])] = id(output_obj)
@@ -2032,7 +2014,6 @@ class ZeroBubblePipelineVShapeScheduler(InterleavedPipelineScheduler):
                 
         # chunk1 send output prev, recv output_grad prev  
         # chunk0 send output next, recv output_grad next
-        print(f"before 1F fused_send_recv_tensor {gpc.get_global_rank()} step{self._micro_step[chunk_id]} chunk{chunk_id}", flush=True)
         tensor_recv_prev, tensor_recv_next = comm.fused_send_recv_tensor(
             object_send_next=object_send_next,
             object_send_prev=object_send_prev,
@@ -2041,7 +2022,6 @@ class ZeroBubblePipelineVShapeScheduler(InterleavedPipelineScheduler):
             dtype=self.dtype,
             scatter_gather_tensors=self.scatter_gather_tensors,
         )
-        print(f"after 1F fused_send_recv_tensor {gpc.get_global_rank()} step{self._micro_step[chunk_id]} chunk{chunk_id}", flush=True)
         
         if chunk_id == 1 and not self.chunk1_need_recv_prev_chunk1_grad:
             assert tensor_recv_prev is None
@@ -2052,21 +2032,12 @@ class ZeroBubblePipelineVShapeScheduler(InterleavedPipelineScheduler):
         if tensor_recv_next is not None:
             self._output_obj_grads[0].append(tensor_recv_next)
         
-        # if tensor_recv_prev is not None or tensor_recv_next is not None:
-        #     output_obj_grad = tensor_recv_prev if tensor_recv_prev is not None else tensor_recv_next
-        #     aim_chunk_id = chunk_id
-        #     if chunk_id == 0 and tensor_recv_prev is not None:
-        #         aim_chunk_id = 1
-        #     self._output_obj_grads[aim_chunk_id].append(output_obj_grad)
     
     def _schedule_1f1b_B_W(self, engine, chunk_id, next_unit_chunk_id, need_recv_chunk0_output=True):
         
-        print(f"1f1b_B_W before _schedule_backward {gpc.get_global_rank()} step{self._micro_step[chunk_id]} chunk{chunk_id}", flush=True)
-        # import pdb; pdb.set_trace()
         # 1B
         input_obj_grad = self._schedule_backward(engine, chunk_id)
         
-        print(f"1f1b_B_W after _schedule_backward {gpc.get_global_rank()} step{self._micro_step[chunk_id]} chunk{chunk_id}", flush=True)
         
         object_send_next = None
         object_send_prev = None
@@ -2126,14 +2097,12 @@ class ZeroBubblePipelineVShapeScheduler(InterleavedPipelineScheduler):
         )
         async_communicator.start()
         
-        print(f"after 1f1b_B_W async_communicator start {gpc.get_global_rank()} step{self._micro_step[chunk_id]} chunk{chunk_id}", flush=True)
         
         # 1W
         WeightGradStore.pop()
         self._call_hooks("after_backward", input_obj_grad)
         
         recv_tensor = async_communicator.wait_and_receive()
-        print(f"after 1f1b_B_W async_communicator wait_and_receive {gpc.get_global_rank()} step{self._micro_step[chunk_id]} chunk{chunk_id}", flush=True)
             
         # for the special case, input_obj has already been received and appended at the end of warmup.
         if next_unit_chunk_id == 0 and self._special_chunk0_forward:
@@ -2199,14 +2168,10 @@ class ZeroBubblePipelineVShapeScheduler(InterleavedPipelineScheduler):
         unit1 consists of: 1F + 1B + 1W, all are chunk0 or chunk1
         """
         # 1F
-        # import pdb; pdb.set_trace()
         self._schedule_1f1b_F(engine, chunk_id)
-        print(f"after _schedule_1f1b_F {gpc.get_global_rank()} step{self._micro_step[chunk_id]} chunk{chunk_id}", flush=True)
         
         # 1B + 1W
-        # import pdb; pdb.set_trace()
         self._schedule_1f1b_B_W(engine, chunk_id, next_unit_chunk_id, need_recv_chunk0_output)
-        print(f"after _schedule_1f1b_B_W {gpc.get_global_rank()} step{self._micro_step[chunk_id]} chunk{chunk_id}", flush=True)
     
     def _1f1b_unit_2(self, engine, chunk_id):
         """
@@ -2218,7 +2183,6 @@ class ZeroBubblePipelineVShapeScheduler(InterleavedPipelineScheduler):
         # 1F (chunk1)
         self._schedule_1f1b_F(engine, chunk_id)
         
-        print(f"unit2 before 1 {gpc.get_global_rank()}: {self._micro_step[chunk_id]}")
         # 1B + 1W (chunk1)
         input_obj_grad = self._schedule_backward(engine, chunk_id)
             
@@ -2237,22 +2201,15 @@ class ZeroBubblePipelineVShapeScheduler(InterleavedPipelineScheduler):
         output_obj_grad = async_communicator.wait_and_receive()
         assert isinstance(output_obj_grad, torch.Tensor)
         self._output_obj_grads[1 - chunk_id].append(output_obj_grad)
-        print(f"unit2 after 1 {gpc.get_global_rank()}: {self._micro_step[chunk_id]}")
         
         
-        print(f"unit2 before 2 {gpc.get_global_rank()}: {self._micro_step[chunk_id]}")
         # 1B + 1W (chunk0)
         self._schedule_1f1b_B_W(engine, 1 - chunk_id, chunk_id, need_recv_chunk0_output=False)
-        print(f"unit2 after 2 {gpc.get_global_rank()}: {self._micro_step[chunk_id]}")
         
     
     def _schedule_warmup_F(self, engine, chunk_id, input_obj=None, forward_only=False):
         self._micro_step[chunk_id] += 1
-        print(f"self._micro_step {gpc.get_global_rank()} chunk{chunk_id}: {self._micro_step[chunk_id]}", flush=True)
-        print(f"before _schedule_warmup_F _forward_step {gpc.get_global_rank()}", flush=True)
-        # import pdb; pdb.set_trace()
         output_obj = self._forward_step(engine, chunk_id, input_obj)
-        print(f"after _schedule_warmup_F _forward_step {gpc.get_global_rank()}", flush=True)
         if input_obj is not None:
             self.map_input_output[chunk_id][id(input_obj)] = id(output_obj)
         else:
@@ -2261,7 +2218,6 @@ class ZeroBubblePipelineVShapeScheduler(InterleavedPipelineScheduler):
             
             
         if forward_only:
-            assert False
             # when forward-only, no need to save tensors for a backward pass
             self._input_objs[chunk_id].pop()
             self._output_objs[chunk_id].pop()
@@ -2276,12 +2232,10 @@ class ZeroBubblePipelineVShapeScheduler(InterleavedPipelineScheduler):
             assert self._output_obj_shapes[chunk_id] == self._input_obj_shapes[chunk_id]
 
             if self._send_tensor_shape_flags[chunk_id]:
-                assert False
                 comm.send_obj_meta(output_obj)
                 self._send_tensor_shape_flags[chunk_id] = False  # send only once for each chunk.
         
         if not gpc.is_pipeline_first_stage() and self._input_obj_shapes[chunk_id] is None:
-            assert False
             self._input_obj_shapes[chunk_id] = comm.recv_obj_meta()
             
         assert output_obj is None or output_obj.dtype == self.dtype
@@ -2319,8 +2273,6 @@ class ZeroBubblePipelineVShapeScheduler(InterleavedPipelineScheduler):
         num_warmup_microsteps_phase_1 = min(self.num_microbatches, (self._pp_size - self._pp_rank) * 2 - 1)
         num_warmup_microsteps_phase_2 = num_warmup_microsteps - num_warmup_microsteps_phase_1
         
-        print(f"global_pp: {gpc.get_global_rank()}, {gpc.get_local_rank(ParallelMode.PIPELINE)}", flush=True)
-        print(f"{gpc.get_global_rank()} num_warmup_microsteps_phase_1: {num_warmup_microsteps_phase_1}, num_warmup_microsteps_phase_2: {num_warmup_microsteps_phase_2}", flush=True)
         
         
         if gpc.is_first_rank(ParallelMode.PIPELINE):
@@ -2346,11 +2298,8 @@ class ZeroBubblePipelineVShapeScheduler(InterleavedPipelineScheduler):
             assert self._input_objs[chunk_id][-1] is not None, f"{gpc.get_global_rank()} chunk{chunk_id} receive none input warmup before"
         # Phase1 will only do chunk0 forward
         for micro_step in range(num_warmup_microsteps_phase_1):
-            print(f"warmup phase1 micro_step {gpc.get_global_rank()}: {micro_step}", flush=True)
             # forward
-            print(f"before _schedule_warmup_F_1 {gpc.get_global_rank()}", flush=True)
             output_obj = self._schedule_warmup_F(engine, chunk_id, forward_only=forward_only)
-            print(f"after _schedule_warmup_F_1 {gpc.get_global_rank()}", flush=True)
             if micro_step != num_warmup_microsteps_phase_1 - 1:
                 # if micro_step == num_warmup_microsteps_phase_1 - 2:
                 #     output_obj = None
@@ -2367,7 +2316,6 @@ class ZeroBubblePipelineVShapeScheduler(InterleavedPipelineScheduler):
                         scatter_gather_tensors=self.scatter_gather_tensors,
                     )
                 )
-                print(f"phase1 after send_forward_recv_forward {gpc.get_global_rank()}", flush=True)
                 if not gpc.is_pipeline_first_stage():
                     assert self._input_objs[chunk_id][-1] is not None, f"{gpc.get_global_rank()} chunk{chunk_id} receive none input warmup1"
             else:
@@ -2375,27 +2323,14 @@ class ZeroBubblePipelineVShapeScheduler(InterleavedPipelineScheduler):
                 recv_prev_shape = None
                 recv_next_shape = None
                 if not gpc.is_last_rank(ParallelMode.PIPELINE):  
-                    # chunk0 send next, chunk1 recv next
-                    # _, input_obj = comm.fused_send_recv_tensor(
-                    #     object_send_next=output_obj,
-                    #     recv_next_shape=self._input_obj_shapes[1],
-                    #     dtype=self.dtype,
-                    #     scatter_gather_tensors=self.scatter_gather_tensors,
-                    # )
-                    # self._input_objs[1].append(input_obj)
                     
                     object_send_next = output_obj
                     recv_next_shape = self._input_obj_shapes[1]
                 else:
                     # For last rank, chunk0 output does not need to be sent but is directly used for chunk1
-                    # input_obj = output_obj.clone().detach()
-                    # input_obj.requires_grad = True
                     input_obj = output_obj.clone().detach()
                     input_obj.requires_grad_()
                     assert input_obj.is_leaf
-                    # assert self.dtype == output_obj.dtype
-                    # input_obj = torch.empty_like(output_obj, requires_grad=True, device=get_current_device(), dtype=self.dtype)
-                    # input_obj.copy_(output_obj.clone().detach())
                     self._input_objs[1].append(input_obj)
                 
                 # special receive   
@@ -2420,13 +2355,10 @@ class ZeroBubblePipelineVShapeScheduler(InterleavedPipelineScheduler):
                     
                     
                 assert self._input_objs[1][-1] is not None, f"{gpc.get_global_rank()} chunk{chunk_id} receive none input warmup2"
-                print(f"phase1 after fused_send_recv_tensor {gpc.get_global_rank()}", flush=True)
 
-        print(f"after phase1 {gpc.get_global_rank()}", flush=True)
         # Phase2 will execute chunk1 and chunk0 forward alternately
         for micro_step in range(num_warmup_microsteps_phase_2):
             assert not gpc.is_first_rank(ParallelMode.PIPELINE)
-            print(f"warmup phase2 micro_step {gpc.get_global_rank()}: {micro_step}", flush=True)
             chunk_id = 1 - chunk_id
             next_chunk_id = 1 - chunk_id
             
@@ -2436,7 +2368,6 @@ class ZeroBubblePipelineVShapeScheduler(InterleavedPipelineScheduler):
                 input_obj = self._input_objs[chunk_id][-1]
             
             output_obj = self._schedule_warmup_F(engine, chunk_id, input_obj=input_obj, forward_only=forward_only)
-            print(f"after _schedule_warmup_F_2 {gpc.get_global_rank()}", flush=True)
             
             
             object_send_next = None
@@ -2446,7 +2377,6 @@ class ZeroBubblePipelineVShapeScheduler(InterleavedPipelineScheduler):
             
             if chunk_id == 1:
                 assert micro_step < num_warmup_microsteps_phase_2 - 1
-                # if not (gpc.is_last_rank(ParallelMode.PIPELINE) and micro_step == 0):
                 object_send_prev = output_obj
                 recv_prev_shape = self._input_obj_shapes[next_chunk_id]
             else:
@@ -2456,8 +2386,6 @@ class ZeroBubblePipelineVShapeScheduler(InterleavedPipelineScheduler):
             
             # chunk1 send output prev, chunk0 recv input prev 
             # chunk0 send output next, chunk1 recv input next      
-            # import pdb; pdb.set_trace()
-            print(f"phase2 before fused_send_recv_tensor {gpc.get_global_rank()}", flush=True)  
             tensor_recv_prev, tensor_recv_next = comm.fused_send_recv_tensor(
                 object_send_next=object_send_next,
                 object_send_prev=object_send_prev,
@@ -2466,37 +2394,18 @@ class ZeroBubblePipelineVShapeScheduler(InterleavedPipelineScheduler):
                 dtype=self.dtype,
                 scatter_gather_tensors=self.scatter_gather_tensors,
             )
-            print(f"phase2 after fused_send_recv_tensor {gpc.get_global_rank()}", flush=True) 
             
             # For last rank, chunk0 output does not need to be sent but is directly used for chunk1
             if chunk_id == 0 and gpc.is_last_rank(ParallelMode.PIPELINE):
                 input_obj = output_obj.clone().detach()
                 input_obj.requires_grad_()
                 assert input_obj.is_leaf
-                # assert self.dtype == output_obj.dtype
-                # input_obj = torch.empty_like(output_obj, requires_grad=True, device=get_current_device(), dtype=self.dtype)
-                # input_obj.copy_(output_obj.clone().detach())
-                # input_obj = output_obj.clone().detach()
-                # input_obj.requires_grad = True
             else:
                 input_obj = tensor_recv_prev if tensor_recv_prev is not None else tensor_recv_next
                 
             self._input_objs[next_chunk_id].append(input_obj)
             if not gpc.is_pipeline_first_stage():
                 assert self._input_objs[next_chunk_id][-1] is not None, f"{gpc.get_global_rank()} chunk{chunk_id} next_chunk_id{next_chunk_id} receive none input warmup3"
-        print(f"after phase2 {gpc.get_global_rank()}", flush=True)        
-        # # The last chunk0 sending needs to be received immediately to avoid conflicts with gradient communication
-        # if not gpc.is_first_rank(ParallelMode.PIPELINE):
-        #     self._input_objs[0].append(
-        #         comm.recv_forward(
-        #             self._input_obj_shapes[0],
-        #             dtype=self.dtype,
-        #             scatter_gather_tensors=self.scatter_gather_tensors,
-        #         )
-        #     )
-        #     assert self._input_objs[0][-1] is not None, f"{gpc.get_global_rank()}"
-        # else:
-        #     self._input_objs[0].append(None)
                     
     def _run_1f1b_loop(self,
         engine: Engine,
@@ -2528,7 +2437,6 @@ class ZeroBubblePipelineVShapeScheduler(InterleavedPipelineScheduler):
         
         # unit stage1
         for unit_step in range(num_units_stage1):
-            print(f"unit_step {gpc.get_global_rank()}: {unit_step}", flush=True)
             if unit_step in chunk0_units:
                 chunk_id = 0
             else:
@@ -2547,19 +2455,16 @@ class ZeroBubblePipelineVShapeScheduler(InterleavedPipelineScheduler):
                 
             self._1f1b_unit_1(engine, chunk_id, next_unit_chunk_id, need_recv_chunk0_output=chunk0_B_need_recv_prev_chunk0_output)
         
-        print(f"after stage1 {gpc.get_global_rank()}", flush=True)
         # unit stage2
         for unit_step in range(num_units_stage2):
-            print(f"stage2 unit_step {gpc.get_global_rank()}: {unit_step}", flush=True)
             assert unit_step + num_units_stage1 not in chunk0_units
             self._1f1b_unit_2(engine, 1)
-        print(f"after stage2 {gpc.get_global_rank()}", flush=True)
             
         # unit stage3
         assert num_1f1b_units - 1 not in chunk0_units
         self._schedule_1f1b_F(engine, 1)
+        origin = engine.optimizer.skip_grad_reduce
         input_obj_grad = self._schedule_backward(engine, 1)
-        print(f"after stage3 {gpc.get_global_rank()}", flush=True)
         if gpc.is_last_rank(ParallelMode.PIPELINE):
             # For last rank, chunk1 input_grad does not need to be sent but is directly used for chunk0.
             # output_grad = input_obj_grad.clone().detach()
@@ -2579,19 +2484,16 @@ class ZeroBubblePipelineVShapeScheduler(InterleavedPipelineScheduler):
         )
         async_communicator.start()
         
-        print(f"after stage3_1 {gpc.get_global_rank()}", flush=True)
         
         WeightGradStore.pop()
         self._call_hooks("after_backward", input_obj_grad)
+        engine.optimizer.skip_grad_reduce = origin
         
-        print(f"after stage3_2 {gpc.get_global_rank()}", flush=True)
         
         output_obj_grad = async_communicator.wait_and_receive()
-        print(f"after stage3_3 {gpc.get_global_rank()}", flush=True)
         assert output_obj_grad is None or isinstance(output_obj_grad, torch.Tensor)
         if not gpc.is_last_rank(ParallelMode.PIPELINE):
             self._output_obj_grads[0].append(output_obj_grad)
-        print(f"after stage3_4 {gpc.get_global_rank()}", flush=True)
         
     def _run_cooldown_loop(self, engine):
         """
@@ -2616,20 +2518,14 @@ class ZeroBubblePipelineVShapeScheduler(InterleavedPipelineScheduler):
                 chunk_id = 0
             
             cool_down[chunk_id] += 1
-            print(f"cool_down {gpc.get_global_rank()} chunk{chunk_id}: {cool_down[chunk_id]}", flush=True)
 
             if unit_step + 1 in chunk1_units:
                 next_unit_chunk_id = 1
             else:
                 next_unit_chunk_id = 0
             
-            skip_grad_sync = False if unit_step == num_cooldown_units - 1 else True
-            if not skip_grad_sync:
-                assert chunk_id == 0
             origin = engine.optimizer.skip_grad_reduce
-            print(f"before _schedule_backward {gpc.get_global_rank()} chunk{chunk_id}", flush=True)
-            input_obj_grad = self._schedule_backward(engine, chunk_id, skip_grad_sync)
-            print(f"after _schedule_backward {gpc.get_global_rank()} chunk{chunk_id}", flush=True)
+            input_obj_grad = self._schedule_backward(engine, chunk_id)
 
             object_send_next = None
             object_send_prev = None
@@ -2661,21 +2557,7 @@ class ZeroBubblePipelineVShapeScheduler(InterleavedPipelineScheduler):
                     
             # chunk1 send input_grad next, chunk0 send input_grad prev
             # if next_unit_chunk_id == 1, recv output_grad prev
-            # if next_unit_chunk_id == 0, recv output_grad next   
-             
-            # input_shape = recv_next_shape if recv_next_shape is not None else recv_prev_shape
-            # tensor_to_send = object_send_next if object_send_next is not None else object_send_prev
-            # send_next = True if object_send_next is not None else False
-            # recv_next = True if recv_next_shape is not None else False
-            
-            # async_communicator = comm.AsynCommunicator(
-            #     tensor_to_send=tensor_to_send,
-            #     recv_shape=input_shape,
-            #     dtype=self.dtype,
-            #     scatter_gather_tensors=self.scatter_gather_tensors,
-            #     send_next=send_next,
-            #     recv_next=recv_next,
-            # )
+            # if next_unit_chunk_id == 0, recv output_grad next
             async_communicator = comm.AsynCommunicator(
                 object_send_prev=object_send_prev,
                 object_send_next=object_send_next,
@@ -2685,17 +2567,14 @@ class ZeroBubblePipelineVShapeScheduler(InterleavedPipelineScheduler):
                 scatter_gather_tensors=self.scatter_gather_tensors,
             )
             async_communicator.start()
-            print(f"after async_communicator start {gpc.get_global_rank()} chunk{chunk_id}", flush=True)
             
             # 1W
             
-            # engine.optimizer.skip_grad_reduce = skip_grad_sync
             WeightGradStore.pop()
             self._call_hooks("after_backward", input_obj_grad)
             engine.optimizer.skip_grad_reduce = origin
             
             output_obj_grad = async_communicator.wait_and_receive()
-            print(f"after async_communicator wait_and_receive {gpc.get_global_rank()} chunk{chunk_id}", flush=True)
             assert output_obj_grad is None or isinstance(output_obj_grad, torch.Tensor)
             
             # if not(next_unit_chunk_id == 0 and gpc.is_last_rank(ParallelMode.PIPELINE)):
@@ -2711,35 +2590,6 @@ class ZeroBubblePipelineVShapeScheduler(InterleavedPipelineScheduler):
             forward_only=True,
         )
         
-    def warmup_p2p(self):
-        if not gpc.is_first_rank(ParallelMode.PIPELINE):
-            object_send_prev = torch.tensor([1], device=get_current_device(), dtype=torch.bfloat16)
-            recv_prev_shape = (1,)
-        else:
-            object_send_prev = None
-            recv_prev_shape = None
-        
-        if not gpc.is_last_rank(ParallelMode.PIPELINE):
-            recv_next_shape = (1,)
-            object_send_next = torch.tensor([2], device=get_current_device(), dtype=torch.bfloat16)
-        else:
-            recv_next_shape = None
-            object_send_next = None
-            
-        tensor_recv_prev, tensor_recv_next = comm.fused_send_recv_tensor(object_send_prev=object_send_prev, object_send_next=object_send_next, recv_prev_shape=recv_prev_shape, recv_next_shape=recv_next_shape, dtype=torch.bfloat16)
-        
-        print(f"warmup_p2p: {tensor_recv_prev}, {tensor_recv_next}, {gpc.get_global_rank()}", flush=True)
-        
-        
-        if gpc.is_first_rank(ParallelMode.PIPELINE):
-            for i in range(1, 8):
-                object_send_next = torch.tensor([i], device=get_current_device(), dtype=torch.bfloat16)
-                if i == 7:
-                    recv_next_shape = (1,)
-                else:
-                    recv_next_shape = None
-                    _, tensor_recv_next = comm.fused_send_recv_tensor(object_send_prev=object_send_prev, object_send_next=object_send_next, recv_prev_shape=recv_prev_shape, recv_next_shape=recv_next_shape, dtype=torch.bfloat16)
-                    print(f"1")
                                                      
                 
     def _forward_backward_step(self, engine: Engine):
@@ -2750,41 +2600,26 @@ class ZeroBubblePipelineVShapeScheduler(InterleavedPipelineScheduler):
         
         # Compute number of 1F1B unit.
         num_1f1b_units = 2 * self.num_microbatches - num_warmup_steps
-        # self._input_objs[1].append(torch.rand((1, 2048, 4096), device=get_current_device(), dtype=torch.bfloat16))
-        
-        # self.warmup_p2p()
-        
+                
         # 1. Warmup
         self._run_warmup_loop(
             engine,
             num_warmup_steps,
         )
-        print(f"after _run_warmup_loop {gpc.get_global_rank()}", flush=True)
-        if gpc.is_last_rank(ParallelMode.PIPELINE):
-            
-            print(f"check_id {gpc.get_global_rank()} map_input_output: {self.map_input_output[0].keys()}", flush=True)
-            for i in range(len(self._input_objs[0])):
-                print(f"check_id {gpc.get_global_rank()} {i}: {id(self._input_objs[0][i])}", flush=True)
-                
-            assert len(self._input_objs[0]) == 5 and len(self._input_objs[1]) == 4, f"{len(self._input_objs[0])}, {len(self._input_objs[1])}"
-            assert len(self.map_input_output[0].keys()) == 4 and len(self.map_input_output[1].keys()) == 3, f"{len(self.map_input_output[0].keys())}, {len(self.map_input_output[1].keys())}"
-        
-        
         
         # 2. 1F1B
         self._run_1f1b_loop(
             engine,
             num_1f1b_units,
         )
-        print(f"after _run_1f1b_loop {gpc.get_global_rank()}", flush=True)
         
         # 3. cooldown
         self._run_cooldown_loop(engine)
-        print(f"after cooldown {gpc.get_global_rank()}", flush=True)
         # import pdb; pdb.set_trace()
         assert len(self._input_objs[0]) == 0 and len(self._input_objs[1]) == 0, f"{gpc.get_global_rank()}"
         assert len(self._output_objs[0]) == 0 and len(self._output_objs[1]) == 0, f"{gpc.get_global_rank()}"
         assert len(self._output_obj_grads[0]) == 0 and len(self._output_obj_grads[1]) == 0, f"{gpc.get_global_rank()}"
         
         assert WeightGradStore.size() == 0
+        # assert self._backward_step_num[0] == 8 and  self._backward_step_num[1] == 8
     

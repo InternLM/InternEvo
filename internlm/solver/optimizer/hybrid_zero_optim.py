@@ -300,16 +300,17 @@ class HybridZeroOptimizer(BaseOptimizer):
     def _attach_reduction_hook(self):
         from internlm.core.scheduler.pipeline_scheduler import WeightGradStore
         is_using_ZB = gpc.config.parallel["pipeline"].get("mode", "1F1B") != "1F1B"
-        assert is_using_ZB
         # we iterate over the fp16 params
         # on each param, we register a hook to its AccumulateGrad object
         for group_id in range(self.num_param_groups):
             param_group = self._fp16_param_groups[group_id]
-            print(f"param_group {gpc.get_global_rank()}: {len(param_group)}", flush=True)
             for param in param_group:
                 # we should not reduce the param in moe
                 if not param.requires_grad:
                     continue
+                
+                if is_using_ZB:
+                    hooks = []
 
                 reduce_rank = None
 
@@ -378,10 +379,7 @@ class HybridZeroOptimizer(BaseOptimizer):
                         and hasattr(param, IS_REPLICA_ZERO_PARALLEL)
                         and getattr(param, IS_REPLICA_ZERO_PARALLEL) is True
                     ) or (is_gate_param(param) and gpc.config.parallel.expert.no_tp):
-                        if is_using_ZB:
-                            WeightGradStore.register_hook(param, reduce_grad_hook)
-                        else:
-                            accum_grad_obj.register_hook(extra_layernorm_reduce_grad_hook)
+                        accum_grad_obj.register_hook(extra_layernorm_reduce_grad_hook)
 
                     # we should not only register for parameters which have isp_reduce_scatter_name attr.
                     # we must keep up with reduce_grad_hook.
@@ -397,8 +395,8 @@ class HybridZeroOptimizer(BaseOptimizer):
                             and gpc.config.parallel.weight.overlap
                         )
                     ):
-                        if is_using_ZB:
-                            WeightGradStore.register_hook(param, reduce_grad_hook)
+                        if is_using_ZB and not hasattr(param, "is_embedding_param"):
+                            hooks.append(accum_grad_hook)
                         else:
                             if hasattr(param, "evo_tensor"):
                                 param.register_post_accumulate_grad_hook(accum_grad_hook)
@@ -406,16 +404,17 @@ class HybridZeroOptimizer(BaseOptimizer):
                                 accum_grad_obj.register_hook(accum_grad_hook)
 
                     if self._overlap_sync_grad:
-                        if is_using_ZB:
-                            WeightGradStore.register_hook(param, reduce_grad_hook)
+                        if is_using_ZB and not hasattr(param, "is_embedding_param"):
+                            hooks.append(reduce_grad_hook)
                         else:
-                            assert False
                             if hasattr(param, "evo_tensor"):
                                 param.register_post_accumulate_grad_hook(reduce_grad_hook)
                             else:
                                 accum_grad_obj.register_hook(reduce_grad_hook)
 
                 _define_and_attach(param, reduce_rank)
+                if len(hooks) > 0:
+                    WeightGradStore.register_hook(param, hooks)
 
     def accumulate_left_grads_after_backward(self):
         if self._isp_communicator is None:
@@ -423,6 +422,10 @@ class HybridZeroOptimizer(BaseOptimizer):
 
         for group_id in range(self.num_param_groups):
             self._accum_grads_store_in_bucket(self._accum_grad_buckets[group_id])
+    
+    def reduce_left_grads_after_backward(self):       
+        for group_id in range(self.num_param_groups):
+            self._reduce_grads_stored_in_bucket(self._bucket_store[group_id], reduce_rank=None)
 
     def belongs_to_current_rank(self, param) -> bool:
         """
@@ -734,8 +737,7 @@ class HybridZeroOptimizer(BaseOptimizer):
                         self._store_and_try_reduce_grads_by_bucket(param)
 
         # we need to reduce the gradients left in the communication bucket
-        for group_id in range(self.num_param_groups):
-            self._reduce_grads_stored_in_bucket(self._bucket_store[group_id], reduce_rank=None)
+        self.reduce_left_grads_after_backward()
 
         if internlm_accelerator.get_accelerator_backend() in [
             AcceleratorType.NPU,
