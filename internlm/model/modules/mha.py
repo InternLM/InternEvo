@@ -10,6 +10,7 @@ from einops import rearrange
 from torch import nn
 from torch.nn import functional as F
 
+from internlm.core.context import ParallelMode
 from internlm.core.context import global_context as gpc
 from internlm.model.modules.embedding import new_rotary_embedding
 from internlm.model.modules.linear import new_linear
@@ -477,8 +478,11 @@ class GQA(nn.Module):
             self.wk = new_linear("wk", embed_dim, self.kv_dim, bias, **factory_kwargs)
             self.wv = new_linear("wv", embed_dim, self.kv_dim, bias, **factory_kwargs)
             if qk_norm:
-                self.q_norm = nn.LayerNorm(q_dim)
-                self.k_norm = nn.LayerNorm(self.kv_dim)
+                tp_size = gpc.get_world_size(ParallelMode.TENSOR)
+                assert q_dim % tp_size == 0, "q_dim % tp_size != 0 in GQA"
+                assert self.kv_dim % tp_size == 0, "q_dim % tp_size != 0 in GQA"
+                self.q_norm = nn.LayerNorm(q_dim // tp_size)
+                self.k_norm = nn.LayerNorm(self.kv_dim // tp_size)
 
         self.inner_attn = SelfAttention(
             causal=causal, softmax_scale=softmax_scale, attention_dropout=dropout, layer_idx=layer_idx
