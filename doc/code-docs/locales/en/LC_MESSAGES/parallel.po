@@ -7,7 +7,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: InternLM \n"
 "Report-Msgid-Bugs-To: \n"
-"POT-Creation-Date: 2024-08-30 15:51+0800\n"
+"POT-Creation-Date: 2024-10-08 17:17+0800\n"
 "PO-Revision-Date: YEAR-MO-DA HO:MI+ZONE\n"
 "Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
 "Language: en\n"
@@ -16,7 +16,7 @@ msgstr ""
 "MIME-Version: 1.0\n"
 "Content-Type: text/plain; charset=utf-8\n"
 "Content-Transfer-Encoding: 8bit\n"
-"Generated-By: Babel 2.15.0\n"
+"Generated-By: Babel 2.12.1\n"
 
 #: ../../source/parallel.rst:2
 msgid "并行模式与原理"
@@ -274,15 +274,15 @@ msgstr ""
 " sequence parallelism and tensor parallelism, performing an ``all-"
 "gather`` operation along the seqlen dimension of activation values. After"
 " this communication is completed, the shape of the activation values "
-"becomes the full ``[seqlen, hidden_size]`` , and then it enters the scope "
-"of the tensor parallelism module. The communication of ``ḡ`` is situated "
-"at the junction of tensor parallelism and sequence parallelism, requiring"
-" the transformation of the ``all-reduce`` communication operation from "
-"MTP into a ``reduce-scatter`` operation to achieve the split along the "
-"seqlen dimension. This results in the activation values having a shape of"
-" ``[seqlen/tp, hidden_size]`` , enabling a smooth transition into the "
-"sequence parallelism phase. The same principles apply during the backward"
-" pass."
+"becomes the full ``[seqlen, hidden_size]`` , and then it enters the scope"
+" of the tensor parallelism module. The communication of ``ḡ`` is situated"
+" at the junction of tensor parallelism and sequence parallelism, "
+"requiring the transformation of the ``all-reduce`` communication "
+"operation from MTP into a ``reduce-scatter`` operation to achieve the "
+"split along the seqlen dimension. This results in the activation values "
+"having a shape of ``[seqlen/tp, hidden_size]`` , enabling a smooth "
+"transition into the sequence parallelism phase. The same principles apply"
+" during the backward pass."
 
 #: ../../source/parallel.rst:85
 msgid "FSP"
@@ -448,7 +448,13 @@ msgid ""
 ":class:`NonPipelineSchedule`."
 msgstr ""
 
-#: ../../source/parallel.rst
+#: internlm.core.scheduler.pipeline_scheduler.InterleavedPipelineScheduler.forward_backward_step
+#: internlm.core.scheduler.pipeline_scheduler.PipelineScheduler
+#: internlm.core.scheduler.pipeline_scheduler.PipelineScheduler.forward_backward_step
+#: internlm.core.scheduler.pipeline_scheduler.PipelineScheduler.pre_processing
+#: internlm.solver.optimizer.hybrid_zero_optim.HybridZeroOptimizer.belongs_to_current_rank
+#: internlm.solver.optimizer.hybrid_zero_optim.HybridZeroOptimizer.step
+#: internlm.solver.optimizer.hybrid_zero_optim.HybridZeroOptimizer.zero_grad of
 msgid "参数"
 msgstr "Parameter"
 
@@ -532,7 +538,10 @@ msgstr ""
 msgid "If False, the output and label won't be returned."
 msgstr ""
 
-#: ../../source/parallel.rst
+#: internlm.core.scheduler.pipeline_scheduler.InterleavedPipelineScheduler.forward_backward_step
+#: internlm.core.scheduler.pipeline_scheduler.PipelineScheduler.forward_backward_step
+#: internlm.solver.optimizer.hybrid_zero_optim.HybridZeroOptimizer.belongs_to_current_rank
+#: internlm.solver.optimizer.hybrid_zero_optim.HybridZeroOptimizer.step of
 msgid "返回"
 msgstr ""
 
@@ -559,7 +568,10 @@ msgid ""
 "accumulated from all stages."
 msgstr ""
 
-#: ../../source/parallel.rst
+#: internlm.core.scheduler.pipeline_scheduler.InterleavedPipelineScheduler.forward_backward_step
+#: internlm.core.scheduler.pipeline_scheduler.PipelineScheduler.forward_backward_step
+#: internlm.solver.optimizer.hybrid_zero_optim.HybridZeroOptimizer.belongs_to_current_rank
+#: internlm.solver.optimizer.hybrid_zero_optim.HybridZeroOptimizer.step of
 msgid "返回类型"
 msgstr "Return type"
 
@@ -744,6 +756,157 @@ msgstr ""
 #: internlm.solver.optimizer.hybrid_zero_optim.HybridZeroOptimizer.step:7 of
 msgid "Whether the gradient is success updated, and the gradient."
 msgstr ""
+
+#: ../../source/parallel.rst:214 ../../source/parallel.rst:228
+msgid "2D-Attention"
+msgstr "2D-Attention"
+
+#: ../../source/parallel.rst:215
+msgid ""
+"2D-Attention是InternEvo系统扩展ISP的序列化并行方案，集成了Ring-Attention和ISP，能够支持更长的序列。 "
+"ISP由于需要在attention前后分别进行All2All通信，在 ``sequence parallel`` 和 ``head "
+"parallel`` 之间进行切换， 因此 ``sp size`` 自然受到 ``head number`` 的限制，无法进行扩展；而Ring-"
+"Attention由于在attention计算过程中需要进行P2P通信，可能会遇到通信低效的问题。"
+msgstr ""
+"2D-Attention is the sequence parallelism within InternEvo, integrating both the Ring-Attention and ISP. "
+" The sequence parallel size in ISP is constrained by the head number, limiting the scalability. "
+" Meanwhile, the Ring-Attention may lead to suboptimal performance due to the inefficient P2P communication."
+
+#: ../../source/parallel.rst:219
+msgid ""
+"2D-Attention将ISP和Ring-Attention相结合，组成一个混合序列并行，能够解除 ``sp size`` 小于等于 "
+"``head number`` 的限制，同时避免P2P低效带宽利用。"
+msgstr ""
+"2D-Attention, by integrating ISP and Ring-Attention, not only overcomes the limitation that the sequence parallel size "
+"must not exceed the head number, but also enhances the P2P communication efficiency."
+
+#: ../../source/parallel.rst:221
+msgid ""
+"在2D-Attention中， ``sp size = hp size * cp size`` 。其中， ``hp size`` 为 ``head"
+" parallel size`` ， ``cp size`` 为 ``context parallel size`` （Ring-"
+"Attention）。 下图展示了 ``hp=2`` ， ``cp=4`` 的例子。"
+msgstr ""
+"In 2D-Attention, ``sp size = hp size * cp size``, where ``hp size`` represents the head parallel size, "
+"``cp size`` denotes the context parallel size. The following figure shows an example where hp=2, cp=4."
+
+#: ../../source/parallel.rst:230
+msgid ""
+"在上图中，不同颜色表示不同的head，在做第一个All2All之前，GPU0~3拥有两个head的前4个token； "
+"GPU4~7拥有两个head的后4个token。在第一个All2All之后，GPU0~3拥有第一个head的所有token，且将第一个head的所有token切成4份"
+"，做Ring-Attention，GPU4~7同理；在第2个All2All之后，所有GPU又回到初始状态。"
+msgstr ""
+"In the above figure, different color represents different head. Before conducting the first All2All, GPU 0~3 process the first 4 tokens for two heads, "
+"while GPU 4~7 hold the last 4 tokens of the same two heads. After the first All2All, GPU 0~3 receive all tokens for the first head "
+"and divide these tokens into 4 segments to perform Ring-Attention. GPU 4~7 follow a similar process. "
+"All GPUs return the initial states after the second All2All."
+
+#: ../../source/parallel.rst:233
+msgid "InternEvo针对2D-Attention做了一些更进一步的优化："
+msgstr ""
+"InternEvo implements several optimizations for 2D-Attention to achieve additional performance enhancements."
+
+#: ../../source/parallel.rst:235
+msgid ""
+"由于因果模型的限制，在Ring-Attention中会导致每个GPU的计算负载不均衡，因此InternEvo参考了 `zigzag "
+"<https://github.com/zhuzilin/ring-flash-attention/issues/2>`_ ，在2D-"
+"Attention中的 ``context parallel`` 使用了zigzag模式"
+msgstr ""
+"In Ring-Attention, the computation load for each GPU is unevenly distributed due to the causal model. "
+"InternEvo addresses this imbalance by implementing zigzag in context parallel as described in `zigzag <https://github.com/zhuzilin/ring-flash-attention/issues/2>`_"
+
+#: ../../source/parallel.rst:236
+msgid ""
+"为了充分利用集群的网卡资源，提高通信效率，2D-Attention在做 ``context parallel`` 的时候，引入了一个 "
+"``window size`` 概念，即为Double-Ring Attention。下图展示了 ``cp=8`` ， "
+"``window_size=4`` 的例子。GPU 0~3和GPU 4~7内部分别做inner Ring "
+"Attention，进行节点内P2P通信。GPU 0和4做Outer Ring "
+"Attention，进行节点间P2P通信，网卡利用示意图如下图所示。"
+msgstr ""
+"2D-Attention introduces the window size concept in context parallel to optimize the use of NIC resources, known as Double-Ring Attention. "
+"The following diagram illustrates an example where ``cp=8``, ``window_size=4``. GPU 0~3 and 4~7 perform the inner Ring Attention respectively, which involves intra-node communication. "
+"GPU 0 and GPU 4 carry out the outer Ring Attention, which involves inter-node communication."
+
+#: ../../source/parallel.rst:242
+msgid "Double-Ring-Attention"
+msgstr "Double-Ring-Attention"
+
+#: ../../source/parallel.rst:244
+msgid ""
+"由于2D-Attention中同时涉及到 ``head parallel`` 和 ``context parallel`` "
+"，因此InternEvo提供了可配置选项，用于控制 ``head parallel`` 和 ``context parallel`` "
+"创建通信组的优先级"
+msgstr ""
+"Since the 2D-Attention involves head parallel and context parallel, InternEvo provides the configuration options to manage"
+"the priority of establishing communication groups for head parallel and context parallel."
+
+#: ../../source/parallel.rst:245
+msgid ""
+"为了充分利用网卡资源，需要特别注意创建 ``context parallel`` 通信组。当 ``head parallel`` 优先创建通信组，"
+" ``context parallel`` 的GPU天然就是interleaved，这时天然能够利用网卡资源；当 ``context "
+"parallel`` 优先创建通信组时，这些 ``context parallel`` "
+"被分配到的GPU往往是连续的，为了提高通信效率，InternEvo提供了interleaved配置选项，可以在 ``window size > "
+"1`` 的情况，重排 ``context parallel`` 的GPU。"
+msgstr ""
+"It should be noted that the establishment of process group for context parallel to take advantage of NIC resources. "
+"When head parallel is given high priority, the GPUs assigned to context parallel are natively interleaved, which is beneficial for utilizing the NIC. "
+"Conversely, when context parallel is prioritized, the arrangement of GPUs for context parallel tends to be sequential. "
+"To improve the communication efficiency, InternEvo provides an interleaved configuration. "
+"This allows for the reorganization of GPUs involved in context parallel when ``window size > 1``."
+
+#: ../../source/parallel.rst:247
+msgid "下图展示了一个Double-Ring-Attention充分利用网卡资源的示例。"
+msgstr "The following figure shows an example of how Double-Ring-Attention optimizes the utilization of NIC resources."
+
+#: ../../source/parallel.rst:253
+msgid "Communication in Double-Ring-Attention"
+msgstr "Communication in Double-Ring-Attention"
+
+#: ../../source/parallel.rst:255
+msgid "InternEvo在parallel config里面添加了sequence_2D用于配置2D-Attention。"
+msgstr "InternEvo introduces the sequence_2D in parallel configuration to set up 2D-Attention."
+
+#: ../../source/parallel.rst:274
+msgid "``sequence_2D.enable`` 字段表示是否启用2D-Attention"
+msgstr "``sequence_2D.enable`` indicates whether to employ 2D-Attention"
+
+#: ../../source/parallel.rst:276
+msgid "``sequence_2D.head_size`` 字段表示head parallel size"
+msgstr "``sequence_2D.head_size`` denotes the head parallel size"
+
+#: ../../source/parallel.rst:278
+msgid "``sequence_2D.context_size`` 字段表示context parallel size"
+msgstr "``sequence_2D.context_size`` represents the context parallel size"
+
+#: ../../source/parallel.rst:280
+msgid "``sequence_2D.window_size`` 字段表示Double-Ring Attention中的window_size"
+msgstr "``sequence_2D.window_size`` indicates the windo_size in Double-Ring Attention"
+
+#: ../../source/parallel.rst:282
+msgid ""
+"``sequence_2D.device_placement_strategy.head_first`` 字段表示是否优先分配head "
+"parallel通信组，若为False，则为context-first"
+msgstr ""
+"``sequence_2D.device_placement_strategy.head_first`` determines whether to prioritize the establishment of the head parallel process group."
+"If set to False, the context parallel is given priority instead."
+
+#: ../../source/parallel.rst:284
+msgid ""
+"``sequence_2D.device_placement_strategy.interleavd`` 字段表示是否对context "
+"parallel的GPU重排，该字段在 "
+"``sequence_2D.device_placement_strategy.head_first=False`` 和 "
+"``sequence_2D.window_size>1`` 时，推荐设置为 ``True``"
+msgstr ""
+"``sequence_2D.device_placement_strategy.interleavd`` determines whether to rearrange the GPUs for context parallel."
+"It is recommend to set it to True when ``sequence_2D.device_placement_strategy.head_first=False`` and ``sequence_2D.window_size>1``."
+
+#: ../../source/parallel.rst:286
+msgid ""
+"关于 2D-Attention更多的设计思路和性能评测，请参考论文 `LoongTrain: Efficient Training of "
+"Long-Sequence LLMs with Head-Context Parallelism "
+"<https://arxiv.org/pdf/2406.18485>`_"
+msgstr ""
+"For more design concepts and performance evaluations of 2D-Attention, please refer to the paper"
+" `LoongTrain: Efficient Training of Long-Sequence LLMs with Head-Context Parallelism <https://arxiv.org/pdf/2406.18485>`_"
 
 #~ msgid "A tuple of (output, label, loss), loss and label could be None."
 #~ msgstr ""

@@ -441,7 +441,9 @@ def load_scheduler(ckpt_path: str, lr_scheduler, optimizer, train_state: TrainSt
         )
 
     lr_scheduler.load_state_dict(scheduler_states)
-    lr_scheduler.last_epoch = train_state.step_count + 1
+
+    # step_count have been updated before saving checkpoint.
+    lr_scheduler.last_epoch = train_state.step_count
 
     # compatible with old code that only have one param group
     if len(base_lrs) == 1:

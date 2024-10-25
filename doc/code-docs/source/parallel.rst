@@ -209,3 +209,78 @@ ZeRO1.5 的实现使用了分层分片的概念，通过配置值 ``parallel.zer
 
 .. autoclass:: internlm.solver.optimizer.hybrid_zero_optim.HybridZeroOptimizer
     :members:
+
+2D-Attention
+-----------------
+2D-Attention是InternEvo系统扩展ISP的序列化并行方案，集成了Ring-Attention和ISP，能够支持更长的序列。
+ISP由于需要在attention前后分别进行All2All通信，在 ``sequence parallel`` 和 ``head parallel`` 之间进行切换，
+因此 ``sp size`` 自然受到 ``head number`` 的限制，无法进行扩展；而Ring-Attention由于在attention计算过程中需要进行P2P通信，可能会遇到通信低效的问题。
+
+2D-Attention将ISP和Ring-Attention相结合，组成一个混合序列并行，能够解除 ``sp size`` 小于等于 ``head number`` 的限制，同时避免P2P低效带宽利用。
+
+在2D-Attention中， ``sp size = hp size * cp size`` 。其中， ``hp size`` 为 ``head parallel size`` ， ``cp size`` 为 ``context parallel size`` （Ring-Attention）。
+下图展示了 ``hp=2`` ， ``cp=4`` 的例子。
+
+.. figure:: ../../imgs/2d-attn.PNG
+  :scale: 80%
+  :class: with-border
+  
+  2D-Attention
+
+在上图中，不同颜色表示不同的head，在做第一个All2All之前，GPU0~3拥有两个head的前4个token；
+GPU4~7拥有两个head的后4个token。在第一个All2All之后，GPU0~3拥有第一个head的所有token，且将第一个head的所有token切成4份，做Ring-Attention，GPU4~7同理；在第2个All2All之后，所有GPU又回到初始状态。
+
+InternEvo针对2D-Attention做了一些更进一步的优化：
+
+- 1. 由于因果模型的限制，在Ring-Attention中会导致每个GPU的计算负载不均衡，因此InternEvo参考了 `zigzag <https://github.com/zhuzilin/ring-flash-attention/issues/2>`_ ，在2D-Attention中的 ``context parallel`` 使用了zigzag模式
+- 2. 为了充分利用集群的网卡资源，提高通信效率，2D-Attention在做 ``context parallel`` 的时候，引入了一个 ``window size`` 概念，即为Double-Ring Attention。下图展示了 ``cp=8`` ， ``window_size=4`` 的例子。GPU 0~3和GPU 4~7内部分别做inner Ring Attention，进行节点内P2P通信。GPU 0和4做Outer Ring Attention，进行节点间P2P通信，网卡利用示意图如下图所示。 
+
+.. figure:: ../../imgs/double-ring.PNG
+  :scale: 80%
+  :class: with-border
+
+  Double-Ring-Attention
+
+- 3. 由于2D-Attention中同时涉及到 ``head parallel`` 和 ``context parallel`` ，因此InternEvo提供了可配置选项，用于控制 ``head parallel`` 和 ``context parallel`` 创建通信组的优先级
+- 4. 为了充分利用网卡资源，需要特别注意创建 ``context parallel`` 通信组。当 ``head parallel`` 优先创建通信组， ``context parallel`` 的GPU天然就是interleaved，这时天然能够利用网卡资源；当 ``context parallel`` 优先创建通信组时，这些 ``context parallel`` 被分配到的GPU往往是连续的，为了提高通信效率，InternEvo提供了interleaved配置选项，可以在 ``window size > 1`` 的情况，重排 ``context parallel`` 的GPU。
+
+下图展示了一个Double-Ring-Attention充分利用网卡资源的示例。
+
+.. figure:: ../../imgs/nic.PNG
+  :scale: 80%
+  :class: with-border
+
+  Communication in Double-Ring-Attention 
+
+InternEvo在parallel config里面添加了sequence_2D用于配置2D-Attention。
+
+.. code-block:: python
+
+    parallel = dict(
+        zero1=dict(size=-1),
+        tensor=dict(size=2, mode="isp"),
+        pipeline=dict(size=1, interleaved_overlap=True),
+        weight=dict(size=4, overlap=True, memory_pool=False),
+        sequence_2D=dict(
+            enable=False,
+            head_size=2,
+            context_size=4,
+            window_size=1,
+            device_placement_strategy=dict(head_first=True, interleaved=False),
+        ),
+    )
+
+
+``sequence_2D.enable`` 字段表示是否启用2D-Attention
+
+``sequence_2D.head_size`` 字段表示head parallel size
+
+``sequence_2D.context_size`` 字段表示context parallel size
+
+``sequence_2D.window_size`` 字段表示Double-Ring Attention中的window_size
+
+``sequence_2D.device_placement_strategy.head_first`` 字段表示是否优先分配head parallel通信组，若为False，则为context-first
+
+``sequence_2D.device_placement_strategy.interleavd`` 字段表示是否对context parallel的GPU重排，该字段在 ``sequence_2D.device_placement_strategy.head_first=False`` 和 ``sequence_2D.window_size>1`` 时，推荐设置为 ``True``
+
+关于 2D-Attention更多的设计思路和性能评测，请参考论文 `LoongTrain: Efficient Training of Long-Sequence LLMs with Head-Context Parallelism <https://arxiv.org/pdf/2406.18485>`_ 

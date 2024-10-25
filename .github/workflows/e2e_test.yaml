@@ -3,6 +3,7 @@ on:
   pull_request:
     branches:
       - "develop"
+      - "feat/heterogeneous-xPU-training"
     paths-ignore:
       - "doc/**"
       - "**.md"

@@ -6,6 +6,7 @@ on:
     branches:
       - "main"
       - "develop"
+      - "feat/heterogeneous-xPU-training"
 
 jobs:
   # lint check can be auto-executed by the workflow
