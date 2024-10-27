@@ -309,8 +309,7 @@ class HybridZeroOptimizer(BaseOptimizer):
                 if not param.requires_grad:
                     continue
                 
-                if is_using_ZB:
-                    hooks = []
+                hooks = []
 
                 reduce_rank = None
 
@@ -414,6 +413,7 @@ class HybridZeroOptimizer(BaseOptimizer):
 
                 _define_and_attach(param, reduce_rank)
                 if len(hooks) > 0:
+                    assert is_using_ZB
                     WeightGradStore.register_hook(param, hooks)
 
     def accumulate_left_grads_after_backward(self):

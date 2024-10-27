@@ -110,7 +110,9 @@ def args_sanity_check():
     if isinstance(gpc.config.parallel.pipeline, dict):
         gpc.config.parallel.pipeline["mode"] = gpc.config.parallel.pipeline["mode"].upper()
         assert gpc.config.parallel.pipeline["mode"] in ["1F1B", "ZBH1", "ZBV"], f"unsupported pp mode {gpc.config.parallel.pipeline['mode']}"
-
+        if gpc.config.parallel.pipeline["mode"] == "ZBV":
+            gpc.v_shape = True
+             
     # check fsdp config
     if "fsdp" not in gpc.config.parallel.zero1:
         gpc.config.parallel.zero1._add_item("fsdp", False)
@@ -535,6 +537,8 @@ def args_sanity_check():
         assert (
             gpc.config.parallel.expert.size <= 1 and gpc.config.parallel.expert_weight.size <= 1
         ), "expert parallel is only supported in MoE setting"
+        
+    print(f"isp_overlap: {gpc.config.parallel['weight']['overlap']}", flush=True)
 
     # sequence_2D
     if "sequence_2D" not in gpc.config.parallel:
