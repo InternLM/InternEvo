@@ -12,8 +12,7 @@ from torch.nn import functional as F
 
 from internlm.core.context import ParallelMode
 from internlm.core.context import global_context as gpc
-from internlm.core.parallel.comm.utils import gather_forward_split_backward
-from internlm.core.parallel.comm.utils import split_forward_gather_backward
+from internlm.core.parallel.comm.utils import gather_forward_split_backward, split_forward_gather_backward
 from internlm.model.modules.embedding import new_rotary_embedding
 from internlm.model.modules.linear import new_linear
 from internlm.model.modules.utils import update_kv_cache
