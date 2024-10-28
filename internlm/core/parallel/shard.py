@@ -236,7 +236,6 @@ def pipeline_parallel_sharding_wrapper(
         kwargs["last"] = end == num_layers and len(all_parts[-1]) != 0
         kwargs["device"] = device
         kwargs["start_layer_idx"] = start
-        print(f"partition_uniform {gpc.get_global_rank()}: {parts}, {kwargs}", flush=True)
         chunk = model_builder(**kwargs).to(device)
         setattr(chunk, "first_layer", start)
         setattr(chunk, "last_layer", end)

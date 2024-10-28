@@ -309,7 +309,8 @@ class HybridZeroOptimizer(BaseOptimizer):
                 if not param.requires_grad:
                     continue
                 
-                hooks = []
+                if is_using_ZB:
+                    hooks = []
 
                 reduce_rank = None
 
@@ -413,7 +414,6 @@ class HybridZeroOptimizer(BaseOptimizer):
 
                 _define_and_attach(param, reduce_rank)
                 if len(hooks) > 0:
-                    assert is_using_ZB
                     WeightGradStore.register_hook(param, hooks)
 
     def accumulate_left_grads_after_backward(self):
@@ -1025,3 +1025,4 @@ class HybridZeroOptimizer(BaseOptimizer):
                 )
                 # param_group["params"] is fp32 flatten optimizer states of this zero rank.
                 param_group["params"][0].data.copy_(fp16_flat_current_rank.float())
+      

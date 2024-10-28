@@ -851,7 +851,7 @@ class HybridZeroOptimizer_v2(BaseOptimizer):
     ################
 
     def _attach_reduction_hook(self):
-        from internlm.core.scheduler.pipeline_scheduler import WeightGradStore
+        from internlm.core.scheduler.pipeline_scheduler_zb import WeightGradStore
         is_using_ZB = gpc.config.parallel["pipeline"].get("mode", "1F1B") != "1F1B"
         # we iterate over the fp16 params
         # on each param, we register a hook to its AccumulateGrad object

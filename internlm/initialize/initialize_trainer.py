@@ -23,7 +23,7 @@ from internlm.core.scheduler import (
     ZeroBubblePipelineScheduler,
     ZeroBubblePipelineVShapeScheduler,
 )
-from internlm.core.scheduler.pipeline_scheduler import get_tensor_shape
+from internlm.core.scheduler.pipeline_scheduler_1f1b import get_tensor_shape
 from internlm.core.trainer import Trainer
 from internlm.data.utils import packed_data_normalizer, unpack_data
 from internlm.solver.optimizer.hybrid_zero_optim import BaseOptimizer
