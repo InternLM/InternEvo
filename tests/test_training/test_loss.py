@@ -61,7 +61,7 @@ def train(
     load_ckpt: bool = False,
     model_type: str = "INTERNLM",
     optimizer_ver: str = "v1",
-    zero_bubble: bool = False,
+    pp_mode: str = "1F1B",
 ):
     # initialize distributed environment
     config = Config.from_file(CONFIG_FILE_PATH)
@@ -97,14 +97,13 @@ def train(
 
     # update parallel config
     config.parallel.tensor = dict(size=tp_size, mode=tp_mode)
-    if zero_bubble:
+    if pp_mode == "ZBH1":
         config.hybrid_zero_optimizer.overlap_sync_grad = False
-        config.parallel.pipeline = dict(size=pp_size, zero_bubble=True)
-    else:
-        config.parallel.pipeline = dict(size=pp_size)
+
+    config.parallel.pipeline = dict(size=pp_size, mode=pp_mode)
     config.parallel.weight = dict(size=wp_size, overlap=True)
     if interleaved is True:
-        config.parallel.pipeline = dict(size=pp_size, interleaved_overlap=True)
+        config.parallel.pipeline = dict(size=pp_size, interleaved_overlap=True, mode=pp_mode)
         config.model.num_chunks = num_chunks
 
     if "use_packed_dataset" not in config.data:
@@ -379,7 +378,7 @@ def test_training_loss_with_dp4_pp2():
 @pytest.mark.training_8GPU_4DP2PP_ZB
 def test_training_loss_with_dp4_pp2_zero_bubble():
     # model training
-    train(dp_size=4, pp_size=2, zero_bubble=True)
+    train(dp_size=4, pp_size=2, pp_mode="ZBH1")
 
     # print loss value
     print(f"cur_loss_list: {cur_loss_list}", flush=True)

@@ -186,7 +186,7 @@ def partition_uniform(num_items: int, pipeline_parallel_size: int, num_chunks: i
         if chunk_size == 0:
             raise ValueError("Some nodes in Pipeline have no requests")
 
-        if gpc.config.parallel["pipeline"]["mode"] == "ZBV" and idx == 1:
+        if getattr(gpc.config.parallel["pipeline"], "mode", "1F1B").upper() == "ZBV" and idx == 1:
             for p in range(pipeline_parallel_size - 1, -1, -1):
                 st = base_idx
                 base_idx += chunk_size + ((pipeline_parallel_size - p - 1) >= left)

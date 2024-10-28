@@ -95,6 +95,8 @@ def initialize_trainer(
 
         return _data, _label
 
+    pp_mode = getattr(gpc.config.parallel["pipeline"], "mode", "1F1B").upper()
+
     if gpc.is_using_parallel_mode(ParallelMode.PIPELINE):
         gpc.config.NUM_MICRO_BATCHES = gpc.config.data.micro_num
         tensor_shape = get_tensor_shape()
@@ -102,7 +104,7 @@ def initialize_trainer(
             hasattr(gpc.config, "model")
             and hasattr(gpc.config.model, "num_chunks")
             and gpc.config.model.num_chunks > 1
-            and gpc.config.parallel["pipeline"]["mode"] == "1F1B"
+            and pp_mode == "1F1B"
         )
         scatter_gather = gpc.is_initialized(ParallelMode.TENSOR)
         if use_interleaved:
@@ -120,7 +122,7 @@ def initialize_trainer(
                 scheduler_hooks=scheduler_hooks,
                 communication_overlap=communication_overlap,
             )
-        elif gpc.config.parallel["pipeline"]["mode"] == "ZBH1":
+        elif pp_mode == "ZBH1":
             scheduler = ZeroBubblePipelineScheduler(
                 data_process_func=_data_preparation_func,
                 num_microbatches=gpc.config.NUM_MICRO_BATCHES,
@@ -130,7 +132,7 @@ def initialize_trainer(
                 scheduler_hooks=scheduler_hooks,
                 optimizer=optimizer,
             )
-        elif gpc.config.parallel["pipeline"]["mode"] == "ZBV":
+        elif pp_mode == "ZBV":
             scheduler = ZeroBubblePipelineVShapeScheduler(
                 num_microbatches=gpc.config.NUM_MICRO_BATCHES,
                 num_chunks=gpc.config.model.num_chunks,
