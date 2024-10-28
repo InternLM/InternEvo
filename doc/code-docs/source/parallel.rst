@@ -137,14 +137,14 @@ InternEvo 在流水线并行中使用 `1F1B <https://arxiv.org/pdf/2104.04473.pd
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 如果要使用非交错式调度, 需要设置 ``model.num_chunks = 1`` 。
 
-.. autoclass:: internlm.core.scheduler.pipeline_scheduler.PipelineScheduler
+.. autoclass:: internlm.core.scheduler.pipeline_scheduler_1f1b.PipelineScheduler
     :members:
 
 交错式流水线调度
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 如果要使用交错式调度, 需要设置 ``model.num_chunks > 1`` 。
 
-.. autoclass:: internlm.core.scheduler.pipeline_scheduler.InterleavedPipelineScheduler
+.. autoclass:: internlm.core.scheduler.pipeline_scheduler_1f1b.InterleavedPipelineScheduler
     :members:
 
 值得注意的是，在使用交错式流水线调度器时可启用通信优化功能，即在 1F1B 阶段启用异步通信，以充分利用上行/下行带宽并实现通信与计算重叠。

@@ -99,7 +99,7 @@ class TrainerBuilder(Trainer):
         self.current_time = self._setup_time_and_logging()
         # load config_lines
         config_lines = self._read_config(kwargs["config"])
-        
+
         # set tracking name for parameters
         set_param_unique_tracking_name(model)
 

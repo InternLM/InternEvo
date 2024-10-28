@@ -9,10 +9,7 @@ from collections import deque
 from typing import Iterable, Optional
 
 from internlm.core.engine import Engine
-from internlm.core.scheduler import (
-    BaseScheduler,
-    NonPipelineScheduler,
-)
+from internlm.core.scheduler import BaseScheduler, NonPipelineScheduler
 
 
 class TrainState:

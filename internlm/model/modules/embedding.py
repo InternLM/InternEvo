@@ -66,7 +66,7 @@ class Embedding1D(nn.Module):
         self.weight = nn.Parameter(
             torch.empty((self.num_embeddings_per_partition, self.embed_dim_per_partition), dtype=dtype)
         )
-        
+
         setattr(self.weight, "is_embedding_param", True)
 
     def forward(self, input_: Tensor) -> Tensor:

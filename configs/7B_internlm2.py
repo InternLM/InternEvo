@@ -43,11 +43,9 @@ ckpt = dict(
 TRAIN_FOLDER = None
 VALID_FOLDER = None  # "/path/to/dataset"
 data = dict(
-    # tokenizer_path = "/mnt/petrelfs/share_data/caizheng/pretrained/internlm2-chat-7b",
-    # type="streaming",
     seq_len=SEQ_LEN,
     # micro_num means the number of micro_batch contained in one gradient update
-    micro_num=8,
+    micro_num=4,
     # packed_length = micro_bsz * SEQ_LEN
     micro_bsz=1,
     # defaults to the value of micro_num
@@ -92,7 +90,7 @@ grad_scaler = dict(
 
 hybrid_zero_optimizer = dict(
     # Enable low_level_optimzer overlap_communication
-    overlap_sync_grad=False,
+    overlap_sync_grad=True,
     overlap_sync_param=False,
     # bucket size for nccl communication params
     reduce_bucket_size=512 * 1024 * 1024,
@@ -182,9 +180,9 @@ weight parallel (dict):
 """
 parallel = dict(
     zero1=dict(size=-1),
-    tensor=dict(size=1, mode="mtp"),
-    pipeline=dict(size=4, interleaved_overlap=True, mode='zbv'),
-    weight=dict(size=1, overlap=True),
+    tensor=dict(size=2, mode="isp"),
+    pipeline=dict(size=1, interleaved_overlap=True),
+    weight=dict(size=2, overlap=True),
 )
 
 cudnn_deterministic = False

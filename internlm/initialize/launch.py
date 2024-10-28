@@ -85,8 +85,8 @@ def args_sanity_check():
         gpc.config.parallel._add_item("zero1", dict(size=zero1_size, fsdp=False))
 
     if "pipeline" not in gpc.config.parallel:
-        gpc.config.parallel._add_item("pipeline", dict(size=1, interleaved_overlap=False, mode='1F1B'))
-    
+        gpc.config.parallel._add_item("pipeline", dict(size=1, interleaved_overlap=False, mode="1F1B"))
+
     if isinstance(gpc.config.parallel.pipeline, dict) and "mode" not in gpc.config.parallel.pipeline:
         gpc.config.parallel.pipeline._add_item("mode", "1F1B")
 
@@ -106,13 +106,17 @@ def args_sanity_check():
         pp = gpc.config.parallel.pipeline
     else:
         pp = gpc.config.parallel.pipeline.size
-        
+
     if isinstance(gpc.config.parallel.pipeline, dict):
         gpc.config.parallel.pipeline["mode"] = gpc.config.parallel.pipeline["mode"].upper()
-        assert gpc.config.parallel.pipeline["mode"] in ["1F1B", "ZBH1", "ZBV"], f"unsupported pp mode {gpc.config.parallel.pipeline['mode']}"
+        assert gpc.config.parallel.pipeline["mode"] in [
+            "1F1B",
+            "ZBH1",
+            "ZBV",
+        ], f"unsupported pp mode {gpc.config.parallel.pipeline['mode']}"
         if gpc.config.parallel.pipeline["mode"] == "ZBV":
             gpc.v_shape = True
-             
+
     # check fsdp config
     if "fsdp" not in gpc.config.parallel.zero1:
         gpc.config.parallel.zero1._add_item("fsdp", False)
@@ -450,7 +454,7 @@ def args_sanity_check():
         assert (
             gpc.config.parallel["pipeline"].get("interleaved_overlap", False) is True
         ), "only support interleaved pipeline scheduler with overlap"
-    
+
     if gpc.config.parallel["pipeline"]["mode"] == "ZBV":
         gpc.config.model.num_chunks = 2
         if gpc.is_rank_for_log():
@@ -537,8 +541,6 @@ def args_sanity_check():
         assert (
             gpc.config.parallel.expert.size <= 1 and gpc.config.parallel.expert_weight.size <= 1
         ), "expert parallel is only supported in MoE setting"
-        
-    print(f"isp_overlap: {gpc.config.parallel['weight']['overlap']}", flush=True)
 
     # sequence_2D
     if "sequence_2D" not in gpc.config.parallel:

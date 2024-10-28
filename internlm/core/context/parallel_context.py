@@ -299,7 +299,7 @@ class ParallelContext(metaclass=SingletonMeta):
             is_log_rank = is_log_rank and self.is_last_rank(ParallelMode.PIPELINE)
         else:
             is_log_rank = is_log_rank and self.is_first_rank(ParallelMode.PIPELINE)
-            
+
         return is_log_rank
 
     def is_last_rank(self, parallel_mode: ParallelMode):

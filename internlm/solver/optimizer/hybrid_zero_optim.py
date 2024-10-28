@@ -298,7 +298,8 @@ class HybridZeroOptimizer(BaseOptimizer):
 
     # TODO check expert dp is correct when enable moe and overlap both
     def _attach_reduction_hook(self):
-        from internlm.core.scheduler.pipeline_scheduler import WeightGradStore
+        from internlm.core.scheduler.pipeline_scheduler_zb import WeightGradStore
+
         is_using_ZB = gpc.config.parallel["pipeline"].get("mode", "1F1B") != "1F1B"
         # we iterate over the fp16 params
         # on each param, we register a hook to its AccumulateGrad object
@@ -308,9 +309,8 @@ class HybridZeroOptimizer(BaseOptimizer):
                 # we should not reduce the param in moe
                 if not param.requires_grad:
                     continue
-                
-                if is_using_ZB:
-                    hooks = []
+
+                hooks = []
 
                 reduce_rank = None
 
@@ -396,7 +396,7 @@ class HybridZeroOptimizer(BaseOptimizer):
                         )
                     ):
                         if is_using_ZB and not hasattr(param, "is_embedding_param"):
-                            hooks.append(accum_grad_hook)
+                            hooks.append(accum_grad_hook)  # pylint: disable=W0640
                         else:
                             if hasattr(param, "evo_tensor"):
                                 param.register_post_accumulate_grad_hook(accum_grad_hook)
@@ -405,7 +405,7 @@ class HybridZeroOptimizer(BaseOptimizer):
 
                     if self._overlap_sync_grad:
                         if is_using_ZB and not hasattr(param, "is_embedding_param"):
-                            hooks.append(reduce_grad_hook)
+                            hooks.append(reduce_grad_hook)  # pylint: disable=W0640
                         else:
                             if hasattr(param, "evo_tensor"):
                                 param.register_post_accumulate_grad_hook(reduce_grad_hook)
@@ -414,6 +414,7 @@ class HybridZeroOptimizer(BaseOptimizer):
 
                 _define_and_attach(param, reduce_rank)
                 if len(hooks) > 0:
+                    assert is_using_ZB
                     WeightGradStore.register_hook(param, hooks)
 
     def accumulate_left_grads_after_backward(self):
@@ -422,8 +423,8 @@ class HybridZeroOptimizer(BaseOptimizer):
 
         for group_id in range(self.num_param_groups):
             self._accum_grads_store_in_bucket(self._accum_grad_buckets[group_id])
-    
-    def reduce_left_grads_after_backward(self):       
+
+    def reduce_left_grads_after_backward(self):
         for group_id in range(self.num_param_groups):
             self._reduce_grads_stored_in_bucket(self._bucket_store[group_id], reduce_rank=None)
 
@@ -1025,4 +1026,3 @@ class HybridZeroOptimizer(BaseOptimizer):
                 )
                 # param_group["params"] is fp32 flatten optimizer states of this zero rank.
                 param_group["params"][0].data.copy_(fp16_flat_current_rank.float())
-      

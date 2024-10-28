@@ -99,7 +99,10 @@ def initialize_trainer(
         gpc.config.NUM_MICRO_BATCHES = gpc.config.data.micro_num
         tensor_shape = get_tensor_shape()
         use_interleaved = (
-            hasattr(gpc.config, "model") and hasattr(gpc.config.model, "num_chunks") and gpc.config.model.num_chunks > 1 and gpc.config.parallel["pipeline"]["mode"] == "1F1B"
+            hasattr(gpc.config, "model")
+            and hasattr(gpc.config.model, "num_chunks")
+            and gpc.config.model.num_chunks > 1
+            and gpc.config.parallel["pipeline"]["mode"] == "1F1B"
         )
         scatter_gather = gpc.is_initialized(ParallelMode.TENSOR)
         if use_interleaved:

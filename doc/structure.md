@@ -12,7 +12,8 @@
 │   │   │   └── process_group_initializer.py
 │   │   ├── scheduler                        # 调度模块，管理并行训练的调度器，包括非流水线并行调度器和流水线并行调度器
 │   │   │   ├── no_pipeline_scheduler.py
-│   │   │   └── pipeline_scheduler.py
+│   │   │   ├── pipeline_scheduler_1f1b.py
+│   │   │   └── pipeline_scheduler_zb.py
 │   │   ├── engine.py                        # 负责管理模型的训练和评估过程
 │   │   └── trainer.py                       # 负责管理训练引擎和调度器
 │   ├── data                                 # 数据模块，负责管理数据集生成和处理

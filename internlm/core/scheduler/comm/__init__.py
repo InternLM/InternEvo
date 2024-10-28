@@ -1,5 +1,6 @@
 from .p2p import (
     AsynCommunicator,
+    fused_send_recv_tensor,
     recv_backward,
     recv_forward,
     send_backward,
@@ -9,7 +10,6 @@ from .p2p import (
     send_forward_backward_recv_forward_backward,
     send_forward_recv_backward,
     send_forward_recv_forward,
-    fused_send_recv_tensor,
 )
 from .utils import recv_obj_meta, send_obj_meta
 

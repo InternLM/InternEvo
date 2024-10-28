@@ -172,7 +172,7 @@ def _communicate(
         for req in reqs:
             req.wait()
         # To protect against race condition when using batch_isend_irecv().
-        internlm_accelerator.synchronize()
+        # internlm_accelerator.synchronize()
 
     if recv_prev and recv_prev_split:
         if isinstance(tensor_recv_prev, torch.Tensor):
@@ -279,15 +279,15 @@ def _communicate_async(
 
     if len(ops) > 0:
         reqs = dist.batch_isend_irecv(ops)
-    
+
     # return and do other things
     yield
-    
+
     if len(ops) > 0:
-        for req in reqs:
+        for req in reqs:  # pylint: disable=E0601
             req.wait()
         # To protect against race condition when using batch_isend_irecv().
-        internlm_accelerator.synchronize()
+        # internlm_accelerator.synchronize()
 
     if recv_prev and recv_prev_split:
         if isinstance(tensor_recv_prev, torch.Tensor):
@@ -306,14 +306,7 @@ def _communicate_async(
                 tensor_recv_next[index] = (
                     gather_split_1d_tensor(tensor_recv_next[index]).view(recv_next_shape[index]).requires_grad_()
                 )
-    
-    # if tensor_recv_prev is not None and tensor_recv_next is None:
-    #     yield tensor_recv_prev
-    # elif tensor_recv_next is not None and tensor_recv_prev is None:
-    #     yield tensor_recv_next
-    # elif tensor_recv_next is None and tensor_recv_prev is None:
-    #     yield None
-    # else:
+
     yield tensor_recv_prev, tensor_recv_next
 
 
@@ -546,6 +539,7 @@ def send_forward_backward_recv_forward_backward(
     )
     return input_tensor, output_tensor_grad
 
+
 def fused_send_recv_tensor(
     object_send_next: Union[torch.Tensor, List[torch.Tensor]] = None,
     object_send_prev: Union[torch.Tensor, List[torch.Tensor]] = None,
@@ -608,7 +602,7 @@ class AsynCommunicator:
         dtype: torch.dtype = None,
         scatter_gather_tensors: bool = False,
     ) -> None:
-        self._need_receive = recv_prev_shape is not None or recv_next_shape is not None          
+        self._need_receive = recv_prev_shape is not None or recv_next_shape is not None
         self._coroutine = _communicate_async(
             object_send_prev=object_send_prev,
             object_send_next=object_send_next,

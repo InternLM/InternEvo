@@ -180,7 +180,6 @@ class PipelineScheduler(BaseScheduler):
         elif isinstance(data, (list, tuple)):
             return engine(*data)
         elif isinstance(data, dict):
-            # print(f"data: {data}, {gpc.get_global_rank()}", flush=True)
             stage_output = data.pop("stage_output", None)
             if stage_output is None:
                 return engine(**data)
@@ -745,7 +744,6 @@ class InterleavedPipelineScheduler(PipelineScheduler):
         assert (
             isinstance(num_chunks, int) and num_chunks > 0
         ), f"expected num_chunks to be an integer and larger than 0, but got {num_chunks}"
-        print(f"InterleavedPipelineScheduler", flush=True)
 
         super().__init__(
             num_microbatches,
@@ -841,13 +839,10 @@ class InterleavedPipelineScheduler(PipelineScheduler):
 
         if gpc.is_pipeline_first_stage() and len(self._input_objs[chunk_id]) == len(self._output_objs[chunk_id]):
             self._input_objs[chunk_id].append(None)
-        
+
         if input_obj is None:
             input_obj = self._input_objs[chunk_id][-1]
-            
-        if input_obj is not None:
-            assert input_obj.requires_grad == True
-        
+
         if not gpc.is_pipeline_first_stage():
             assert input_obj is not None, f"{gpc.get_global_rank()} input is None"
         micro_batch_data = self.load_micro_batch(chunk_id)
@@ -892,7 +887,7 @@ class InterleavedPipelineScheduler(PipelineScheduler):
 
         self._output_objs[chunk_id].append(output_obj)
         self._moe_losses[chunk_id].append(moe_loss)
-        
+
         assert output_obj is not None, f"{gpc.get_global_rank()} chunk{chunk_id} output is None"
 
         return output_obj
@@ -929,7 +924,6 @@ class InterleavedPipelineScheduler(PipelineScheduler):
         """Helper method to get the model chunk ID given the iteration number."""
         microbatch_id_in_group = step_id % (self._pp_size * self._num_chunks)
         chunk_id = microbatch_id_in_group // self._pp_size
-        
 
         if backward:
             chunk_id = self._num_chunks - chunk_id - 1
@@ -942,7 +936,7 @@ class InterleavedPipelineScheduler(PipelineScheduler):
         # microbatch_id: 1  2  3  4  1  2  3  4  5  6  7  8  5  6  7  8
         num_microbatch_group = step_id // (self._pp_size * self._num_chunks)
         step_id_in_group = step_id % (self._pp_size * self._num_chunks)
-        
+
         microbatch_id = num_microbatch_group * self._pp_size + step_id_in_group % self._pp_size
 
         return microbatch_id
@@ -1414,7 +1408,6 @@ class InterleavedPipelineScheduler(PipelineScheduler):
             output, label = pack_return_tensors(self._return_tensors)
         else:
             output, label = (None, None)
-        
 
         if hasattr(gpc.config.model, "num_experts") and gpc.config.model.num_experts > 1:
             dist.all_reduce(self._accum_moe_loss, group=gpc.get_group(ParallelMode.PIPELINE))

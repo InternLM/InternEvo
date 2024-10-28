@@ -852,6 +852,7 @@ class HybridZeroOptimizer_v2(BaseOptimizer):
 
     def _attach_reduction_hook(self):
         from internlm.core.scheduler.pipeline_scheduler_zb import WeightGradStore
+
         is_using_ZB = gpc.config.parallel["pipeline"].get("mode", "1F1B") != "1F1B"
         # we iterate over the fp16 params
         # on each param, we register a hook to its AccumulateGrad object
@@ -862,8 +863,7 @@ class HybridZeroOptimizer_v2(BaseOptimizer):
                 if not param.requires_grad:
                     continue
 
-                if is_using_ZB:
-                    hooks = []
+                hooks = []
 
                 reduce_rank = None
 
@@ -916,13 +916,13 @@ class HybridZeroOptimizer_v2(BaseOptimizer):
                         and gpc.config.parallel.weight.size > 1
                     ):
                         if is_using_ZB and not hasattr(param, "is_embedding_param"):
-                            hooks.append(accum_grad_hook)
+                            hooks.append(accum_grad_hook)  # pylint: disable=W0640
                         else:
                             param.register_post_accumulate_grad_hook(accum_grad_hook)
 
                     if self._overlap_sync_grad:
                         if is_using_ZB and not hasattr(param, "is_embedding_param"):
-                            hooks.append(partial(grad_handler, group_id))
+                            hooks.append(partial(grad_handler, group_id))  # pylint: disable=W0640
                         else:
                             param.register_post_accumulate_grad_hook(
                                 partial(grad_handler, group_id)
