@@ -12,6 +12,8 @@ from torch.nn import functional as F
 
 from internlm.core.context import ParallelMode
 from internlm.core.context import global_context as gpc
+from internlm.core.parallel.comm.utils import gather_forward_split_backward
+from internlm.core.parallel.comm.utils import split_forward_gather_backward
 from internlm.model.modules.embedding import new_rotary_embedding
 from internlm.model.modules.linear import new_linear
 from internlm.model.modules.utils import update_kv_cache
@@ -478,11 +480,8 @@ class GQA(nn.Module):
             self.wk = new_linear("wk", embed_dim, self.kv_dim, bias, **factory_kwargs)
             self.wv = new_linear("wv", embed_dim, self.kv_dim, bias, **factory_kwargs)
             if qk_norm:
-                tp_size = gpc.get_world_size(ParallelMode.TENSOR)
-                assert q_dim % tp_size == 0, "q_dim % tp_size != 0 in GQA"
-                assert self.kv_dim % tp_size == 0, "q_dim % tp_size != 0 in GQA"
-                self.q_norm = nn.LayerNorm(q_dim // tp_size)
-                self.k_norm = nn.LayerNorm(self.kv_dim // tp_size)
+                self.q_norm = nn.LayerNorm(q_dim)
+                self.k_norm = nn.LayerNorm(self.kv_dim)
 
         self.inner_attn = SelfAttention(
             causal=causal, softmax_scale=softmax_scale, attention_dropout=dropout, layer_idx=layer_idx
@@ -522,8 +521,14 @@ class GQA(nn.Module):
         else:
             q, k, v = self.wq(x), self.wk(x), self.wv(x)
             if self.qk_norm:
-                q = self.q_norm(q)
-                k = self.k_norm(k)
+                q_all = gather_forward_split_backward(q, ParallelMode.TENSOR, dim=-1)
+                q_norm_out = self.q_norm(q_all)
+                q = split_forward_gather_backward(q_norm_out, ParallelMode.TENSOR, dim=-1)
+
+                k_all = gather_forward_split_backward(k, ParallelMode.TENSOR, dim=-1)
+                k_norm_out = self.k_norm(k_all)
+                k = split_forward_gather_backward(k_norm_out, ParallelMode.TENSOR, dim=-1)
+
             q = rearrange(q, "b s (h d) -> b s h d", d=self.head_dim)
             k = rearrange(k, "b s (h d) -> b s h d", d=self.head_dim)
             v = rearrange(v, "b s (h d) -> b s h d", d=self.head_dim)
@@ -601,8 +606,14 @@ class GQA(nn.Module):
         else:
             q, k, v = self.wq(x), self.wk(x), self.wv(x)
             if qk_norm:
-                q = self.q_norm(q)
-                k = self.k_norm(k)
+                q_all = gather_forward_split_backward(q, ParallelMode.TENSOR, dim=-1)
+                q_norm_out = self.q_norm(q_all)
+                q = split_forward_gather_backward(q_norm_out, ParallelMode.TENSOR, dim=-1)
+
+                k_all = gather_forward_split_backward(k, ParallelMode.TENSOR, dim=-1)
+                k_norm_out = self.k_norm(k_all)
+                k = split_forward_gather_backward(k_norm_out, ParallelMode.TENSOR, dim=-1)
+
             q = rearrange(q, "b s (h d) -> b s h d", d=self.head_dim)
             k = rearrange(k, "b s (h d) -> b s h d", d=self.head_dim)
             v = rearrange(v, "b s (h d) -> b s h d", d=self.head_dim)

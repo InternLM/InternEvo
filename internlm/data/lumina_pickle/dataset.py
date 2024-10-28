@@ -26,7 +26,6 @@ class LuminaPickleDataset(Dataset):
         self.seq_len = seq_len
 
     def __len__(self) -> int:
-        print("Calling here")
         total_len = sum(meta["len"] for meta in self.meta_list)
         logger.info(f"debug {total_len=}")
         for meta in self.meta_list:
