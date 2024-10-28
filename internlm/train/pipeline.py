@@ -498,19 +498,19 @@ def initialize_optimizer(model: Union[nn.Module, nn.ModuleList], isp_communicato
         use_apex_adam=use_apex_adam,
     )
 
-    # if (
-    #     zero_cfg.overlap_sync_grad
-    #     and gpc.is_using_parallel_mode(ParallelMode.PIPELINE)
-    #     and gpc.is_pipeline_first_stage() is False
-    # ):
-    #     # When pipeline parallelism is enabled, we prefer to only enable optimizer
-    #     # gradient communication overlap in the first stage, to avoid amplifying
-    #     # the communication overhead stage by stage in cases where the optimizer
-    #     # communication overhead is greater than the compute overhead.
-    #     # For pipeline stages except the first, even if overlap is not enabled,
-    #     # their gradient synchronization overhead can be well hidden by
-    #     # the inherent bubbles of pipeline parallelism.
-    #     zero_cfg.overlap_sync_grad = False
+    if (
+        zero_cfg.overlap_sync_grad
+        and gpc.is_using_parallel_mode(ParallelMode.PIPELINE)
+        and gpc.is_pipeline_first_stage() is False
+    ):
+        # When pipeline parallelism is enabled, we prefer to only enable optimizer
+        # gradient communication overlap in the first stage, to avoid amplifying
+        # the communication overhead stage by stage in cases where the optimizer
+        # communication overhead is greater than the compute overhead.
+        # For pipeline stages except the first, even if overlap is not enabled,
+        # their gradient synchronization overhead can be well hidden by
+        # the inherent bubbles of pipeline parallelism.
+        zero_cfg.overlap_sync_grad = False
 
     if zero_cfg.overlap_sync_param:
         param_bcast_sync_handler = ParamAsyncBcastHandler(ParallelMode.ZERO1, model, isp_communicator)

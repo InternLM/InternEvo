@@ -172,7 +172,7 @@ def _communicate(
         for req in reqs:
             req.wait()
         # To protect against race condition when using batch_isend_irecv().
-        # internlm_accelerator.synchronize()
+        internlm_accelerator.synchronize()
 
     if recv_prev and recv_prev_split:
         if isinstance(tensor_recv_prev, torch.Tensor):
@@ -287,7 +287,7 @@ def _communicate_async(
         for req in reqs:  # pylint: disable=E0601
             req.wait()
         # To protect against race condition when using batch_isend_irecv().
-        # internlm_accelerator.synchronize()
+        internlm_accelerator.synchronize()
 
     if recv_prev and recv_prev_split:
         if isinstance(tensor_recv_prev, torch.Tensor):
