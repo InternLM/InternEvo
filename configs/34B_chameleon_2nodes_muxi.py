@@ -1,13 +1,13 @@
-JOB_NAME = "7b_chameleon_train"
+JOB_NAME = "34b_chameleon_train"
 model_type = "CHAMELEON"
 DO_ALERT = False
 
-SEQ_LEN = 4096
-HIDDEN_SIZE = 4096
-NUM_ATTENTION_HEAD = 32
-NUM_KV_ATTENTION_HEAD = 32
+SEQ_LEN = 2048 # 4096? Le Zhuo's message is different to model config file
+HIDDEN_SIZE = 8192
+NUM_ATTENTION_HEAD = 64
+NUM_KV_ATTENTION_HEAD = 8
 MLP_RATIO = 2.6875 # intermediate_size / hidden_size
-NUM_LAYER = 32
+NUM_LAYER = 48
 VOCAB_SIZE = 65536
 
 MODEL_ONLY_FOLDER = "local:llm_ckpts/xxxx"
@@ -27,13 +27,16 @@ ckpt = dict(
     enable_internevo2hf_ckpt=False,  # enable ckpt save for huggingface format.
     save_ckpt_folder=SAVE_CKPT_FOLDER,  # Path to save training ckpt.
     # load_ckpt_folder= dict(path=MODEL_ONLY_FOLDER, content=["model"], ckpt_type="normal"),
-    load_ckpt_folder="local:llm_ckpts/",
+    
+    # load_ckpt_folder="local:llm_ckpts/",
     # 'load_ckpt_info' setting guide:
     # 1. the 'path' indicate ckpt path,
     # 2. the 'content‘ means what states will be loaded, support: "model", "sampler", "optimizer", "scheduler", "all"
     # 3. the ’ckpt_type‘ means the type of checkpoint to be loaded, support: "internevo", "hf", or other custom-defined
     # load function such as "llama"
-    load_ckpt_info=dict(path=MODEL_ONLY_FOLDER, content=("model",), ckpt_type="internevo"),
+    
+    #load_ckpt_info=dict(path=MODEL_ONLY_FOLDER, content=("model",), ckpt_type="internevo"),
+    
     # 'auto_resume' is designed to automatically load the latest checkpoint from 'save_ckpt_folder' when encountering
     # training interruptions/hangs caused by hardware failures, using a scheduling system (such as k8s/slurm)
     # with an automatic restart mechanism upon training reboot.
@@ -41,7 +44,8 @@ ckpt = dict(
     # path specified in `load_ckpt_info` by default.
     # If you want to initialize your model weights from another model, you must set `auto_resume` to False.
     # If you want to train from scratch, please set `auto_resume` to False and 'load_ckpt_info' to None.
-    auto_resume=True,
+    #auto_resume=True, 
+    auto_resume=False,
     checkpoint_every=CHECKPOINT_EVERY,
     async_upload=True,  # async ckpt upload. (only work for boto3 ckpt)
     async_upload_tmp_folder="/share/work/zhenghuihuang/lumina/internlm_tmp_ckpt/",  # path for temporarily files during asynchronous upload.
@@ -51,6 +55,10 @@ ckpt = dict(
 TRAIN_FOLDER = None  # "/path/to/dataset"
 VALID_FOLDER = None  # "/path/to/dataset"
 data = dict(
+    type="lumina_pickle",
+    data_yaml="/share/lumina_data/mini_data/datasets/data.yaml",
+    base_path="/share/lumina_data/mini_data/",
+    num_worker=1,
     seq_len=SEQ_LEN,
     # micro_num means the number of micro_batch contained in one gradient update
     micro_num=4,
@@ -59,7 +67,7 @@ data = dict(
     # defaults to the value of micro_num
     valid_micro_num=4,
     # defaults to 0, means disable evaluate
-    valid_every=50,
+    valid_every=0,
     pack_sample_into_one=False,
     total_steps=50000,
     skip_batches="",
@@ -79,6 +87,7 @@ data = dict(
     use_shm=False,
     # when use shm, the default shm_path is "/dev/shm/metacache"
     # shm_path="/dev/shm/metacache"
+    use_packed_dataset=True
 )
 
 grad_scaler = dict(
@@ -119,21 +128,21 @@ loss = dict(
     label_smoothing=0,
 )
 
-#https://github.com/Alpha-VLLM/Lumina-mGPT/blob/104abe453ec1acca5863698629c4db2111b0b3fc/xllmx/solvers/finetune/finetune.py#L363
+# Reference from Le Zhuo's message
 adam = dict(
     lr=2e-5,
     adam_beta1=0.9,
     adam_beta2=0.95,
     adam_beta2_c=0,
     adam_eps=1e-8,
-    weight_decay=0.0,
+    weight_decay=0.1,
+    clip_grad=4.0,
 )
 
 lr_scheduler = dict(
     total_steps=data["total_steps"],
     init_steps=0,  # optimizer_warmup_step
-    # 0.01 in original 7B Llama script, Lumina has warmup_epoch=0.03, Huihuang not sure whether this warmpup_ratio is the same meaning
-    warmup_ratio=0.03,
+    warmup_ratio=0.01,
     eta_min=1e-5,
     last_epoch=-1,
 )
@@ -156,7 +165,7 @@ model = dict(
     num_layers=NUM_LAYER,
     no_bias=True,
     mlp_ratio=MLP_RATIO,
-    apply_post_layer_norm=False,
+    apply_post_layer_norm=True,
     dtype="torch.bfloat16",  # Support: "torch.float16", "torch.half", "torch.bfloat16", "torch.float32", "torch.tf32"
     norm_type="rmsnorm",
     layer_norm_epsilon=1e-5,
@@ -171,10 +180,8 @@ model = dict(
     # qk_interleaved = False: q[-1] = [q1,q3,q5,...,q2,q4,q6,...], k[-1] = [k1,k3,k5,...,k2,k4,k6,...]
     qk_interleaved=False,
     mlp_layer_fusion=True,
-    enable_qkv_fusion=False,
-    qk_norm=True,
     num_chunks=1,  # if num_chunks > 1, interleaved pipeline scheduler is used.
-    dropout=0.05,
+    drop_rate=0.0,
 )
 """
 zero1 parallel (dict):

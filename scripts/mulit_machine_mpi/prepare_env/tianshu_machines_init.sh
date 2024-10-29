@@ -32,4 +32,3 @@ cat $HOST_FILE
 /opt/maca/ompi/bin/mpirun -hostfile ${HOST_FILE} -np ${NNODES} \
    docker exec lumina_train_share /bin/bash -c \
    "$CUR_PATH/install_inside_docker_tianshu.sh"
-

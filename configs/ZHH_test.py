@@ -3,11 +3,11 @@ model_type = "CHAMELEON"
 DO_ALERT = False
 
 SEQ_LEN = 2048 # 4096? Le Zhuo's message is different to model config file
-HIDDEN_SIZE = 64
-NUM_ATTENTION_HEAD = 32
-NUM_KV_ATTENTION_HEAD = 4
+HIDDEN_SIZE = 128
+NUM_ATTENTION_HEAD = 64
+NUM_KV_ATTENTION_HEAD = 8
 MLP_RATIO = 2.6875 # intermediate_size / hidden_size
-NUM_LAYER = 2
+NUM_LAYER = 16
 VOCAB_SIZE = 65536
 
 MODEL_ONLY_FOLDER = "local:llm_ckpts/xxxx"
