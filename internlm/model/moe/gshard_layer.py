@@ -475,6 +475,7 @@ class GShardMoELayer(BaseMoELayer):
         drop_tokens: bool = True,
         use_rts: bool = True,
         use_fused_gating: bool = True,
+        use_grouped_mlp: bool = True,
     ) -> None:
         assert noisy_gate_policy is None or noisy_gate_policy in ["None", "Jitter", "RSample"], (
             "Unsupported noisy_gate_policy: " + noisy_gate_policy
@@ -482,20 +483,24 @@ class GShardMoELayer(BaseMoELayer):
         assert (
             num_experts % ep_size == 0
         ), f"Number of experts ({num_experts}) should be divisible by expert parallel size ({ep_size})"
-        super().__init__(
-            TopKGate(
+        if use_grouped_mlp:
+            experts = new_feed_forward(
                 in_features,
-                num_experts,
-                top_k,
-                capacity_factor,
-                eval_capacity_factor,
-                min_capacity,
-                noisy_gate_policy,
-                drop_tokens,
-                use_rts,
-                use_fused_gating,
-            ),
-            torch.nn.ModuleList(
+                hidden_features,
+                out_features,
+                bias=False,
+                device=device,
+                dtype=dtype,
+                mlp_layer_fusion=mlp_layer_fusion,
+                multiple_of=multiple_of,
+                activation_type=activation_type,
+                is_expert=True,
+                use_grouped_mlp=True,
+                num_groups=num_experts // ep_size,
+                backend="bmm",
+            )
+        else:
+            experts = torch.nn.ModuleList(
                 [
                     new_feed_forward(
                         in_features,
@@ -511,11 +516,27 @@ class GShardMoELayer(BaseMoELayer):
                     )
                     for _ in range(num_experts // ep_size)
                 ]
+            )
+        super().__init__(
+            TopKGate(
+                in_features,
+                num_experts,
+                top_k,
+                capacity_factor,
+                eval_capacity_factor,
+                min_capacity,
+                noisy_gate_policy,
+                drop_tokens,
+                use_rts,
+                use_fused_gating,
             ),
+            experts,
             ep_group,
             ep_size,
             num_experts // ep_size,
         )
+
+        self.use_grouped_mlp = use_grouped_mlp
 
         self.time_falltoall = 0.0
         self.time_salltoall = 0.0
@@ -552,7 +573,19 @@ class GShardMoELayer(BaseMoELayer):
         # Re-shape after all-to-all: ecm -> gecm
         dispatched_inputs = dispatched_inputs.reshape(self.ep_size, self.num_local_experts, -1, d_model)
 
+        if self.use_grouped_mlp:
+            # (g,e,c,m) -> (e, g*c, m)
+            dispatched_inputs = (
+                dispatched_inputs.transpose(0, 1).reshape(self.num_local_experts, -1, d_model).contiguous()
+            )
+
         expert_output = self.experts(dispatched_inputs, split_dim=1)
+
+        if self.use_grouped_mlp:
+            # (e, g*c, m) -> (e, g, c, m) -> (g, e, c, m)
+            expert_output = (
+                expert_output.reshape(self.num_local_experts, self.ep_size, -1, d_model).transpose(0, 1).contiguous()
+            )
 
         if self.wall_clock_breakdown:
             timer("salltoall").start()

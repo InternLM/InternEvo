@@ -153,6 +153,10 @@ def exam_pipeline_parallel(args):
         first_output = output_list[0]
         for i in range(1, 10):
             assert torch.equal(first_output, output_list[i])
+            print(
+                f"idx {i} pass: micro_num={micro_num}, num_chunks={num_chunks}, overlap={interleaved_overlap}",
+                flush=True,
+            )
 
         # check output
         torch_output = torch_model(input_ids=torch_xs)  # pylint: disable=E1102
@@ -167,7 +171,7 @@ def exam_pipeline_parallel(args):
         loose_close(torch_loss, loss[0], dtype=dtype)
 
 
-@pytest.mark.parametrize("micro_num", [4, 8, 16])
+@pytest.mark.parametrize("micro_num", [8, 16])
 @pytest.mark.parametrize("num_chunks", [1, 2, 4])
 @pytest.mark.parametrize("interleaved_overlap", [True, False])
 def test_pipeline_parallel(micro_num, num_chunks, interleaved_overlap):

@@ -27,6 +27,7 @@ from internlm.train.pipeline import (
     inject_model,
     load_new_batch,
     record_current_batch_training_metrics,
+    set_param_unique_tracking_name,
 )
 from internlm.utils.common import (
     BatchSkipper,
@@ -98,6 +99,9 @@ class TrainerBuilder(Trainer):
         self.current_time = self._setup_time_and_logging()
         # load config_lines
         config_lines = self._read_config(kwargs["config"])
+
+        # set tracking name for parameters
+        set_param_unique_tracking_name(model)
 
         # inject model for amp and parallel training
         model = inject_model(model)

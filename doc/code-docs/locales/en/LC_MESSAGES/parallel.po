@@ -575,8 +575,8 @@ msgstr ""
 msgid "返回类型"
 msgstr "Return type"
 
-#: internlm.core.scheduler.pipeline_scheduler.InterleavedPipelineScheduler.forward_backward_step:19
-#: internlm.core.scheduler.pipeline_scheduler.PipelineScheduler.forward_backward_step:19
+#: internlm.core.scheduler.pipeline_scheduler_1f1b.InterleavedPipelineScheduler.forward_backward_step:19
+#: internlm.core.scheduler.pipeline_scheduler_1f1b.PipelineScheduler.forward_backward_step:19
 #: of
 msgid "Tuple[:class:`torch.Tensor`]"
 msgstr ""
@@ -591,11 +591,11 @@ msgstr ""
 "To use interleaved pipeline scheduler, users need to set "
 "``model.num_chunks > 1`` in the config file."
 
-#: internlm.core.scheduler.pipeline_scheduler.InterleavedPipelineScheduler:1 of
+#: internlm.core.scheduler.pipeline_scheduler_1f1b.InterleavedPipelineScheduler:1 of
 msgid "Interleaved Pipeline Scheduler."
 msgstr ""
 
-#: internlm.core.scheduler.pipeline_scheduler.InterleavedPipelineScheduler.forward_backward_step:1
+#: internlm.core.scheduler.pipeline_scheduler_1f1b.InterleavedPipelineScheduler.forward_backward_step:1
 #: of
 msgid ""
 "Run interleaved 1F1B schedule (model split into model chunks), with "

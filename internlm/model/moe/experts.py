@@ -42,7 +42,7 @@ class Experts(torch.nn.Module):
             kwargs: args used for expert's forward pass other than input tokens
         """
 
-        if self.num_local_experts == 1:
+        if len(self.wrapped_experts) == 1:
             return self.wrapped_experts[0](inputs, **kwargs)
 
         # The following code is designed for multiple experts.
@@ -50,7 +50,7 @@ class Experts(torch.nn.Module):
         #   2. do for-loop for experts's computation
         if split_size_or_sections is None:
             # chunk can be faster than split
-            chunks = inputs.chunk(self.num_local_experts, dim=split_dim)
+            chunks = inputs.chunk(len(self.wrapped_experts), dim=split_dim)
         else:
             if isinstance(split_size_or_sections, torch.Tensor):
                 split_size_or_sections = split_size_or_sections.tolist()

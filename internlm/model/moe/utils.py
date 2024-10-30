@@ -29,6 +29,11 @@ class AllToAll(torch.autograd.Function):
         ctx.input_split_sizes = input_split_sizes
         ctx.group = group
 
+        world_size = torch.distributed.get_world_size(group=group)
+        # Bypass the function if we are using only 1 GPU.
+        if world_size == 1:
+            return inputs, None
+
         inputs = inputs.contiguous()
         out = (
             torch.empty_like(inputs)
@@ -50,6 +55,11 @@ class AllToAll(torch.autograd.Function):
     @staticmethod
     def backward(ctx: Any, grad_output: Tensor, _) -> Tuple[None, Tensor]:
         if ctx.needs_input_grad[0]:
+            # Bypass the function if we are using only 1 GPU.
+            world_size = torch.distributed.get_world_size(group=ctx.group)
+            if world_size == 1:
+                return grad_output, None, None, None, None
+
             grad_output = grad_output.contiguous()
             out = torch.empty(ctx.input_shape, device=grad_output.device, dtype=grad_output.dtype)
             torch.distributed.all_to_all_single(

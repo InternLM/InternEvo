@@ -168,6 +168,12 @@ def get_parallel_strategies_split_mode(linear_name: str) -> str:
         return "column"
     elif linear_name in ("wo", "out_proj", "w2"):
         return "row"
+    elif linear_name in ("grouped_w1", "grouped_w2", "grouped_w3") and tp_mode == "isp":
+        return "grouped_wp"
+    elif linear_name in ("grouped_w1", "grouped_w3"):
+        return "grouped_column"
+    elif linear_name in ("grouped_w2"):
+        return "grouped_row"
     else:
         return "unknown"
 
@@ -186,10 +192,16 @@ def partition_uniform(num_items: int, pipeline_parallel_size: int, num_chunks: i
         if chunk_size == 0:
             raise ValueError("Some nodes in Pipeline have no requests")
 
-        for p in range(pipeline_parallel_size):
-            st = base_idx
-            base_idx += chunk_size + (p >= left)
-            parts[p].append((st, base_idx))
+        if getattr(gpc.config.parallel["pipeline"], "mode", "1F1B").upper() == "ZBV" and idx == 1:
+            for p in range(pipeline_parallel_size - 1, -1, -1):
+                st = base_idx
+                base_idx += chunk_size + ((pipeline_parallel_size - p - 1) >= left)
+                parts[p].append((st, base_idx))
+        else:
+            for p in range(pipeline_parallel_size):
+                st = base_idx
+                base_idx += chunk_size + (p >= left)
+                parts[p].append((st, base_idx))
 
     indexes = []
     for _parts in parts:

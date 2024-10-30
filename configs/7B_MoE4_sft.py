@@ -156,7 +156,7 @@ model = dict(
     # qk_interleaved = False: q[-1] = [q1,q3,q5,...,q2,q4,q6,...], k[-1] = [k1,k3,k5,...,k2,k4,k6,...]
     qk_interleaved=False,
     num_chunks=1,  # if num_chunks > 1, interleaved pipeline scheduler is used.
-    moe_type="GShard",  # Support: "GShard", "MegaBlock", "MegaBlock-D", "Dropless"
+    moe_type="GShard",  # Support: "GShard", "MegaBlock", "MegaBlock-Dropless", "Dropless"
     num_experts=4,
     top_k=2,
 )

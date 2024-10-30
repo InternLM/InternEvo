@@ -160,7 +160,7 @@ model = dict(
     num_chunks=1,  # if num_chunks > 1, interleaved pipeline scheduler is used.
     num_experts=16,
     moe_use_residual=False,
-    moe_type="GShard",  # Support: "GShard", "MegaBlock", "MegaBlock-D"
+    moe_type="GShard",  # Support: "GShard", "MegaBlock", "MegaBlock-Dropless", "Dropless"
 )
 """
 zero1 parallel (dict):

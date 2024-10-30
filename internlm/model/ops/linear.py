@@ -21,6 +21,18 @@ try:
 except (ModuleNotFoundError, ImportError):
     flash_attn_impl = False
 
+try:
+    # grouped_gemm on GPU
+    from grouped_gemm.backend import gmm as gmm_ops
+except (ModuleNotFoundError, ImportError):
+    # grouped_gemm on NPU
+    try:
+        from mindspeed.op_builder import GMMOpBuilder
+
+        gmm_ops = GMMOpBuilder().load()
+    except (ModuleNotFoundError, ImportError):
+        gmm_ops = None
+
 internlm_accelerator = get_accelerator()
 
 
@@ -61,3 +73,46 @@ def linear_backward_op(
     _, _backward_op = _select_ops_binding(_input.dtype, _is_cuda)
 
     return _backward_op(_input, weight, has_d_bias)
+
+
+def _gmm_forward_op_npu(_input: torch.Tensor, weight: torch.Tensor, batch_sizes: torch.Tensor) -> torch.Tensor:
+    group_list = torch.cumsum(batch_sizes, dim=-1)
+    group_list = group_list.tolist()
+    group_type = 0
+
+    return gmm_ops.npu_gmm([_input], [weight], [], group_list, group_type)[0]
+
+
+def _gmm_backward_op_npu(
+    _input: torch.Tensor, weight: torch.Tensor, batch_sizes: torch.Tensor, grad_output: torch.Tensor
+) -> Tuple[torch.Tensor, torch.Tensor]:
+    group_list = torch.cumsum(batch_sizes, dim=-1)
+    group_list = group_list.tolist()
+
+    dx, dw, _ = gmm_ops.npu_gmm_backward([grad_output], [_input], [weight], group_list)
+
+    return dx[0], dw[0]
+
+
+def gmm_forward_op(_input: torch.Tensor, weight: torch.Tensor, batch_sizes: torch.Tensor) -> torch.Tensor:
+    if internlm_accelerator.get_accelerator_backend() is AcceleratorType.GPU:
+        return gmm_ops(_input, weight, batch_sizes)
+    elif internlm_accelerator.get_accelerator_backend() is AcceleratorType.NPU:
+        return _gmm_forward_op_npu(_input, weight, batch_sizes)
+
+
+def gmm_backward_op(
+    _input: torch.Tensor, weight: torch.Tensor, batch_sizes: torch.Tensor, **kwargs
+) -> Tuple[torch.Tensor, torch.Tensor]:
+    if internlm_accelerator.get_accelerator_backend() is AcceleratorType.GPU:
+        if kwargs.get("is_grad_input", False):
+            trans_a, trans_b = (False, True)
+            return gmm_ops(_input, weight, batch_sizes, trans_a=trans_a, trans_b=trans_b), None
+        else:
+            trans_a, trans_b = (True, False)
+            return None, gmm_ops(_input, weight, batch_sizes, trans_a=trans_a, trans_b=trans_b)
+
+    elif internlm_accelerator.get_accelerator_backend() is AcceleratorType.NPU:
+        input_weight = kwargs.get("input_weight", None)
+        grad_output = weight
+        return _gmm_backward_op_npu(_input, input_weight, batch_sizes, grad_output)

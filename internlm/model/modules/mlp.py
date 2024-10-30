@@ -122,6 +122,94 @@ class FeedForward(nn.Module):
         return out
 
 
+class GroupedFeedForward(nn.Module):
+    """
+    Base FeedForward in flash implementation.
+    Args:
+        in_features (int): size of each input sample
+        hidden_features (int): size of hidden state of FFN
+        out_features (int): size of each output sample
+        bias (bool): Whether the bias is needed for linears. True by default. But it is typically set to False
+                    in the config.
+        device (Optional[Union[str, torch.device]]): The device will be used.
+        dtype (Optional[torch.dtype]): The type of data.
+        multiple_of (int): For efficient training. Reset the size of hidden feature. 256 by default.
+        mlp_layer_fusion (Optional[Bool]):  Some linears without bias in FFN can be fused to reduce the comm cost of SP.
+        activation_type (str): the activation function used for feed forward, "swiglu" by default.
+    """
+
+    def __init__(
+        self,
+        in_features: int,
+        hidden_features: int,
+        out_features: int = None,
+        bias: bool = True,
+        device: Optional[torch.device] = None,
+        dtype: Optional[torch.dtype] = None,
+        multiple_of: int = 256,
+        mlp_layer_fusion: Optional[bool] = False,
+        activation_type: str = "swiglu",
+        num_groups: int = 1,
+        backend: str = "bmm",
+        is_expert: bool = False,
+    ):
+        super().__init__()
+
+        # TODO: support gelu...
+        assert activation_type in ("swiglu"), f"Unsupported activation type: {activation_type}"
+        assert bias is False, "Grouped FeedForward only support bias is False."
+
+        self.mlp_layer_fusion = mlp_layer_fusion
+
+        hidden_features = multiple_of * ((hidden_features + multiple_of - 1) // multiple_of)
+
+        if self.mlp_layer_fusion:
+            assert False, "do not support for grouped mlp."
+        else:
+            self.w1 = new_linear(
+                "grouped_w1",
+                in_features,
+                hidden_features,
+                bias,
+                device=device,
+                dtype=dtype,
+                num_groups=num_groups,
+                backend=backend,
+                is_expert=is_expert,
+            )
+            self.w2 = new_linear(
+                "grouped_w2",
+                hidden_features,
+                out_features,
+                bias,
+                device=device,
+                dtype=dtype,
+                num_groups=num_groups,
+                backend=backend,
+                is_expert=is_expert,
+            )
+            self.w3 = new_linear(
+                "grouped_w3",
+                in_features,
+                hidden_features,
+                bias,
+                device=device,
+                dtype=dtype,
+                num_groups=num_groups,
+                backend=backend,
+                is_expert=is_expert,
+            )
+
+    def forward(self, x, batch_sizes=None):
+        if not self.mlp_layer_fusion:
+            w1_o = self.w1(x, batch_sizes)
+            w3_o = self.w3(x, batch_sizes)
+        else:
+            assert False
+        out = self.w2(Silu(w1_o, w3_o), batch_sizes)
+        return out
+
+
 def new_feed_forward(
     in_features: int,
     hidden_features: int,
@@ -133,7 +221,26 @@ def new_feed_forward(
     mlp_layer_fusion: Optional[bool] = False,
     activation_type: str = "swiglu",
     is_expert: bool = False,
+    use_grouped_mlp: bool = False,
+    **kwargs,
 ) -> FeedForward:
+    if use_grouped_mlp:
+        num_groups = kwargs.pop("num_groups", 1)
+        backend = kwargs.pop("backend", "bmm")
+        return GroupedFeedForward(
+            in_features,
+            hidden_features,
+            out_features,
+            bias,
+            device,
+            dtype,
+            multiple_of,
+            mlp_layer_fusion,
+            activation_type,
+            num_groups=num_groups,
+            backend=backend,
+            is_expert=is_expert,
+        )
     return FeedForward(
         in_features,
         hidden_features,

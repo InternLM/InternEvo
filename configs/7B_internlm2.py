@@ -174,6 +174,7 @@ pipeline parallel (dict):
     1. size: int, the size of pipeline parallel.
     2. interleaved_overlap: bool, enable/disable communication overlap when using interleaved pipeline scheduler,
         defaults to False.
+    3. mode: str, the pipeline parallel mode, should be in ['1f1b', 'zbh1', 'zbv']. The defalut is 1f1b.
 weight parallel (dict):
     1. size: int, the size of weight parallel.
     2. overlap: bool, enable/disable all_gather/reduce_scatter communication overlap, defaults to False.
@@ -181,7 +182,7 @@ weight parallel (dict):
 parallel = dict(
     zero1=dict(size=-1),
     tensor=dict(size=2, mode="isp"),
-    pipeline=dict(size=1, interleaved_overlap=True),
+    pipeline=dict(size=1, interleaved_overlap=True, mode="1f1b"),
     weight=dict(size=2, overlap=True),
 )
 
