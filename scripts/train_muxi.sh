@@ -51,7 +51,7 @@ export MAX_JOBS=20
 #export MCCL_ALGO=Ring
 #export MCCL_P2P_LEVEL=SYS
 
-export MCCL_IB_HCA=mlx5_0,mlx5_1
+#export MCCL_IB_HCA=mlx5_0,mlx5_1
 
 BASH_PATH=$(dirname "$0") 
 HOST_FILE=$1

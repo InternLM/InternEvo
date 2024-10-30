@@ -20,6 +20,9 @@ apt-get install -y git
   py-libnuma \
   pynvml \
   tensorboard \
+<<<<<<< HEAD
   h5py \
+=======
+>>>>>>> 55d835f66c60e17b2056fb0a99387c0e9cc1cf09
  -i https://pypi.tuna.tsinghua.edu.cn/simple
 

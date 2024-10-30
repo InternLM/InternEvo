@@ -1,8 +1,11 @@
 apt-get update
 apt-get install -y vim
 apt-get install -y git
+<<<<<<< HEAD
 apt-get install -y gcc g++
 apt-get install -y libibverbs1   librdmacm1  ibverbs-providers  libibumad3 libibverbs-dev  librdmacm-dev ibverbs-utils libibumad-dev
+=======
+>>>>>>> 55d835f66c60e17b2056fb0a99387c0e9cc1cf09
 /opt/conda/bin/pip install \
   transformers \
   sentencepiece \
@@ -22,6 +25,9 @@ apt-get install -y libibverbs1   librdmacm1  ibverbs-providers  libibumad3 libib
   py-libnuma \
   pynvml \
   tensorboard \
+<<<<<<< HEAD
   h5py \
+=======
+>>>>>>> 55d835f66c60e17b2056fb0a99387c0e9cc1cf09
  -i https://pypi.tuna.tsinghua.edu.cn/simple
 
