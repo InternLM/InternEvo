@@ -725,10 +725,18 @@ def record_current_batch_training_metrics(
             2,
         )
 
+        z_loss = gpc.metrics.get("z_loss", None)
+
+        origin_loss = loss.item()
+        if moe_loss is not None:
+            origin_loss -= moe_loss.item()
+        if z_loss is not None:
+            origin_loss -= z_loss.item() * gpc.config.loss.z_loss_weight
+
         infos = {
             "tflops": tflops,
             "step": batch_count,
-            "loss": loss.item() - moe_loss.item() if moe_loss is not None else loss.item(),
+            "loss": origin_loss,
             "real_tgs": real_tgs,
             "tgs (tokens/gpu/second)": tgs_origin,
             "tgs/last_tgs_1": last_tgs_1,
@@ -743,6 +751,8 @@ def record_current_batch_training_metrics(
         }
         if moe_loss is not None:
             infos["moe_loss"] = moe_loss.item()
+        if z_loss is not None:
+            infos["z_loss"] = z_loss.item()
 
         infos["micro_num"] = len(batch[1])
         infos["num_consumed_tokens"] = train_state.num_consumed_tokens

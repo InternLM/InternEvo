@@ -149,6 +149,9 @@ class ParallelContext(metaclass=SingletonMeta):
         # load config from file
         self._config = None
 
+        # A dict used for recording intermediate losses and log them
+        self.metrics = dict()
+
         # default parallel args, will be overwritten during process group intialization
         self.world_size = 1
         self.data_parallel_size = 1

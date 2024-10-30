@@ -15,6 +15,7 @@ from internlm.core.context import global_context as gpc
 from internlm.core.engine import Engine
 from internlm.core.naive_amp import NaiveAMPModel
 from internlm.core.scheduler import comm
+from internlm.model.losses.z_loss import calculate_z_loss
 from internlm.utils.common import (
     SchedulerHook,
     check_data_is_packed,
@@ -352,7 +353,10 @@ class PipelineScheduler(BaseScheduler):
                 self._call_hooks("before_criterion", output_obj, label)
                 loss = self._call_engine_criterion(engine, output_obj, label)
                 self._call_hooks("after_criterion", loss)
-
+                if hasattr(gpc.config.loss, "z_loss_weight") and gpc.config.loss.z_loss_weight > 0:
+                    z_loss = calculate_z_loss(output_obj, label)
+                    gpc.metrics['z_loss'] = z_loss
+                    loss = loss + z_loss * gpc.config.loss.z_loss_weight
                 loss_reduced = loss / self.num_microbatches
                 accum_loss.add_(loss_reduced.detach())
                 output_obj = loss_reduced
@@ -1164,6 +1168,10 @@ class InterleavedPipelineScheduler(PipelineScheduler):
                 self._call_hooks("before_criterion", output_obj, label)
                 loss = self._call_engine_criterion(engine, output_obj, label)
                 self._call_hooks("after_criterion", loss)
+                if hasattr(gpc.config.loss, "z_loss_weight") and gpc.config.loss.z_loss_weight > 0: 
+                    z_loss = calculate_z_loss(output_obj, label)
+                    gpc.metrics['z_loss'] = z_loss
+                    loss = loss + z_loss * gpc.config.loss.z_loss_weight
 
                 loss_reduced = loss / self.num_microbatches
                 self._accum_loss.add_(loss_reduced.detach())

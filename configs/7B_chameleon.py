@@ -121,6 +121,7 @@ hybrid_zero_optimizer = dict(
 
 loss = dict(
     label_smoothing=0,
+    z_loss_weight=0.0
 )
 
 #https://github.com/Alpha-VLLM/Lumina-mGPT/blob/104abe453ec1acca5863698629c4db2111b0b3fc/xllmx/solvers/finetune/finetune.py#L363
