@@ -6,7 +6,7 @@ export HOST_FILE="${CUR_PATH}/../host_machines/host_machines_2nodes_muxi.txt"
 
 export NNODES=$(sed -n '=' $HOST_FILE | wc -l)
 
-export MASTER_PORT=12337
+export MASTER_PORT=12327
 
 
 cat $HOST_FILE

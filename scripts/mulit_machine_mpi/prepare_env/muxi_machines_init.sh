@@ -33,8 +33,8 @@ cat $HOST_FILE
                 --ulimit memlock=-1 \
                 -v /share:/share  \
                 -v /data:/data \
-               mxc500-torch2.1-py310:mc2.23.0.5-ubuntu22.04-x86_64 /bin/bash
-               #mxc500-torch2.1-py310:mc2.24.0.5-ubuntu22.04-amd64-exp2 /bin/bash
+               mxc500-torch2.1-py310:mc2.24.0.5-ubuntu22.04-amd64-exp2 /bin/bash
+               #mxc500-torch2.1-py310:mc2.23.0.5-ubuntu22.04-x86_64 /bin/bash
 
 /opt/maca/ompi/bin/mpirun -hostfile ${HOST_FILE} -np ${NNODES} \
    docker exec lumina_train_share /bin/bash -c \

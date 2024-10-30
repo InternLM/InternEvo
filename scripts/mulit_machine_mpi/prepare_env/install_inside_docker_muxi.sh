@@ -22,5 +22,6 @@ apt-get install -y libibverbs1   librdmacm1  ibverbs-providers  libibumad3 libib
   py-libnuma \
   pynvml \
   tensorboard \
+  h5py \
  -i https://pypi.tuna.tsinghua.edu.cn/simple
 
