@@ -1,7 +1,7 @@
 set -ex
 
-#export HOST_FILE="../host_machines/host_machines_2nodes_muxi.txt"
-export HOST_FILE="../host_machines/host_machines_2nodes_tianshu.txt"
+export HOST_FILE="../host_machines/host_machines_2nodes_muxi.txt"
+#export HOST_FILE="../host_machines/host_machines_2nodes_tianshu.txt"
 
 export NNODES=$(sed -n '=' $HOST_FILE | wc -l)
 

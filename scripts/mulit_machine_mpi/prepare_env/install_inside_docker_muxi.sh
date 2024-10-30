@@ -1,6 +1,8 @@
 apt-get update
 apt-get install -y vim
 apt-get install -y git
+apt-get install -y gcc g++
+apt-get install -y libibverbs1   librdmacm1  ibverbs-providers  libibumad3 libibverbs-dev  librdmacm-dev ibverbs-utils libibumad-dev
 /opt/conda/bin/pip install \
   transformers \
   sentencepiece \
