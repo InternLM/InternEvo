@@ -4,12 +4,45 @@
 # adopted from https://github.com/hpcaitech/ColossalAI/blob/main/colossalai/context
 
 import math
+import os
 from abc import ABC, abstractmethod
 from enum import Enum
+from functools import wraps
 
 import torch.distributed as dist
 
 from internlm.utils.timeout import LLM_NCCL_TIMEOUT
+
+hetero = os.environ.get("HETERO", "0") == "1"
+
+
+if hetero is True:
+    from internlm.accelerator import get_accelerator
+    internlm_accelerator = get_accelerator()
+
+
+    def wrapper_new_group(fn):
+
+        @wraps(fn)
+        def decorated(*args, **kwargs):
+            no_backend = True
+            be = internlm_accelerator._communication_backend_name
+            if args:
+                args_new = list(args)
+                for idx, arg in enumerate(args_new):
+                    if type(arg) == str and (be in arg or "gloo" in arg):
+                        no_backend = False
+                args = args_new
+            if kwargs:
+                backend = kwargs.get('backend', None)
+                if isinstance(backend, str) and (be in backend or "gloo" in backend):
+                    no_backend = False
+            if no_backend is True:
+                kwargs['backend'] = internlm_accelerator._communication_backend_name
+            return fn(*args, **kwargs)
+
+        return decorated
+    dist.new_group = wrapper_new_group(dist.new_group)
 
 
 # parallel modes
@@ -204,7 +237,7 @@ class Initializer_Pipeline(ProcessGroupInitializer):
         for i in range(self.num_pp_group):
             ranks = [i + j * self.num_pp_group for j in range(self.pipeline_parallel_size)]
             pipe_group_size = len(ranks)
-            pipe_group = dist.new_group(ranks, timeout=LLM_NCCL_TIMEOUT)
+            pipe_group = dist.new_group(ranks, backend="gloo" if hetero is True else None, timeout=LLM_NCCL_TIMEOUT)
             if use_cpu:
                 group_cpu = (
                     dist.new_group(ranks, backend="gloo", timeout=LLM_NCCL_TIMEOUT)

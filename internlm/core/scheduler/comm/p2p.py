@@ -196,6 +196,12 @@ def _communicate(
     return tensor_recv_prev, tensor_recv_next
 
 
+from internlm.core.context.process_group_initializer import hetero
+if hetero is True:
+    from .p2p_gloo import _communicate_by_gloo
+    _communicate = _communicate_by_gloo
+
+
 def recv_forward(
     input_tensor_shape, prev_rank=None, dtype=torch.float, scatter_gather_tensors=False
 ) -> Union[torch.Tensor, List[torch.Tensor]]:
