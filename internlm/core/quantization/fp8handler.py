@@ -13,7 +13,7 @@ def _is_sm89_or_later():
 class Float8Handler:
     def __init__(self):
         self.enabled = False
-        
+
         if not _is_sm89_or_later():
             logger.warning(
                 "Failed to swap to Float8Linear because float8 is only supported on SM89 or later",
@@ -51,5 +51,4 @@ class Float8Handler:
         convert_to_float8_training(
             model,
             config=self.config,
-            module_filter_fn=lambda mod, fqn: fqn != "head",
         )

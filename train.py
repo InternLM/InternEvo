@@ -11,15 +11,12 @@ from internlm.initialize import initialize_distributed_env
 from internlm.model.builder import create_model
 from internlm.monitor import internevo_monitor
 from internlm.utils.common import parse_args
-from internlm.utils.fp8handler import Float8Handler
 
 
 @internevo_monitor(feishu_alert=True, clean_run=True)
 def main(args):
     # initialize model
     model = create_model(model_type=gpc.config.model_type)
-    float8_handler = Float8Handler()
-    float8_handler.convert_to_float8_training(model)
 
     # initialize train dataloader
     train_dl, dataset_types = build_train_loader_with_data_type()
