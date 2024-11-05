@@ -45,6 +45,7 @@ from internlm.core.parallel.comm.tensor import (
     TensorParallelCommunicator,
 )
 from internlm.core.parallel.comm.zero import ParamAsyncBcastHandler
+from internlm.core.quantization.fp8handler import Float8Handler
 from internlm.core.trainer import TrainState
 from internlm.data.utils import unpack_type_ids
 from internlm.model.builder import create_model
@@ -277,6 +278,12 @@ def inject_model(model):
     """
     if hasattr(model, IS_INJECTED) and getattr(model, IS_INJECTED):
         return model
+
+    # FP8 Linear and compile model
+    if hasattr(gpc.config, "use_fp8") and gpc.config.get("use_fp8", False):
+        float8_handler = Float8Handler()
+        float8_handler.convert_to_float8_training(model)
+        model = torch.compile(model)
 
     inject_model_helper(model, inject_info=gpc.config.model.get("inject_info", None))
 
