@@ -12,7 +12,8 @@ The system code file structure is shown below:
 │   │   │   └── process_group_initializer.py
 │   │   ├── scheduler                        # Scheduling module, which manages schedulers for parallel training, including non-pipeline and pipeline parallel schedulers
 │   │   │   ├── no_pipeline_scheduler.py
-│   │   │   └── pipeline_scheduler.py
+│   │   │   ├── pipeline_scheduler_1f1b.py
+│   │   │   └── pipeline_scheduler_zb.py
 │   │   ├── engine.py                        # Responsible for managing the training and evaluation process of the model
 │   │   └── trainer.py                       # Responsible for managing the training engine and scheduler
 │   ├── data                                 # Data module, responsible for managing dataset generation and processing

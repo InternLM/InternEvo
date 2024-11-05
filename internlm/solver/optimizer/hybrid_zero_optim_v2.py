@@ -851,6 +851,9 @@ class HybridZeroOptimizer_v2(BaseOptimizer):
     ################
 
     def _attach_reduction_hook(self):
+        from internlm.core.scheduler.pipeline_scheduler_zb import WeightGradStore
+
+        is_using_ZB = gpc.config.parallel["pipeline"].get("mode", "1F1B") != "1F1B"
         # we iterate over the fp16 params
         # on each param, we register a hook to its AccumulateGrad object
         for group_id in range(self.num_param_groups):
@@ -859,6 +862,8 @@ class HybridZeroOptimizer_v2(BaseOptimizer):
                 # we should not reduce the param in moe
                 if not param.requires_grad:
                     continue
+
+                hooks = []
 
                 reduce_rank = None
 
@@ -910,11 +915,19 @@ class HybridZeroOptimizer_v2(BaseOptimizer):
                         and self._isp_communicator.overlap
                         and gpc.config.parallel.weight.size > 1
                     ):
-                        param.register_post_accumulate_grad_hook(accum_grad_hook)
+                        if is_using_ZB and not hasattr(param, "is_embedding_param"):
+                            hooks.append(accum_grad_hook)  # pylint: disable=W0640
+                        else:
+                            param.register_post_accumulate_grad_hook(accum_grad_hook)
 
                     if self._overlap_sync_grad:
-                        param.register_post_accumulate_grad_hook(
-                            partial(grad_handler, group_id)
-                        )  # pylint: disable=W0640
+                        if is_using_ZB and not hasattr(param, "is_embedding_param"):
+                            hooks.append(partial(grad_handler, group_id))  # pylint: disable=W0640
+                        else:
+                            param.register_post_accumulate_grad_hook(
+                                partial(grad_handler, group_id)
+                            )  # pylint: disable=W0640
 
                 _define_and_attach(param, reduce_rank)
+                if len(hooks) > 0:
+                    WeightGradStore.register_hook(param, hooks)

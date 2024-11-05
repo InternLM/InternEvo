@@ -67,6 +67,8 @@ class Embedding1D(nn.Module):
             torch.empty((self.num_embeddings_per_partition, self.embed_dim_per_partition), dtype=dtype)
         )
 
+        setattr(self.weight, "is_embedding_param", True)
+
     def forward(self, input_: Tensor) -> Tensor:
         if self.vocab_parallel and not is_using_isp():
             # Build the mask.

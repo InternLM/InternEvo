@@ -104,6 +104,7 @@ class SPFusedDenseFunc(torch.autograd.Function):
             (grad_input,) = args
             grad_input = grad_input.contiguous()
 
+        # print(f"ctx rank: {gpc.get_global_rank()}, {len(ctx.saved_tensors)}", flush=True)
         x, weight, bias = ctx.saved_tensors
 
         # parallel strategy-specific communication callback 1-2.
@@ -139,12 +140,16 @@ class SPFusedDenseFunc(torch.autograd.Function):
             handle_x.wait()
 
             x = x.reshape(batch_dim, x.shape[-1])
-            if (
-                gpc.is_using_parallel_mode(ParallelMode.PIPELINE)
-                and gpc.config.parallel["pipeline"].get("zero_bubble", False)
-                and not gpc.is_first_rank(ParallelMode.PIPELINE)
+            if gpc.is_using_parallel_mode(ParallelMode.PIPELINE) and (
+                (
+                    gpc.config.parallel["pipeline"].get("mode", "1F1B") == "ZBH1"
+                    and not gpc.is_first_rank(ParallelMode.PIPELINE)
+                )
+                or gpc.config.parallel["pipeline"].get("mode", "1F1B") == "ZBV"
             ):
-                from internlm.core.scheduler.pipeline_scheduler import WeightGradStore
+                from internlm.core.scheduler.pipeline_scheduler_zb import (
+                    WeightGradStore,
+                )
 
                 WeightGradStore.put(weight, bias, x, grad_output, ctx.needs_input_grad[2], linear_backward_op)
                 grad_weight, grad_bias = None, None
@@ -242,10 +247,12 @@ class WPFusedDenseFunc(torch.autograd.Function):
 
         total_weight = communicator.weight_hook(weight, module=module)
 
-        is_using_ZB = (
-            gpc.is_using_parallel_mode(ParallelMode.PIPELINE)
-            and gpc.config.parallel["pipeline"].get("zero_bubble", False)
-            and not gpc.is_first_rank(ParallelMode.PIPELINE)
+        is_using_ZB = gpc.is_using_parallel_mode(ParallelMode.PIPELINE) and (
+            (
+                gpc.config.parallel["pipeline"].get("mode", "1F1B") == "ZBH1"
+                and not gpc.is_first_rank(ParallelMode.PIPELINE)
+            )
+            or gpc.config.parallel["pipeline"].get("mode", "1F1B") == "ZBV"
         )
 
         # compute weight grad
@@ -253,10 +260,19 @@ class WPFusedDenseFunc(torch.autograd.Function):
             assert ctx.compute_weight_gradient
             x = x.reshape(batch_dim, x.shape[-1])
             if is_using_ZB:
-                from internlm.core.scheduler.pipeline_scheduler import WeightGradStore
+                from internlm.core.scheduler.pipeline_scheduler_zb import (
+                    WeightGradStore,
+                )
 
                 WeightGradStore.put(
-                    weight, bias, x, grad_output, ctx.needs_input_grad[2], linear_backward_op, communicator.grad_hook
+                    weight,
+                    bias,
+                    x,
+                    grad_output,
+                    ctx.needs_input_grad[2],
+                    linear_backward_op,
+                    communicator.grad_hook,
+                    module,
                 )
                 grad_weight, grad_bias = None, None
             else:

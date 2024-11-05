@@ -8,7 +8,7 @@ from internlm.accelerator import get_accelerator
 from internlm.core.context import ParallelMode
 from internlm.core.context import global_context as gpc
 from internlm.core.parallel.shard import split_data_for_sequence_parallel
-from internlm.core.scheduler.pipeline_scheduler import get_tensor_shape
+from internlm.core.scheduler.pipeline_scheduler_1f1b import get_tensor_shape
 from internlm.model.metrics import AccPerplex, SchedulerMetricHook
 from internlm.utils.common import get_current_device
 from internlm.utils.parallel import is_using_isp

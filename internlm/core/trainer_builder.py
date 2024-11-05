@@ -11,7 +11,6 @@ from torch.utils.data import DataLoader
 from internlm.checkpoint.checkpoint_manager import CheckpointManager
 from internlm.core.context import global_context as gpc
 from internlm.core.context.process_group_initializer import ParallelMode
-from internlm.core.quantization.fp8handler import Float8Handler
 from internlm.core.trainer import Trainer
 from internlm.data.streaming.utils import streaming_simple_resume
 from internlm.data.train_state import get_train_state
@@ -28,6 +27,7 @@ from internlm.train.pipeline import (
     inject_model,
     load_new_batch,
     record_current_batch_training_metrics,
+    set_param_unique_tracking_name,
 )
 from internlm.utils.common import (
     BatchSkipper,
@@ -100,11 +100,8 @@ class TrainerBuilder(Trainer):
         # load config_lines
         config_lines = self._read_config(kwargs["config"])
 
-        # If enable FP8 Linear or not
-        if hasattr(gpc.config, "use_fp8") and gpc.config.get("use_fp8", False):
-            float8_handler = Float8Handler()
-            float8_handler.convert_to_float8_training(model)
-            model = torch.compile(model)
+        # set tracking name for parameters
+        set_param_unique_tracking_name(model)
 
         # inject model for amp and parallel training
         model = inject_model(model)

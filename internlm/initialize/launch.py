@@ -85,7 +85,10 @@ def args_sanity_check():
         gpc.config.parallel._add_item("zero1", dict(size=zero1_size, fsdp=False))
 
     if "pipeline" not in gpc.config.parallel:
-        gpc.config.parallel._add_item("pipeline", dict(size=1, interleaved_overlap=False, zero_bubble=False))
+        gpc.config.parallel._add_item("pipeline", dict(size=1, interleaved_overlap=False, mode="1F1B"))
+
+    if isinstance(gpc.config.parallel.pipeline, dict) and "mode" not in gpc.config.parallel.pipeline:
+        gpc.config.parallel.pipeline._add_item("mode", "1F1B")
 
     if "tensor" not in gpc.config.parallel:
         gpc.config.parallel._add_item("tensor", dict(size=1, mode=TensorParallelMode.mtp.name))
@@ -103,6 +106,16 @@ def args_sanity_check():
         pp = gpc.config.parallel.pipeline
     else:
         pp = gpc.config.parallel.pipeline.size
+
+    if isinstance(gpc.config.parallel.pipeline, dict):
+        gpc.config.parallel.pipeline["mode"] = gpc.config.parallel.pipeline["mode"].upper()
+        assert gpc.config.parallel.pipeline["mode"] in [
+            "1F1B",
+            "ZBH1",
+            "ZBV",
+        ], f"unsupported pp mode {gpc.config.parallel.pipeline['mode']}"
+        if gpc.config.parallel.pipeline["mode"] == "ZBV":
+            gpc.v_shape = True
 
     # check fsdp config
     if "fsdp" not in gpc.config.parallel.zero1:
@@ -442,6 +455,11 @@ def args_sanity_check():
             gpc.config.parallel["pipeline"].get("interleaved_overlap", False) is True
         ), "only support interleaved pipeline scheduler with overlap"
 
+    if gpc.config.parallel["pipeline"]["mode"] == "ZBV":
+        gpc.config.model.num_chunks = 2
+        if gpc.is_rank_for_log():
+            logger.info("Using zero_bubble_v, num_chunks is set to 2.")
+
     # monitoring default config
     monitor_default_config = {
         "alert_address": None,  # compatible with old alert config
@@ -480,7 +498,7 @@ def args_sanity_check():
     elif optim_ckpt.use_split_tensor_optim and "all_gather_size" not in optim_ckpt:
         optim_ckpt._add_item("all_gather_size", 512 * 1024 * 1024)
 
-    if gpc.config.parallel["pipeline"].get("zero_bubble", False):
+    if gpc.config.parallel["pipeline"]["mode"] == "ZBH1":
         assert (
             not optim_ckpt.overlap_sync_grad
         ), "When using zero_bubble pipeline parallelism, overlap_sync_grad must be false"

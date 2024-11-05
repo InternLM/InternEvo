@@ -117,6 +117,42 @@ logger = get_logger(__file__)
 internlm_accelerator = get_accelerator()
 
 
+def set_param_unique_tracking_name(model):
+    for chunk_id, chunk in enumerate(unwrap_naive_amp(model)):
+        # Important: only works for llama-class models
+        childrens = chunk.named_children()
+        for _, children in childrens:
+            if isinstance(children, nn.ModuleList):
+                for idx, block in enumerate(children):
+                    for name, child in block.named_modules():
+                        if isinstance(child, (ParallelLinearWithCommExt)):
+                            full_name = f"{chunk_id}.{idx}.{name}"
+                            setattr(
+                                child.weight,
+                                "tracking_name",
+                                f"{full_name}.weight",
+                            )
+                            if child.bias is not None:
+                                setattr(
+                                    child.bias,
+                                    "tracking_name",
+                                    f"{full_name}.bias",
+                                )
+            else:
+                if isinstance(children, Embedding1D):
+                    setattr(
+                        children.weight,
+                        "tracking_name",
+                        f"{chunk_id}_embedding.weight",
+                    )
+                else:
+                    setattr(
+                        children.weight,
+                        "tracking_name",
+                        f"{chunk_id}_head.weight",
+                    )
+
+
 def set_fp32_attr_for_model(model: Union[nn.Module, nn.ModuleList]):
     if not isinstance(model, nn.ModuleList):
         model = [model]

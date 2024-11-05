@@ -163,6 +163,7 @@ class ParallelContext(metaclass=SingletonMeta):
         self.virtual_pipeline_parallel_rank = None
         self._expert_parallel_group_names = []
         self.is_evaluating = False
+        self.v_shape = False
 
     @property
     def config(self):
@@ -292,8 +293,13 @@ class ParallelContext(metaclass=SingletonMeta):
             and self.is_first_rank(ParallelMode.WEIGHT)
             and self.is_first_rank(ParallelMode.DATA)
             and self.is_first_rank(ParallelMode.WEIGHT_DATA)
-            and self.is_last_rank(ParallelMode.PIPELINE)
         )
+
+        if not self.v_shape:
+            is_log_rank = is_log_rank and self.is_last_rank(ParallelMode.PIPELINE)
+        else:
+            is_log_rank = is_log_rank and self.is_first_rank(ParallelMode.PIPELINE)
+
         return is_log_rank
 
     def is_last_rank(self, parallel_mode: ParallelMode):
@@ -327,11 +333,17 @@ class ParallelContext(metaclass=SingletonMeta):
                 and self.virtual_pipeline_parallel_rank != self.virtual_pipeline_parallel_size - 1
             ):
                 return False
-        return self.is_last_rank(ParallelMode.PIPELINE)
+        if not self.v_shape:
+            return self.is_last_rank(ParallelMode.PIPELINE)
+        else:
+            return self.is_first_rank(ParallelMode.PIPELINE)
 
     def is_no_pp_or_last_stage(self):
         # NOTICE!!!, this will ignore virutal stage
-        return not self.is_initialized(ParallelMode.PIPELINE) or self.is_last_rank(ParallelMode.PIPELINE)
+        if not self.v_shape:
+            return not self.is_initialized(ParallelMode.PIPELINE) or self.is_last_rank(ParallelMode.PIPELINE)
+        else:
+            return not self.is_initialized(ParallelMode.PIPELINE) or self.is_first_rank(ParallelMode.PIPELINE)
 
     def get_world_size(self, parallel_mode: ParallelMode):
         """Returns the world size for `parallel_mode`.

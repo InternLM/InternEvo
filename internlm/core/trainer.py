@@ -9,12 +9,7 @@ from collections import deque
 from typing import Iterable, Optional
 
 from internlm.core.engine import Engine
-from internlm.core.scheduler import (
-    BaseScheduler,
-    InterleavedPipelineScheduler,
-    NonPipelineScheduler,
-    PipelineScheduler,
-)
+from internlm.core.scheduler import BaseScheduler, NonPipelineScheduler
 
 
 class TrainState:
@@ -181,7 +176,7 @@ class Trainer:
     @property
     def uses_pipeline(self):
         """Returns whether the pipeline parallel is used or not."""
-        return isinstance(self._schedule, (PipelineScheduler, InterleavedPipelineScheduler))
+        return not isinstance(self._schedule, (NonPipelineScheduler, BaseScheduler))
 
     def train(self):
         """Sets the model to training mode."""

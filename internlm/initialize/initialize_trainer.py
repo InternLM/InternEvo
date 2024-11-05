@@ -21,8 +21,9 @@ from internlm.core.scheduler import (
     NonPipelineScheduler,
     PipelineScheduler,
     ZeroBubblePipelineScheduler,
+    ZeroBubblePipelineVShapeScheduler,
 )
-from internlm.core.scheduler.pipeline_scheduler import get_tensor_shape
+from internlm.core.scheduler.pipeline_scheduler_1f1b import get_tensor_shape
 from internlm.core.trainer import Trainer
 from internlm.data.utils import packed_data_normalizer, unpack_data
 from internlm.solver.optimizer.hybrid_zero_optim import BaseOptimizer
@@ -94,11 +95,16 @@ def initialize_trainer(
 
         return _data, _label
 
+    pp_mode = getattr(gpc.config.parallel["pipeline"], "mode", "1F1B").upper()
+
     if gpc.is_using_parallel_mode(ParallelMode.PIPELINE):
         gpc.config.NUM_MICRO_BATCHES = gpc.config.data.micro_num
         tensor_shape = get_tensor_shape()
         use_interleaved = (
-            hasattr(gpc.config, "model") and hasattr(gpc.config.model, "num_chunks") and gpc.config.model.num_chunks > 1
+            hasattr(gpc.config, "model")
+            and hasattr(gpc.config.model, "num_chunks")
+            and gpc.config.model.num_chunks > 1
+            and pp_mode == "1F1B"
         )
         scatter_gather = gpc.is_initialized(ParallelMode.TENSOR)
         if use_interleaved:
@@ -116,7 +122,7 @@ def initialize_trainer(
                 scheduler_hooks=scheduler_hooks,
                 communication_overlap=communication_overlap,
             )
-        elif gpc.config.parallel["pipeline"].get("zero_bubble", False):
+        elif pp_mode == "ZBH1":
             scheduler = ZeroBubblePipelineScheduler(
                 data_process_func=_data_preparation_func,
                 num_microbatches=gpc.config.NUM_MICRO_BATCHES,
@@ -124,6 +130,18 @@ def initialize_trainer(
                 tensor_shape=tensor_shape,
                 scatter_gather_tensors=scatter_gather,
                 scheduler_hooks=scheduler_hooks,
+                optimizer=optimizer,
+            )
+        elif pp_mode == "ZBV":
+            scheduler = ZeroBubblePipelineVShapeScheduler(
+                num_microbatches=gpc.config.NUM_MICRO_BATCHES,
+                num_chunks=gpc.config.model.num_chunks,
+                dtype=gpc.config.model["dtype"],
+                data_process_func=_data_preparation_func,
+                tensor_shape=tensor_shape,
+                scatter_gather_tensors=scatter_gather,
+                scheduler_hooks=scheduler_hooks,
+                optimizer=optimizer,
             )
         else:
             scheduler = PipelineScheduler(
