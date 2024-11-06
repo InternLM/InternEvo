@@ -11,6 +11,7 @@ from torch.utils.data import DataLoader
 from internlm.checkpoint.checkpoint_manager import CheckpointManager
 from internlm.core.context import global_context as gpc
 from internlm.core.context.process_group_initializer import ParallelMode
+from internlm.core.quantization.fp8handler import Float8Handler
 from internlm.core.trainer import Trainer
 from internlm.data.streaming.utils import streaming_simple_resume
 from internlm.data.train_state import get_train_state
@@ -103,8 +104,16 @@ class TrainerBuilder(Trainer):
         # set tracking name for parameters
         set_param_unique_tracking_name(model)
 
+        # handle FP8 training
+        float8_handler = Float8Handler(gpc.config.float8_config)
+        float8_handler.convert_to_float8_training(model)
+
         # inject model for amp and parallel training
         model = inject_model(model)
+        
+        # torch.compile is needed for FP8 speedup
+        if float8_handler.compile:
+            model = torch.compile(model)
 
         # check cuda env
         check_cuda_env()
@@ -148,6 +157,7 @@ class TrainerBuilder(Trainer):
             lr_scheduler=lr_scheduler,
             beta2_scheduler=beta2_scheduler,
             scheduler_hooks=get_scheduler_hooks(self.metric, optimizer, isp_communicator),
+            float8_handler=float8_handler,
         )
 
         # set attributes

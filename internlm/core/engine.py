@@ -11,6 +11,7 @@ from torch.nn.modules.loss import _Loss
 from torch.optim.lr_scheduler import _LRScheduler
 
 from internlm.core.gradient_handler import BaseGradientHandler
+from internlm.core.quantization.fp8handler import Float8Handler
 from internlm.solver.optimizer.hybrid_zero_optim import BaseOptimizer
 from internlm.solver.schedulers.beta2_scheduler import Beta2Scheduler
 from internlm.utils.common import get_batch_size, move_to_device
@@ -64,6 +65,7 @@ class Engine:
         criterion: Optional[_Loss] = None,
         gradient_handlers: Optional[List[BaseGradientHandler]] = None,
         clip_grad_norm: float = 0.0,
+        float8_handler: Optional[Float8Handler] = None,
     ):
         self._model = model
         self._optimizer = optimizer
@@ -71,6 +73,8 @@ class Engine:
         self._beta2_scheduler = beta2_scheduler
         self._criterion = criterion
         self._clip_grad_norm = clip_grad_norm
+        
+        self.float8_handler = float8_handler
 
         # state
         self.training = True  # default
@@ -119,6 +123,8 @@ class Engine:
         """
         self._all_reduce_gradients()
         self.optimizer.clip_grad_norm(self.model, self._clip_grad_norm)
+        
+        self.float8_handler.sync_float8_amax_and_scale_history(self.model)
 
         success, grad_norm = self.optimizer.step()
 

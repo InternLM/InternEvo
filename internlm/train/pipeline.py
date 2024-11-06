@@ -279,12 +279,6 @@ def inject_model(model):
     if hasattr(model, IS_INJECTED) and getattr(model, IS_INJECTED):
         return model
 
-    # FP8 Linear and compile model
-    if hasattr(gpc.config, "use_fp8") and gpc.config.get("use_fp8", False):
-        float8_handler = Float8Handler()
-        float8_handler.convert_to_float8_training(model)
-        model = torch.compile(model)
-
     inject_model_helper(model, inject_info=gpc.config.model.get("inject_info", None))
 
     # should be set before NaiveAMPModel

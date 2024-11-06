@@ -16,6 +16,7 @@ from internlm.core.context import global_context as gpc
 from internlm.core.engine import Engine
 from internlm.core.gradient_handler import PipelineSharedModuleGradientHandler
 from internlm.core.parallel.shard import split_data_for_sequence_parallel
+from internlm.core.quantization.fp8handler import Float8Handler
 from internlm.core.scheduler import (
     InterleavedPipelineScheduler,
     NonPipelineScheduler,
@@ -39,6 +40,7 @@ def initialize_trainer(
     lr_scheduler: Optional[_LRScheduler] = None,
     beta2_scheduler: Optional[Beta2Scheduler] = None,
     scheduler_hooks: Optional[List[SchedulerHook]] = None,
+    float8_handler: Optional[Float8Handler] = None,
 ) -> Tuple[Trainer, DataLoader, DataLoader, _LRScheduler]:
     """Core function to wrap the essential training components with our functionality based on the config which is
     loaded into gpc.config.
@@ -168,6 +170,7 @@ def initialize_trainer(
         criterion=criterion,
         gradient_handlers=gradient_handlers,
         clip_grad_norm=clip_grad_norm,
+        float8_handler=float8_handler,
     )
 
     return engine, scheduler

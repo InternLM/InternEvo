@@ -51,13 +51,13 @@ VALID_FOLDER = None  # "/path/to/dataset"
 data = dict(
     seq_len=SEQ_LEN,
     # micro_num means the number of micro_batch contained in one gradient update
-    micro_num=4,
+    micro_num=1,
     # packed_length = micro_bsz * SEQ_LEN
     micro_bsz=2,
     # defaults to the value of micro_num
     valid_micro_num=4,
     # defaults to 0, means disable evaluate
-    valid_every=50,
+    valid_every=0,
     pack_sample_into_one=False,
     total_steps=50000,
     skip_batches="",
@@ -215,7 +215,13 @@ monitor = dict(
 
 use_apex_adam = False
 
-use_fp8 = True
+float8_config = dict(
+    enable_float8_linear=True,
+    compile=True,
+    scaling_type_input="delayed",
+    scaling_type_weight="delayed",
+    scaling_type_grad_output="dynamic",
+)
 
 # metric_dtype can be "fp32" or other string
 # only when set to "fp32" will use fp32 to calc in metrics
