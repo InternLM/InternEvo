@@ -45,7 +45,6 @@ from internlm.core.parallel.comm.tensor import (
     TensorParallelCommunicator,
 )
 from internlm.core.parallel.comm.zero import ParamAsyncBcastHandler
-from internlm.core.quantization.fp8handler import Float8Handler
 from internlm.core.trainer import TrainState
 from internlm.data.utils import unpack_type_ids
 from internlm.model.builder import create_model

@@ -73,7 +73,7 @@ class Engine:
         self._beta2_scheduler = beta2_scheduler
         self._criterion = criterion
         self._clip_grad_norm = clip_grad_norm
-        
+
         self.float8_handler = float8_handler
 
         # state
@@ -123,7 +123,7 @@ class Engine:
         """
         self._all_reduce_gradients()
         self.optimizer.clip_grad_norm(self.model, self._clip_grad_norm)
-        
+
         self.float8_handler.sync_float8_amax_and_scale_history(self.model)
 
         success, grad_norm = self.optimizer.step()

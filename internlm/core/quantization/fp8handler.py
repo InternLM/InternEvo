@@ -1,9 +1,11 @@
 # adapted from https://github.com/pytorch/torchtitan/blob/main/torchtitan/float8.py
 from typing import List, Union
+
 import torch
 import torch.nn as nn
 
 from internlm.utils.logger import get_logger
+
 logger = get_logger(__file__)
 
 
@@ -27,9 +29,7 @@ class Float8Handler:
         try:
             from torchao.float8 import CastConfig, Float8LinearConfig, ScalingType
         except ImportError as e:
-            raise ImportError(
-                "torchao is not installed. Please install it to use float8 linear layers."
-            ) from e
+            raise ImportError("torchao is not installed. Please install it to use float8 linear layers.") from e
 
         scaling_type_input = float8_config.scaling_type_input
         scaling_type_weight = float8_config.scaling_type_weight
@@ -45,12 +45,10 @@ class Float8Handler:
 
         # for sync_float8_amax_and_scale_history
         self.delayed_scaling = (
-            scaling_type_input == "delayed"
-            or scaling_type_weight == "delayed"
-            or scaling_type_grad_output == "delayed"
+            scaling_type_input == "delayed" or scaling_type_weight == "delayed" or scaling_type_grad_output == "delayed"
         )
         self._sync_float8_amax_and_scale_history = None
-        
+
         self.compile = float8_config.compile
 
         logger.info("Float8 training active")
@@ -67,9 +65,7 @@ class Float8Handler:
             module_filter_fn=lambda mod, fqn: fqn != "head",
         )
 
-    def sync_float8_amax_and_scale_history(
-        self, model: Union[nn.Module, List[nn.Module]]
-    ):
+    def sync_float8_amax_and_scale_history(self, model: Union[nn.Module, List[nn.Module]]):
         if not self.enabled:
             return
 
@@ -80,13 +76,9 @@ class Float8Handler:
 
         if self._sync_float8_amax_and_scale_history is None:
             if self.compile:
-                self._sync_float8_amax_and_scale_history = torch.compile(
-                    sync_float8_amax_and_scale_history
-                )
+                self._sync_float8_amax_and_scale_history = torch.compile(sync_float8_amax_and_scale_history)
             else:
-                self._sync_float8_amax_and_scale_history = (
-                    sync_float8_amax_and_scale_history
-                )
+                self._sync_float8_amax_and_scale_history = sync_float8_amax_and_scale_history
 
         models = [model] if isinstance(model, nn.Module) else model
         for m in models:

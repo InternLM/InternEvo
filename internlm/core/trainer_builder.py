@@ -110,7 +110,7 @@ class TrainerBuilder(Trainer):
 
         # inject model for amp and parallel training
         model = inject_model(model)
-        
+
         # torch.compile is needed for FP8 speedup
         if float8_handler.compile:
             model = torch.compile(model)
