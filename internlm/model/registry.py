@@ -4,6 +4,7 @@
 from typing import Callable
 
 from internlm.model.modeling_baichuan2 import Baichuan2
+from internlm.model.modeling_chameleon import ChameleonModel
 from internlm.model.modeling_gemma import Gemma
 from internlm.model.modeling_internlm import InternLM1
 from internlm.model.modeling_internlm2 import InternLM2
@@ -93,6 +94,7 @@ def register_model_initializer() -> None:
     model_initializer.register_module(ModelType.GEMMA.name, Gemma)
     model_initializer.register_module(ModelType.QWEN2MOE.name, Qwen2Moe)
     model_initializer.register_module(ModelType.MIXTRALMOE.name, MixtralMoE)
+    model_initializer.register_module(ModelType.CHAMELEON.name, ChameleonModel)
 
 
 register_model_initializer()
