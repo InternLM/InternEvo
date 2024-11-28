@@ -35,9 +35,8 @@ except (ModuleNotFoundError, ImportError):
     torchnpu_rmsnorm_impl = False
 
 
-def manual_rms_norm(my_input, weight, normalized_shape, eps, add_unit_offset=False, is_Chameleon=False):
+def manual_rms_norm(my_input, weight, normalized_shape, eps, add_unit_offset=False, convert_to_input_dtype=False):
     # layer norm should always be calculated in float32
-    input_dtype = my_input.dtype
     dims = tuple(i for i in range(-1, -len(normalized_shape) - 1, -1))
     variance = my_input.to(torch.float32).pow(2).mean(dims, keepdim=True)
     my_input = my_input * torch.rsqrt(variance + eps)
@@ -45,23 +44,23 @@ def manual_rms_norm(my_input, weight, normalized_shape, eps, add_unit_offset=Fal
     if weight is None:
         return my_input
 
-    if is_Chameleon:
-        return weight * my_input.to(input_dtype)
-    else:
+    if convert_to_input_dtype:
+        input_dtype = my_input.dtype
+        my_input = my_input.to(input_dtype)
+    elif weight.dtype in [torch.float16, torch.bfloat16]:
         # convert into half-precision if necessary
-        if weight.dtype in [torch.float16, torch.bfloat16]:
-            my_input = my_input.to(weight.dtype)
+        my_input = my_input.to(weight.dtype)
 
-        if add_unit_offset:
-            return (1 + weight) * my_input
-        else:
-            return weight * my_input
+    if add_unit_offset:
+        return (1 + weight) * my_input
+    else:
+        return weight * my_input
 
 
 class _RMSNorm(torch.nn.Module):
     """A generic module for RMS normalization."""
 
-    def __init__(self, normalized_shape, eps=1e-5, add_unit_offset=False, is_Chameleon=False):
+    def __init__(self, normalized_shape, eps=1e-5, add_unit_offset=False, convert_to_input_dtype=False):
         super().__init__()
 
         if isinstance(normalized_shape, numbers.Integral):
@@ -71,7 +70,7 @@ class _RMSNorm(torch.nn.Module):
         self.weight = Parameter(torch.empty(*normalized_shape))
         self.add_unit_offset = add_unit_offset
         self.reset_parameters()
-        self.is_Chameleon = is_Chameleon
+        self.convert_to_input_dtype = convert_to_input_dtype
 
     def forward(self, _input: torch.Tensor):
         if apex_rmsnorm_impl:
@@ -80,7 +79,7 @@ class _RMSNorm(torch.nn.Module):
         else:
             _norm_func = manual_rms_norm
             return _norm_func(
-                _input, self.weight, self.normalized_shape, self.eps, self.add_unit_offset, self.is_Chameleon
+                _input, self.weight, self.normalized_shape, self.eps, self.add_unit_offset, self.convert_to_input_dtype
             )
 
     def reset_parameters(self):

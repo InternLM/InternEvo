@@ -145,10 +145,10 @@ class ChameleonDecoderLayer(nn.Module):
 
         self.dropout = nn.Dropout(drop_rate)
         self.attention_norm = new_layer_norm(
-            norm_type, hidden_size, eps=layer_norm_epsilon, add_unit_offset=False, is_Chameleon=True
+            norm_type, hidden_size, eps=layer_norm_epsilon, add_unit_offset=False, convert_to_input_dtype=True
         )
         self.ffn_norm = new_layer_norm(
-            norm_type, hidden_size, eps=layer_norm_epsilon, add_unit_offset=False, is_Chameleon=True
+            norm_type, hidden_size, eps=layer_norm_epsilon, add_unit_offset=False, convert_to_input_dtype=True
         )
 
         self.feed_forward = new_feed_forward(
