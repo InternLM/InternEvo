@@ -5,11 +5,7 @@ from typing import Optional
 
 import torch
 from torch import nn
-from torch.nn import CrossEntropyLoss
 from tqdm import tqdm
-
-# Should re-implement CausalLMOutputWithPast?
-from transformers.modeling_outputs import BaseModelOutputWithPast, CausalLMOutputWithPast
 
 from internlm.accelerator import get_accelerator
 from internlm.core.context import ParallelMode
@@ -68,7 +64,6 @@ class ChameleonDecoderLayer(nn.Module):
         no_bias (bool): Whether to exclude bias in attention and feed-forward networks. Defaults to False.
         norm_type (str): Use RMS norm or layernorm."rmsnorm" by default.
         qk_interleaved (bool): Whether the odd and even columns of the wq and wk are normally interleaved.
-        dropout_selective_checkpoint (bool): Whether to selectively checkpoint dropout layers only.
         use_scaled_init (bool): Whether to use scaled initialization for weights.
         use_swiglu (bool): Whether to use SwiGLU activation in the mlp module.
         attn_wqkv_init_std (float): std used to init attn_wqkv weight. 0.02 by default,
@@ -102,7 +97,6 @@ class ChameleonDecoderLayer(nn.Module):
         no_bias: bool = False,
         norm_type: str = "rmsnorm",
         qk_interleaved: bool = False,
-        dropout_selective_checkpoint: bool = True,
         use_scaled_init: bool = True,
         use_swiglu: bool = True,
         attn_wqkv_init_std: float = 0.02,
@@ -113,13 +107,11 @@ class ChameleonDecoderLayer(nn.Module):
         rope_base: int = 10000,
         mlp_layer_fusion: bool = False,
         multiple_of: int = 256,
-        qk_norm = True,
-        chameleon_mp_size = 1,
+        qk_norm=True,
+        chameleon_mp_size=1,
     ):
         super().__init__()
         self.checkpoint = checkpoint
-        # dropout selective checkpoint can only be enabled when checkpoint is disabled.
-        self.dropout_selective_checkpoint = dropout_selective_checkpoint is True and checkpoint is False
         self.layer_idx = layer_idx
         self.prenorm = not apply_post_layer_norm
         assert not fused_dropout_add_ln, "dropout_add_layer_norm can not be used here"
@@ -152,8 +144,12 @@ class ChameleonDecoderLayer(nn.Module):
         )
 
         self.dropout = nn.Dropout(drop_rate)
-        self.attention_norm = new_layer_norm(norm_type, hidden_size, eps=layer_norm_epsilon, add_unit_offset=False, is_Chameleon=True)
-        self.ffn_norm = new_layer_norm(norm_type, hidden_size, eps=layer_norm_epsilon, add_unit_offset=False, is_Chameleon=True)
+        self.attention_norm = new_layer_norm(
+            norm_type, hidden_size, eps=layer_norm_epsilon, add_unit_offset=False, is_Chameleon=True
+        )
+        self.ffn_norm = new_layer_norm(
+            norm_type, hidden_size, eps=layer_norm_epsilon, add_unit_offset=False, is_Chameleon=True
+        )
 
         self.feed_forward = new_feed_forward(
             hidden_size,
@@ -234,20 +230,8 @@ class ChameleonDecoderLayer(nn.Module):
 
             hidden_states = self.attention_norm(hidden_states)
 
-            # def _dropout_and_norm_attn(_residual, _hidden_states):
-            #     _dropped = self.dropout1(_hidden_states)
-            #     _residual = (_dropped + _residual) if _residual is not None else _dropped
-            #     _hidden_states = self.attention_norm(_residual.to(dtype=self.attention_norm.weight.dtype))
-
-            #     return _residual, _hidden_states
-
-            # if self.dropout_selective_checkpoint:
-            #     residual, hidden_states = activation_checkpoint(_dropout_and_norm_attn, False, residual, hidden_states)
-            # else:
-            #     residual, hidden_states = _dropout_and_norm_attn(residual, hidden_states)
-
-            # if self.residual_in_fp32:
-            #     residual = residual.to(torch.float32)
+            if self.residual_in_fp32:
+                residual = residual.to(torch.float32)
 
             attn_kwargs = convert_attn_args_to_kwargs(args, kwargs)
             hidden_states = self.attention(hidden_states, **attn_kwargs)
@@ -279,7 +263,7 @@ class ChameleonDecoderLayer(nn.Module):
 class ChameleonImageVocabularyMapping:
     """
     A class for mapping discrete image tokens from VQGAN to BPE tokens.
- 
+
     Reference:
     https://github.com/Alpha-VLLM/Lumina-mGPT/blob/104abe453ec1acca5863698629c4db2111b0b3fc/lumina_mgpt/model/chameleon/modeling_chameleon.py#L1036
     """
@@ -326,7 +310,6 @@ class ChameleonImageVocabularyMapping:
         return img_tokens.to(device)
 
 
-
 class ChameleonModel(BaseModel):
     """
     Chameleon Model.
@@ -356,7 +339,6 @@ class ChameleonModel(BaseModel):
         residual_in_fp32 (bool): Whether to use residual in fp32. False by default.
         norm_type (str): Normalization type. Use RMSNorm or LayerNorm. "rmsnorm" by default.
         qk_interleaved (bool): Whether the odd and even columns of the wq and wk are normally interleaved.
-        dropout_selective_checkpoint (bool): Whether to selectively checkpoint dropout and norm layers.
         use_scaled_init (bool): Whether to use scaled initialization for weights.
         use_swiglu (bool): Whether to use SwiGLU activation in the mlp module.
         embedding_init_std (float): std used to init embedding weight. 0.02 by default,
@@ -398,7 +380,6 @@ class ChameleonModel(BaseModel):
         norm_type: str = "rmsnorm",
         qk_interleaved: bool = False,
         is_reward: bool = False,
-        dropout_selective_checkpoint: bool = True,
         use_scaled_init: bool = True,
         use_swiglu: bool = True,
         embedding_init_std: float = 0.02,
@@ -411,8 +392,8 @@ class ChameleonModel(BaseModel):
         rope_base: int = 10000,
         mlp_layer_fusion: bool = False,
         multiple_of: int = 256,
-        qk_norm = True,
-        chameleon_mp_size = 1,
+        qk_norm=True,
+        chameleon_mp_size=1,
     ):
         super().__init__()
 
@@ -422,10 +403,11 @@ class ChameleonModel(BaseModel):
         if chameleon_mp_size == 4:
             apply_post_layer_norm = True
 
-        
         if first:
             self.padding_idx = None
-            self.tok_embeddings = Embedding1D(num_embeddings=vocab_size, embedding_dim=hidden_size, padding_idx=self.padding_idx)
+            self.tok_embeddings = Embedding1D(
+                num_embeddings=vocab_size, embedding_dim=hidden_size, padding_idx=self.padding_idx
+            )
             for _, param in self.tok_embeddings.named_parameters():
                 if init_type == "normal":
                     normal_(std=embedding_init_std)(param)
@@ -451,7 +433,6 @@ class ChameleonModel(BaseModel):
                     fused_dropout_add_ln=False,
                     no_bias=no_bias,
                     norm_type=norm_type,
-                    dropout_selective_checkpoint=dropout_selective_checkpoint,
                     use_scaled_init=use_scaled_init,
                     use_swiglu=use_swiglu,
                     qk_interleaved=qk_interleaved,
@@ -463,7 +444,7 @@ class ChameleonModel(BaseModel):
                     rope_base=rope_base,
                     mlp_layer_fusion=mlp_layer_fusion,
                     multiple_of=multiple_of,
-                    qk_norm = qk_norm,
+                    qk_norm=qk_norm,
                     chameleon_mp_size=chameleon_mp_size,
                 )
                 for lid in range(num_layers)
@@ -574,15 +555,11 @@ class ChameleonModel(BaseModel):
             state_dict[f"layers.{i}.attention.q_norm.weight"] = state_dict.pop(
                 f"model.layers.{i}.self_attn.q_norm.weight"
             )
-            state_dict[f"layers.{i}.attention.q_norm.bias"] = state_dict.pop(
-                f"model.layers.{i}.self_attn.q_norm.bias"
-            )
+            state_dict[f"layers.{i}.attention.q_norm.bias"] = state_dict.pop(f"model.layers.{i}.self_attn.q_norm.bias")
             state_dict[f"layers.{i}.attention.k_norm.weight"] = state_dict.pop(
                 f"model.layers.{i}.self_attn.k_norm.weight"
             )
-            state_dict[f"layers.{i}.attention.k_norm.bias"] = state_dict.pop(
-                f"model.layers.{i}.self_attn.k_norm.bias"
-            )
+            state_dict[f"layers.{i}.attention.k_norm.bias"] = state_dict.pop(f"model.layers.{i}.self_attn.k_norm.bias")
 
             # ffn
             state_dict[f"layers.{i}.feed_forward.w1.weight"] = torch.chunk(
@@ -619,7 +596,7 @@ class ChameleonModel(BaseModel):
 
             # replace value within decoder layer
             for name in list(state_dict.keys()):
-                if name.startswith(f"model.vqmodel"):
+                if name.startswith("model.vqmodel"):
                     state_dict.pop(name)
                 if name.startswith(f"layers.{i}"):
                     new_state_dict[name.replace(f".{i}.", f".{idx}.")] = state_dict.pop(name)
@@ -751,10 +728,18 @@ class ChameleonModel(BaseModel):
             )
             state_dict.update(
                 {
-                    f"model.layers.{layer_i}.self_attn.q_norm.weight" : states[0][f"layers.{layer_i}.attention.q_norm.weight"].clone(),
-                    f"model.layers.{layer_i}.self_attn.q_norm.bias" : states[0][f"layers.{layer_i}.attention.q_norm.bias"].clone(),
-                    f"model.layers.{layer_i}.self_attn.k_norm.weight" : states[0][f"layers.{layer_i}.attention.k_norm.weight"].clone(),
-                    f"model.layers.{layer_i}.self_attn.k_norm.bias" : states[0][f"layers.{layer_i}.attention.k_norm.bias"].clone(),
+                    f"model.layers.{layer_i}.self_attn.q_norm.weight": states[0][
+                        f"layers.{layer_i}.attention.q_norm.weight"
+                    ].clone(),
+                    f"model.layers.{layer_i}.self_attn.q_norm.bias": states[0][
+                        f"layers.{layer_i}.attention.q_norm.bias"
+                    ].clone(),
+                    f"model.layers.{layer_i}.self_attn.k_norm.weight": states[0][
+                        f"layers.{layer_i}.attention.k_norm.weight"
+                    ].clone(),
+                    f"model.layers.{layer_i}.self_attn.k_norm.bias": states[0][
+                        f"layers.{layer_i}.attention.k_norm.bias"
+                    ].clone(),
                 }
             )
 
@@ -785,100 +770,3 @@ class ChameleonModel(BaseModel):
             llm_save(save_path=os.path.join(tgt, shard_file), saved_obj=shard, metadata={"format": "pt"})
         if index is not None:
             llm_save(save_path=os.path.join(tgt, SAFE_WEIGHTS_INDEX_NAME), saved_obj=index)
-'''
-
-class ChameleonForConditionalGeneration(BaseModel):
-    def __init__(self,
-                 max_position_embeddings: int,
-                 output_attentions: bool,
-                 output_hidden_states: bool,
-                 return_dict: bool,
-                 mask_image_logits: bool):
-        self.max_position_embeddings = max_position_embeddings
-
-        self.model = ChameleonModel()
-
-        self.output_attentions = output_attentions
-        self.output_hidden_states = output_hidden_states
-        self.return_dict = return_dict
-        self.mask_image_logits = mask_image_logits
-
-    def forward(self,
-                input_ids=None,
-                labels=None,
-                pixel_values: torch.FloatTensor = None,
-                attention_mask: Optional[torch.Tensor] = None,
-                position_ids: Optional[torch.LongTensor] = None,
-                past_key_values: Optional[Cache] = None,
-                inputs_embeds: Optional[torch.FloatTensor] = None,
-                use_cache: Optional[bool] = None,
-                output_attentions: Optional[bool] = None,
-                output_hidden_states: Optional[bool] = None,
-                return_dict: Optional[bool] = None,
-                cache_position: Optional[torch.LongTensor] = None,
-                **kwargs):
-
-
-
-
-        # Data to torch.tensor
-        max_tokens = max([len(_) for _ in input_ids])
-        max_tokens = min(max_tokens, self.max_position_embeddings)
-        input_ids = [_[:max_tokens] for _ in input_ids]
-        labels = [_[:max_tokens] for _ in labels]
-        input_ids = [example + [0] * (max_tokens - len(example)) for example in input_ids]
-        input_ids = torch.tensor(input_ids, dtype=torch.int64, device=self.device)
-        labels = [label + [-100] * (max_tokens - len(label)) for label in labels]
-        labels = torch.tensor(labels, dtype=torch.int64, device=self.device)
-
-
-        outputs = self.model(
-            input_ids=input_ids,
-            pixel_values=pixel_values,
-            attention_mask=attention_mask,
-            position_ids=position_ids,
-            past_key_values=past_key_values,
-            inputs_embeds=inputs_embeds,
-            use_cache=use_cache,
-            output_attentions=output_attentions,
-            output_hidden_states=output_hidden_states,
-            return_dict=return_dict,
-            cache_position=cache_position,
-        )
-
-        hidden_states = outputs[0]
-        logits = self.lm_head(hidden_states)
-        logits = logits.float()
-
-        if self.mask_image_logits:
-            # Disallow image tokens which does not include special begin-image and end-image tokens
-            image_tokens = self.model.vocabulary_mapping.image_tokens
-            logits[:, :, image_tokens] = torch.finfo(logits.dtype).min
-
-        loss = None
-        if labels is not None:
-            # Shift so that tokens < n predict n
-            shift_logits = logits[..., :-1, :].contiguous()
-            shift_labels = labels[..., 1:].contiguous()
-            # Flatten the tokens
-            loss_fct = CrossEntropyLoss()
-            shift_logits = shift_logits.view(-1, self.config.vocab_size)
-            shift_labels = shift_labels.view(-1)
-            # Enable model parallelism
-            shift_labels = shift_labels.to(shift_logits.device)
-            loss = loss_fct(shift_logits, shift_labels)
-
-        if not self.return_dict:
-            output = (logits,) + outputs[1:]
-            return (loss,) + output if loss is not None else output
-
-        return CausalLMOutputWithPast(
-            loss=loss,
-            logits=logits,
-            past_key_values=outputs.past_key_values,
-            hidden_states=outputs.hidden_states,
-            attentions=outputs.attentions,
-        )
-
-'''
-

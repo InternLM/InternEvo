@@ -12,7 +12,10 @@ from torch.nn import functional as F
 
 from internlm.core.context import ParallelMode
 from internlm.core.context import global_context as gpc
-from internlm.core.parallel.comm.utils import gather_forward_split_backward, split_forward_gather_backward
+from internlm.core.parallel.comm.utils import (
+    gather_forward_split_backward,
+    split_forward_gather_backward,
+)
 from internlm.model.modules.embedding import new_rotary_embedding
 from internlm.model.modules.linear import new_linear
 from internlm.model.modules.utils import update_kv_cache
@@ -374,6 +377,7 @@ class MHA(nn.Module):
         # wo
         return self.out_proj(rearrange(context, "b s h d -> b s (h d)"))
 
+
 class ChameleonLayerNorm(nn.LayerNorm):
     """
     LayerNorm but computes stats only over the last dim because Chameleon applies gamma and beta
@@ -396,6 +400,7 @@ class ChameleonLayerNorm(nn.LayerNorm):
         hidden_states = F.layer_norm(hidden_states, self.normalized_shape, None, None, eps=1e-5)
         hidden_states = hidden_states * self.repeat_param(self.weight) + self.repeat_param(self.bias)
         return hidden_states
+
 
 class GQA(nn.Module):
     """
@@ -421,7 +426,8 @@ class GQA(nn.Module):
         dtype (Optional[torch.dtype]): The type of data.
         qk_interleaved (Optional[bool]): whether the odd and even columns of wq and wk is interleaved. True by default.
         enable_qkv_fusion (bool): whether wq, wk and wv lienar is fused. True by default.
-        qk_norm (Optional[bool]): if set, the query and key will be applied by layer norm after qk_linear. False by default.
+        qk_norm (Optional[bool]): if set, the query and key will be applied by layer norm after qk_linear.
+                                  False by default.
     """
 
     def __init__(
@@ -502,10 +508,10 @@ class GQA(nn.Module):
             self.wk = new_linear("wk", embed_dim, self.kv_dim, bias, **factory_kwargs)
             self.wv = new_linear("wv", embed_dim, self.kv_dim, bias, **factory_kwargs)
             if qk_norm:
-                assert num_heads%chameleon_mp_size == 0, "num_heads%chameleon_mp_size != 0 in GQA"
-                assert num_kv_heads%chameleon_mp_size == 0, "num_kv_heads%chameleon_mp_size != 0 in GQA"
-                self.q_norm = ChameleonLayerNorm(self.head_dim,chameleon_mp_size,num_heads//chameleon_mp_size)
-                self.k_norm = ChameleonLayerNorm(self.head_dim,chameleon_mp_size,num_kv_heads//chameleon_mp_size)
+                assert num_heads % chameleon_mp_size == 0, "num_heads%chameleon_mp_size != 0 in GQA"
+                assert num_kv_heads % chameleon_mp_size == 0, "num_kv_heads%chameleon_mp_size != 0 in GQA"
+                self.q_norm = ChameleonLayerNorm(self.head_dim, chameleon_mp_size, num_heads // chameleon_mp_size)
+                self.k_norm = ChameleonLayerNorm(self.head_dim, chameleon_mp_size, num_kv_heads // chameleon_mp_size)
 
         self.inner_attn = SelfAttention(
             causal=causal, softmax_scale=softmax_scale, attention_dropout=dropout, layer_idx=layer_idx
@@ -634,7 +640,7 @@ class GQA(nn.Module):
             if self.qk_norm:
                 q = rearrange(q, "b s (h d) -> b s h d", d=self.head_dim)
                 k = rearrange(k, "b s (h d) -> b s h d", d=self.head_dim)
-                # TODO: using repeat + (fwd: split, bwd: allgather or allreducesum) or (fwd: split + repeat, bwd: allreducesum)  is better
+
                 q_all = gather_forward_split_backward(q, ParallelMode.TENSOR, dim=-2)
                 q_norm_out = self.q_norm(q_all)
                 q = split_forward_gather_backward(q_norm_out, ParallelMode.TENSOR, dim=-2)

@@ -79,7 +79,9 @@ class _RMSNorm(torch.nn.Module):
             return _norm_func(_input, self.weight, self.normalized_shape, self.eps)
         else:
             _norm_func = manual_rms_norm
-            return _norm_func(_input, self.weight, self.normalized_shape, self.eps, self.add_unit_offset, self.is_Chameleon)
+            return _norm_func(
+                _input, self.weight, self.normalized_shape, self.eps, self.add_unit_offset, self.is_Chameleon
+            )
 
     def reset_parameters(self):
         if self.add_unit_offset:

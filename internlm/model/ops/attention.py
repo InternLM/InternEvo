@@ -1088,7 +1088,7 @@ class CrossAttention(nn.Module):
         attn_type, op = _select_attn_op(AttnOpType.FixedLenKVPacked)
 
         dropout = self.dropout if attn_type is AttnType.Torch else self.dropout.p
-        extra_args = (key_padding_mask, ) if attn_type is AttnType.Torch else ()
+        extra_args = (key_padding_mask,) if attn_type is AttnType.Torch else ()
 
         return op(q, kv, dropout, softmax_scale, causal, *extra_args)
 
