@@ -11,7 +11,7 @@ from tests.test_model.test_model_internlm import build_environment, seed_all
 
 def check_norm(args):
     # init
-    rank, world_size, free_port = args
+    rank, world_size, free_port, convert_to_input_dtype = args
     build_environment(rank, world_size, free_port)
     device = get_current_device()
     rtol, atol = (1e-3, 5e-3)
@@ -22,7 +22,12 @@ def check_norm(args):
     seed_all(1024)
 
     # define norm
-    norm = new_layer_norm(norm_type="rmsnorm", normalized_shape=hidden_size, eps=layer_norm_epsilon)
+    norm = new_layer_norm(
+        norm_type="rmsnorm",
+        normalized_shape=hidden_size,
+        eps=layer_norm_epsilon,
+        convert_to_input_dtype=convert_to_input_dtype,
+    )
     norm = norm.to(device)
 
     # create input
@@ -83,8 +88,20 @@ def check_norm(args):
 def test_norm():
     ctx = mp.get_context("spawn")
     free_port = str(find_free_port())
+    convert_input_dtype = False
     with ctx.Pool(processes=8) as pool:
-        pool.map(check_norm, [[rank, 8, free_port] for rank in range(8)])
+        pool.map(check_norm, [[rank, 8, free_port, convert_input_dtype] for rank in range(8)])
+        pool.close()
+        pool.join()
+
+
+@pytest.mark.norm_convert_to_input_dtype
+def test_norm_convert_to_input_dtype():
+    ctx = mp.get_context("spawn")
+    free_port = str(find_free_port())
+    convert_input_dtype = True
+    with ctx.Pool(processes=8) as pool:
+        pool.map(check_norm, [[rank, 8, free_port, convert_input_dtype] for rank in range(8)])
         pool.close()
         pool.join()
 

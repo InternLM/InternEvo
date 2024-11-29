@@ -56,6 +56,7 @@ class ModelType(Enum):
     GEMMA = 8
     QWEN2MOE = 9
     MIXTRALMOE = 10
+    CHAMELEON = 11
 
 
 class DataType(Enum):
@@ -63,6 +64,7 @@ class DataType(Enum):
     tokenized = 2
     megatron = 3
     mocked = 4
+    lumina_pickle = 5
 
 
 class TensorParallelMode(Enum):
