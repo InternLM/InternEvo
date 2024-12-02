@@ -75,7 +75,10 @@ class ChameleonDecoderLayer(nn.Module):
         rope_base (int): The value of `base` for rotary position embeddings. 10000 by default.
         mlp_layer_fusion (bool): Whether to fuse layers in the mlp module for optimization.
         multiple_of (int): Ensures mlp dimensions are multiples of this value for efficient hardware utilization.
-        qk_norm (bool): Support q norm and k norm.
+        qk_norm (bool): Whether supports q norm and k norm.
+        chameleon_mp_size (int): For ChameleonLayerNorm, it applies gamma and beta from each shard separately
+                                    to each head, instead of reducing. The chameleon_mp_size means the number
+                                    of groups of ChameleonLayerNorm headers. It is 1 in 7B model and 4 in 34B model.
     """
 
     def __init__(
@@ -107,8 +110,8 @@ class ChameleonDecoderLayer(nn.Module):
         rope_base: int = 10000,
         mlp_layer_fusion: bool = False,
         multiple_of: int = 256,
-        qk_norm=True,
-        chameleon_mp_size=1,
+        qk_norm: bool = True,
+        chameleon_mp_size: int = 1,
     ):
         super().__init__()
         self.checkpoint = checkpoint
@@ -161,7 +164,7 @@ class ChameleonDecoderLayer(nn.Module):
             mlp_layer_fusion=mlp_layer_fusion,
             multiple_of=multiple_of,
             # TODO: to support more activation functions
-            activation_type="swiglu" if use_swiglu else "swiglu",
+            activation_type="swiglu" if use_swiglu else "gelu",
         )
 
         self.use_swiglu = use_swiglu
@@ -352,7 +355,10 @@ class ChameleonModel(BaseModel):
         rope_base (int): The value of `base` for rotary position embeddings. 10000 by default.
         mlp_layer_fusion (bool): Whether to fuse layers in the mlp module for optimization.
         multiple_of (int): Ensures mlp dimensions are multiples of this value for efficient hardware utilization.
-        qk_norm (bool): Support q norm and k norm.
+        qk_norm (bool): Whether supports q norm and k norm.
+        chameleon_mp_size (int): For ChameleonLayerNorm, it applies gamma and beta from each shard separately
+                                    to each head, instead of reducing. The chameleon_mp_size means the number
+                                    of groups of ChameleonLayerNorm headers. It is 1 in 7B model and 4 in 34B model.
     """
 
     def __init__(
@@ -392,8 +398,8 @@ class ChameleonModel(BaseModel):
         rope_base: int = 10000,
         mlp_layer_fusion: bool = False,
         multiple_of: int = 256,
-        qk_norm=True,
-        chameleon_mp_size=1,
+        qk_norm: bool = True,
+        chameleon_mp_size: int = 1,
     ):
         super().__init__()
 

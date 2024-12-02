@@ -37,6 +37,7 @@ except (ModuleNotFoundError, ImportError):
 
 def manual_rms_norm(my_input, weight, normalized_shape, eps, add_unit_offset=False, convert_to_input_dtype=False):
     # layer norm should always be calculated in float32
+    input_dtype = my_input.dtype
     dims = tuple(i for i in range(-1, -len(normalized_shape) - 1, -1))
     variance = my_input.to(torch.float32).pow(2).mean(dims, keepdim=True)
     my_input = my_input * torch.rsqrt(variance + eps)
@@ -45,7 +46,6 @@ def manual_rms_norm(my_input, weight, normalized_shape, eps, add_unit_offset=Fal
         return my_input
 
     if convert_to_input_dtype:
-        input_dtype = my_input.dtype
         my_input = my_input.to(input_dtype)
     elif weight.dtype in [torch.float16, torch.bfloat16]:
         # convert into half-precision if necessary
