@@ -25,24 +25,25 @@ from internlm.utils.common import BatchSkipper, launch_time
 from internlm.utils.gputest import empty_cache_and_diag
 from internlm.utils.megatron_timers import megatron_timer as timer
 
-CONFIG_FILE_PATH = os.getenv("CONFIG_FILE_PATH", "./configs/7B_sft.py")
-INTERNLM1_CKPT_PATH = os.path.join(os.environ["share_path"], "quailty_assurance/test_loss/model_ckpt")
+CONFIG_FILE_PATH = os.getenv("CONFIG_FILE_PATH", "./configs/7B_internlm2.py")
+INTERNLM2_CKPT_PATH = os.path.join(os.environ["share_path"], "quailty_assurance/test_loss_pri/model_ckpt")
 TOTAL_STEPS = 10
 LOSS_SPIKE_LIMIT = 1.5
 LOSS_DEVIATION_LIMIT = 0.02
 # dp_size = 4
 BASELINE_LOSS_LIST = [
-    11.63298511505127,
-    7.82645320892334,
-    6.727725505828857,
-    6.182029724121094,
-    5.395882606506348,
-    5.394383430480957,
-    5.053952217102051,
-    4.742049694061279,
-    4.629276752471924,
-    4.616517543792725,
+    12.362918853759766,
+    12.404379844665527,
+    12.348219871520996,
+    12.194982528686523,
+    11.80469036102295,
+    11.573806762695312,
+    10.045475006103516,
+    9.660882949829102,
+    9.172087669372559,
+    4.799427032470703,
 ]
+
 
 cur_loss_list = []
 internlm_accelerator = get_accelerator()
@@ -59,7 +60,7 @@ def train(
     enable_sp: bool = False,
     save_ckpt: bool = False,
     load_ckpt: bool = False,
-    model_type: str = "INTERNLM",
+    model_type: str = "INTERNLM2_PUBLIC",
     optimizer_ver: str = "v1",
     pp_mode: str = "1F1B",
 ):
@@ -67,24 +68,31 @@ def train(
     config = Config.from_file(CONFIG_FILE_PATH)
 
     # init setting
-    config.data.total_steps = TOTAL_STEPS
+    config.data.total_steps = 50000
     config.data.fixed_random_dataset_seqlen = False
-    config.lr_scheduler.total_steps = TOTAL_STEPS
+    config.data.micro_num = 4
+    config.data.micro_bsz = 2
+    config.lr_scheduler.total_steps = config.data.total_steps
     config.model_type = model_type
     config.ckpt.load_ckpt_folder = None
     config.ckpt.load_ckpt_info = None
     config.ckpt.auto_resume = False
-    total_steps = config.data.total_steps
+    total_steps = TOTAL_STEPS
     skip_batches = config.data.skip_batches
     label_smoothing = config.loss.label_smoothing
+    config.parallel.zero1 = dict(size=-1)
+    config.parallel.tensor = dict(size=1, mode="mtp")
+    config.parallel.pipeline = dict(size=1, interleaved_overlap=True, mode="1f1b")
+    config.parallel.weight = dict(size=1, overlap=True)
 
     if optimizer_ver == "v2":
         config.hybrid_zero_optimizer.use_split_tensor_optim = True
         config.all_gather_size = 512 * 1024 * 1024
+        config.model.checkpoint = True
 
     # update ckpt config
-    if model_type == "INTERNLM" and tp_mode != "isp" and interleaved is False:
-        config.ckpt.load_ckpt_info = dict(path=INTERNLM1_CKPT_PATH, content=("model",), ckpt_type="internlm_test")
+    if model_type == "INTERNLM2_PUBLIC" and tp_mode != "isp" and interleaved is False:
+        config.ckpt.load_ckpt_info = dict(path=INTERNLM2_CKPT_PATH, content=("model",), ckpt_type="internlm2_test")
 
     if save_ckpt:
         config.ckpt.enable_save_ckpt = True
@@ -213,7 +221,7 @@ def train(
 
     train_iter = iter(train_dl)
 
-    if model_type == "INTERNLM":
+    if model_type == "INTERNLM2_PUBLIC":
         data_path = os.path.join(os.environ["share_path"], "quailty_assurance/test_loss/data_batch_4DP")
         data_batch = torch.load(f"{data_path}/{gpc.get_local_rank(ParallelMode.DATA)}_data_batch.pt")
 
@@ -222,7 +230,7 @@ def train(
         empty_cache_and_diag(batch_count, interval=gpc.config.data.empty_cache_and_diag_interval)
         timer("one-batch").start()
 
-        if model_type == "INTERNLM":
+        if model_type == "INTERNLM2_PUBLIC":
             if batch_count >= 10:
                 batch = data_batch[batch_count - 10]
             else:
@@ -296,7 +304,6 @@ def check_loss_spike():
 
 def check_loss_accuracy():
     if gpc.is_rank_for_log():
-        print(f"cur_loss_list:{cur_loss_list}", flush=True)
         for cur, target in zip(cur_loss_list, BASELINE_LOSS_LIST):
             assert (
                 abs(cur - target) < LOSS_DEVIATION_LIMIT
@@ -464,16 +471,16 @@ def test_training_with_isp():
     global CONFIG_FILE_PATH, BASELINE_LOSS_LIST
     CONFIG_FILE_PATH = "./configs/7B_isp_sft.py"
     BASELINE_LOSS_LIST = [
-        11.595988273620605,
-        7.988386154174805,
-        6.821506500244141,
-        6.2768449783325195,
-        5.478013515472412,
-        5.4622697830200195,
-        5.162247180938721,
-        4.854615211486816,
-        4.744818210601807,
-        4.75523567199707,
+        12.225811004638672,
+        12.103824615478516,
+        12.223844528198242,
+        11.87704849243164,
+        11.651590347290039,
+        11.629219055175781,
+        10.242591857910156,
+        9.768388748168945,
+        9.330610275268555,
+        5.505439758300781,
     ]
 
     # model training
@@ -516,12 +523,3 @@ def test_training_llama2():
     CONFIG_FILE_PATH = "./configs/7B_llama2.py"
 
     train(dp_size=8, model_type="LLAMA2")
-
-
-@pytest.mark.training_internlm2
-def test_training_internlm2():
-    # update config file
-    global CONFIG_FILE_PATH
-    CONFIG_FILE_PATH = "./configs/7B_internlm2.py"
-
-    train(dp_size=8, model_type="INTERNLM2_PUBLIC")

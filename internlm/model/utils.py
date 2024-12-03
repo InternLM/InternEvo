@@ -6,8 +6,11 @@ from tqdm import tqdm
 
 from internlm.core.context.parallel_context import global_context as gpc
 from internlm.model.modules.mha import MHA
+from internlm.utils.logger import get_logger
 from internlm.utils.storage_manager import get_fns, llm_load
 from internlm.utils.utils import TensorParallelMode
+
+logger = get_logger(__file__)
 
 
 def internlm1_mha_pre_load_convert(
@@ -138,3 +141,20 @@ def merge_pp_src_states(states):
             layer_shift += _layer_shift + 1
         merged_states.append(shifted_state)
     return merged_states
+
+
+def get_parallel_size_from_file(fns, suffix=None):
+    model_fns, old_tp, old_pp = [], -1, -1
+    for fn in fns:
+        # filter with `_t` is for avoiding conflict with model_config.py
+
+        if fn.startswith("model_t"):
+            if (suffix and fn.endswith(suffix)) or (suffix is None and not fn.endswith("md5")):
+                model_fns.append(fn)
+                _, tp, pp = os.path.splitext(fn)[0].split("_")
+                old_tp = max(old_tp, int(tp[2:]) + 1)
+                old_pp = max(old_pp, int(pp[2:]) + 1)
+
+    assert old_tp > 0 and old_pp > 0, f"ckpt with tp:{old_tp} and pp:{old_pp} is illegal"
+    model_fns.sort()
+    return model_fns, old_tp, old_pp

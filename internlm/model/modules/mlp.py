@@ -99,11 +99,11 @@ class FeedForward(nn.Module):
             self.w1 = new_linear(
                 "w1", in_features, hidden_features, bias, device=device, dtype=dtype, is_expert=is_expert
             )
-            self.w2 = new_linear(
-                "w2", hidden_features, out_features, bias, device=device, dtype=dtype, is_expert=is_expert
-            )
             self.w3 = new_linear(
                 "w3", in_features, hidden_features, bias, device=device, dtype=dtype, is_expert=is_expert
+            )
+            self.w2 = new_linear(
+                "w2", hidden_features, out_features, bias, device=device, dtype=dtype, is_expert=is_expert
             )
 
     def forward(self, x):
@@ -177,10 +177,10 @@ class GroupedFeedForward(nn.Module):
                 backend=backend,
                 is_expert=is_expert,
             )
-            self.w2 = new_linear(
-                "grouped_w2",
+            self.w3 = new_linear(
+                "grouped_w3",
+                in_features,
                 hidden_features,
-                out_features,
                 bias,
                 device=device,
                 dtype=dtype,
@@ -188,10 +188,10 @@ class GroupedFeedForward(nn.Module):
                 backend=backend,
                 is_expert=is_expert,
             )
-            self.w3 = new_linear(
-                "grouped_w3",
-                in_features,
+            self.w2 = new_linear(
+                "grouped_w2",
                 hidden_features,
+                out_features,
                 bias,
                 device=device,
                 dtype=dtype,
