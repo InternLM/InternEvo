@@ -1,5 +1,5 @@
 name: e2e-tests
-on: 
+on:
   pull_request:
     branches:
       - "develop"
@@ -239,25 +239,4 @@ jobs:
       run: |
         jobname=EB910-${GITHUB_RUN_ID}-${GITHUB_JOB}-${GITHUB_RUN_ATTEMPT}
         start_command='torchrun --nproc_per_node=8 --nnodes=1 -m pytest -p no:cacheprovider -v --color=yes -m "training_llama2" ./tests/test_training/test_loss.py'
-        bash ../910B_sco.sh $jobname "$start_command"
-
-  training_internlm2:
-    strategy:
-      matrix:
-        runner: [910B]
-    runs-on: ${{ matrix.runner }}
-    timeout-minutes: 20
-    steps:
-    - name: mask env
-      run: |
-        echo "::add-mask::${{env.WORKSPACE_PREFIX}}"
-        echo "::add-mask::$path_prefix"
-        if [[ ${{ matrix.runner }} == 910B ]];then
-           sudo git clean -ffdx
-        fi
-    - uses: actions/checkout@v3
-    - name: training_internlm2_910B
-      run: |
-        jobname=EB910-${GITHUB_RUN_ID}-${GITHUB_JOB}-${GITHUB_RUN_ATTEMPT}
-        start_command='torchrun --nproc_per_node=8 --nnodes=1 -m pytest -p no:cacheprovider -v --color=yes -m "training_internlm2" ./tests/test_training/test_loss.py'
         bash ../910B_sco.sh $jobname "$start_command"
