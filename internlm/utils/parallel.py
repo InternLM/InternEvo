@@ -31,6 +31,10 @@ def is_using_isp():
     )
 
 
+def is_using_moe():
+    return gpc.config.model.get("num_experts", 1) > 1
+
+
 def is_replica_zero_parallel_parameter(p):
     return hasattr(p, IS_REPLICA_ZERO_PARALLEL) and getattr(p, IS_REPLICA_ZERO_PARALLEL)
 

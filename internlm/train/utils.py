@@ -8,6 +8,7 @@ from internlm.core.context.parallel_context import global_context as gpc
 from internlm.core.naive_amp import unwrap_naive_amp
 from internlm.model.modules.utils import is_moe_param
 from internlm.utils.logger import get_logger
+from internlm.utils.parallel import is_using_moe
 
 logger = get_logger(__file__)
 
@@ -45,9 +46,9 @@ def split_params_into_different_groups_for_optimizer(
     # create new groups for fp32 parameter group
     new_groups["fp32"] = {"name": "fp32", "params": [], "optimizer_mode": ParallelMode.ZERO1}
 
-    if gpc.config.model.get("num_experts", 1) > 1:
+    if is_using_moe():
         for key in gpc.expert_parallel_group_names:
-            new_groups[key] = {"name": key, "moe": True, "params": [], "optimizer_mode": ParallelMode.EXPERT_DATA}
+            new_groups[key] = {"name": key, "moe": True, "params": [], "optimizer_mode": ParallelMode.EXPERT_ZERO1}
 
     for pgroup in param_groups:
         # copy attribute from origin group, we assume the input param_groups only

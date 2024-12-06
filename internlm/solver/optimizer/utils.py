@@ -360,7 +360,7 @@ def compute_norm(gradients, parameters, norm_type=2, zero_mode=ParallelMode.ZERO
 
     # Need to allreduce(avg) the norms across different ranks because moe params will not be synced during allreduce
     # model and zero have been reduced!!!
-    if zero_mode == ParallelMode.EXPERT_DATA:
+    if zero_mode == ParallelMode.EXPERT_ZERO1:
         pg = gpc.get_group(ParallelMode.EXPERT)
         scaled_norm = total_norm * 1.0 / float(gpc.get_world_size(ParallelMode.EXPERT))
         scaled_norm_tensor = torch.tensor(scaled_norm, device=get_current_device(), dtype=torch.float)

@@ -15,6 +15,7 @@ from internlm.core.context.process_group_initializer import ParallelMode
 from internlm.utils.common import get_master_node
 from internlm.utils.gputest import warmup_process_group
 from internlm.utils.logger import get_logger
+from internlm.utils.parallel import is_using_moe
 from internlm.utils.timeout import llm_timeout
 from internlm.utils.utils import DataType, ModelType, TensorParallelMode
 
@@ -531,7 +532,7 @@ def args_sanity_check():
         gpc.config._add_item("selective_checkpoint", False)
 
     # moe not support overlap and zero1.5 for now
-    if gpc.config.model.get("num_experts", 1) > 1:
+    if is_using_moe():
         assert not gpc.config.parallel.zero1.fsdp, "FSDP does not support num_experts > 1"
         assert (
             not optim_ckpt.overlap_sync_grad & optim_ckpt.overlap_sync_param
@@ -640,7 +641,7 @@ def launch(
             f"data parallel size: {gpc.data_parallel_size}, pipeline parallel size: {gpc.pipeline_parallel_size}, "
             f"tensor parallel size: {gpc.tensor_parallel_size}, weight parallel size: {gpc.weight_parallel_size}",
         )
-        if gpc.config.model.get("num_experts", 1) > 1:
+        if is_using_moe():
             logger.info(
                 f"Creating MoE with num_experts: {gpc.config.model.num_experts} | "
                 f"expert parallel size: {gpc.expert_parallel_size} | "

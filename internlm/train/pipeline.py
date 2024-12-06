@@ -86,6 +86,7 @@ from internlm.utils.parallel import (
     is_tensor_expert_data_parallel_parameter,
     is_tensor_zero_parallel_parameter,
     is_using_isp,
+    is_using_moe,
     is_weight_expert_data_parallel_parameter,
     is_weight_zero_parallel_parameter,
     sync_model_param,
@@ -373,7 +374,7 @@ def initialize_parallel_communicator(model: Union[nn.Module, nn.ModuleList]):
         )
         _embedding_communicator = EmbeddingWeightParallelCommunicator(ParallelMode.WEIGHT)
 
-        if gpc.config.model.get("num_experts", 1) > 1:
+        if is_using_moe():
             # register communicator for moe isp column parallel linear.
             # NOTE: this wil overwrite registed communicator
             moe_isp_communicator = ISPCommunicator(
@@ -408,7 +409,7 @@ def initialize_parallel_communicator(model: Union[nn.Module, nn.ModuleList]):
             TensorParallelCommunicator(process_group=gpc.get_group(ParallelMode.TENSOR), role=LinearRole.ROW)
         )
 
-        if gpc.config.model.get("num_experts", 1) > 1:
+        if is_using_moe():
             GroupedColumnLinear.register_cls_communicator(
                 TensorParallelCommunicator(process_group=gpc.get_group(ParallelMode.TENSOR), role=LinearRole.COLUMN)
             )
@@ -453,7 +454,7 @@ def initialize_parallel_communicator(model: Union[nn.Module, nn.ModuleList]):
                 save_total_input_as_activation=save_total_input_as_activation,
             )
         )
-        if gpc.config.model.get("num_experts", 1) > 1:
+        if is_using_moe():
             GroupedColumnLinear.register_cls_communicator(
                 SequenceParallelCommunicator(
                     process_group=gpc.get_group(ParallelMode.TENSOR),

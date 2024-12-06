@@ -203,6 +203,7 @@ parallel = dict(
     weight=dict(size=1, overlap=True),
     expert=dict(size=-1, no_tp=False),
     expert_weight=dict(size=1, overlap=True),
+    expert_zero1=dict(size=-1),
 )
 
 cudnn_deterministic = False

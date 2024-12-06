@@ -158,6 +158,10 @@ class ParallelContext(metaclass=SingletonMeta):
         self.zero1_parallel_size = -1
         self.nettest_parallel_size = 1
         self.expert_parallel_size = -1
+        self.expert_tensor_parallel_size = 1
+        self.expert_weight_parallel_size = -1
+        self.expert_data_parallel_size = -1
+        self.expert_zero1_parallel_size = -1
         self.num_processes_on_current_node = -1
         self.virtual_pipeline_parallel_size = None
         self.virtual_pipeline_parallel_rank = None
@@ -521,6 +525,8 @@ class ParallelContext(metaclass=SingletonMeta):
                 parallel_config._add_item("weight", dict(size=1, overlap=False))
             if "expert" not in parallel_config:
                 parallel_config._add_item("expert", dict(size=-1, no_tp=False))
+            if "expert_zero1" not in parallel_config:
+                parallel_config._add_item("expert_zero1", dict(size=-1))
             if "expert_weight" not in parallel_config:
                 parallel_config._add_item("expert_weight", dict(size=1, overlap=False))
             # set default value for sequence_2D
@@ -542,6 +548,7 @@ class ParallelContext(metaclass=SingletonMeta):
             self._set_parallel_size_from_config(parallel_config, "pipeline", "pipeline_parallel_size")
             self._set_parallel_size_from_config(parallel_config, "zero1", "zero1_parallel_size")
             self._set_parallel_size_from_config(parallel_config, "expert", "expert_parallel_size")
+            self._set_parallel_size_from_config(parallel_config, "expert_zero1", "expert_zero1_parallel_size")
             self._set_parallel_size_from_config(parallel_config, "expert_weight", "expert_weight_parallel_size")
 
         # the user should not set the data parallel size manually
@@ -588,6 +595,20 @@ class ParallelContext(metaclass=SingletonMeta):
                 // self.expert_tensor_parallel_size
                 // self.expert_parallel_size,
             )
+
+        if self.expert_zero1_parallel_size == -1:
+            self.expert_zero1_parallel_size = self.expert_data_parallel_size
+        self.expert_zero1_parallel_size = max(1, self.expert_zero1_parallel_size)
+        assert self.expert_zero1_parallel_size <= self.expert_data_parallel_size, (
+            f"expert_zero1_parallel_size:{self.expert_zero1_parallel_size} should be less than "
+            f"expert_data_parallel_size:{self.expert_data_parallel_size}"
+        )
+        assert self.expert_data_parallel_size % self.expert_zero1_parallel_size == 0, (
+            f"expert_data_parallel_size:{self.expert_data_parallel_size} % expert_zero1_parallel_size: "
+            f"{self.expert_zero1_parallel_size} != 0"
+        )
+        assert self.expert_zero1_parallel_size >= 1
+
         if (
             isinstance(parallel_config["tensor"], dict)
             and parallel_config["tensor"]["mode"] == TensorParallelMode.isp.name
@@ -648,6 +669,7 @@ class ParallelContext(metaclass=SingletonMeta):
             self.expert_tensor_parallel_size,
             self.expert_weight_parallel_size,
             self.expert_data_parallel_size,
+            self.expert_zero1_parallel_size,
             parallel_config.sequence_2D,
         ]
 
@@ -673,10 +695,10 @@ class ParallelContext(metaclass=SingletonMeta):
         if self.pipeline_parallel_size > 1:
             initializers.append(pgroup_initializer.Initializer_Pipeline(*initializer_args))
         if self.config.model.get("num_experts", 1) > 1:
-            if isinstance(parallel_config["tensor"], dict) and parallel_config["tensor"]["mode"] == "isp":
-                initializers.append(pgroup_initializer.Initializer_Expert_Weight_Data(*initializer_args))
+            if parallel_config["tensor"]["mode"] == TensorParallelMode.isp.name:
+                initializers.append(pgroup_initializer.Initializer_Expert_Weight_Data_Zero(*initializer_args))
             else:
-                initializers.append(pgroup_initializer.Initializer_Expert_Data(*initializer_args))
+                initializers.append(pgroup_initializer.Initializer_Expert_Data_Zero(*initializer_args))
         if parallel_config.sequence_2D.get("enable", False) is True:
             initializers.append(pgroup_initializer.Initializer_2D_SEQUENCE_PARALLEL(*initializer_args))
 
