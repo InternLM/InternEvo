@@ -581,7 +581,7 @@ class InternLM2(BaseModel):
 
     @staticmethod
     def load_internlm2_with_dynamic_parallel_size(folder, model):
-        """Load InternLM2/InternLM-XComposer2 with dynamic parallel size."""
+        """Load InternLM2 with dynamic parallel size."""
         assert folder is not None, "Please specify the folder of the pretrained model"
         assert gpc.config.model_type in ["INTERNLM2_PUBLIC"], "dynamic_parallel is only for INTERNLM2_PUBLIC"
 
@@ -683,50 +683,8 @@ class InternLM2(BaseModel):
                                 else:
                                     raise KeyError(f"Unknown key {name}.")
 
-                            elif gpc.config.model_type == "INTERNLM_XCOMPOSER2":
-                                if "norm" in name and "vit" not in name:
-                                    tmp_states[to_name] = [states.pop(name)]
-                                elif any(
-                                    x in name
-                                    for x in (
-                                        "wo.row_linear",
-                                        "wo.Plora_A",
-                                        "wqkv.Plora_B",
-                                        "w1.Plora_B",
-                                        "w2.row_linear",
-                                        "w2.Plora_A",
-                                        "w3.Plora_B",
-                                    )
-                                ):  # row-cut
-                                    tmp_states[to_name] = tmp_states.get(to_name, [])
-                                    tmp_states[to_name].append(states.pop(name).chunk(ratio, dim=1)[rank])
-                                elif any(
-                                    x in name
-                                    for x in (
-                                        "wqkv.col_linear",
-                                        "wqkv.Plora_A",
-                                        "wo.Plora_B",
-                                        "w1.col_linear",
-                                        "w1.Plora_A",
-                                        "w2.Plora_B",
-                                        "w3.col_linear",
-                                        "w3.Plora_A",
-                                    )
-                                ):  # col-cut
-                                    tmp_states[to_name] = tmp_states.get(to_name, [])
-                                    tmp_states[to_name].append(states.pop(name).chunk(ratio, dim=0)[rank])
-                                elif any(x in name for x in ("vit")):
-                                    # keep vit params as same because we don't support model-parrallel for vit param.
-                                    tmp_states[name] = [states[name]]
-                                else:
-                                    raise KeyError(f"Unknown key {name}.")
-                        else:
-                            if gpc.config.model_type == "INTERNLM_XCOMPOSER2":
-                                if "vit" in name:
-                                    tmp_states[name] = [states[name]]
-
-                                if any(x in name for x in ("projection.sequential.",)):
-                                    tmp_states[name] = [states[name]]
+                            else:
+                                assert False, "unsupported model type"
 
                 if "tok_embeddings.weight" in states and model.first_layer == 0:
                     tmp_states["tok_embeddings.weight"] = tmp_states.get("tok_embeddings.weight", [])
