@@ -473,7 +473,6 @@ def args_sanity_check():
             "alert": {
                 "enable_feishu_alert": False,
                 "feishu_alert_address": None,
-                "light_monitor_address": None,
                 "alert_file_path": None,
             }
         },

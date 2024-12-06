@@ -80,7 +80,7 @@ config = Config(
         ),
         model_type="INTERNLM",
         alert_address=None,
-        monitor=dict(alert=dict(enable_feishu_alert=False, feishu_alert_address=None, light_monitor_address=None)),
+        monitor=dict(alert=dict(enable_feishu_alert=False, feishu_alert_address=None)),
         grad_scaler=dict(
             fp16=dict(
                 initial_scale=2**16,
@@ -278,7 +278,7 @@ def exam_loss(args):
     criterion = FlashGPTLMLoss(parallel_output=True, label_smoothing=gpc.config.loss.label_smoothing)
 
     # initialize the train and validation data loader
-    train_dl, dataset_types = build_train_loader_with_data_type()
+    _, dataset_types = build_train_loader_with_data_type()
     val_dls = build_valid_loader_with_data_type()
 
     optimizer, beta2_scheduler, lr_scheduler = initialize_optimizer(model=model)

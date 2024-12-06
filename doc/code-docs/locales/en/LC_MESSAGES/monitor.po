@@ -7,7 +7,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: InternLM \n"
 "Report-Msgid-Bugs-To: \n"
-"POT-Creation-Date: 2024-08-30 16:07+0800\n"
+"POT-Creation-Date: 2024-11-20 15:01+0800\n"
 "PO-Revision-Date: YEAR-MO-DA HO:MI+ZONE\n"
 "Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
 "Language: en\n"
@@ -16,7 +16,7 @@ msgstr ""
 "MIME-Version: 1.0\n"
 "Content-Type: text/plain; charset=utf-8\n"
 "Content-Transfer-Encoding: 8bit\n"
-"Generated-By: Babel 2.15.0\n"
+"Generated-By: Babel 2.14.0\n"
 
 #: ../../source/monitor.rst:2
 msgid "监控和告警"
@@ -56,25 +56,12 @@ msgstr ""
 "``internlm.monitor.alert.send_feishu_msg_with_webhook()``."
 
 #: ../../source/monitor.rst:25
-msgid "轻量监控"
-msgstr "Light Monitoring"
+msgid "监控告警配置"
+msgstr "Monitor Config"
 
-#: ../../source/monitor.rst:27
+#: ../../source/monitor.rst:28
 msgid ""
-"InternEvo轻量级监控工具采用心跳机制实时监测训练过程中的各项指标，如loss、grad_norm、训练阶段的耗时等。同时，InternEvo还可以通过"
-" `grafana dashboard <https://grafana.com/grafana/dashboards/>`_ "
-"直观地呈现这些指标信息，以便用户进行更加全面和深入的训练分析。"
-msgstr ""
-"The InternEvo light monitoring tool employs a heartbeat mechanism to "
-"real-time monitor various metrics during the training process, such as "
-"loss, grad_norm, and training phase duration. Additionally, InternEvo can"
-" present these metric details through a `grafana dashboard "
-"<https://grafana.com/grafana/dashboards/>`_, allowing users to conduct "
-"more comprehensive and in-depth training analysis in an intuitive manner."
-
-#: ../../source/monitor.rst:29
-msgid ""
-"轻量监控的配置由配置文件中的 ``monitor`` 字段指定， 用户可以通过修改配置文件 `config file "
+"配置由配置文件中的 ``monitor`` 字段指定， 用户可以通过修改配置文件 `config file "
 "<https://github.com/InternLM/InternEvo/blob/develop/configs/7B_sft.py>`_ "
 "来更改监控配置。以下是一个监控配置的示例："
 msgstr ""
@@ -84,23 +71,17 @@ msgstr ""
 "<https://github.com/InternLM/InternEvo/blob/develop/configs/7B_sft.py>`_."
 " Here is an example of a monitoring configuration:"
 
-#: ../../source/monitor.rst:42
+#: ../../source/monitor.rst:40
 msgid "enable_feishu_alert (bool)：是否启用飞书告警。默认值：False。"
 msgstr "enable_feishu_alert: Whether to enable Feishu alerts. Defaults: False."
 
-#: ../../source/monitor.rst:43
+#: ../../source/monitor.rst:41
 msgid "feishu_alert_address (str)：飞书告警的 Webhook 地址。默认值：None。"
 msgstr ""
 "feishu_alert_address: The webhook address for Feishu alerts. Defaults: "
 "None."
 
-#: ../../source/monitor.rst:44
-msgid "light_monitor_address (str)：轻量监控的地址。默认值：None。"
-msgstr ""
-"light_monitor_address: The address for lightweight monitoring. Defaults: "
-"None."
-
-#: ../../source/monitor.rst:45
+#: ../../source/monitor.rst:42
 msgid "alert_file_path (str)：告警存储路径。默认值：None。"
 msgstr "alert_file_path: path of alert. Defaults: None."
 
@@ -213,60 +194,3 @@ msgstr "alert_file_path: path of alert. Defaults: None."
 
 #~ msgid "示例"
 #~ msgstr "Example"
-
-#~ msgid ""
-#~ "Initialize the monitoring module with "
-#~ "the default address ``initialize_light_monitor()``"
-#~ msgstr ""
-
-#~ msgid "Send a heartbeat message to a monitoring server."
-#~ msgstr ""
-
-#~ msgid ""
-#~ "The type of heartbeat message, e.g., "
-#~ "\"train_metrics\", \"init_time\", \"stage_time\"."
-#~ msgstr ""
-
-#~ msgid "A dictionary containing message data to be included in the heartbeat."
-#~ msgstr ""
-
-#~ msgid ""
-#~ "Sending a heartbeat message for training"
-#~ " metrics ``send_heartbeat(\"train_metrics\", {\"loss\":"
-#~ " 0.1, \"accuracy\": 0.95})``"
-#~ msgstr ""
-
-#~ msgid ""
-#~ "Sending a heartbeat message for "
-#~ "initialization time ``send_heartbeat(\"init_time\", "
-#~ "{\"import_time\": 0.25})``"
-#~ msgstr ""
-
-#~ msgid ""
-#~ "Sending a heartbeat message for stage"
-#~ " time ``send_heartbeat(\"stage_time\", {\"fwd_time\":"
-#~ " 2.3, \"bwd_time\": 6.2})``"
-#~ msgstr ""
-
-#~ msgid ""
-#~ "InternEvo 使用 "
-#~ "``internlm.monitor.alert.initialize_light_monitor`` "
-#~ "来初始化轻量监控客户端。一旦初始化完成，它会建立与监控服务器的连接。在训练过程中，使用 "
-#~ "``internlm.monitor.alert.send_heartbeat`` "
-#~ "来发送不同类型的心跳信息至监控服务器。监控服务器会根据这些心跳信息来检测训练是否出现异常，并在需要时发送警报消息。"
-#~ msgstr ""
-#~ "InternEvo uses "
-#~ "``internlm.monitor.alert.initialize_light_monitor`` to "
-#~ "initialize the lightweight monitoring client."
-#~ " Once initialization is complete, it "
-#~ "establishes a connection with the "
-#~ "monitoring server. During the training "
-#~ "process, it uses "
-#~ "``internlm.monitor.alert.send_heartbeat`` to send "
-#~ "various types of heartbeat messages to"
-#~ " the monitoring server. The monitoring "
-#~ "server uses these heartbeat messages to"
-#~ " detect if the training encounters "
-#~ "any abnormalities and sends alert "
-#~ "messages as needed."
-

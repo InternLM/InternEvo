@@ -164,6 +164,5 @@ monitor = dict(
     alert=dict(
         enable_feishu_alert=DO_ALERT,
         feishu_alert_address=None,  # feishu webhook to send alert message
-        light_monitor_address=None,  # light_monitor address to send heartbeat
     ),
 )

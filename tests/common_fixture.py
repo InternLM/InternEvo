@@ -57,7 +57,7 @@ config_7B = Config(
         ),
         model_type="INTERNLM",
         alert_address=None,
-        monitor=dict(alert=dict(enable_feishu_alert=False, feishu_alert_address=None, light_monitor_address=None)),
+        monitor=dict(alert=dict(enable_feishu_alert=False, feishu_alert_address=None)),
         grad_scaler=dict(
             fp16=dict(
                 initial_scale=2**16,

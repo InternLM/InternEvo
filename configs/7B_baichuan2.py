@@ -22,7 +22,7 @@ SAVE_CKPT_FOLDER = "local:llm_ckpts_baichuan2"
 CHECKPOINT_EVERY = 50
 ckpt = dict(
     enable_save_ckpt=False,  # enable ckpt save.
-    enable_internevo2hf_ckpt=False, # enable ckpt save for huggingface format.
+    enable_internevo2hf_ckpt=False,  # enable ckpt save for huggingface format.
     save_ckpt_folder=SAVE_CKPT_FOLDER,  # Path to save training ckpt.
     # 'load_ckpt_info' setting guide:
     # 1. the 'path' indicate ckpt path,
@@ -196,7 +196,6 @@ monitor = dict(
     alert=dict(
         enable_feishu_alert=DO_ALERT,
         feishu_alert_address=None,  # feishu webhook to send alert message
-        light_monitor_address=None,  # light_monitor address to send heartbeat
         alert_file_path=f"llm_alter/{JOB_NAME}_alert.log",
     ),
     tensorboard=dict(

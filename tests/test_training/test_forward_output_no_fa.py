@@ -71,7 +71,7 @@ config = Config(
         ),
         model_type="INTERNLM",
         alert_address=None,
-        monitor=dict(alert=dict(enable_feishu_alert=False, feishu_alert_address=None, light_monitor_address=None)),
+        monitor=dict(alert=dict(enable_feishu_alert=False, feishu_alert_address=None)),
         grad_scaler=dict(
             fp16=dict(
                 initial_scale=2**16,
@@ -178,7 +178,7 @@ def train_check_output(args):
 
     optimizer, beta2_scheduler, lr_scheduler = initialize_optimizer(model=model)
 
-    train_dl, dataset_types = build_train_loader_with_data_type()
+    _, dataset_types = build_train_loader_with_data_type()
 
     metric = AccPerplex(
         device=get_current_device(),

@@ -38,11 +38,13 @@ def internevo_monitor(feishu_alert=True, clean_run=True):
                 return func(*args, **kwargs)
             try:
                 return func(*args, **kwargs)
-            except Exception:
+            except Exception as e:
                 hostname = socket.gethostname()
                 logger.error(
                     f"Raise exception from {hostname} with rank id: {gpc.get_global_rank()}\n{traceback.format_exc()}",
                 )
+                monitor_manager.monitor_exception(excp_info=traceback.format_exc())
+                raise e
             finally:
                 devices_per_node = internlm_accelerator.device_count()
                 local_rank = gpc.get_global_rank() % devices_per_node
@@ -178,7 +180,7 @@ class MonitorManager(metaclass=SingletonMeta):
         self.last_step_loss = -1
         self.alert_file_path = None
         self.enable_alert = False
-        self.light_monitor_address = None
+        self.alert_address = None
 
     def monitor_loss_spike(self, alert_address: str = None, step_count: int = 0, cur_step_loss: float = 0.0):
         """Check loss value, if loss spike occurs, send alert message to Feishu."""
@@ -219,6 +221,8 @@ class MonitorManager(metaclass=SingletonMeta):
     def monitor_exception(self, alert_address: str = None, excp_info: str = None):
         """Catch and format exception information, send alert message to Feishu."""
         if self.enable_alert:
+            if alert_address is None:
+                alert_address = self.alert_address
             filtered_trace = excp_info.split("\n")[-10:]
             format_trace = ""
             for line in filtered_trace:
@@ -271,9 +275,9 @@ class MonitorManager(metaclass=SingletonMeta):
         # initialize some variables for monitoring
         set_env_var(key="JOB_NAME", value=job_name)
         self.enable_alert = gpc.config.monitor.alert.get("enable_feishu_alert", False)
+        self.alert_address = alert_address
 
         if self.enable_alert:
-            self.light_monitor_address = gpc.config.monitor.alert.get("light_monitor_address", None)
             # initialize alert file
             self.alert_file_path = gpc.config.monitor.alert.get("alert_file_path")
             if self.alert_file_path and gpc.is_rank_for_log():
@@ -289,9 +293,13 @@ class MonitorManager(metaclass=SingletonMeta):
                 loss_spike_limit=loss_spike_limit,
             )
 
+            self.handle_sigterm(alert_address=alert_address)
+            send_alert_message(address=alert_address, message=f"Training in {socket.gethostname()} is starting.")
+
     def stop_monitor(self):
         """Stop the monitor and alert thread."""
-        if self.monitor_thread is not None:
+        if self.enable_alert:
+            send_alert_message(address=self.alert_address, message=f"Training in {socket.gethostname()} completed.")
             self.monitor_thread.stop()
 
 
@@ -311,11 +319,8 @@ def initialize_monitor_manager(job_name: str = None, alert_address: str = None):
     if alert_address is not None:
         try:
             monitor_manager.start_monitor(job_name=job_name, alert_address=alert_address)
-            monitor_manager.handle_sigterm(alert_address=alert_address)
-            send_alert_message(address=alert_address, message=f"Training in {socket.gethostname()} is starting.")
             yield
         finally:
-            send_alert_message(address=alert_address, message=f"Training in {socket.gethostname()} completed.")
             monitor_manager.stop_monitor()
     else:
         yield

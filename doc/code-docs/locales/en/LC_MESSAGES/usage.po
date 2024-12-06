@@ -7,7 +7,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: InternLM \n"
 "Report-Msgid-Bugs-To: \n"
-"POT-Creation-Date: 2024-09-02 11:13+0800\n"
+"POT-Creation-Date: 2024-11-20 15:01+0800\n"
 "PO-Revision-Date: YEAR-MO-DA HO:MI+ZONE\n"
 "Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
 "Language: en\n"
@@ -16,7 +16,7 @@ msgstr ""
 "MIME-Version: 1.0\n"
 "Content-Type: text/plain; charset=utf-8\n"
 "Content-Transfer-Encoding: 8bit\n"
-"Generated-By: Babel 2.15.0\n"
+"Generated-By: Babel 2.14.0\n"
 
 #: ../../../usage.md:2
 msgid "使用教程"
@@ -241,74 +241,74 @@ msgstr ""
 "Taking the configuration file `configs/7B_sft.py` for the 7B demo as an "
 "example,"
 
-#: ../../../usage.md:312
+#: ../../../usage.md:310
 msgid "接下来将详细介绍启动一个模型训练所需要进行的数据、模型、并行和监控等相关的配置。"
 msgstr ""
 "let's discuss the data, model, parallel and monitoring configurations "
 "required to start a model training."
 
-#: ../../../usage.md:314
+#: ../../../usage.md:312
 msgid "数据配置"
 msgstr "Data Configuration"
 
-#: ../../../usage.md:315
+#: ../../../usage.md:313
 msgid "数据相关的关键参数配置及释义如下所示："
 msgstr "Here are the key parameters and their explanations for data configuration:"
 
-#: ../../../usage.md:330
+#: ../../../usage.md:328
 msgid "![pack_into_one](./imgs/pack_into_one.png)"
 msgstr ""
 
-#: ../../../usage.md:330
+#: ../../../usage.md:328
 msgid "pack_into_one"
 msgstr ""
 
-#: ../../../usage.md:333
+#: ../../../usage.md:331
 msgid "目前支持传入数据集文件路径`train_folder`，且要求文件格式如下："
 msgstr ""
 "Currently, it supports passing the dataset file path `train_folder`, and "
 "the file format is required to be as follows:"
 
-#: ../../../usage.md:340
+#: ../../../usage.md:338
 msgid "数据集的详细内容可参考``数据准备``模块相关的介绍。"
 msgstr ""
 "For detailed information about the dataset, please refer to the \"Data "
 "Preparation\" section."
 
-#: ../../../usage.md:342
+#: ../../../usage.md:340
 msgid "同时，也支持huggingface格式的数据集处理。"
 msgstr ""
 "Additionally, it supports processing of datasets in the Hugging Face "
 "format."
 
-#: ../../../usage.md:344
+#: ../../../usage.md:342
 msgid "train_folder设置为从huggingface上下载的本地数据集路径，如：\"/mnt/petrelfs/hf-TinyStories\""
 msgstr ""
 "Set the train_folder to the local path of the dataset downloaded from "
 "Hugging Face, for example: \"/mnt/petrelfs/hf-TinyStories\"."
 
-#: ../../../usage.md:346
+#: ../../../usage.md:344
 msgid "在data中，需要新增type及tokenizer_path字段，标示数据集是huggingface格式，并指定tokenizer路径，如："
 msgstr ""
 "In the data section, you need to add new fields for type and "
 "tokenizer_path to indicate that the dataset is in Hugging Face format and"
 " to specify the path of the tokenizer, for example:"
 
-#: ../../../usage.md:364
+#: ../../../usage.md:362
 msgid "模型配置"
 msgstr "Model Configuration"
 
-#: ../../../usage.md:366
+#: ../../../usage.md:364
 msgid "如果在启动训练时要加载模型 `checkpoint`，可进行如下相关配置："
 msgstr ""
 "If you want to load a model checkpoint when starting the training, you "
 "can configure it as follows:"
 
-#: ../../../usage.md:390
+#: ../../../usage.md:388
 msgid "注意："
 msgstr "Note:"
 
-#: ../../../usage.md:391
+#: ../../../usage.md:389
 msgid ""
 "路径若以 `local:` 为前缀，则存储在本地文件系统；若以 `boto3:` 为前缀，则存储在远程 oss "
 "上；若无前缀，为huggingface上可以直接下载的模型路径。"
@@ -317,11 +317,11 @@ msgstr ""
 "local file system. If it starts with `boto3:`, it means the file is "
 "stored in the remote OSS."
 
-#: ../../../usage.md:393
+#: ../../../usage.md:391
 msgid "模型相关关键参数配置如下所示："
 msgstr "The configuration for the model is as follows:"
 
-#: ../../../usage.md:417
+#: ../../../usage.md:415
 msgid "注意：用户可自定义模型类型名和模型结构，并配置相对应的模型参数。通过`internlm/model/registry.py`下的`model_initializer`对象进行模型初始化函数接口注册，在训练主函数`train.py`中初始化模型时，可通过`model_type`配置获取指定的模型初始化接口函数。"
 msgstr ""
 "Note: Users can customize the model type name and model structure, and "
@@ -332,7 +332,7 @@ msgstr ""
 "interface function can be obtained through the `model_type` "
 "configuration."
 
-#: ../../../usage.md:419
+#: ../../../usage.md:417
 msgid ""
 "*如果基于 InternLM 7B继续训练，可以参考 "
 "[ModelZoo](https://github.com/InternLM/InternLM/tree/main#model-zoo) 中 "
@@ -342,130 +342,126 @@ msgstr ""
 "OpenXLab [ModelZoo](https://github.com/InternLM/InternLM/tree/main#model-"
 "zoo) to download weights*."
 
-#: ../../../usage.md:421
+#: ../../../usage.md:419
 msgid "并行配置"
 msgstr "Parallel Configuration"
 
-#: ../../../usage.md:423
+#: ../../../usage.md:421
 msgid "训练并行配置样例如下："
 msgstr "Training parallel configuration example:"
 
-#: ../../../usage.md:432
+#: ../../../usage.md:430
 msgid "zero1（字典）："
 msgstr "zero1 (dict): "
 
-#: ../../../usage.md:433
+#: ../../../usage.md:431
 msgid "size: 整数"
 msgstr "size: int "
 
-#: ../../../usage.md:434
+#: ../../../usage.md:432
 msgid "当`zero1 <= 0`，则 zero1 进程组的大小等于数据并行进程组的大小，因此优化器状态参数将在数据并行范围内分配"
 msgstr ""
 "When `zero1 <= 0` , the size of the zero1 process group is equal to the "
 "size of the data parallel process group, so the optimizer state "
 "parameters will be split within the data parallel range."
 
-#: ../../../usage.md:435
+#: ../../../usage.md:433
 msgid "当`zero1 == 1`，则不使用 zero1 ，所有数据并行组保留完整的优化器状态参数"
 msgstr ""
 "When `zero1 == 1`, zero1 is not used, and all data parallel groups retain"
 " the complete optimizer state parameters."
 
-#: ../../../usage.md:436
+#: ../../../usage.md:434
 msgid "当`zero1 > 1`且`zero1 <= data_parallel_world_size`，则 zero1 进程组是数据并行进程组的子集"
 msgstr ""
 "When `zero1 > 1` and `zero1 <= data_parallel_world_size`, the zero1 "
 "process group is a subset of the data parallel process group."
 
-#: ../../../usage.md:437
+#: ../../../usage.md:435
 msgid "fsdp: 布尔值，启用/禁用torch的完全分片数据并行，默认为False。"
 msgstr ""
 "fsdp: A boolean value that enables or disables fully sharded data "
 "parallelism in torch, with the default being False."
 
-#: ../../../usage.md:438
+#: ../../../usage.md:436
 msgid "tensor（字典）："
 msgstr "tensor (dict): "
 
-#: ../../../usage.md:439
+#: ../../../usage.md:437
 msgid "size: 整数，张量并行的大小。"
 msgstr "size: int, size of tensor parallem"
 
-#: ../../../usage.md:440
+#: ../../../usage.md:438
 msgid "mode: 字符串，张量并行模式，应该是 ['mtp', 'msp', 'fsp', 'isp'] 中的一个，"
 msgstr ""
 "mode: string, tensor parallel mode, should be one of ['mtp', 'msp', "
 "'fsp', 'isp'] "
 
-#: ../../../usage.md:441
+#: ../../../usage.md:439
 msgid "默认为 'mtp'，意味着没有序列并行的纯Megatron张量并行。"
 msgstr ""
 "Default is 'mtp', which means there is no sequence parallelism, just pure"
 " tensor parallelism for Megatron."
 
-#: ../../../usage.md:442
+#: ../../../usage.md:440
 msgid "msp: 带序列并行的Megatron张量并行，序列并行大小 = 张量并行大小。"
 msgstr ""
 "msp: Megatron Tensor Parallelism with Sequence Parallelism, where the "
 "size of sequence parallelism is equal to the size of tensor parallelism."
 
-#: ../../../usage.md:443
+#: ../../../usage.md:441
 msgid "fsp: 通过flash-attn带序列并行的张量并行，序列并行大小 = 张量并行大小。"
 msgstr ""
 "fsp: Tensor Parallelism with Sequence Parallelism facilitated by flash-"
 "attn, where the size of sequence parallelism is equal to the size of "
 "tensor parallelism."
 
-#: ../../../usage.md:444
+#: ../../../usage.md:442
 msgid "isp: 定制的内部序列并行，不带张量并行，可以与权重并行一起使用。"
 msgstr ""
 "isp: Custom internal sequence parallelism, without tensor parallelism, "
 "which can be used in conjunction with weight parallelism."
 
-#: ../../../usage.md:445
+#: ../../../usage.md:443
 msgid "pipeline（字典）："
 msgstr "pipeline: pipeline parallel strategy"
 
-#: ../../../usage.md:446
+#: ../../../usage.md:444
 msgid "size: 整数，流水线并行的大小。"
 msgstr "size: int, size of pipeline parallel"
 
-#: ../../../usage.md:447
+#: ../../../usage.md:445
 msgid "interleaved_overlap: 布尔值，启用/禁用在使用交错流水线调度器时的通信重叠，默认为False。"
 msgstr ""
 "interleaved_overlap: A boolean value that enables or disables "
 "communication overlapping when using an interleaved pipeline scheduler, "
 "with the default being False."
 
-#: ../../../usage.md:448
+#: ../../../usage.md:446
 msgid "weight（字典）："
 msgstr "weight (dict):"
 
-#: ../../../usage.md:449
+#: ../../../usage.md:447
 msgid "size: 整数，权重并行的大小。"
 msgstr "size: int, size of weight parallel"
 
-#: ../../../usage.md:450
+#: ../../../usage.md:448
 msgid "overlap: 布尔值，启用/禁用all_gather/reduce_scatter通信重叠，默认为False。"
 msgstr ""
 "overlap: bool, enable/disable all_gather/reduce_scatter communication "
 "overlap, default is False"
 
-#: ../../../usage.md:451
-msgid "memory_pool: 布尔值，启用/禁用内存池，默认为False。"
-msgstr "memory_pool: bool, enable/disable memory pool, default is False"
-
-#: ../../../usage.md:453
+#: ../../../usage.md:450
 msgid "注意：`数据并行大小 = 总的 GPU 数目 / 流水线并行大小 / 张量并行大小`"
 msgstr ""
 "Note: `Data parallel size = Total number of GPUs / Pipeline parallel size"
 " / Tensor parallel size`"
 
-#: ../../../usage.md:455
+#: ../../../usage.md:452
 msgid "启动训练"
 msgstr "Start Training"
 
-#: ../../../usage.md:457
+#: ../../../usage.md:454
 msgid "完成了以上数据集准备和相关训练配置后，可启动 Demo 训练。接下来分别以 slurm 和 torch 环境为例，介绍训练启动方式。"
 msgstr ""
 "After completing the data preparation and relevant training "
@@ -473,19 +469,19 @@ msgstr ""
 "following examples demonstrate how to start the training in both slurm "
 "and torch environments."
 
-#: ../../../usage.md:459 ../../../usage.md:496
+#: ../../../usage.md:456 ../../../usage.md:493
 msgid "若在 slurm 上启动分布式运行环境，多节点 16 卡的运行命令如下所示："
 msgstr ""
 "If you want to start distributed training on slurm with 16 GPUs across "
 "multiple nodes, use the following command:"
 
-#: ../../../usage.md:464
+#: ../../../usage.md:461
 msgid "若在 torch 上启动分布式运行环境，单节点 8 卡的运行命令如下所示："
 msgstr ""
 "If you want to start distributed training on torch with 8 GPUs on a "
 "single node, use the following command:"
 
-#: ../../../usage.md:469
+#: ../../../usage.md:466
 msgid ""
 "其中，train.py文件的内容，请参考： [训练脚本](https://internevo.readthedocs.io/zh-"
 "cn/latest/training.html)"
@@ -493,29 +489,29 @@ msgstr ""
 "The content of train.py, please refer to: [training "
 "script](https://internevo.readthedocs.io/en/latest/training.html) "
 
-#: ../../../usage.md:471
+#: ../../../usage.md:468
 msgid "运行结果"
 msgstr "Training Results"
 
-#: ../../../usage.md:473
+#: ../../../usage.md:470
 msgid "以 slurm 上单机 8 卡的 Demo 训练配置为例，训练结果日志展示如下："
 msgstr ""
 "Taking the configuration of the demo training on a single machine with 8 "
 "GPUs on slurm as an example, the training result log is shown below:"
 
-#: ../../../usage.md:494
+#: ../../../usage.md:491
 msgid "加载训练的checkpoint并生成"
 msgstr "Load the training checkpoint and generate."
 
-#: ../../../usage.md:501
+#: ../../../usage.md:498
 msgid "在配置文件中添加`generation`配置"
 msgstr "Add generation configuration to the configuration file."
 
-#: ../../../usage.md:519
+#: ../../../usage.md:516
 msgid "长文本生成"
 msgstr "Long Text Generation"
 
-#: ../../../usage.md:521
+#: ../../../usage.md:518
 msgid ""
 "在推理阶段，我们可以使用 Dynamic NTK RoPE 来代替原始的 RoPE，从而使得模型能够适应长文本的输入输出，达到 16K "
 "的外推效果。 目前 InternLM 支持在 huggingface 格式和 InternLM 本身格式的模型中使用 Dynamic NTK "
@@ -527,7 +523,7 @@ msgstr ""
 "the use of Dynamic NTK RoPE in models formatted in both Hugging Face "
 "format and InternLM's native format."
 
-#: ../../../usage.md:524
+#: ../../../usage.md:521
 msgid ""
 "对于 huggingface 格式的模型，dynamic ntk rope 目前是被默认使用的。如果用户想要关闭该行为，请将 "
 "`config.json` 中的 `rotary.type` 修改为 `origin`；"
@@ -536,7 +532,7 @@ msgstr ""
 "by default. If users wish to disable this behavior, they can modify "
 "`rotary.type` in the `config.json` file to `origin`."
 
-#: ../../../usage.md:525
+#: ../../../usage.md:522
 msgid ""
 "对于 InternLM "
 "本身格式的模型，在推理时，通过在初始化模型的配置字典中添加`use_dynamic_ntk_rope=True`来开启这一行为。"
@@ -545,7 +541,7 @@ msgstr ""
 "this behavior by adding use_dynamic_ntk_rope=True to the configuration "
 "dictionary when initializing the model."
 
-#: ../../../usage.md:527
+#: ../../../usage.md:524
 msgid ""
 "用户可以直接通过 web_demo 来直观地对比查看 Dynamic NTK RoPE "
 "是如何生效的。例如文件[长文本示例](../../aux_materials/long_text_example.txt)中存放着一个token长度超过2200的文本，如果不使用"
@@ -559,23 +555,23 @@ msgstr ""
 "text. However, after applying Dynamic NTK RoPE, the response from the "
 "InternLM Chat 7B v1.1 model is as follows:"
 
-#: ../../../usage.md:530
+#: ../../../usage.md:527
 msgid "![dynamic_ntk_answer](./imgs/dynamic_ntk_answer.png)"
 msgstr ""
 
-#: ../../../usage.md:530
+#: ../../../usage.md:527
 msgid "dynamic_ntk_answer"
 msgstr ""
 
-#: ../../../usage.md:532
+#: ../../../usage.md:529
 msgid "关于 Dyanmic NTK 的原理，详细请参考"
 msgstr "Regarding the principle of Dyanmic NTK, please refer to"
 
-#: ../../../usage.md:533
+#: ../../../usage.md:530
 msgid "[dynamically_scaled_rope_further_increases](https://www.reddit.com/r/LocalLLaMA/comments/14mrgpr/dynamically_scaled_rope_further_increases)"
 msgstr ""
 
-#: ../../../usage.md:534
+#: ../../../usage.md:531
 msgid "[https://kexue.fm/archives/9675](https://kexue.fm/archives/9675)"
 msgstr ""
 
@@ -633,4 +629,3 @@ msgstr ""
 
 #~ msgid "数据准备 （预训练）"
 #~ msgstr "Dataset Preparation (Pre-training)"
-
