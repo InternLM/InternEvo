@@ -81,6 +81,23 @@ def split_half_float_double(tensor_list):
     return buckets
 
 
+class WrappedHandle:
+    """
+    Handle precision conversion when async all_reduce or reduce_scatter
+    """
+
+    def __init__(self, handle, output, dtype):
+        self.handle = handle
+        self.output = output
+        self.dtype = dtype
+
+    def wait(self):
+        self.handle.wait()
+        if gpc.config.reduce_comm_dtype != self.dtype:
+            self.output.data = self.output.to(self.dtype)
+        self.output = None
+
+
 def reduce_tensor(
     tensor,
     dtype=None,
@@ -106,13 +123,12 @@ def reduce_tensor(
     # use the original dtype
     # if dtype is None:
     assert dtype is None
-    dtype = tensor.dtype
+    dtype = gpc.config.reduce_comm_dtype
+    tensor_dtype = tensor.dtype
 
     # cast the data to specified dtype for reduce/all-reduce
-    # if tensor.dtype != dtype:
-    #     tensor_to_reduce = tensor.to(dtype)
-    # else:
-    #     tensor_to_reduce = tensor
+    if tensor_dtype != dtype:
+        tensor = tensor.to(dtype)
 
     # world_size = gpc.get_world_size(parallel_mode)
     # tensor.div_(world_size)
@@ -129,6 +145,11 @@ def reduce_tensor(
         global_rank = ranks_in_group[dst_rank]
         handle = dist.reduce(tensor=tensor, dst=global_rank, group=group, op=op_type, async_op=async_op)
 
+    if tensor_dtype != dtype:
+        if async_op:
+            handle = WrappedHandle(handle=handle, output=tensor, dtype=tensor_dtype)
+        else:
+            tensor = tensor.to(tensor_dtype)
     return handle
 
 

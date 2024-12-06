@@ -484,6 +484,22 @@ def args_sanity_check():
     if "early_reduce_scatter_release" not in gpc.config.parallel.expert_weight:
         gpc.config.parallel.expert_weight["early_reduce_scatter_release"] = True
 
+    # the comm_dtype for reduce communication
+    if gpc.config.get("reduce_comm_dtype", None) is None:
+        gpc.config.reduce_comm_dtype = gpc.config.model.dtype
+    else:
+        if gpc.config.reduce_comm_dtype == "torch.bfloat16":
+            gpc.config.reduce_comm_dtype = torch.bfloat16
+        elif gpc.config.reduce_comm_dtype == "torch.float32":
+            gpc.config.reduce_comm_dtype = torch.float32
+        else:
+            assert gpc.config.reduce_comm_dtype in [
+                "torch.bfloat16",
+                "torch.float32",
+            ]
+        if gpc.config.model.dtype == torch.float32:
+            assert gpc.config.reduce_comm_dtype == gpc.config.model.dtype
+
     # currently only interleaved pipeline scheduler with overlap can guarantee loss accuracy
     if hasattr(gpc.config.model, "num_chunks") and gpc.config.model.num_chunks > 1:
         assert (

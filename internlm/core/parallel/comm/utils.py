@@ -29,10 +29,33 @@ class DummyAsyncCommHandle(AsyncCommHandle):
 DUMMY_HANDLE_CONST = DummyAsyncCommHandle()
 
 
+class WrappedHandle:
+    """
+    Handle precision conversion when async all_reduce or reduce_scatter
+    """
+
+    def __init__(self, handle, output):
+        self.handle = handle
+        self.output = output
+
+    def wait(self):
+        self.handle.wait()
+        if gpc.config.reduce_comm_dtype != gpc.config.model.dtype:
+            self.output.data = self.output.to(gpc.config.model.dtype)
+        self.output = None
+
+
 # Raw operation, does not support autograd, but does support async
 def all_reduce_raw(input_: Tensor, process_group: ProcessGroup, async_op: bool = False):
+    if gpc.config.reduce_comm_dtype != gpc.config.model.dtype:
+        input_ = input_.to(gpc.config.reduce_comm_dtype)
     input_ = input_.contiguous()
     handle = torch.distributed.all_reduce(input_, group=process_group, async_op=async_op)
+    if gpc.config.reduce_comm_dtype != gpc.config.model.dtype:
+        if async_op is False:
+            input_ = input_.to(gpc.config.model.dtype)
+        else:
+            handle = WrappedHandle(handle=handle, output=input_)
     return input_, handle
 
 
@@ -122,7 +145,11 @@ def _reduce(input_, parallel_mode):
         return input_
 
     group = gpc.get_cpu_group(parallel_mode) if input_.device.type == "cpu" else gpc.get_group(parallel_mode)
+    if gpc.config.reduce_comm_dtype != gpc.config.model.dtype:
+        input_ = input_.to(gpc.config.reduce_comm_dtype)
     dist.all_reduce(input_, group=group)
+    if gpc.config.reduce_comm_dtype != gpc.config.model.dtype:
+        input_ = input_.to(gpc.config.model.dtype)
 
     return input_
 
@@ -241,6 +268,9 @@ def reduce_scatter_raw(
     if world_size <= 1:
         return input_, None
 
+    if gpc.config.reduce_comm_dtype != gpc.config.model.dtype:
+        input_ = input_.to(gpc.config.reduce_comm_dtype)
+
     shape_list = list(input_.shape)
     shape_list[reduce_dim] = shape_list[reduce_dim] // world_size
 
@@ -251,6 +281,11 @@ def reduce_scatter_raw(
     ).contiguous()
 
     handle = dist.reduce_scatter_tensor(output, input_.contiguous(), op=op, group=process_group, async_op=async_op)
+    if gpc.config.reduce_comm_dtype != gpc.config.model.dtype:
+        if async_op is False:
+            output = output.to(gpc.config.model.dtype)
+        else:
+            handle = WrappedHandle(handle=handle, output=output)
     return output, handle
 
 
