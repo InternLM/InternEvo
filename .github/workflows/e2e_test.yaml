@@ -73,7 +73,7 @@ jobs:
   training_8GPU_4DP2TP:
     strategy:
       matrix:
-        runner: [910B]
+        runner: [t_cluster]
     runs-on: ${{ matrix.runner }}
     timeout-minutes: 15
     steps:
@@ -81,21 +81,20 @@ jobs:
       run: |
         echo "::add-mask::${{env.WORKSPACE_PREFIX}}"
         echo "::add-mask::$path_prefix"
-        if [[ ${{ matrix.runner }} == 910B ]];then
-           sudo git clean -ffdx
-        fi
     - uses: actions/checkout@v3
-    - name: training_8GPU_4DP2TP_910B
-      if: ${{ matrix.runner == '910B' }}
+    - name: training_8GPU_4DP2TP_T
+      if: ${{ matrix.runner == 't_cluster' }}
       run: |
-        jobname=EB910-${GITHUB_RUN_ID}-${GITHUB_JOB}-${GITHUB_RUN_ATTEMPT}
-        start_command='torchrun --nproc_per_node=8 --nnodes=1 -m pytest -p no:cacheprovider -v --color=yes -m "training_8GPU_4DP2TP" ./tests/test_training/test_loss.py'
-        bash ../910B_sco.sh $jobname "$start_command"
+        source activate ${evo_env_torch21_flash2}
+        jobname=${GITHUB_RUN_ID}-${GITHUB_JOB}-${GITHUB_RUN_ATTEMPT}
+        srun -p ${SLURM_PARTITION} --kill-on-bad-exit=1 --job-name=$jobname -n8 --ntasks-per-node=8 --cpus-per-task=4 --gpus-per-task=1 pytest -s -v --color=yes -m "training_8GPU_4DP2TP" ./tests/test_training/test_loss.py
+        exit_code=$?
+        sh ./ci_scripts/common/check_slurm_cancled.sh $exit_code $jobname
 
   training_8GPU_4DP2TPSP:
     strategy:
       matrix:
-        runner: [910B]
+        runner: [t_cluster]
     runs-on: ${{ matrix.runner }}
     timeout-minutes: 15
     steps:
@@ -103,21 +102,20 @@ jobs:
       run: |
         echo "::add-mask::${{env.WORKSPACE_PREFIX}}"
         echo "::add-mask::$path_prefix"
-        if [[ ${{ matrix.runner }} == 910B ]];then
-           sudo git clean -ffdx
-        fi
     - uses: actions/checkout@v3
-    - name: training_8GPU_4DP2TPSP_910B
-      if: ${{ matrix.runner == '910B' }}
+    - name: training_8GPU_4DP2TPSP_T
+      if: ${{ matrix.runner == 't_cluster' }}
       run: |
-        jobname=EB910-${GITHUB_RUN_ID}-${GITHUB_JOB}-${GITHUB_RUN_ATTEMPT}
-        start_command='torchrun --nproc_per_node=8 --nnodes=1 -m pytest -p no:cacheprovider -v --color=yes -m "training_8GPU_4DP2TPSP" ./tests/test_training/test_loss.py'
-        bash ../910B_sco.sh $jobname "$start_command"
+        source activate ${evo_env_torch21_flash2}
+        jobname=${GITHUB_RUN_ID}-${GITHUB_JOB}-${GITHUB_RUN_ATTEMPT}
+        srun -p ${SLURM_PARTITION} --kill-on-bad-exit=1 --job-name=$jobname -n8 --ntasks-per-node=8 --cpus-per-task=4 --gpus-per-task=1 pytest -s -v --color=yes -m "training_8GPU_4DP2TPSP" ./tests/test_training/test_loss.py
+        exit_code=$?
+        sh ./ci_scripts/common/check_slurm_cancled.sh $exit_code $jobname
 
   training_8GPU_4DP2PP:
     strategy:
       matrix:
-        runner: [910B]
+        runner: [t_cluster]
     runs-on: ${{ matrix.runner }}
     timeout-minutes: 15
     steps:
@@ -125,16 +123,15 @@ jobs:
       run: |
         echo "::add-mask::${{env.WORKSPACE_PREFIX}}"
         echo "::add-mask::$path_prefix"
-        if [[ ${{ matrix.runner }} == 910B ]];then
-           sudo git clean -ffdx
-        fi
     - uses: actions/checkout@v3
-    - name: training_8GPU_4DP2PP_910B
-      if: ${{ matrix.runner == '910B' }}
+    - name: training_8GPU_4DP2PP_T
+      if: ${{ matrix.runner == 't_cluster' }}
       run: |
-        jobname=EB910-${GITHUB_RUN_ID}-${GITHUB_JOB}-${GITHUB_RUN_ATTEMPT}
-        start_command='torchrun --nproc_per_node=8 --nnodes=1 -m pytest -p no:cacheprovider -v --color=yes -m "training_8GPU_4DP2PP" ./tests/test_training/test_loss.py'
-        bash ../910B_sco.sh $jobname "$start_command"
+        source activate ${evo_env_torch21_flash2}
+        jobname=${GITHUB_RUN_ID}-${GITHUB_JOB}-${GITHUB_RUN_ATTEMPT}
+        srun -p ${SLURM_PARTITION} --kill-on-bad-exit=1 --job-name=$jobname -n8 --ntasks-per-node=8 --cpus-per-task=4 --gpus-per-task=1 pytest -s -v --color=yes -m "training_8GPU_4DP2PP" ./tests/test_training/test_loss.py
+        exit_code=$?
+        sh ./ci_scripts/common/check_slurm_cancled.sh $exit_code $jobname
 
   training_8GPU_4DP2PP_ZB:
     runs-on: [t_cluster]
@@ -157,7 +154,7 @@ jobs:
   training_16GPU_4DP2TP2PP_MTP:
     strategy:
       matrix:
-        runner: [910B]
+        runner: [t_cluster]
     runs-on: ${{ matrix.runner }}
     timeout-minutes: 15
     steps:
@@ -165,21 +162,20 @@ jobs:
       run: |
         echo "::add-mask::${{env.WORKSPACE_PREFIX}}"
         echo "::add-mask::$path_prefix"
-        if [[ ${{ matrix.runner }} == 910B ]];then
-           sudo git clean -ffdx
-        fi
     - uses: actions/checkout@v3
-    - name: training_16GPU_4DP2TP2PP_MTP_910B
-      if: ${{ matrix.runner == '910B' }}
+    - name: training_16GPU_4DP2TP2PP_MTP_T
+      if: ${{ matrix.runner == 't_cluster' }}
       run: |
-        jobname=EB910-${GITHUB_RUN_ID}-${GITHUB_JOB}-${GITHUB_RUN_ATTEMPT}
-        start_command='torchrun --master_addr=$MASTER_ADDR --master_port=$MASTER_PORT --nproc_per_node=8 --nnodes=2 --node_rank=$RANK -m pytest -p no:cacheprovider -v --color=yes -m "training_16GPU_4DP2TP2PP_MTP" ./tests/test_training/test_loss.py'
-        bash ../910B_sco.sh $jobname "$start_command" 2 "AllReduce"
+        source activate ${evo_env_torch21_flash2}
+        jobname=${GITHUB_RUN_ID}-${GITHUB_JOB}-${GITHUB_RUN_ATTEMPT}
+        srun -p ${SLURM_PARTITION} --kill-on-bad-exit=1 --job-name=$jobname -n16 --ntasks-per-node=8 --cpus-per-task=4 --gpus-per-task=1 pytest -s -v --color=yes -m "training_16GPU_4DP2TP2PP_MTP" ./tests/test_training/test_loss.py
+        exit_code=$?
+        sh ./ci_scripts/common/check_slurm_cancled.sh $exit_code $jobname
 
   training_16GPU_4DP2TP2PP_MSP:
     strategy:
       matrix:
-        runner: [910B]
+        runner: [t_cluster]
     runs-on: ${{ matrix.runner }}
     timeout-minutes: 15
     steps:
@@ -187,21 +183,20 @@ jobs:
       run: |
         echo "::add-mask::${{env.WORKSPACE_PREFIX}}"
         echo "::add-mask::$path_prefix"
-        if [[ ${{ matrix.runner }} == 910B ]];then
-           sudo git clean -ffdx
-        fi
     - uses: actions/checkout@v3
-    - name: training_16GPU_4DP2TP2PP_MSP_910B
-      if: ${{ matrix.runner == '910B' }}
+    - name: training_16GPU_4DP2TP2PP_MSP_T
+      if: ${{ matrix.runner == 't_cluster' }}
       run: |
-        jobname=EB910-${GITHUB_RUN_ID}-${GITHUB_JOB}-${GITHUB_RUN_ATTEMPT}
-        start_command='torchrun --master_addr=$MASTER_ADDR --master_port=$MASTER_PORT --nproc_per_node=8 --nnodes=2 --node_rank=$RANK -m pytest -p no:cacheprovider -v --color=yes -m "training_16GPU_4DP2TP2PP_MSP" ./tests/test_training/test_loss.py'
-        bash ../910B_sco.sh $jobname "$start_command" 2 "AllReduce"
+        source activate ${evo_env_torch21_flash2}
+        jobname=${GITHUB_RUN_ID}-${GITHUB_JOB}-${GITHUB_RUN_ATTEMPT}
+        srun -p ${SLURM_PARTITION} --kill-on-bad-exit=1 --job-name=$jobname -n16 --ntasks-per-node=8 --cpus-per-task=4 --gpus-per-task=1 pytest -s -v --color=yes -m "training_16GPU_4DP2TP2PP_MSP" ./tests/test_training/test_loss.py
+        exit_code=$?
+        sh ./ci_scripts/common/check_slurm_cancled.sh $exit_code $jobname
 
   training_16GPU_4DP2TP2PP_FSP:
     strategy:
       matrix:
-        runner: [910B]
+        runner: [t_cluster]
     runs-on: ${{ matrix.runner }}
     timeout-minutes: 15
     steps:
@@ -209,21 +204,20 @@ jobs:
       run: |
         echo "::add-mask::${{env.WORKSPACE_PREFIX}}"
         echo "::add-mask::$path_prefix"
-        if [[ ${{ matrix.runner }} == 910B ]];then
-           sudo git clean -ffdx
-        fi
     - uses: actions/checkout@v3
-    - name: training_16GPU_4DP2TP2PP_FSP_910B
-      if: ${{ matrix.runner == '910B' }}
+    - name: training_16GPU_4DP2TP2PP_FSP_T
+      if: ${{ matrix.runner == 't_cluster' }}
       run: |
-        jobname=EB910-${GITHUB_RUN_ID}-${GITHUB_JOB}-${GITHUB_RUN_ATTEMPT}
-        start_command='torchrun --master_addr=$MASTER_ADDR --master_port=$MASTER_PORT --nproc_per_node=8 --nnodes=2 --node_rank=$RANK -m pytest -p no:cacheprovider -v --color=yes -m "training_16GPU_4DP2TP2PP_FSP" ./tests/test_training/test_loss.py'
-        bash ../910B_sco.sh $jobname "$start_command" 2 "AllReduce"
+        source activate ${evo_env_torch21_flash2}
+        jobname=${GITHUB_RUN_ID}-${GITHUB_JOB}-${GITHUB_RUN_ATTEMPT}
+        srun -p ${SLURM_PARTITION} --kill-on-bad-exit=1 --job-name=$jobname -n16 --ntasks-per-node=8 --cpus-per-task=4 --gpus-per-task=1 pytest -s -v --color=yes -m "training_16GPU_4DP2TP2PP_FSP" ./tests/test_training/test_loss.py
+        exit_code=$?
+        sh ./ci_scripts/common/check_slurm_cancled.sh $exit_code $jobname
 
   training_llama2:
     strategy:
       matrix:
-        runner: [910B]
+        runner: [t_cluster]
     runs-on: ${{ matrix.runner }}
     timeout-minutes: 20
     steps:
@@ -231,12 +225,11 @@ jobs:
       run: |
         echo "::add-mask::${{env.WORKSPACE_PREFIX}}"
         echo "::add-mask::$path_prefix"
-        if [[ ${{ matrix.runner }} == 910B ]];then
-           sudo git clean -ffdx
-        fi
     - uses: actions/checkout@v3
-    - name: training_llama2_910B
+    - name: training_llama2_T
       run: |
-        jobname=EB910-${GITHUB_RUN_ID}-${GITHUB_JOB}-${GITHUB_RUN_ATTEMPT}
-        start_command='torchrun --nproc_per_node=8 --nnodes=1 -m pytest -p no:cacheprovider -v --color=yes -m "training_llama2" ./tests/test_training/test_loss.py'
-        bash ../910B_sco.sh $jobname "$start_command"
+        source activate ${evo_env_torch21_flash2}
+        jobname=${GITHUB_RUN_ID}-${GITHUB_JOB}-${GITHUB_RUN_ATTEMPT}
+        srun -p ${SLURM_PARTITION} --kill-on-bad-exit=1 --job-name=$jobname -n8 --ntasks-per-node=8 --cpus-per-task=4 --gpus-per-task=1 pytest -s -v --color=yes -m "training_llama2" ./tests/test_training/test_loss.py
+        exit_code=$?
+        sh ./ci_scripts/common/check_slurm_cancled.sh $exit_code $jobname
