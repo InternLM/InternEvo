@@ -93,6 +93,7 @@ from internlm.utils.parallel import (
 )
 from internlm.utils.timeout import llm_timeout
 from internlm.utils.utils import TensorParallelMode
+from internlm.model.ops.norm import RMSNorm
 
 try:
     import torch_npu
@@ -116,17 +117,31 @@ LINEAR2NEWLINEAR_NAME_MAPPING = dict(
 logger = get_logger(__file__)
 internlm_accelerator = get_accelerator()
 
+map_layer_attr = {}
+map_fqn_local_to_global = {}
+map_fqn_global_to_local = {}
+
+
+def recover_pipeline_idx_for_layers(model, idx):
+    start_id = model.first_layer
 
 def set_param_unique_tracking_name(model):
+    # print(f"first_layer {gpc.get_global_rank()} {gpc.get_local_rank(ParallelMode.PIPELINE)}: {model.first_layer}, {model.last_layer}", flush=True)
     for chunk_id, chunk in enumerate(unwrap_naive_amp(model)):
         # Important: only works for llama-class models
         childrens = chunk.named_children()
-        for _, children in childrens:
+        for children_name, children in childrens:
             if isinstance(children, nn.ModuleList):
                 for idx, block in enumerate(children):
                     for name, child in block.named_modules():
+                        if name == "":
+                            continue
+                        full_name = f"{chunk_id}.{idx}.{name}"
+                        parts = f"{full_name}.weight".split('.', 2)
+                        original_id = model.first_layer + idx
+                        map_fqn = f"{children_name}.{original_id}." + '.'.join(parts[2:])
+                        result = f"{children_name}." + '.'.join(parts[1:])
                         if isinstance(child, (ParallelLinearWithCommExt)):
-                            full_name = f"{chunk_id}.{idx}.{name}"
                             setattr(
                                 child.weight,
                                 "tracking_name",
@@ -138,19 +153,56 @@ def set_param_unique_tracking_name(model):
                                     "tracking_name",
                                     f"{full_name}.bias",
                                 )
+                            
+                            
+                            # print(result, flush=True)
+                            assert hasattr(child, "offset"), f"{child}"
+                            
+                            # print(f"layer_name {gpc.get_local_rank(ParallelMode.PIPELINE)}: {children_name}, {result}", flush=True)
+                            
+                            # recover_pipeline_idx_for_layers
+                            
+                            # print(f"original_id {gpc.get_local_rank(ParallelMode.PIPELINE)}: {model.first_layer}, {idx}, {original_id}, {name, child}, {map_fqn}")
+                            
+                            if "4.attention_norm" in map_fqn:
+                                assert False
+                            
+                            map_fqn_local_to_global[result] = map_fqn
+                            map_fqn_global_to_local[map_fqn] = result
+                            # print(f"map_pp_layer_fqn {gpc.get_local_rank(ParallelMode.PIPELINE)}: {map_pp_layer_fqn}", flush=True)
+                            
+                            assert result not in map_layer_attr, f"{map_layer_attr} exists"
+                            
+                            map_layer_attr[result] = {'offset': getattr(child, "offset", [0] * len(child.weight.size())), 'complete_size': getattr(child, "complete_size", child.weight.size())}
+                            # print(f"child.weight {gpc.get_local_rank(ParallelMode.TENSOR)}: {result}, {child.offset}, {child.weight.shape}", flush=True)
+                        elif isinstance(child, (RMSNorm)):
+                            print(f"map_fqn {gpc.get_local_rank(ParallelMode.PIPELINE)}: {map_fqn}", flush=True)
+                            map_fqn_local_to_global[result] = map_fqn
+                            map_fqn_global_to_local[map_fqn] = result
+                            
             else:
+                full_name = f"{chunk_id}.{children_name}"
+                result = f"{children_name}.weight"
+                # print(f"result: {result}", flush=True)
                 if isinstance(children, Embedding1D):
                     setattr(
                         children.weight,
                         "tracking_name",
-                        f"{chunk_id}_embedding.weight",
+                        f"{chunk_id}_embeddings.weight",
                     )
+                    assert result not in map_layer_attr, f"{map_layer_attr} exists"
+                    # map_layer_attr[result] = {'offset': children.offset, 'complete_size': children.weight.complete_size}
                 else:
                     setattr(
                         children.weight,
                         "tracking_name",
-                        f"{chunk_id}_head.weight",
+                        f"{full_name}.weight",
                     )
+                    assert result not in map_layer_attr, f"{map_layer_attr} exists"
+                    # map_layer_attr[result] = {'offset': getattr(children, "offset", [0] * len(children.weight.size())), 'complete_size': getattr(children, "complete_size", children.weight.size())}
+                map_layer_attr[result] = {'offset': getattr(children, "offset", [0] * len(children.weight.size())), 'complete_size': getattr(children, "complete_size", children.weight.size())}
+    
+    # print(f"map_layer_attr global={gpc.get_global_rank()}, pp={gpc.get_local_rank(ParallelMode.PIPELINE)}, tp={gpc.get_local_rank(ParallelMode.TENSOR)}: {map_layer_attr}", flush=True)
 
 
 def set_fp32_attr_for_model(model: Union[nn.Module, nn.ModuleList]):

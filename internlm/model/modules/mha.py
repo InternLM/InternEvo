@@ -72,6 +72,10 @@ def _qkv_save_convert(module: "GQA", state_dict, prefix: str, *args, **kwargs) -
         f"{prefix}wv.weight",
         f"{prefix}wqkv.weight",
     )
+    from internlm.train.pipeline import map_layer_attr
+    map_layer_attr[wq_name] = map_layer_attr[fused_name]
+    map_layer_attr[wk_name] = map_layer_attr[fused_name]
+    map_layer_attr[wv_name] = map_layer_attr[fused_name]
 
     if module.enable_qkv_fusion:
         state_dict[wq_name], state_dict[wk_name], state_dict[wv_name] = split_fused_wqkv_weight(
@@ -465,8 +469,9 @@ class GQA(nn.Module):
             self._register_load_state_dict_pre_hook(
                 partial(_qkv_pre_load_convert, q_dim=q_dim, kv_dim=self.kv_dim), with_module=True
             )
-            self._register_state_dict_hook(partial(_qkv_save_convert, q_dim=q_dim, kv_dim=self.kv_dim))
+            # self._register_state_dict_hook(partial(_qkv_save_convert, q_dim=q_dim, kv_dim=self.kv_dim))
         else:
+            assert False
             self.wq = new_linear("wq", embed_dim, q_dim, bias, **factory_kwargs)
             self.wk = new_linear("wk", embed_dim, self.kv_dim, bias, **factory_kwargs)
             self.wv = new_linear("wv", embed_dim, self.kv_dim, bias, **factory_kwargs)

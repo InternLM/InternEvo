@@ -597,6 +597,7 @@ class ParallelLinearWithCommExt(nn.Linear):
 
         world_size = gpc.get_world_size(parallel_mode)
         rank = gpc.get_local_rank(parallel_mode)
+        self.offset = None
 
         if split_mode != "none":
             split_features = out_features if split_mode == "column" else in_features
@@ -606,14 +607,29 @@ class ParallelLinearWithCommExt(nn.Linear):
             mod = multiple % world_size
             # The first @mod ranks get @div + 1 copies, the rest get @div copies
             local_multiple = div + int(rank < mod)
-
+        # if parallel_mode == ParallelMode.TENSOR:
+        #     print(f"ParallelLinearWithCommExt {split_mode}: infe={in_features}, outfe={out_features}, split={local_multiple * multiple_of}, local_multiple={local_multiple}, multiple_of={multiple_of}", flush=True)
         if split_mode == "column":
             super().__init__(in_features, local_multiple * multiple_of, bias=bias, device=device, dtype=dtype)
+            self.offset = [rank * local_multiple * multiple_of, 0]
         elif split_mode == "row":
             super().__init__(local_multiple * multiple_of, out_features, bias=bias, device=device, dtype=dtype)
+            self.offset = [0, rank * local_multiple * multiple_of]
         else:
             super().__init__(in_features, out_features, bias=bias, device=device, dtype=dtype)
-
+        self.complete_size = [out_features, in_features]
+        setattr(self.weight, "offset", self.offset)
+        setattr(self.weight, "complete_size", [out_features, in_features])
+        if self.weight.offset[0] != 0:
+            k = self.weight.offset[0] // rank
+            assert self.weight.complete_size[0] % k == 0 and self.weight.complete_size[0] // k == gpc.get_world_size(parallel_mode), f"{self.weight.complete_size}, {self.weight.offset}"
+        else:
+            assert rank == 0 or self.weight.size()[0] == self.weight.complete_size[0], f"{rank}, {self.weight.size()}, {self.weight.complete_size}, {self.weight.offset} \n split_mode={split_mode}, in_features={in_features}, out_features={out_features}, multiple_of={multiple_of}, multiple={multiple}, world_size={world_size}, div={div}, mod={mod}, local_multiple={local_multiple}"
+        if self.weight.offset[1] != 0:
+            k = self.weight.offset[1] // rank
+            assert self.weight.complete_size[1] % k == 0 and self.weight.complete_size[1] // k == gpc.get_world_size(parallel_mode), f"{self.weight.complete_size}, {self.weight.offset}"
+        else:
+            assert rank == 0 or self.weight.size()[1] == self.weight.complete_size[1], f"{rank}, {self.weight.size()}, {self.weight.complete_size}, {self.weight.offset}"
     def forward(self, input: torch.Tensor, batch_sizes: torch.Tensor = None) -> torch.Tensor:  # pylint: disable=W0622
         _class_name = self.__class__.__name__
         assert self._communicator is not None, f"{_class_name} should register with a communicator first."
