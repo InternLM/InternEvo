@@ -84,6 +84,12 @@ class Config(dict):
             self._add_item(k, v)
         return self
 
+    def __delattr__(self, key):
+        if key in self:
+            super().__delitem__(key)
+        else:
+            raise AttributeError(f"{key} does not exist")
+
     @staticmethod
     def from_file(filename: str):
         """Reads a python file and constructs a corresponding :class:`Config` object.

@@ -106,20 +106,19 @@ class FeedForward(nn.Module):
                 "w2", hidden_features, out_features, bias, device=device, dtype=dtype, is_expert=is_expert
             )
 
+        if self.activation_type is ActivationType.swiglu.name:
+            self.activation_fn = Silu
+        else:
+            self.activation_fn = Gelu
+
     def forward(self, x):
-        if not self.mlp_layer_fusion:
+        if self.mlp_layer_fusion:
+            fused_out = self.fused_w1_w3(x)
+            w1_o, w3_o = torch.split(fused_out, fused_out.shape[-1] // 2, dim=-1)
+        else:
             w1_o = self.w1(x)
             w3_o = self.w3(x)
-        else:
-            fussed_out = self.fused_w1_w3(x)
-            w1_o, w3_o = torch.split(fussed_out, fussed_out.shape[-1] // 2, dim=-1)
-
-        if self.activation_type is ActivationType.swiglu.name:
-            out = self.w2(Silu(w1_o, w3_o))
-        else:
-            out = self.w2(Gelu(w1_o, w3_o))
-
-        return out
+        return self.w2(self.activation_fn(w1_o, w3_o))
 
 
 class GroupedFeedForward(nn.Module):

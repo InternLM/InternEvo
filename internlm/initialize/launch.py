@@ -362,6 +362,9 @@ def args_sanity_check():
                 "Please make sure you are using flash attention in cuda device."
             )
 
+    if "mlp_layer_fusion" not in model:
+        model._add_item("mlp_layer_fusion", False)
+
     if "MoE" in gpc.config.get("model_type", ModelType.INTERNLM.name):
         if "num_experts" not in model:
             model._add_item("num_experts", 1)
@@ -375,9 +378,8 @@ def args_sanity_check():
             model._add_item("moe_type", "GShard")
         if "moe_layer_kwargs" not in model:
             model.moe_layer_kwargs = {}
-
-    if "mlp_layer_fusion" not in model:
-        model._add_item("mlp_layer_fusion", False)
+        if model.mlp_layer_fusion is False:
+            logger.warning("The config 'mlp_layer_fusion' is False, we recommend it should be set True when use MoE.")
 
     # qk_interleaved config
     if "qk_interleaved" not in gpc.config.model:
