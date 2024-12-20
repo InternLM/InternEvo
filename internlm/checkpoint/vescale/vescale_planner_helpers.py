@@ -60,16 +60,30 @@ def _create_chunk_from_dtensor(tensor: DTensor) -> ChunkStorageMetadata:
     return ChunkStorageMetadata(offsets=offsets, sizes=sizes)
 
 from internlm.train.pipeline import map_layer_attr, map_fqn_local_to_global
-def _create_write_item_for_tensor(fqn: str, tensor: torch.Tensor) -> WriteItem:
+def _create_write_item_for_tensor(fqn: str, tensor: torch.Tensor, is_optimizer=False) -> WriteItem:
     offsets = torch.Size([0] * len(tensor.size()))
     size = tensor.size()
-    if "norm" not in fqn:
-        assert fqn in map_layer_attr, f"{fqn}"
-    if fqn in map_layer_attr:
-        offsets = torch.Size(map_layer_attr[fqn]['offset'])
-        size = torch.Size(map_layer_attr[fqn]['complete_size'])
-    if fqn in map_fqn_local_to_global:
-        fqn = map_fqn_local_to_global[fqn]
+    
+    if not is_optimizer:
+        if 'layer' in fqn:
+            assert fqn in map_fqn_local_to_global, f"{fqn}"
+            # print(f"map_fqn: {fqn}, {map_fqn_local_to_global[fqn]}", flush=True)
+            fqn = map_fqn_local_to_global[fqn]
+    
+    map_fqn = fqn
+    if map_fqn not in map_layer_attr:
+        # os exp_avg, exp_avg_sq
+        map_fqn = fqn.rsplit('.', 1)[0]
+    assert map_fqn in map_layer_attr, f"{gpc.get_global_rank()}, {gpc.get_local_rank(ParallelMode.PIPELINE)}, {gpc.get_local_rank(ParallelMode.ZERO1)}, {is_optimizer}, {fqn}"
+    offsets = torch.Size(map_layer_attr[map_fqn]['offset'])
+    size = torch.Size(map_layer_attr[map_fqn]['complete_size'])
+    
+    # if map_fqn in map_fqn_local_to_global:
+    #     global_fqn = map_fqn_local_to_global[map_fqn]
+    #     if fqn != map_fqn:
+    #         fqn = global_fqn + f".{fqn.rsplit('.', 1)[1]}"
+    #     else:
+    #         fqn = global_fqn
     
     # if offsets[0] != 0:
     #     k = offsets[0] // gpc.get_local_rank(ParallelMode.TENSOR)
@@ -111,15 +125,17 @@ def _create_write_item_for_bytesio(fqn: str, bytes: Any):
     )
 
 
-def _create_write_items(fqn: str, object: Any) -> List[WriteItem]:
+def _create_write_items(fqn: str, object: Any, is_optimizer=False) -> List[WriteItem]:
     if isinstance(object, DTensor):
-        # assert False
+        assert False
         return [_create_write_items_for_dtensor(fqn, object)]
     elif isinstance(object, torch.Tensor):
-        return [_create_write_item_for_tensor(fqn, object)]
+        return [_create_write_item_for_tensor(fqn, object, is_optimizer=is_optimizer)]
     elif isinstance(object, OptimizerStateSpec):
+        assert False
         return [_create_write_item_for_optimizer_state(fqn, object)]
     else:
+        assert False
         return [_create_write_item_for_bytesio(fqn, object)]
 
 
@@ -136,7 +152,7 @@ def _create_read_item_for_tensor(dest_index, dest_offsets, storage_index, storag
 
 def create_read_items_for_chunk_list(
     fqn: str,
-    md_fqn: str,
+    global_fqn: str,
     checkpoint_md: TensorStorageMetadata,
     local_chunks: List[ChunkStorageMetadata],
 ) -> List[ReadItem]:
@@ -180,7 +196,7 @@ def create_read_items_for_chunk_list(
                 _create_read_item_for_tensor(
                     dest_index=MetadataIndex(fqn, shard.offsets, idx),
                     dest_offsets=dest_offsets,
-                    storage_index=MetadataIndex(md_fqn, storage_md.offsets, storage_idx),
+                    storage_index=MetadataIndex(global_fqn, storage_md.offsets, storage_idx),
                     storage_offsets=storage_offsets,
                     lengths=lengths,
                 )
@@ -188,16 +204,17 @@ def create_read_items_for_chunk_list(
     return read_items
 
 
-def _create_chunk_from_tensor(fqn, tensor: torch.Tensor) -> ChunkStorageMetadata:
+def _create_chunk_from_tensor(global_fqn, tensor: torch.Tensor) -> ChunkStorageMetadata:
     
     # sizes = torch.Size(compute_local_shape(tensor.shape, tensor.device_mesh, tensor.placements))
     # offsets = torch.Size(compute_local_offset(tensor.shape, tensor.device_mesh, tensor.placements))
     # return ChunkStorageMetadata(offsets=offsets, sizes=sizes)
     
-    offsets = torch.Size([0] * len(tensor.size()))
-    if "norm" not in fqn:
-        assert fqn in map_layer_attr, f"{fqn}"
-        offsets = torch.Size(map_layer_attr[fqn]['offset'])
+    if global_fqn not in map_layer_attr:
+        # os exp_avg, exp_avg_sq
+        global_fqn = global_fqn.rsplit('.', 1)[0]
+    assert global_fqn in map_layer_attr, f"{global_fqn}"
+    offsets = torch.Size(map_layer_attr[global_fqn]['offset'])
     
     
     # return ChunkStorageMetadata(offsets=torch.Size([0] * len(tensor.size())), sizes=tensor.size())
@@ -220,21 +237,22 @@ def _create_chunk_from_optimizer_spec(obj: OptimizerStateSpec) -> ChunkStorageMe
     return ChunkStorageMetadata(offsets=obj.global_offset, sizes=obj.local_shape)
 
 
-def _create_read_items(fqn: str, md_fqn, md: STORAGE_TYPES, obj: Any) -> List[ReadItem]:
+def _create_read_items(fqn: str, global_fqn, md: STORAGE_TYPES, obj: Any) -> List[ReadItem]:
     if not isinstance(md, BytesStorageMetadata):
         if isinstance(obj, DTensor):
             assert False
             local_chunks = [_create_chunk_from_dtensor(obj)]
         elif isinstance(obj, torch.Tensor):
-            local_chunks = [_create_chunk_from_tensor(fqn, obj)]#att
+            local_chunks = [_create_chunk_from_tensor(global_fqn, obj)]#att
             # print(f"local_chunks {gpc.get_global_rank()} {gpc.get_local_rank(ParallelMode.PIPELINE)} {fqn}: {local_chunks}", flush=True)
         elif isinstance(obj, OptimizerStateSpec):
+            assert False
             local_chunks = [_create_chunk_from_optimizer_spec(obj)]
         else:
             raise ValueError(
                 f"Invalid checkpoint metadata for {fqn}, " + f"expected BytesStorageMetadata but found {type(md)}"
             )
-        return create_read_items_for_chunk_list(fqn, md_fqn, md, local_chunks)
+        return create_read_items_for_chunk_list(fqn, global_fqn, md, local_chunks)
     else:
         assert False
         return [

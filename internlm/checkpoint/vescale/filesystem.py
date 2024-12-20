@@ -26,7 +26,7 @@ from torch.futures import Future
 from pathlib import Path
 from internlm.core.context import global_context as gpc
 from internlm.core.context import ParallelMode
-from internlm.train.pipeline import map_fqn_global_to_local
+from internlm.train.pipeline import map_fqn_global_to_local, map_layer_attr
 
 
 from torch.distributed.checkpoint.metadata import (
@@ -144,16 +144,16 @@ class _SerialCpuLoader(_TensorLoader):
     def values(self):
         for fqn, _, obj in self.items:
             tensor = self.resolve_fun(obj).detach()
-            if self.p2p_tensors_info and (obj.index.fqn, obj.index.offset) in self.p2p_tensors_info.recv_tensors:
-                tensor = collect_optim_state_across_dp_ranks(
-                    tensor=tensor,
-                    rank_ranges=self.p2p_tensors_info.recv_tensors[(obj.index.fqn, obj.index.offset)],
-                    p2p_reqs=self.p2p_tensors_info.recv_p2p_reqs[(obj.index.fqn, obj.index.offset)],
-                )
-            elif self.p2p_tensors_info and fqn in self.p2p_tensors_info.recv_tensors:
-                tensor = collect_optim_state_across_dp_ranks(
-                    tensor=tensor, rank_ranges=self.p2p_tensors_info.recv_tensors[fqn], p2p_reqs=self.recv_p2p_reqs[fqn]
-                )
+            # if self.p2p_tensors_info and (obj.index.fqn, obj.index.offset) in self.p2p_tensors_info.recv_tensors:
+            #     tensor = collect_optim_state_across_dp_ranks(
+            #         tensor=tensor,
+            #         rank_ranges=self.p2p_tensors_info.recv_tensors[(obj.index.fqn, obj.index.offset)],
+            #         p2p_reqs=self.p2p_tensors_info.recv_p2p_reqs[(obj.index.fqn, obj.index.offset)],
+            #     )
+            # elif self.p2p_tensors_info and fqn in self.p2p_tensors_info.recv_tensors:
+            #     tensor = collect_optim_state_across_dp_ranks(
+            #         tensor=tensor, rank_ranges=self.p2p_tensors_info.recv_tensors[fqn], p2p_reqs=self.recv_p2p_reqs[fqn]
+            #     )
             tensor = copy_gpu_tensor_to_cpu_pinned_mem_pool(tensor)
             # Comment the original DCP code
             # When dumping to pinned memory,
@@ -208,18 +208,18 @@ class _OverlappingCpuLoader(_TensorLoader):
                 fqn, _, obj = self.items[self.idx]
                 self.idx += 1
                 tensor = self.resolve_fun(obj).detach()
-                if self.p2p_tensors_info and (obj.index.fqn, obj.index.offset) in self.p2p_tensors_info.recv_tensors:
-                    tensor = collect_optim_state_across_dp_ranks(
-                        tensor=tensor,
-                        rank_ranges=self.p2p_tensors_info.recv_tensors[(obj.index.fqn, obj.index.offset)],
-                        p2p_reqs=self.p2p_tensors_info.recv_p2p_reqs[(obj.index.fqn, obj.index.offset)],
-                    )
-                elif self.p2p_tensors_info and fqn in self.p2p_tensors_info.recv_tensors:
-                    tensor = collect_optim_state_across_dp_ranks(
-                        tensor=tensor,
-                        rank_ranges=self.p2p_tensors_info.recv_tensors[fqn],
-                        p2p_reqs=self.p2p_tensors_info.recv_p2p_reqs[fqn],
-                    )
+                # if self.p2p_tensors_info and (obj.index.fqn, obj.index.offset) in self.p2p_tensors_info.recv_tensors:
+                #     tensor = collect_optim_state_across_dp_ranks(
+                #         tensor=tensor,
+                #         rank_ranges=self.p2p_tensors_info.recv_tensors[(obj.index.fqn, obj.index.offset)],
+                #         p2p_reqs=self.p2p_tensors_info.recv_p2p_reqs[(obj.index.fqn, obj.index.offset)],
+                #     )
+                # elif self.p2p_tensors_info and fqn in self.p2p_tensors_info.recv_tensors:
+                #     tensor = collect_optim_state_across_dp_ranks(
+                #         tensor=tensor,
+                #         rank_ranges=self.p2p_tensors_info.recv_tensors[fqn],
+                #         p2p_reqs=self.p2p_tensors_info.recv_p2p_reqs[fqn],
+                #     )
                 if tensor.device.type == self.device_type:
                     tensor = copy_gpu_tensor_to_cpu_pinned_mem_pool(tensor, non_blocking=True)
                 # Comment the original DCP code
@@ -430,6 +430,7 @@ def _write_files_per_proc_pipe(
     stream = open(file_path, "wb")
     executor = ThreadPoolExecutor(max_workers=1)
     # For byte data, directly write byte data.
+    assert len(byte_data_item) == 0
     for write_data, write_item in byte_data_item:
         content = write_data.getbuffer()
         write_futures.append(
@@ -443,8 +444,16 @@ def _write_files_per_proc_pipe(
         )
         # write_results.append(_write_to_file(stream, content, write_item, storage_key))
     # For tensor data, perform serialization in process then do saving in threadpool.
+    # print(f"tensor_data_item: {tensor_data_item}", flush=True)
+    data_memory = 0
+    content_momory = 0
+    print(f"tensor_data_item {gpc.get_global_rank()}: {len(tensor_data_item)}", flush=True)
     for write_data, write_item in tensor_data_item:
+        data_memory += (write_data.numel() * write_data.element_size())
+        # print(f"write_item: {write_item}", flush=True)
+        # print(f"write_data: {write_data}", flush=True)
         content = _serialize_tensor(write_data)
+        content_momory += len(content)
         write_futures.append(
             executor.submit(
                 _write_to_file,
@@ -455,6 +464,7 @@ def _write_files_per_proc_pipe(
             )
         )
         # write_results.append(_write_to_file(stream, content, write_item, storage_key))
+    print(f"data_memory {gpc.get_global_rank()}: {data_memory / (1024 * 1024 * 1024)}, {content_momory / (1024 * 1024 * 1024) }", flush=True)
 
     for fut in write_futures:
         write_results.append(fut.result())
@@ -582,6 +592,7 @@ class FileSystemWriter(StorageWriter):
         super().__init__()
         self.path = Path(path)
         self.single_file_per_rank = single_file_per_rank
+        # self.single_file_per_rank = False
         self.sync_files = sync_files
         self.worker_count = worker_count
         self.per_process_copy_ahead = per_process_copy_ahead
@@ -600,7 +611,7 @@ class FileSystemWriter(StorageWriter):
         ]
         return new_plans
 
-    def prepare_write_data(self, tasks: List[Tuple[Path, str, List[WriteItem]]], planner: SavePlanner):
+    def prepare_write_data(self, tasks: List[Tuple[Path, str, List[WriteItem]]], planner: SavePlanner, is_optimizer):
         """
         First stage of saving, Perform Copy data to CPU (D2H).
 
@@ -615,8 +626,12 @@ class FileSystemWriter(StorageWriter):
         byte_data_item_writes: List[List[Tuple[io.BytesIO, WriteItem]]] = []
         tensor_data_item_writes: List[List[Tuple[torch.Tensor, WriteItem]]] = []
         file_path_names: List[Tuple[Path, str]] = []
+        
+        item_list_all = []
+        fqn_list_all = []
 
         # Perform D2H in copy stream.
+        flag = 0
         d2h_dump_start = time.time()
         for task in tasks:
             file_path, file_name, write_items = task
@@ -626,28 +641,53 @@ class FileSystemWriter(StorageWriter):
             if len(byte_data_item) != 0:
                 assert False
             tensor_data_item = []
+            
+            item_list = []
+            fqn_list = []
             # Async copy to pinned CPU memory pool.
             for item in tensor_w:
                 # att
                 fqn = _item_fqn(item)
-                if fqn in map_fqn_global_to_local:
-                    print(f"_item_fqn: {fqn}, {map_fqn_global_to_local[fqn]}", flush=True)
-                    fqn = map_fqn_global_to_local[fqn]
+                
+                # map_fqn = fqn
+                # if fqn.endswith("exp_avg") or fqn.endswith("exp_avg_sq"):
+                #     # os exp_avg, exp_avg_sq
+                #     map_fqn = fqn.rsplit('.', 1)[0]
+                fqn_list.append((fqn, map_fqn_global_to_local[fqn] if fqn in map_fqn_global_to_local else None))
+                if not is_optimizer:
+                    if 'layer' in fqn:
+                        assert fqn in map_fqn_global_to_local 
+                    if fqn in map_fqn_global_to_local:
+                        fqn = map_fqn_global_to_local[fqn]
+                        
+                # if fqn in map_fqn_global_to_local:
+                #     print(f"_item_fqn: {fqn}, {map_fqn_global_to_local[fqn]}", flush=True)
+                #     fqn = map_fqn_global_to_local[fqn]
                     
-                tensor = planner.resolve_data(item, fqn).detach()
+                tensor = planner.resolve_data(item, fqn).detach().clone()
                 
 
-                if self.p2p_tensors_info and fqn in self.p2p_tensors_info.recv_tensors:
-                    tensor = collect_optim_state_across_dp_ranks(
-                        tensor=tensor,
-                        rank_ranges=self.p2p_tensors_info.recv_tensors[fqn],
-                        p2p_reqs=self.p2p_tensors_info.recv_p2p_reqs[fqn],
-                    )
+                # if self.p2p_tensors_info and fqn in self.p2p_tensors_info.recv_tensors:
+                #     tensor = collect_optim_state_across_dp_ranks(
+                #         tensor=tensor,
+                #         rank_ranges=self.p2p_tensors_info.recv_tensors[fqn],
+                #         p2p_reqs=self.p2p_tensors_info.recv_p2p_reqs[fqn],
+                #     )
                 tensor = copy_gpu_tensor_to_cpu_pinned_mem_pool(tensor, non_blocking=True)
+                # print(f"item: {item.index.fqn}", flush=True)
                 tensor_data_item.append((tensor, item))
+                
+                item_list.append(item.index.fqn)
+                flag += 1
             byte_data_item_writes.append(byte_data_item)
             tensor_data_item_writes.append(tensor_data_item)
             file_path_names.append((file_path, file_name))
+            
+            fqn_list_all.append(fqn_list)
+            item_list_all.append(item_list)
+        # print(f"fqn_list_all {gpc.get_global_rank()}: {flag}, {fqn_list_all}", flush=True)
+        # print(f"item_list_all {gpc.get_global_rank()}: {flag}, {item_list_all}", flush=True)
+        # print(f"tensor_data_item_writes {gpc.get_global_rank()}: {byte_data_item_writes}, {file_path_names}, {tensor_data_item_writes}", flush=True)
 
         d2h_dump_time = time.time() - d2h_dump_start
         logger.debug(f"End waiting for D2H copy. Time cost: {d2h_dump_time}s")
@@ -663,7 +703,7 @@ class FileSystemWriter(StorageWriter):
         return byte_data_item_writes, tensor_data_item_writes, file_path_names
 
     def write_data(
-        self, plan: SavePlan, planner: SavePlanner, async_io: bool = False, io_workers=False
+        self, plan: SavePlan, planner: SavePlanner, async_io: bool = False, io_workers=False, is_optimizer=False
     ) -> Future[List[WriteResult]]:
         storage_plan: _StoragePrefix = plan.storage_data
         file_count = 0
@@ -676,10 +716,11 @@ class FileSystemWriter(StorageWriter):
 
         tasks: List[Tuple[Path, str, List[WriteItem]]] = []
         # Generate K tasks where K is the number of worker_count.
-        # print(f"self.single_file_per_rank: {self.single_file_per_rank}", flush=True)
+        print(f"self.single_file_per_rank: {self.single_file_per_rank}", flush=True)
         if self.single_file_per_rank:
             for bucket in _split_by_size_and_type(self.worker_count, plan.items):
                 file_name = gen_file()
+                print(f"file_name {gpc.get_global_rank()}: {file_name}, {self.worker_count}, {bucket}", flush=True)
                 tasks.append((self.path / file_name, file_name, bucket))
         # Generate K tasks where K is the number of write items.
         else:
@@ -690,14 +731,15 @@ class FileSystemWriter(StorageWriter):
         # Make sure the optimizer states across dp ranks
         # has been sending to other ranks
         # So the receiver can get it when writing tensors to local path
-
-        if self.p2p_tensors_info:
-            logger.debug("Start waiting for sending p2p tensors futures")
-            p2p_tensor_send_wait_start = time.time()
-            for req in self.p2p_tensors_info.send_p2p_reqs:
-                req.wait()
-            p2p_tensor_send_wait_time = time.time() - p2p_tensor_send_wait_start
-            logger.debug(f"End waiting for sending p2p tensors futures Time: {p2p_tensor_send_wait_time}s")
+        # print(f"p2p_tensors_info: {self.p2p_tensors_info}", flush=True)
+        # if self.p2p_tensors_info:
+        #     assert False
+        #     logger.debug("Start waiting for sending p2p tensors futures")
+        #     p2p_tensor_send_wait_start = time.time()
+        #     for req in self.p2p_tensors_info.send_p2p_reqs:
+        #         req.wait()
+        #     p2p_tensor_send_wait_time = time.time() - p2p_tensor_send_wait_start
+        #     logger.debug(f"End waiting for sending p2p tensors futures Time: {p2p_tensor_send_wait_time}s")
 
         futures = []
         if not io_workers:
@@ -709,7 +751,7 @@ class FileSystemWriter(StorageWriter):
         # ProcessPool VERSION.
         if isinstance(executor, ProcessPoolExecutor):
             # print(f"executor: ProcessPoolExecutor", flush=True)
-            byte_data_item_writes, tensor_data_item_writes, file_path_names = self.prepare_write_data(tasks, planner)
+            byte_data_item_writes, tensor_data_item_writes, file_path_names = self.prepare_write_data(tasks, planner, is_optimizer)
             # print(f"byte_data_item_writes {gpc.get_global_rank()} {gpc.get_local_rank(ParallelMode.TENSOR)}: {byte_data_item_writes}", flush=True)
             # print(f"tensor_data_item_writes {gpc.get_global_rank()} {gpc.get_local_rank(ParallelMode.TENSOR)}: {tensor_data_item_writes}", flush=True)
             # print(f"file_path_names {gpc.get_global_rank()} {gpc.get_local_rank(ParallelMode.TENSOR)}: {file_path_names}", flush=True)
@@ -737,13 +779,20 @@ class FileSystemWriter(StorageWriter):
             for task in tasks:
                 # print(f"task {gpc.get_global_rank()}: {task}", flush=True)
                 futures.append(
+                    # executor.submit(
+                    #     _write_files_from_queue,
+                    #     *task,
+                    #     planner,
+                    #     self.per_process_copy_ahead,
+                    #     self.sync_files,
+                    #     self.p2p_tensors_info,
+                    # )
                     executor.submit(
                         _write_files_from_queue,
                         *task,
                         planner,
                         self.per_process_copy_ahead,
                         self.sync_files,
-                        self.p2p_tensors_info,
                     )
                 )
             if async_io:
@@ -824,7 +873,9 @@ class FileSystemReader(StorageReader):
                 for req in reqs:
                     item_md = self.storage_data[req.storage_index]
                     file_slice = self._slice_file(file, item_md)
+                    # print(f"debugg file_slice {gpc.get_global_rank()}, {gpc.get_local_rank(ParallelMode.PIPELINE)}: {file_slice}", flush=True)
                     if req.type == LoadItemType.BYTE_IO:
+                        assert False
                         bytes = io.BytesIO(file_slice.read(item_md.length))
                         bytes.seek(0)
                         planner.load_bytes(req, bytes)

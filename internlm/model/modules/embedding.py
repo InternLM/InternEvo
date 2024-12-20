@@ -47,13 +47,14 @@ class Embedding1D(nn.Module):
         self.vocab_parallel = vocab_parallel
 
         parallel_size = gpc.weight_parallel_size if is_using_isp() else gpc.tensor_parallel_size
+        rank = gpc.get_local_rank(ParallelMode.WEIGHT) if is_using_isp() else gpc.get_local_rank(ParallelMode.TENSOR)
 
         if vocab_parallel:
             assert num_embeddings % parallel_size == 0, f"{num_embeddings} is not divisible by {parallel_size}"
 
             self.num_embeddings_per_partition = num_embeddings // parallel_size
             self.embed_dim_per_partition = embedding_dim
-            self.vocab_start_index = gpc.get_local_rank(ParallelMode.TENSOR) * self.num_embeddings_per_partition
+            self.vocab_start_index = rank * self.num_embeddings_per_partition
             self.vocab_end_index = self.vocab_start_index + self.num_embeddings_per_partition
             self.offset = [self.vocab_start_index, 0]
         else:
@@ -63,7 +64,7 @@ class Embedding1D(nn.Module):
             self.embed_dim_per_partition = embedding_dim // parallel_size
             self.vocab_start_index = 0
             self.vocab_end_index = self.num_embeddings_per_partition
-            self.offset = [0, self.embed_dim_per_partition * gpc.get_local_rank(ParallelMode.TENSOR)]
+            self.offset = [0, self.embed_dim_per_partition * rank]
 
         self.weight = nn.Parameter(
             torch.empty((self.num_embeddings_per_partition, self.embed_dim_per_partition), dtype=dtype)

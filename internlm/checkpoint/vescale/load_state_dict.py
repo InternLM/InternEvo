@@ -34,11 +34,13 @@ def load_state_dict(
     no_dist: bool = False,
     planner: Optional[LoadPlanner] = None,
     broadcast_tensors=False,
+    is_optimizer=False
 ) -> None:
     load_start_time = time.time()
     """
     [veScale version] Loads a distributed ``state_dict`` in SPMD style. Fix sub-group storage.
     """
+    print(f"load_state_dict: {path}", flush=True)
     storage_reader = FileSystemReader(
         path,
         broadcast_tensors=broadcast_tensors,
@@ -64,7 +66,7 @@ def load_state_dict(
         planner.set_up_planner(state_dict, metadata, distW.is_coordinator)
         storage_reader.set_up_storage_reader(metadata, distW.is_coordinator)
 
-        local_plan = planner.create_local_plan()
+        local_plan = planner.create_local_plan(is_optimizer=is_optimizer)
         local_plan = storage_reader.prepare_local_plan(local_plan)
         return local_plan
 

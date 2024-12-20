@@ -47,6 +47,7 @@ def save_state_dict(
     async_io: bool = True,
     last_write_futures: Future[List[WriteResult]] = None,
     io_workers=None,
+    is_optimizer=False,
 ) -> Tuple[Metadata, Future[List[WriteResult]]]:
     """
     [veScale version] Saves a distributed model in SPMD style. Fix sub-group storage.
@@ -70,10 +71,9 @@ def save_state_dict(
     def local_step():
         logger.debug("Start local step of planning")
         if isinstance(planner, VeScaleSavePlanner):
-            local_plan, p2p_tensors_info = planner.create_local_plan()
+            local_plan, p2p_tensors_info = planner.create_local_plan(is_optimizer=is_optimizer)
             local_plan = storage_writer.prepare_local_plan(local_plan, p2p_tensors_info)
-            if gpc.get_local_rank(ParallelMode.PIPELINE) == 1:
-                print(f"save local_plan: {local_plan}", flush=True)
+            print(f"save local_plan {dist.get_rank()}, zero={gpc.get_local_rank(ParallelMode.ZERO1)}, tp={gpc.get_local_rank(ParallelMode.TENSOR)}: {local_plan}", flush=True)
             # if dist.get_rank() in [0, 1, 2, 3]:
             #     print(f"save local_plan {dist.get_rank()}, {gpc.get_local_rank(ParallelMode.TENSOR)}: {local_plan}", flush=True)
         else:
@@ -88,7 +88,7 @@ def save_state_dict(
         assert planner is not None
         # print(f"planner.coordinator_rank {gpc.get_global_rank()}: {planner.is_coordinator }", flush=True)
         all_local_plans, global_metatadata = planner.create_global_plan(all_local_plans)
-        # print(f"save global_metatadata {dist.get_rank()}: {global_metatadata}", flush=True)
+        print(f"save global_metatadata {dist.get_rank()}, zero={gpc.get_local_rank(ParallelMode.ZERO1)}, tp={gpc.get_local_rank(ParallelMode.TENSOR)}: {global_metatadata}", flush=True)
         all_local_plans = storage_writer.prepare_global_plan(all_local_plans)
         logger.debug("End global step of planning")
         # print(f"global_plan {gpc.get_global_rank()} {gpc.get_local_rank(ParallelMode.TENSOR)}: {all_local_plans}", flush=True)
@@ -103,7 +103,8 @@ def save_state_dict(
         final_local_plan = planner.finish_plan(central_plan)
         if isinstance(planner, VeScaleSavePlanner):
             # Use pinned memory pool and mult_processing for dumping ckpt to local directory efficiently
-            all_write_futures = storage_writer.write_data(final_local_plan, planner, async_io, io_workers)
+            print(f"write_data: {write_data}", flush=True)
+            all_write_futures = storage_writer.write_data(final_local_plan, planner, async_io, io_workers, is_optimizer)
             logger.debug("Finish writing data")
             if async_io:
                 return all_write_futures
@@ -144,7 +145,6 @@ def save_state_dict(
     plan_start_time = time.time()
     cached_data = None
 
-
     if isinstance(planner, VeScaleSavePlanner):
         central_plan = distW.reduce_scatter("plan", local_step, global_step)
     else:
@@ -172,7 +172,7 @@ def save_state_dict(
     write_futures = []
     if isinstance(planner, VeScaleSavePlanner):
         if cached_data:
-            logger.debug("Metdata cache hit. Reuse existing metadata")
+            logger.info("Metdata cache hit. Reuse existing metadata")
             _, final_storage_metadata = cached_data
             write_results = write_data(async_io=async_io)
             # Be sure to write cache metadata to .metadata file
@@ -188,7 +188,7 @@ def save_state_dict(
             if async_io:
                 write_futures = write_results
         else:
-            logger.debug("Metadata cache miss. The model/optimizer appears for the first time.")
+            logger.info("Metadata cache miss. The model/optimizer appears for the first time.")
             # First time do synchronous storing to get final_storage_metatdata.
             # Determine which communication topology to use.
             final_storage_metadata = distW.all_reduce("write", write_data, finish_checkpoint)

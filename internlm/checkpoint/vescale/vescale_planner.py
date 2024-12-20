@@ -55,8 +55,8 @@ class VeScaleLoadPlanner(DefaultLoadPlanner):
     def __init__(self):
         super().__init__()
 
-    def create_local_plan(self) -> LoadPlan:
-        return create_default_local_load_plan(self.state_dict, self.metadata)
+    def create_local_plan(self, is_optimizer=False) -> LoadPlan:
+        return create_default_local_load_plan(self.state_dict, self.metadata, is_optimizer)
 
     def resolve_tensor(self, read_item: ReadItem):
         tensor = self.lookup_tensor(read_item.dest_index)
@@ -70,18 +70,19 @@ class VeScaleLoadPlanner(DefaultLoadPlanner):
 
 from internlm.train.pipeline import map_fqn_local_to_global
 
-def create_default_local_load_plan(state_dict: Dict[str, Any], metadata: Metadata) -> LoadPlan:
+def create_default_local_load_plan(state_dict: Dict[str, Any], metadata: Metadata, is_optimizer) -> LoadPlan:
     """
     A function for creating local loading plan for loading checkpoint
     """
     # print(f"metadata: {metadata}", flush=True)
     requests = []
     for fqn, obj in state_dict.items():
-        md_fqn = fqn
-        if fqn in map_fqn_local_to_global:
-            md_fqn = map_fqn_local_to_global[fqn]
-            print(f"map_fqn_local_to_global {gpc.get_local_rank(ParallelMode.PIPELINE)}: {fqn}, {md_fqn}", flush=True)
-        md = metadata.state_dict_metadata[md_fqn]
+        global_fqn = fqn
+        if not is_optimizer:
+            if fqn in map_fqn_local_to_global:
+                global_fqn = map_fqn_local_to_global[fqn]
+                # print(f"map_fqn_local_to_global {gpc.get_local_rank(ParallelMode.PIPELINE)}: {fqn}, {global_fqn}", flush=True)
+        md = metadata.state_dict_metadata[global_fqn]
         if isinstance(obj, DTensor):
             assert False
             if obj.device_mesh.get_coordinate() is not None:
@@ -102,7 +103,7 @@ def create_default_local_load_plan(state_dict: Dict[str, Any], metadata: Metadat
                 obj.local_tensor = obj.local_tensor.reshape(obj.local_shape)
                 requests += _create_read_items(fqn, md, obj)
         else:
-            item = _create_read_items(fqn, md_fqn, md, obj)
+            item = _create_read_items(fqn, global_fqn, md, obj)
             # print(f"_create_read_items {gpc.get_global_rank()} {gpc.get_local_rank(ParallelMode.PIPELINE)}: {item}", flush=True)
             requests += item
     return LoadPlan(requests)
@@ -122,8 +123,8 @@ class VeScaleSavePlanner(DefaultSavePlanner):
         object = self.lookup_object(write_item.index, fqn)
         return self.transform_object(write_item, object)
 
-    def create_local_plan(self) -> Tuple[SavePlan, P2PTensorsInfo]:
-        plan, p2p_tensors_info = create_default_local_save_plan(self.state_dict, self.is_coordinator)
+    def create_local_plan(self, is_optimizer=False) -> Tuple[SavePlan, P2PTensorsInfo]:
+        plan, p2p_tensors_info = create_default_local_save_plan(self.state_dict, self.is_coordinator, is_optimizer)
         # print(f"save before replace local_plan {dist.get_rank()}: {plan}", flush=True)
         if self.flatten_state_dict:
             plan = dataclasses.replace(plan, planner_data=self.mappings)
@@ -169,7 +170,7 @@ class VeScaleSavePlanner(DefaultSavePlanner):
         return rst_value
 
 
-def create_default_local_save_plan(state_dict: Dict[str, Any], is_coordinator: bool) -> SavePlan:
+def create_default_local_save_plan(state_dict: Dict[str, Any], is_coordinator: bool, is_optimizer=False) -> SavePlan:
     """
     A function for creating local saving plan for saving checkpoint.
     """
@@ -180,6 +181,8 @@ def create_default_local_save_plan(state_dict: Dict[str, Any], is_coordinator: b
 
     send_p2p_reqs = []
     recv_p2p_reqs = {}
+    # if is_optimizer:
+    #     state_dict = state_dict["unflatten_fp32_weights"]
 
     for fqn, obj in state_dict.items():
         # Since DTensor supports submesh, adding extra check to ensure _create_write_items()
@@ -244,7 +247,7 @@ def create_default_local_save_plan(state_dict: Dict[str, Any], is_coordinator: b
                 obj.local_tensor = obj.local_tensor.reshape(obj.local_shape)
                 requests += _create_write_items(fqn, obj)
         elif isinstance(obj, (torch.Tensor)) or is_coordinator:
-            item = _create_write_items(fqn, obj)
+            item = _create_write_items(fqn, obj, is_optimizer=is_optimizer)
             # print(f"_create_write_items {gpc.get_global_rank()} {gpc.get_local_rank(ParallelMode.TENSOR)}: {item}", flush=True)
             requests += item
             # if dist.get_rank() == 1:
@@ -254,6 +257,7 @@ def create_default_local_save_plan(state_dict: Dict[str, Any], is_coordinator: b
     # Merge the tensors later
     writer_rank = dist.get_rank()
     for fqn in recv_tensors.keys():
+        assert False
         obj = state_dict[fqn]
         new_local_tensor = torch.zeros(
             (math.prod(obj.local_shape),), dtype=obj.local_tensor.dtype, device=obj.local_tensor.device

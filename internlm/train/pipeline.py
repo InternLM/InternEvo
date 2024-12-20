@@ -138,9 +138,10 @@ def set_param_unique_tracking_name(model):
                             continue
                         full_name = f"{chunk_id}.{idx}.{name}"
                         parts = f"{full_name}.weight".split('.', 2)
-                        original_id = model.first_layer + idx
-                        map_fqn = f"{children_name}.{original_id}." + '.'.join(parts[2:])
+                        global_id = model.first_layer + idx
                         result = f"{children_name}." + '.'.join(parts[1:])
+                        global_fqn = f"{children_name}.{global_id}." + '.'.join(parts[2:])
+                        
                         if isinstance(child, (ParallelLinearWithCommExt)):
                             setattr(
                                 child.weight,
@@ -154,6 +155,19 @@ def set_param_unique_tracking_name(model):
                                     f"{full_name}.bias",
                                 )
                             
+                                
+                            setattr(
+                                child.weight,
+                                "fqn",
+                                f"{result}",
+                            )
+                            if child.bias is not None:
+                                setattr(
+                                    child.bias,
+                                    "fqn",
+                                    f"{result}",
+                                )
+                            
                             
                             # print(result, flush=True)
                             assert hasattr(child, "offset"), f"{child}"
@@ -164,25 +178,29 @@ def set_param_unique_tracking_name(model):
                             
                             # print(f"original_id {gpc.get_local_rank(ParallelMode.PIPELINE)}: {model.first_layer}, {idx}, {original_id}, {name, child}, {map_fqn}")
                             
-                            if "4.attention_norm" in map_fqn:
-                                assert False
-                            
-                            map_fqn_local_to_global[result] = map_fqn
-                            map_fqn_global_to_local[map_fqn] = result
+                            map_fqn_local_to_global[result] = global_fqn
+                            map_fqn_global_to_local[global_fqn] = result
                             # print(f"map_pp_layer_fqn {gpc.get_local_rank(ParallelMode.PIPELINE)}: {map_pp_layer_fqn}", flush=True)
                             
-                            assert result not in map_layer_attr, f"{map_layer_attr} exists"
+                            assert global_fqn not in map_layer_attr, f"{map_layer_attr} exists"
                             
-                            map_layer_attr[result] = {'offset': getattr(child, "offset", [0] * len(child.weight.size())), 'complete_size': getattr(child, "complete_size", child.weight.size())}
+                            map_layer_attr[global_fqn] = {'offset': getattr(child, "offset", [0] * len(child.weight.size())), 'complete_size': getattr(child, "complete_size", child.weight.size())}
                             # print(f"child.weight {gpc.get_local_rank(ParallelMode.TENSOR)}: {result}, {child.offset}, {child.weight.shape}", flush=True)
                         elif isinstance(child, (RMSNorm)):
-                            print(f"map_fqn {gpc.get_local_rank(ParallelMode.PIPELINE)}: {map_fqn}", flush=True)
-                            map_fqn_local_to_global[result] = map_fqn
-                            map_fqn_global_to_local[map_fqn] = result
+                            # print(f"global_fqn {gpc.get_local_rank(ParallelMode.PIPELINE)}: {global_fqn}", flush=True)
+                            map_fqn_local_to_global[result] = global_fqn
+                            map_fqn_global_to_local[global_fqn] = result
+                            setattr(
+                                child.weight,
+                                "fqn",
+                                f"{result}",
+                            )
+                            map_layer_attr[global_fqn] = {'offset': getattr(child, "offset", [0] * len(child.weight.size())), 'complete_size': getattr(child, "complete_size", child.weight.size())}
                             
             else:
                 full_name = f"{chunk_id}.{children_name}"
                 result = f"{children_name}.weight"
+                assert getattr(children, "bias", None) is None
                 # print(f"result: {result}", flush=True)
                 if isinstance(children, Embedding1D):
                     setattr(
@@ -200,6 +218,20 @@ def set_param_unique_tracking_name(model):
                     )
                     assert result not in map_layer_attr, f"{map_layer_attr} exists"
                     # map_layer_attr[result] = {'offset': getattr(children, "offset", [0] * len(children.weight.size())), 'complete_size': getattr(children, "complete_size", children.weight.size())}
+                
+                setattr(
+                    children.weight,
+                    "fqn",
+                    f"{result}",
+                )
+                if getattr(children, "bias", None) is not None:
+                    if children.bias is not None:
+                        setattr(
+                            children.bias,
+                            "fqn",
+                            f"{result}",
+                        )
+                
                 map_layer_attr[result] = {'offset': getattr(children, "offset", [0] * len(children.weight.size())), 'complete_size': getattr(children, "complete_size", children.weight.size())}
     
     # print(f"map_layer_attr global={gpc.get_global_rank()}, pp={gpc.get_local_rank(ParallelMode.PIPELINE)}, tp={gpc.get_local_rank(ParallelMode.TENSOR)}: {map_layer_attr}", flush=True)

@@ -26,10 +26,14 @@ from . import bfile
 import os
 # from .distributed_optimizer import initialize_optimizer_state
 import torch.distributed as dist
+import torch
 from internlm.utils.logger import get_logger
 import atexit
 from internlm.core.context import global_context as gpc
 from internlm.core.context import ParallelMode
+from internlm.solver.optimizer import HybridZeroOptimizer
+from internlm.train.pipeline import map_fqn_local_to_global
+
 
 
 logger = get_logger(__file__)
@@ -102,14 +106,20 @@ class VeScaleCheckpointer(BaseCheckpointer):
             if key not in VESCALE_SUPPORTED_TYPES:
                 raise ValueError(f"{key} is not supported by VeScaleCheckpointer")
 
+        if path.startswith("local:"):
+            path = path.split(':')[1]
+        assert ':' not in path, f"{path} is not valid for universal checkpoint!"
         # Start saving checkpoint
         for key, value in checkpoint_state.items():
             if key == MODEL_STR:
                 # Get model path
                 model_path = os.path.join(path, MODEL_STR)
+                print(f"model_path: {path}, {model_path}", flush=True)
                 # Create a "model" folder on under root path
                 if dist.get_rank() == 0:
                     bfile.makedirs(model_path)
+                    # if not os.path.exists(path):
+                    #     os.makedirs(path, exist_ok=True)
                 dist.barrier()
                 # Save model.
                 _, new_write_futures = save_state_dict(
@@ -122,44 +132,59 @@ class VeScaleCheckpointer(BaseCheckpointer):
                     async_io=async_checkpoint,
                     last_write_futures=cls.state_write_futures[MODEL_STR],
                     io_workers=cls.state_io_workers[MODEL_STR],
+                    is_optimizer=False,
                 )
                 # Record new write futures.
                 cls.state_write_futures[MODEL_STR] = new_write_futures
-                dist.barrier()
+                dist.barrier() #att
             elif key == OPTIMIZER_STR:
+                # adamW hybrid zero optim
+                assert isinstance(value, HybridZeroOptimizer)
+                optimizer_state = value.state_dict()
+                
                 # Create a "optimizer" folder on under root path
                 # to save different parts of optimizer
                 optim_root_path = os.path.join(path, OPTIMIZER_STR)
+                print(f"optim_root_path: {optim_root_path}", flush=True)
                 if dist.get_rank() == 0:
                     bfile.makedirs(optim_root_path)
                 dist.barrier()
                 # Get process group for saving optimizer,
                 # All processes with the same pipeline rank are in the same pg
-                if not cls.optim_ckpt_proces_group:
-                    cls.optim_ckpt_proces_group = get_optim_ckpt_process_group()
+                # if not cls.optim_ckpt_proces_group:
+                #     cls.optim_ckpt_proces_group = get_optim_ckpt_process_group()
 
                 # Get optimizer path based on PP rank
                 # pp_rank = VESCALE_DEVICE_MESH.get_pipeline_parallel_rank() #attn
-                pp_rank = gpc.get_local_rank(ParallelMode.PIPELINE)
-                optimizer_path = os.path.join(optim_root_path, f"pp_{pp_rank}")
+                # pp_rank = gpc.get_local_rank(ParallelMode.PIPELINE)
+                # optimizer_path = os.path.join(optim_root_path, f"pp_{pp_rank}")
+                optimizer_path = optim_root_path
                 # Create optimizer folder on under root path
-                if dist.get_rank(cls.optim_ckpt_proces_group) == 0:
-                    bfile.makedirs(optimizer_path)
-                dist.barrier()
+                # if dist.get_rank(cls.optim_ckpt_proces_group) == 0:
+                #     bfile.makedirs(optimizer_path)
+                # dist.barrier()
                 # Save optimizer
                 _, new_write_futures = save_state_dict(
-                    state_dict=value.state_dict(),
+                    state_dict=optimizer_state["sharded_optimizer_state"],
                     path=optimizer_path,
-                    process_group=cls.optim_ckpt_proces_group,
+                    process_group=None,
                     coordinator_rank=0,
                     no_dist=False,
                     planner=cls.save_planner,
                     async_io=async_checkpoint,
                     last_write_futures=cls.state_write_futures[OPTIMIZER_STR],
                     io_workers=cls.state_io_workers[OPTIMIZER_STR],
+                    is_optimizer=True,
                 )
                 # Record new write futures.
                 cls.state_write_futures[OPTIMIZER_STR] = new_write_futures
+                
+                optimizer_state.pop("sharded_optimizer_state")
+                # print(f"after_pop {gpc.get_global_rank}: {optimizer_state}", flush=True)
+                if gpc.get_global_rank() == 0:
+                    print(f"global_optimizer_state: {os.path.join(path, 'global_optimizer_state.pt')}", flush=True)
+                    torch.save(optimizer_state, os.path.join(path, "global_optimizer_state.pt"))
+                dist.barrier()
 
     @classmethod
     def load(
@@ -176,6 +201,9 @@ class VeScaleCheckpointer(BaseCheckpointer):
                                  processes with data parallel rank = 0 load model from file system
                                  then broadcast it to processes with data parallel rank = 1
         """
+        if path.startswith("local:"):
+            path = path.split(':')[1]
+        assert ':' not in path, f"{path} is not valid for universal checkpoint!"
         # Add warning
         if bfile.is_local_path(path):
             logger.warning(
@@ -214,31 +242,37 @@ class VeScaleCheckpointer(BaseCheckpointer):
                 # Load back to model
                 value.load_state_dict(model_state) #att
             elif key == OPTIMIZER_STR:
-                assert False
                 # Get process group for loading optimizer,
                 # All processes with the same pipeline rank are in the same pg
-                if not cls.optim_ckpt_proces_group:
-                    cls.optim_ckpt_proces_group = get_optim_ckpt_process_group()
+                # if not cls.optim_ckpt_proces_group:
+                #     cls.optim_ckpt_proces_group = get_optim_ckpt_process_group()
                 # Get optimizer path based on TP and PP ranks
                 # pp_rank = VESCALE_DEVICE_MESH.get_pipeline_parallel_rank() #attn
                 pp_rank = gpc.get_local_rank(ParallelMode.PIPELINE)
-                optimizer_path = os.path.join(path, f"{OPTIMIZER_STR}", f"pp_{pp_rank}")
+                optimizer_path = os.path.join(path, OPTIMIZER_STR)
+                print(f"optimizer_path: {optimizer_path}", flush=True)
                 # Initialize optimizer states
                 # initialize_optimizer_state(value)
                 # Get optimizer state
                 optimizer_state = value.state_dict()
                 # Load optimizer state dictionary
                 load_state_dict(
-                    state_dict=optimizer_state,
+                    state_dict=optimizer_state["sharded_optimizer_state"],
                     path=optimizer_path,
-                    process_group=cls.optim_ckpt_proces_group,
+                    process_group=None,
                     coordinator_rank=0,
                     no_dist=False,
                     planner=cls.load_planner,
                     broadcast_tensors=False,
+                    is_optimizer=True,
                 )
+                #att check len equal
+                # print(f"optimizer_state {gpc.get_global_rank()}: {len(optimizer_state)}, {optimizer_state.keys()}", flush=True)
+                # fqn_list = checkpoint_state['optimizer'].fqn_list
+                # print(f"fqn_list {gpc.get_global_rank()}: {len(fqn_list[0]) + len(fqn_list[1])}, {fqn_list[0], fqn_list[1]}", flush=True)
                 # Load back to optimizer
-                value.load_state_dict(optimizer_state)
+                global_optimizer_state = torch.load(os.path.join(path, "global_optimizer_state.pt"))
+                value.load_state_dict(optimizer_state["sharded_optimizer_state"], global_optimizer_state)
             dist.barrier()
 
     @classmethod

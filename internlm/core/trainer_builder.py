@@ -45,9 +45,12 @@ from internlm.utils.simple_memory_profiler import SimpleMemoryProfiler
 from internlm.utils.utils import DataType
 from internlm.utils.writer import Writer
 
+
+
+import os
+
 # global llm logger
 logger = logging.getLogger(__file__)
-
 
 class TrainerBuilder(Trainer):
     """
@@ -126,7 +129,15 @@ class TrainerBuilder(Trainer):
 
         # initialize checkpoint manager and try resume training
         self.ckpt_manager = self._initialize_checkpoint_manager(model, optimizer, lr_scheduler, train_dl, config_lines)
+        
         self.ckpt_manager.try_resume_training(train_state, self.current_time)
+        
+        
+        
+        # from internlm.checkpoint.vescale.api import load as vescale_load
+        # checkpoint_state = {"model": model.model}
+        # vescale_load("/mnt/petrelfs/lijiaxing/InternEvo/vescale_ckpt_test/iter_10", checkpoint_state, broadcast_checkpoint=False)
+        # print("finish loading", flush=True)
 
         # initialize customed llm writer
         self.writer = self._initialize_writer(train_state, config_lines)
@@ -258,19 +269,39 @@ class TrainerBuilder(Trainer):
         """
         self.train()
         train_iter = iter(self.train_dl)
-
+        
+        from internlm.checkpoint.vescale.api import load as vescale_load
+        checkpoint_state = {"model": self.ckpt_manager.model}
+        checkpoint_state = {"model": self.ckpt_manager.model, "optimizer": self.ckpt_manager.optimizer}
+        checkpoint_state = {"model": self.ckpt_manager.model, "optimizer": self.ckpt_manager.optimizer}
+        # vescale_load("/mnt/petrelfs/lijiaxing/InternEvo/vescale_ckpt_test_dp2_tp2_pp2/20", checkpoint_state, broadcast_checkpoint=False)
+        
+        
+        print("finish loading", flush=True)
+        print(f"rank_log: rank={gpc.get_global_rank()}, dp={gpc.get_local_rank(ParallelMode.DATA)}, pp={gpc.get_local_rank(ParallelMode.PIPELINE)}, tp={gpc.get_local_rank(ParallelMode.TENSOR)}", flush=True)
+        print(f"train_state: {self.train_state}", flush=True)
         with initialize_llm_profile(profiling=self.profiling, start_time=self.current_time) as prof:
             gc.disable()
             for batch_count in range(self.train_state.batch_count, gpc.config.data.total_steps):
+                # print(f"norm_weight {gpc.get_global_rank()}: {self.ckpt_manager.model.norm.weight.shape}, {self.ckpt_manager.model.norm.weight}")
+                if batch_count == 35:
+                    break
                 if self._process_batch(batch_count, train_iter, prof):
                     break
 
         self.ckpt_manager.wait_async_upload_finish()
-
+    
     def _process_batch(self, batch_count: int, train_iter, prof) -> bool:
         empty_cache_and_diag(batch_count, interval=gpc.config.data.empty_cache_and_diag_interval)
         start_time = time.time()
         timer("one-batch").start()
+        
+        # data_path = "/mnt/petrelfs/lijiaxing/InternEvo/test_data_batch.pt"
+        # batch = torch.load(data_path)
+        
+        # if batch[0].get("type_ids", None) is not None:
+        #     self.metric.set_current_type_ids(type_ids=batch[0].pop("type_ids", None))
+        
 
         batch, train_iter = self._load_and_prepare_batch(batch_count, train_iter)
         if self.batch_skipper(batch_count):
@@ -278,6 +309,14 @@ class TrainerBuilder(Trainer):
                 logger.info(f"Skip batch count:`{batch_count}`...")
             timer("one-batch").stop()
             return False
+        
+        # if batch_count <= 10:
+        #     if gpc.is_rank_for_log():
+        #         print(f"skip {batch_count}", flush=True)
+        #     return False
+
+        if gpc.is_rank_for_log():
+            print(f"start trainging {batch_count}", flush=True)
 
         timer("fwd-bwd").start()
         loss, moe_loss = self._forward_backward(batch)
@@ -289,15 +328,80 @@ class TrainerBuilder(Trainer):
 
         if self._should_evaluate():
             self._evaluate()
+        # print(f"self.ckpt_manager.hybrid {gpc.get_global_rank()}, {gpc.get_local_rank(ParallelMode.ZERO1)}, {gpc.get_local_rank(ParallelMode.PIPELINE)}, {gpc.get_local_rank(ParallelMode.TENSOR)}: {self.ckpt_manager.optimizer.state_dict()}", flush=True)
+        # print(f"self.ckpt_manager.optimizer {gpc.get_global_rank()}, {gpc.get_local_rank(ParallelMode.ZERO1)}, {gpc.get_local_rank(ParallelMode.PIPELINE)}, {gpc.get_local_rank(ParallelMode.TENSOR)}: {self.ckpt_manager.optimizer.optim.state_dict()}", flush=True)
+        # print(f"self.ckpt_manager.grad_scaler {gpc.get_global_rank()}, {gpc.get_local_rank(ParallelMode.ZERO1)}, {gpc.get_local_rank(ParallelMode.PIPELINE)}, {gpc.get_local_rank(ParallelMode.TENSOR)}: {self.ckpt_manager.optimizer.grad_scaler.state_dict()}", flush=True)
 
+        # checkpoint_state = {"model": self.ckpt_manager.model, "optimizer": self.ckpt_manager.optimizer}
+        # checkpoint_state = {"model": self.ckpt_manager.model}
+        # checkpoint_state = {"optimizer": self.ckpt_manager.optimizer}
+        # assert 'output.weight' in self.ckpt_manager.model.state_dict()
+        fqn = 'layers.14.feed_forward.w2.weight'
+        # print(f"cp_length {gpc.get_local_rank(ParallelMode.ZERO1)}: {len(self.ckpt_manager.optimizer.state_dict()['unflatten_fp32_weights'])}, {len(self.ckpt_manager.model.state_dict())}")
+        # if fqn in self.ckpt_manager.optimizer.state_dict()['unflatten_fp32_weights']:
+        #     tensor1 = self.ckpt_manager.optimizer.state_dict()['unflatten_fp32_weights'][fqn]
+        #     tensor2 = self.ckpt_manager.model.state_dict()[fqn]
+        #     print(f"self.ckpt_manager.optimizer.state_dict() {gpc.get_global_rank()} {gpc.get_local_rank(ParallelMode.TENSOR)} {gpc.get_local_rank(ParallelMode.ZERO1)}: {tensor1.dtype}, {tensor1.shape}, {tensor1}", flush=True)
+        #     print(f"self.ckpt_manager.model.state_dict() {gpc.get_global_rank()} {gpc.get_local_rank(ParallelMode.TENSOR)} {gpc.get_local_rank(ParallelMode.ZERO1)}: {tensor2.shape}, {tensor2}", flush=True)
+
+        # print(f"model_state {dist.get_rank()}: {self.ckpt_manager.model.state_dict()['layers.0.attention.wo.weight'].shape}", flush=True)
+        # print(f"optimizer_state {dist.get_rank()}: {self.ckpt_manager.optimizer.state_dict()['master_current_weights'][0][0].shape}", flush=True)
+        # print(f"self.ckpt_manager.optimizer {gpc.get_global_rank()}, {gpc.get_local_rank(ParallelMode.ZERO1)}, {gpc.get_local_rank(ParallelMode.PIPELINE)}, {gpc.get_local_rank(ParallelMode.TENSOR)}: {self.ckpt_manager.optimizer.optim.state_dict()}", flush=True)
+
+        # if batch_count == 1:
+        #     from internlm.checkpoint.vescale.api import load as vescale_load
+        #     checkpoint_state = {"model": self.ckpt_manager.model, "optimizer": self.ckpt_manager.optimizer}
+        #     vescale_load("/mnt/petrelfs/lijiaxing/InternEvo/vescale_ckpt_test_dp2_tp2_pp2/iter_20", checkpoint_state, broadcast_checkpoint=False)
+        
+        if batch_count == 20: 
+            from internlm.checkpoint.vescale.devicemesh_api import VESCALE_DEVICE_MESH
+            from internlm.checkpoint.vescale.device_mesh import init_device_mesh
+            from internlm.checkpoint.vescale.api import save as vescale_save 
+            from internlm.checkpoint.vescale.api import load as vescale_load
+            from internlm.checkpoint.deepspeed.save_checkpoint import save_checkpoint
+            # device_mesh = init_device_mesh(
+            #     "cuda",
+            #     (
+            #         2,
+            #         4,
+            #     ),
+            #     mesh_dim_names=("DP", "TP"),
+            # )
+
+            # VESCALE_DEVICE_MESH._GLOBAL_MESH = device_mesh
+            # vescale_load("/mnt/petrelfs/lijiaxing/InternEvo/vescale_ckpt_test/iter_1", checkpoint_state, broadcast_checkpoint=False)
+            
+            checkpoint_state = {"model": self.ckpt_manager.model, "optimizer": self.ckpt_manager.optimizer}
+            # checkpoint_state = {"optimizer": self.ckpt_manager.optimizer}
+            # checkpoint_state = {"model": self.ckpt_manager.model}
+            # vescale_save(
+            #     os.path.join("/mnt/petrelfs/lijiaxing/InternEvo/vescale_ckpt_test_dp2_tp2_pp2", f"iter_{batch_count}"),
+            #     checkpoint_state,
+            #     async_checkpoint=False,
+            # )
+            # print("finish save", flush=True)
+            
+            # save_checkpoint(
+            #     save_dir="/mnt/petrelfs/lijiaxing/InternEvo/deepspeed_ckpt",
+            #     model=self.ckpt_manager.model,
+            #     optimizer=self.ckpt_manager.optimizer,
+            #     lr_scheduler=self.ckpt_manager.lr_scheduler,
+            #     train_state=self.train_state,
+            # )
+            
+            
+        
         if self.ckpt_manager.try_save_checkpoint(self.train_state):
             return True
+        
 
         self._update_profilers(batch_count, prof)
         return False
 
     def _load_and_prepare_batch(self, batch_count: int, train_iter):
         batch, train_iter = load_new_batch(train_dl=self.train_dl, train_iter=train_iter, train_state=self.train_state)
+        # torch.save(batch, "/mnt/petrelfs/lijiaxing/InternEvo/test_data_batch.py")
+
         self.train_state.batch_count = batch_count
         self.train_state.num_consumed_samples_in_epoch += len(batch[1])
         if batch[0].get("type_ids", None) is not None:
