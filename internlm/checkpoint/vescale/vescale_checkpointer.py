@@ -225,8 +225,8 @@ class VeScaleCheckpointer(BaseCheckpointer):
                 # print(f"model_state {gpc.get_global_rank()} {gpc.get_local_rank(ParallelMode.PIPELINE)}: {p})", flush=True)
                 # Set process group
                 if broadcast_checkpoint:
-                    assert False
-                    model_load_process_group = VESCALE_DEVICE_MESH.get_data_parallel_dim_groups()
+                    # model_load_process_group = VESCALE_DEVICE_MESH.get_data_parallel_dim_groups()
+                    model_load_process_group = gpc.get_group(ParallelMode.DATA)
                 else:
                     model_load_process_group = None
                 # Load model

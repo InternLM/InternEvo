@@ -298,6 +298,7 @@ def find_state_dict_object(state_dict: STATE_DICT_TYPE, index: MetadataIndex, fq
     # if isinstance(obj, torch.Tensor): #att
     #     return find_tensor_shard(obj, index)
     if isinstance(obj, OptimizerStateSpec):
+        assert False
         return obj.local_tensor
     # elif index.offset is not None:
     #     raise ValueError(

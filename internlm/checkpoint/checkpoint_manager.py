@@ -87,7 +87,7 @@ def try_load_internevo_ckpt(ckpt_mm, load_info, train_state: TrainState = None, 
     if universal_ckpt:
         from internlm.checkpoint.vescale.api import load as vescale_load
         checkpoint_state = {"model": ckpt_mm.model, "optimizer": ckpt_mm.optimizer}
-        vescale_load(load_ckpt_folder, checkpoint_state, broadcast_checkpoint=False)
+        vescale_load(load_ckpt_folder, checkpoint_state, broadcast_checkpoint=gpc.config.ckpt.universal_ckpt.broadcast_load)
 
     if not universal_ckpt and load_content.need_load(CheckpointLoadContent.MODEL):
         load_model_checkpoint(folder=load_ckpt_folder, model=ckpt_mm.model)
@@ -448,7 +448,7 @@ now step_count is {train_state.step_count}",
                 train_state=train_state,
                 model_config=self.model_config,
                 model_config_file=self.model_config_file,
-                universal_ckpt=gpc.config.ckpt.universal_ckpt,
+                universal_ckpt=gpc.config.ckpt.universal_ckpt.enable,
             )
 
             if (
@@ -591,7 +591,7 @@ now step_count is {train_state.step_count}",
             load_path = self.load_ckpt_info["path"]
             load_content = self.load_ckpt_info["content"]
             load_type = self.load_ckpt_info["ckpt_type"]
-            universal_ckpt = gpc.config.ckpt.universal_ckpt
+            universal_ckpt = gpc.config.ckpt.universal_ckpt.enable
             kwargs = {}
             
             if universal_ckpt:
@@ -656,7 +656,7 @@ now step_count is {train_state.step_count}",
             vescale_save(
                 path=folder,
                 checkpoint_state={"model": model, "optimizer": optimizer},
-                async_checkpoint=False,
+                async_checkpoint=gpc.config.ckpt.universal_ckpt.aysnc_save,
             )
             
 

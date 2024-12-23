@@ -59,7 +59,7 @@ def sort_rank_ranges(process_list: List[Tuple]) -> List[Tuple]:
     return sorted_process_list
 
 
-_MAX_CACHE_SIZE = 8
+_MAX_CACHE_SIZE = 2 # model ckpt + optm ckpt
 
 
 class PlanLRUCache:

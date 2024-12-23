@@ -53,7 +53,6 @@ def save_state_dict(
     [veScale version] Saves a distributed model in SPMD style. Fix sub-group storage.
     Args and usage is the same as `torch.distributed.checkpoint.save_state_dict`.
     """
-
     # Step 0: create distributed world based on process group and coordinator rank
     distW = _DistWrapper(process_group, not no_dist, coordinator_rank)
     if process_group:
@@ -132,6 +131,7 @@ def save_state_dict(
 
     # Wait for last write futures to finish.
     if last_write_futures:
+        print(f"last_write_futures: {last_write_futures}", flush=True)
         logger.info("Start waiting for last write events.")
         last_write_start_time = time.time()
         for fut in last_write_futures:
@@ -145,22 +145,23 @@ def save_state_dict(
     plan_start_time = time.time()
     cached_data = None
 
-    if isinstance(planner, VeScaleSavePlanner):
-        central_plan = distW.reduce_scatter("plan", local_step, global_step)
-    else:
-        raise AssertionError("Unsupported planner for saving checkpoint")
-    # if isinstance(planner, VeScaleSavePlanner): #attn
-    #     cached_data = planner.lookup_plan_meta()
-    #     if cached_data:
-    #         logger.debug("Plan cache hit. Reuse existing plan")
-    #         central_plan, _ = cached_data
-    #         _ = local_step()
-    #     else:
-    #         logger.debug("Plan cache miss. The model/optimizer appears for the first time.")
-
-    #         central_plan = distW.reduce_scatter("plan", local_step, global_step)
+    # if isinstance(planner, VeScaleSavePlanner):
+    #     central_plan = distW.reduce_scatter("plan", local_step, global_step)
     # else:
     #     raise AssertionError("Unsupported planner for saving checkpoint")
+    
+    if isinstance(planner, VeScaleSavePlanner):
+        cached_data = planner.lookup_plan_meta()
+        if cached_data:
+            logger.info("Plan cache hit. Reuse existing plan")
+            central_plan, _ = cached_data
+            # _ = local_step() #attn
+        else:
+            logger.info("Plan cache miss. The model/optimizer appears for the first time.")
+
+            central_plan = distW.reduce_scatter("plan", local_step, global_step)
+    else:
+        raise AssertionError("Unsupported planner for saving checkpoint")
     
     
     
@@ -194,7 +195,7 @@ def save_state_dict(
             final_storage_metadata = distW.all_reduce("write", write_data, finish_checkpoint)
             assert central_plan is not None
             assert final_storage_metadata is not None
-            # planner.cache_plan_meta(central_plan, final_storage_metadata) #attn
+            planner.cache_plan_meta(central_plan, final_storage_metadata) #attn
     else:
         raise AssertionError("Unsupported planner for writing data and metadata")
     store_local_cost_time = time.time() - store_local_start_time

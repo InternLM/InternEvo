@@ -27,6 +27,7 @@ from pathlib import Path
 from internlm.core.context import global_context as gpc
 from internlm.core.context import ParallelMode
 from internlm.train.pipeline import map_fqn_global_to_local, map_layer_attr
+from internlm.utils.common import get_current_device
 
 
 from torch.distributed.checkpoint.metadata import (
@@ -880,8 +881,9 @@ class FileSystemReader(StorageReader):
                         bytes.seek(0)
                         planner.load_bytes(req, bytes)
                     else:
-                        tensor = cast(Tensor, torch.load(file_slice, map_location="cpu"))
+                        tensor = cast(Tensor, torch.load(file_slice, map_location="cpu")) #att
                         tensor = narrow_tensor_by_index(tensor, req.storage_offsets, req.lengths)
+                        print(f"req: {req.dest_index.fqn}, {req}", flush=True)
                         target_tensor = planner.resolve_tensor(req).detach()
 
                         assert (
@@ -892,18 +894,20 @@ class FileSystemReader(StorageReader):
 
     def read_data_with_broadcast(self, per_file: Dict[str, List[ReadItem]], planner: LoadPlanner):
         for relative_path, reqs in per_file.items():
-            if dist.get_rank(self.data_parallel_process_group) == 0:
+            # if dist.get_rank(self.data_parallel_process_group) == 0:
+            if gpc.get_local_rank(ParallelMode.DATA) == 0:
                 file_path = self._get_file_path(relative_path)
                 file = open(file_path, "rb")
             dist.barrier(self.data_parallel_process_group)
             reqs = sorted(reqs, key=lambda req: self.storage_data[req.storage_index].offset)
             for req in reqs:
-                if dist.get_rank(self.data_parallel_process_group) == 0:
+                if gpc.get_local_rank(ParallelMode.DATA)== 0:
                     item_md = self.storage_data[req.storage_index]
                     file_slice = self._slice_file(file, item_md)
 
                 if req.type == LoadItemType.BYTE_IO:
-                    if dist.get_rank(self.data_parallel_process_group) == 0:
+                    assert False
+                    if gpc.get_local_rank(ParallelMode.DATA) == 0:
                         object_list = [io.BytesIO(file_slice.read(item_md.length))]
                     else:
                         object_list = [None]
@@ -912,13 +916,13 @@ class FileSystemReader(StorageReader):
                         object_list,
                         src=dist.get_global_rank(self.data_parallel_process_group, 0),
                         group=self.data_parallel_process_group,
-                        device=f"cuda:{torch.cuda.current_device()}",
+                        device=get_current_device(),
                     )
                     bytes = object_list[0]
                     bytes.seek(0)
                     planner.load_bytes(req, bytes)
                 else:
-                    if dist.get_rank(self.data_parallel_process_group) == 0:
+                    if gpc.get_local_rank(ParallelMode.DATA) == 0:
                         object_list = [cast(Tensor, torch.load(file_slice, map_location="cuda"))]
                     else:
                         object_list = [None]
@@ -926,9 +930,9 @@ class FileSystemReader(StorageReader):
                         object_list,
                         src=dist.get_global_rank(self.data_parallel_process_group, 0),
                         group=self.data_parallel_process_group,
-                        device=f"cuda:{torch.cuda.current_device()}",
+                        device=get_current_device(),
                     )
-                    tensor = object_list[0].cpu()
+                    tensor = object_list[0].cpu() #att
                     tensor = narrow_tensor_by_index(tensor, req.storage_offsets, req.lengths)
                     target_tensor = planner.resolve_tensor(req).detach()
 

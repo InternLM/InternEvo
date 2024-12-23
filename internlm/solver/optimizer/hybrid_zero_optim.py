@@ -1000,7 +1000,7 @@ class HybridZeroOptimizer(BaseOptimizer):
         optim_states = self.optim.state_dict()
         grad_scaler = self.grad_scaler.state_dict()
         states["grad_scaler"] = grad_scaler
-        if not gpc.config.ckpt.universal_ckpt:
+        if not gpc.config.ckpt.universal_ckpt.enable:
             states["base_optim_states"] = optim_states
             flat_fp32_weights = {}
             for group_id, param in self._fp32_flat_param_groups_of_current_rank.items():
@@ -1217,7 +1217,7 @@ class HybridZeroOptimizer(BaseOptimizer):
                 
 
     def load_state_dict(self, states, global_optimizer_state=None):
-        if not gpc.config.ckpt.universal_ckpt:
+        if not gpc.config.ckpt.universal_ckpt.enable:
             # TODO: Need to take into account the change in the number of DP.
             assert "grad_scaler" in states, "Not found grad_scaler state!"
             grad_scaler = states["grad_scaler"]

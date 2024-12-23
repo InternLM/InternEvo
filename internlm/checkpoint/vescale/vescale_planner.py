@@ -135,17 +135,33 @@ class VeScaleSavePlanner(DefaultSavePlanner):
         return find_state_dict_object(self.state_dict, index, fqn)
 
     def lookup_plan_meta(self) -> Optional[Tuple[SavePlan, Metadata]]:
+        # if not hasattr(self, STATE_DICT_STR):
+        #     return None
+        # else:
+        #     device_mesh = VESCALE_DEVICE_MESH.get()
+        #     plan_key = hash((frozenset(self.state_dict.keys()), self.is_coordinator, device_mesh))
+        #     return self._plan_cache.get(plan_key)
+
         if not hasattr(self, STATE_DICT_STR):
             return None
         else:
-            device_mesh = VESCALE_DEVICE_MESH.get()
-            plan_key = hash((frozenset(self.state_dict.keys()), self.is_coordinator, device_mesh))
+            plan_key = hash((frozenset(self.state_dict.keys()), self.is_coordinator))
             return self._plan_cache.get(plan_key)
 
     def cache_plan_meta(self, new_plan: SavePlan, new_metadata: Metadata) -> None:
-        device_mesh = VESCALE_DEVICE_MESH.get()
-        plan_key = hash((frozenset(self.state_dict.keys()), self.is_coordinator, device_mesh))
+        # device_mesh = VESCALE_DEVICE_MESH.get()
+        # plan_key = hash((frozenset(self.state_dict.keys()), self.is_coordinator, device_mesh))
+        # self._plan_cache.put(plan_key, new_plan, new_metadata)
+        
+        print(f"new_plan {gpc.get_global_rank()}: {new_plan}", flush=True)
+        print(f"new_metadata {gpc.get_global_rank()}: {new_metadata}", flush=True)
+
+        plan_key = hash((frozenset(self.state_dict.keys()), self.is_coordinator))
+        print(f"Before GPU Memory Allocated {gpc.get_global_rank()}: {torch.cuda.memory_allocated() /1024/1024} bytes", flush=True)
+        print(f"Before GPU Memory Cached {gpc.get_global_rank()}: {torch.cuda.memory_reserved() /1024/1024} bytes", flush=True)
         self._plan_cache.put(plan_key, new_plan, new_metadata)
+        print(f"After GPU Memory Allocated {gpc.get_global_rank()}: {torch.cuda.memory_allocated() /1024/1024} bytes", flush=True)
+        print(f"After GPU Memory Cached {gpc.get_global_rank()}: {torch.cuda.memory_reserved() /1024/1024} bytes", flush=True)
 
     def clear_cache(self) -> None:
         self._plan_cache.clear()
