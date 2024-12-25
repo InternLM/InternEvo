@@ -93,7 +93,6 @@ from internlm.utils.parallel import (
 )
 from internlm.utils.timeout import llm_timeout
 from internlm.utils.utils import TensorParallelMode
-from internlm.model.ops.norm import RMSNorm
 
 try:
     import torch_npu
@@ -117,16 +116,15 @@ LINEAR2NEWLINEAR_NAME_MAPPING = dict(
 logger = get_logger(__file__)
 internlm_accelerator = get_accelerator()
 
+# For universal checkpoint
+# record offset and complete_size of param in each layer
 map_layer_attr = {}
 map_fqn_local_to_global = {}
 map_fqn_global_to_local = {}
 
 
-def recover_pipeline_idx_for_layers(model, idx):
-    start_id = model.first_layer
-
 def set_param_unique_tracking_name(model):
-    # print(f"first_layer {gpc.get_global_rank()} {gpc.get_local_rank(ParallelMode.PIPELINE)}: {model.first_layer}, {model.last_layer}", flush=True)
+    uc_enable = gpc.config.ckpt.universal_ckpt.enable
     for chunk_id, chunk in enumerate(unwrap_naive_amp(model)):
         # Important: only works for llama-class models
         childrens = chunk.named_children()
@@ -136,12 +134,14 @@ def set_param_unique_tracking_name(model):
                     for name, child in block.named_modules():
                         if name == "":
                             continue
+
                         full_name = f"{chunk_id}.{idx}.{name}"
-                        parts = f"{full_name}.weight".split('.', 2)
+                        name_parts = f"{full_name}.weight".split(".", 2)
+                        # global_id for pipeline parallel case
                         global_id = model.first_layer + idx
-                        result = f"{children_name}." + '.'.join(parts[1:])
-                        global_fqn = f"{children_name}.{global_id}." + '.'.join(parts[2:])
-                        
+                        local_fqn = f"{children_name}." + ".".join(name_parts[1:])
+                        global_fqn = f"{children_name}.{global_id}." + ".".join(name_parts[2:])
+
                         if isinstance(child, (ParallelLinearWithCommExt)):
                             setattr(
                                 child.weight,
@@ -154,87 +154,80 @@ def set_param_unique_tracking_name(model):
                                     "tracking_name",
                                     f"{full_name}.bias",
                                 )
-                            
-                                
-                            setattr(
-                                child.weight,
-                                "fqn",
-                                f"{result}",
-                            )
-                            if child.bias is not None:
+
+                            if uc_enable:
                                 setattr(
-                                    child.bias,
+                                    child.weight,
                                     "fqn",
-                                    f"{result}",
+                                    f"{local_fqn}",
                                 )
-                            
-                            
-                            # print(result, flush=True)
-                            assert hasattr(child, "offset"), f"{child}"
-                            
-                            # print(f"layer_name {gpc.get_local_rank(ParallelMode.PIPELINE)}: {children_name}, {result}", flush=True)
-                            
-                            # recover_pipeline_idx_for_layers
-                            
-                            # print(f"original_id {gpc.get_local_rank(ParallelMode.PIPELINE)}: {model.first_layer}, {idx}, {original_id}, {name, child}, {map_fqn}")
-                            
-                            map_fqn_local_to_global[result] = global_fqn
-                            map_fqn_global_to_local[global_fqn] = result
-                            # print(f"map_pp_layer_fqn {gpc.get_local_rank(ParallelMode.PIPELINE)}: {map_pp_layer_fqn}", flush=True)
-                            
-                            assert global_fqn not in map_layer_attr, f"{map_layer_attr} exists"
-                            
-                            map_layer_attr[global_fqn] = {'offset': getattr(child, "offset", [0] * len(child.weight.size())), 'complete_size': getattr(child, "complete_size", child.weight.size())}
-                            # print(f"child.weight {gpc.get_local_rank(ParallelMode.TENSOR)}: {result}, {child.offset}, {child.weight.shape}", flush=True)
-                        elif isinstance(child, (RMSNorm)):
-                            # print(f"global_fqn {gpc.get_local_rank(ParallelMode.PIPELINE)}: {global_fqn}", flush=True)
-                            map_fqn_local_to_global[result] = global_fqn
-                            map_fqn_global_to_local[global_fqn] = result
+                                if child.bias is not None:
+                                    setattr(
+                                        child.bias,
+                                        "fqn",
+                                        f"{local_fqn}",
+                                    )
+
+                                assert hasattr(child, "offset"), f"{child}"
+                                map_fqn_local_to_global[local_fqn] = global_fqn
+                                map_fqn_global_to_local[global_fqn] = local_fqn
+
+                                assert global_fqn not in map_layer_attr, f"{map_layer_attr} exists"
+                                map_layer_attr[global_fqn] = {
+                                    "offset": getattr(child, "offset", [0] * len(child.weight.size())),
+                                    "complete_size": getattr(child, "complete_size", child.weight.size()),
+                                }
+
+                        elif isinstance(child, (RMSNorm)) and uc_enable:
+                            map_fqn_local_to_global[local_fqn] = global_fqn
+                            map_fqn_global_to_local[global_fqn] = local_fqn
                             setattr(
                                 child.weight,
                                 "fqn",
-                                f"{result}",
+                                f"{local_fqn}",
                             )
-                            map_layer_attr[global_fqn] = {'offset': getattr(child, "offset", [0] * len(child.weight.size())), 'complete_size': getattr(child, "complete_size", child.weight.size())}
-                            
+                            map_layer_attr[global_fqn] = {
+                                "offset": getattr(child, "offset", [0] * len(child.weight.size())),
+                                "complete_size": getattr(child, "complete_size", child.weight.size()),
+                            }
+
             else:
                 full_name = f"{chunk_id}.{children_name}"
-                result = f"{children_name}.weight"
+                local_fqn = f"{children_name}.weight"
                 assert getattr(children, "bias", None) is None
-                # print(f"result: {result}", flush=True)
                 if isinstance(children, Embedding1D):
                     setattr(
                         children.weight,
                         "tracking_name",
                         f"{chunk_id}_embeddings.weight",
                     )
-                    assert result not in map_layer_attr, f"{map_layer_attr} exists"
-                    # map_layer_attr[result] = {'offset': children.offset, 'complete_size': children.weight.complete_size}
+                    assert local_fqn not in map_layer_attr, f"{map_layer_attr} exists"
                 else:
                     setattr(
                         children.weight,
                         "tracking_name",
                         f"{full_name}.weight",
                     )
-                    assert result not in map_layer_attr, f"{map_layer_attr} exists"
-                    # map_layer_attr[result] = {'offset': getattr(children, "offset", [0] * len(children.weight.size())), 'complete_size': getattr(children, "complete_size", children.weight.size())}
-                
-                setattr(
-                    children.weight,
-                    "fqn",
-                    f"{result}",
-                )
-                if getattr(children, "bias", None) is not None:
-                    if children.bias is not None:
-                        setattr(
-                            children.bias,
-                            "fqn",
-                            f"{result}",
-                        )
-                
-                map_layer_attr[result] = {'offset': getattr(children, "offset", [0] * len(children.weight.size())), 'complete_size': getattr(children, "complete_size", children.weight.size())}
-    
-    # print(f"map_layer_attr global={gpc.get_global_rank()}, pp={gpc.get_local_rank(ParallelMode.PIPELINE)}, tp={gpc.get_local_rank(ParallelMode.TENSOR)}: {map_layer_attr}", flush=True)
+                    assert local_fqn not in map_layer_attr, f"{map_layer_attr} exists"
+
+                if uc_enable:
+                    setattr(
+                        children.weight,
+                        "fqn",
+                        f"{local_fqn}",
+                    )
+                    if getattr(children, "bias", None) is not None:
+                        if children.bias is not None:
+                            setattr(
+                                children.bias,
+                                "fqn",
+                                f"{local_fqn}",
+                            )
+
+                    map_layer_attr[local_fqn] = {
+                        "offset": getattr(children, "offset", [0] * len(children.weight.size())),
+                        "complete_size": getattr(children, "complete_size", children.weight.size()),
+                    }
 
 
 def set_fp32_attr_for_model(model: Union[nn.Module, nn.ModuleList]):

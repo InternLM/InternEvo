@@ -34,13 +34,13 @@ from internlm.solver.optimizer.store import (
 from internlm.solver.optimizer.utils import (
     DynamicGradScaler,
     flatten,
-    unflatten,
     get_grad_accumulate_object,
     has_inf_or_nan,
     reduce_tensor,
     release_param_grad,
     split_half_float_double,
     sync_param,
+    unflatten,
 )
 from internlm.utils.common import get_current_device
 from internlm.utils.logger import get_logger
@@ -50,7 +50,6 @@ from internlm.utils.timeout import llm_timeout
 
 from .base_optimizer import BaseOptimizer
 from .utils import compute_norm
-
 
 inf = math.inf
 logger = get_logger(__file__)
@@ -151,19 +150,12 @@ class HybridZeroOptimizer(BaseOptimizer):
             assert self._param_bcast_sync_handler is not None
 
         self._isp_communicator = isp_communicator
-        
-        self.param_global_shape_info = {}
-        self.param_local_shape_info = {}
-        self.param_global_offset_info = {}
-        self.param_across_dp_ranks_info = {}
-        self.fqn_list = {}
-        shape_list = {}
+
         # iterate over the param group in the optimizer
         # partition these param groups for data parallel training
         # and add buffers to parameter store for future access
         for group_id, param_group in enumerate(self.optim.param_groups):
             group_params = param_group["params"]
-            self.fqn_list[group_id] = []
 
             # set the dtype for each param group
             param_group["dtype"] = group_params[0].dtype if len(group_params) != 0 else None
@@ -203,11 +195,6 @@ class HybridZeroOptimizer(BaseOptimizer):
                     for param in params:
                         setattr(param, "group_id", group_id)
                         self._param_store.set_param_to_rank(param, rank)
-            
-            # for param in params_per_rank[gpc.get_local_rank(ParallelMode.ZERO1)]:
-            #     print(f"fp16_fqn {gpc.get_global_rank()} {gpc.get_local_rank(ParallelMode.ZERO1)}: {param.fqn}", flush=True)
-
-            
 
             # move to cpu to make room to create the flat tensor
             for param in group_params:
@@ -220,22 +207,13 @@ class HybridZeroOptimizer(BaseOptimizer):
                 # No flat fp16 buffer is allocated if the process has no parameters.
                 if rank not in self.param_group_no_params_ranks[group_id]:
                     tensor_list = self._param_store.get_fp16_params_by_rank_group(rank, group_id)
-                    
+
                     with torch.no_grad():
                         flat_tensor = flatten(tensor_list)
                     flat_tensor = flat_tensor.data.to(get_current_device())
                     self._param_store.add_flat_fp16_param_by_rank_group(rank, group_id, flat_tensor)
                     sync_param(flat_tensor=flat_tensor, tensor_list=tensor_list)
-                    
-                    if rank == gpc.get_local_rank(ParallelMode.ZERO1):
-                        offset = 0
-                        for tensor in tensor_list:
-                            shape_list[tensor.fqn] = tensor.shape
-                            self.fqn_list[group_id].append(tensor.fqn)
-                            offset += tensor.numel()
-                        # print(f"fqn_list {gpc.get_global_rank()} {gpc.get_local_rank(ParallelMode.ZERO1)}: {len(params_per_rank[rank])}, {len(tensor_list)}, {len(self.fqn_list)}, {self.fqn_list}", flush=True)
-                        
-            # print(f"shape_list {gpc.get_global_rank()} {gpc.get_local_rank(ParallelMode.TENSOR)} {gpc.get_local_rank(ParallelMode.ZERO1)}: {shape_list}", flush=True)
+
             # create a copy of fp32 weights of the parameters for which this rank is responsible
             # No flat fp32 buffer is allocated if the process has no parameters.
             if self.param_group_has_params[group_id]:
@@ -247,14 +225,6 @@ class HybridZeroOptimizer(BaseOptimizer):
                 fp32_flat_current_rank = fp32_flat_current_rank.to(device)
                 fp32_flat_current_rank.requires_grad = True
                 self._fp32_flat_param_groups_of_current_rank[group_id] = fp32_flat_current_rank
-                print(f"fp32_flat_current_rank {gpc.get_global_rank()}: {fp32_flat_current_rank.shape}", flush=True)
-                
-                
-                
-                self.param_global_shape_info[fp32_flat_current_rank] = fp32_flat_current_rank.shape
-                self.param_local_shape_info[fp32_flat_current_rank] = fp32_flat_current_rank.shape
-                self.param_global_offset_info[fp32_flat_current_rank] = [0, 0]
-                
 
                 # need to replace the params in the `params` field in the optimizer
                 # so that when the optimizer calls step(), it only updates the tensors
@@ -273,9 +243,6 @@ class HybridZeroOptimizer(BaseOptimizer):
         self.skip_grad_reduce = False
 
         self._attach_reduction_hook()
-        
-        # print(f"self.grad_scaler.state_dict() {gpc.get_global_rank()}: {self.grad_scaler.state_dict()}", flush=True)
-        # print(f"self.optm.state_dict() {gpc.get_global_rank()}: {self.optim.state_dict()}", flush=True)
 
     @property
     def zero_local_rank(self):
@@ -301,7 +268,7 @@ class HybridZeroOptimizer(BaseOptimizer):
         param_list = param_group["params"]
 
         sorted_params = sorted(param_list, key=lambda x: x.numel(), reverse=True)
-        
+
         for i, param in enumerate(sorted_params):
             if param.requires_grad is False:
                 continue
@@ -326,7 +293,6 @@ class HybridZeroOptimizer(BaseOptimizer):
             logger.info(  # pylint: disable=W1203
                 f"Number of elements on ranks: {numel_per_rank}, rank:{gpc.get_global_rank()}"
             )
-        # print(f"sorted_params: {len(sorted_params)}, {len(params_per_rank)}, {params_per_rank}, {no_params_ranks}", flush=True)
         return params_per_rank, set(no_params_ranks)
 
     def _is_moe_group(self, param_group):
@@ -1001,6 +967,7 @@ class HybridZeroOptimizer(BaseOptimizer):
         grad_scaler = self.grad_scaler.state_dict()
         states["grad_scaler"] = grad_scaler
         if not gpc.config.ckpt.universal_ckpt.enable:
+            # original ckpt
             states["base_optim_states"] = optim_states
             flat_fp32_weights = {}
             for group_id, param in self._fp32_flat_param_groups_of_current_rank.items():
@@ -1010,214 +977,64 @@ class HybridZeroOptimizer(BaseOptimizer):
             states["flat_fp32_weights"] = flat_fp32_weights
             states["zero_devide_optim_plan"] = self.params_per_rank_id_dict
         else:
-            import time
-            if gpc.get_global_rank() == 0:
-                start = time.time()
-            print(f"optim_states: {optim_states}", flush=True)
+            # universal ckpt. INFO: currently only adapt to AdamW
+            # empty_states is used as the initialization of state_dict when loading ckpt
             empty_states = False
-            if len(optim_states['state']) == 0:
+            if len(optim_states["state"]) == 0:
                 empty_states = True
-                optim_states['state'] = {0:{'step':0}}
-            
+                optim_states["state"] = {0: {"step": 0}}
+
+            # To save tensor that needs to be sharded
             sharded_optimizer_state = {}
-            temp = []
             for group_id, flatten_fp32_param in self._fp32_flat_param_groups_of_current_rank.items():
                 rank = self._zero_local_rank[group_id]
-                fqn_list = self.fqn_list[group_id]
                 if rank not in self.param_group_no_params_ranks[group_id]:
-                    # fp32 param
-                    assert len(fqn_list) > 0
                     tensor_list = self._param_store.get_fp16_params_by_rank_group(rank, group_id)
                     if len(tensor_list) > 0:
                         unflatten_tensor_list = unflatten(flatten_fp32_param, tensor_list)
-                        # base optimizer state
                         # notice: we assume that one param group corresponds to one flattened tensor.
-                        # we only save unflattened otimizer state.
-                        # print(type(group_id), flush=True)
-                        # print(optim_states['state'], flush=True)
+                        # we will save unflattened otimizer state for universal ckpt.
                         if not empty_states:
-                            flatten_exp_avg = optim_states['state'][group_id]['exp_avg']
-                            flatten_exp_avg_sq = optim_states['state'][group_id]['exp_avg_sq']
+                            flatten_exp_avg = optim_states["state"][group_id]["exp_avg"]
+                            flatten_exp_avg_sq = optim_states["state"][group_id]["exp_avg_sq"]
                             assert flatten_exp_avg.shape == flatten_fp32_param.shape == flatten_exp_avg_sq.shape
                             unflatten_exp_avg = unflatten(flatten_exp_avg, tensor_list)
                             unflatten_exp_avg_sq = unflatten(flatten_exp_avg_sq, tensor_list)
-                            assert len(unflatten_tensor_list) == len(tensor_list) == len(unflatten_exp_avg) == len(unflatten_exp_avg_sq)
+                            assert (
+                                len(unflatten_tensor_list)
+                                == len(tensor_list)
+                                == len(unflatten_exp_avg)
+                                == len(unflatten_exp_avg_sq)
+                            )
+
                         from internlm.train.pipeline import map_fqn_local_to_global
+
                         for i in range(len(tensor_list)):
-                            assert tensor_list[i].fqn == fqn_list[i]
                             assert tensor_list[i].fqn not in sharded_optimizer_state
                             fqn = tensor_list[i].fqn
-                            if fqn in map_fqn_local_to_global:
+                            # For optim ckpt, we directly save global_fqn
+                            if fqn in map_fqn_local_to_global:  # pylint: disable=consider-using-get
                                 fqn = map_fqn_local_to_global[fqn]
-                            temp.append(fqn)
+
                             sharded_optimizer_state[fqn] = unflatten_tensor_list[i]
-                            
                             if not empty_states:
                                 sharded_optimizer_state[f"{fqn}.exp_avg"] = unflatten_exp_avg[i]
                                 sharded_optimizer_state[f"{fqn}.exp_avg_sq"] = unflatten_exp_avg_sq[i]
                             else:
                                 sharded_optimizer_state[f"{fqn}.exp_avg"] = torch.empty_like(unflatten_tensor_list[i])
-                                sharded_optimizer_state[f"{fqn}.exp_avg_sq"] = torch.empty_like(unflatten_tensor_list[i])
-                                           
-                else:
-                    assert len(fqn_list) == 0
-            
-            states["step"] = optim_states['state'][0]['step']
+                                sharded_optimizer_state[f"{fqn}.exp_avg_sq"] = torch.empty_like(
+                                    unflatten_tensor_list[i]
+                                )
+
+            states["step"] = optim_states["state"][0]["step"]
             states["param_groups"] = optim_states["param_groups"]
             states["sharded_optimizer_state"] = sharded_optimizer_state
-            if gpc.get_global_rank() == 0:
-                end = time.time() - start
-                print(f"create_state_dict: {end}", flush=True)
 
         return states
-    
-    # def state_dict(self):
-    #     import time
-    #     if gpc.get_global_rank() == 0:
-    #         start = time.time()
-    #     states = {}
-    #     optim_states = self.optim.state_dict()
-    #     print(f"optim_states: {optim_states}", flush=True)
-    #     empty_states = False
-    #     if len(optim_states['state']) == 0:
-    #         empty_states = True
-    #         optim_states['state'] = {0:{'step':0}}
-        
-
-    #     sharded_optimizer_state = {}
-    #     temp = []
-    #     for group_id, flatten_fp32_param in self._fp32_flat_param_groups_of_current_rank.items():
-    #         rank = self._zero_local_rank[group_id]
-    #         fqn_list = self.fqn_list[group_id]
-    #         if rank not in self.param_group_no_params_ranks[group_id]:
-    #             # fp32 param
-    #             assert len(fqn_list) > 0
-    #             tensor_list = self._param_store.get_fp16_params_by_rank_group(rank, group_id)
-    #             if len(tensor_list) > 0:
-    #                 unflatten_tensor_list = unflatten(flatten_fp32_param, tensor_list)
-    #                 # base optimizer state
-    #                 # notice: we assume that one param group corresponds to one flattened tensor.
-    #                 # we only save unflattened otimizer state.
-    #                 # print(type(group_id), flush=True)
-    #                 # print(optim_states['state'], flush=True)
-    #                 if not empty_states:
-    #                     flatten_exp_avg = optim_states['state'][group_id]['exp_avg']
-    #                     flatten_exp_avg_sq = optim_states['state'][group_id]['exp_avg_sq']
-    #                     assert flatten_exp_avg.shape == flatten_fp32_param.shape == flatten_exp_avg_sq.shape
-    #                     unflatten_exp_avg = unflatten(flatten_exp_avg, tensor_list)
-    #                     unflatten_exp_avg_sq = unflatten(flatten_exp_avg_sq, tensor_list)
-    #                     assert len(unflatten_tensor_list) == len(tensor_list) == len(unflatten_exp_avg) == len(unflatten_exp_avg_sq)
-    #                 from internlm.train.pipeline import map_fqn_local_to_global
-    #                 for i in range(len(tensor_list)):
-    #                     assert tensor_list[i].fqn == fqn_list[i]
-    #                     assert tensor_list[i].fqn not in sharded_optimizer_state
-    #                     fqn = tensor_list[i].fqn
-    #                     if fqn in map_fqn_local_to_global:
-    #                         fqn = map_fqn_local_to_global[fqn]
-    #                     temp.append(fqn)
-    #                     sharded_optimizer_state[fqn] = unflatten_tensor_list[i]
-                        
-    #                     if not empty_states:
-    #                         sharded_optimizer_state[f"{fqn}.exp_avg"] = unflatten_exp_avg[i]
-    #                         sharded_optimizer_state[f"{fqn}.exp_avg_sq"] = unflatten_exp_avg_sq[i]
-    #                     else:
-    #                         sharded_optimizer_state[f"{fqn}.exp_avg"] = torch.empty_like(unflatten_tensor_list[i])
-    #                         sharded_optimizer_state[f"{fqn}.exp_avg_sq"] = torch.empty_like(unflatten_tensor_list[i])
-                    
-                
-    #             # print(f"debug_before: {self.optim.state_dict()['state'][group_id]['exp_avg']}", flush=True)
-    #             # optim_states['state'][group_id]['exp_avg'] = ''
-    #             # optim_states['state'][group_id]['exp_avg_sq'] = ''
-    #             # print(f"debug_after: {self.optim.state_dict()['state'][group_id]['exp_avg']}", flush=True)
-                
-    #         else:
-    #             assert len(fqn_list) == 0
-        
-    #     grad_scaler = self.grad_scaler.state_dict()
-    #     # print(f"optim_states['state'][0]['step']: {optim_states['state'][0]}, {optim_states['state'][0]['step']}, {type(optim_states['state'][0]['step'])}", flush=True)
-    #     states["grad_scaler"] = grad_scaler
-    #     states["step"] = optim_states['state'][0]['step']
-    #     states["param_groups"] = optim_states["param_groups"]
-    #     states["sharded_optimizer_state"] = sharded_optimizer_state
-    #     if gpc.get_global_rank() == 0:
-    #         end = time.time() - start
-    #         print(f"create_state_dict: {end}", flush=True)
-       
-    #     return states
-    
-    # def load_state_dict(self, states, global_optimizer_state):
-    #     assert "grad_scaler" in global_optimizer_state, "Not found grad_scaler state!"
-    #     assert "step" in global_optimizer_state, "Not found step state!"
-    #     assert "param_groups" in global_optimizer_state, "Not found param_groups state!"
-    #     print(f"states {gpc.get_global_rank()}: {states.keys()}", flush=True)
-        
-    #     grad_scaler = global_optimizer_state["grad_scaler"]
-    #     print(f"load_state_dict grad_scaler {gpc.get_global_rank()}: {grad_scaler}", flush=True)
-    #     self.grad_scaler.load_state_dict(grad_scaler)
-        
-    #     step = global_optimizer_state["step"]
-    #     print(f"load_state_dict step {gpc.get_global_rank()}: {step}, {global_optimizer_state}", flush=True)
-    #     param_groups = global_optimizer_state["param_groups"]
-    #     print(f"load_state_dict param_groups {gpc.get_global_rank()}: {param_groups}", flush=True)
-
-    #     if gpc.config.get("only_load_lr", False):
-    #         if gpc.is_rank_for_log():
-    #             logger.info("Only load lr in param_groups, skip loading weights in optimizer...")
-    #         for pg1, pg2 in zip(self.optim.param_groups, param_groups):
-    #             pg1["lr"] = pg2["lr"]
-    #         return
-
-    #     optim_states = {'state': {}, 'param_groups': param_groups}
-    #     for group_id, self_flatten_fp32_param in self._fp32_flat_param_groups_of_current_rank.items():
-    #         print(f"group_id: {type(group_id)}", flush=True)
-    #         rank = self._zero_local_rank[group_id]
-    #         if rank not in self.param_group_no_params_ranks[group_id]:
-    #             # self fp16 unflatten param list
-    #             self_tensor_list = self._param_store.get_fp16_params_by_rank_group(rank, group_id)
-                
-    #             if len(self_tensor_list) > 0:
-    #                 optim_states['state'][group_id] = {"step": step}
-    #                 ckpt_fp32_params = []
-    #                 ckpt_exp_avg_list = []
-    #                 ckpt_exp_avg_sq_list = []
-    #                 for tensor in self_tensor_list:
-    #                     fqn = tensor.fqn
-    #                     from internlm.train.pipeline import map_fqn_local_to_global
-    #                     if fqn in map_fqn_local_to_global:
-    #                         fqn = map_fqn_local_to_global[fqn]
-    #                     assert tensor.shape == states[fqn].shape == states[f"{fqn}.exp_avg"].shape == states[f"{fqn}.exp_avg_sq"].shape
-    #                     ckpt_fp32_params.append(states[fqn])
-    #                     ckpt_exp_avg_list.append(states[f"{fqn}.exp_avg"])
-    #                     ckpt_exp_avg_sq_list.append(states[f"{fqn}.exp_avg_sq"])
-                    
-    #                 ckpt_flatten_fp32_param = flatten(ckpt_fp32_params)
-    #                 ckpt_flatten_exp_avg = flatten(ckpt_exp_avg_list)
-    #                 ckpt_flatten_exp_avg_sq = flatten(ckpt_exp_avg_sq_list)
-                    
-    #                 assert (
-    #                     self_flatten_fp32_param.shape == ckpt_flatten_fp32_param.shape
-    #                 ), f"The loaded parameter shape is inconsistent, {self_flatten_fp32_param.shape} != {ckpt_flatten_fp32_param.shape}"
-    #                 self_flatten_fp32_param.data.copy_(ckpt_flatten_fp32_param.data)
-    #                 optim_states['state'][group_id]['exp_avg'] = ckpt_flatten_exp_avg
-    #                 optim_states['state'][group_id]['exp_avg_sq'] = ckpt_flatten_exp_avg_sq
-        
-    #     self.optim.load_state_dict(optim_states)
-            
-            
-        # # Load the fp16 model weights.
-        # for group_id in range(len(self._fp16_param_groups)):
-        #     if self._zero_local_rank[group_id] not in self.param_group_no_params_ranks[group_id]:
-        #         fp16_param = self._param_store.get_flat_fp16_param_by_rank_group(
-        #             rank=self._zero_local_rank[group_id], group_id=group_id
-        #         )
-        #         fp32_param = self._fp32_flat_param_groups_of_current_rank[group_id]
-        #         fp16_param.data.copy_(fp32_param)    
-            
-            
-                
 
     def load_state_dict(self, states, global_optimizer_state=None):
         if not gpc.config.ckpt.universal_ckpt.enable:
+            # original ckpt
             # TODO: Need to take into account the change in the number of DP.
             assert "grad_scaler" in states, "Not found grad_scaler state!"
             grad_scaler = states["grad_scaler"]
@@ -1256,20 +1073,17 @@ class HybridZeroOptimizer(BaseOptimizer):
             if "zero_devide_optim_plan" in states:
                 self.params_per_rank_id_dict = states["zero_devide_optim_plan"]
         else:
+            # universal ckpt
             assert global_optimizer_state is not None
             assert "grad_scaler" in global_optimizer_state, "Not found grad_scaler state!"
             assert "step" in global_optimizer_state, "Not found step state!"
             assert "param_groups" in global_optimizer_state, "Not found param_groups state!"
-            print(f"states {gpc.get_global_rank()}: {states.keys()}", flush=True)
-            
+
             grad_scaler = global_optimizer_state["grad_scaler"]
-            print(f"load_state_dict grad_scaler {gpc.get_global_rank()}: {grad_scaler}", flush=True)
             self.grad_scaler.load_state_dict(grad_scaler)
-            
+
             step = global_optimizer_state["step"]
-            print(f"load_state_dict step {gpc.get_global_rank()}: {step}, {global_optimizer_state}", flush=True)
             param_groups = global_optimizer_state["param_groups"]
-            print(f"load_state_dict param_groups {gpc.get_global_rank()}: {param_groups}", flush=True)
 
             if gpc.config.get("only_load_lr", False):
                 if gpc.is_rank_for_log():
@@ -1278,40 +1092,48 @@ class HybridZeroOptimizer(BaseOptimizer):
                     pg1["lr"] = pg2["lr"]
                 return
 
-            optim_states = {'state': {}, 'param_groups': param_groups}
+            optim_states = {"state": {}, "param_groups": param_groups}
             for group_id, self_flatten_fp32_param in self._fp32_flat_param_groups_of_current_rank.items():
-                print(f"group_id: {type(group_id)}", flush=True)
                 rank = self._zero_local_rank[group_id]
                 if rank not in self.param_group_no_params_ranks[group_id]:
                     # self fp16 unflatten param list
                     self_tensor_list = self._param_store.get_fp16_params_by_rank_group(rank, group_id)
-                    
+
                     if len(self_tensor_list) > 0:
-                        optim_states['state'][group_id] = {"step": step}
+                        optim_states["state"][group_id] = {"step": step}
                         ckpt_fp32_params = []
                         ckpt_exp_avg_list = []
                         ckpt_exp_avg_sq_list = []
+
                         for tensor in self_tensor_list:
                             fqn = tensor.fqn
                             from internlm.train.pipeline import map_fqn_local_to_global
-                            if fqn in map_fqn_local_to_global:
+
+                            if fqn in map_fqn_local_to_global:  # pylint: disable=consider-using-get
                                 fqn = map_fqn_local_to_global[fqn]
-                            assert tensor.shape == states[fqn].shape == states[f"{fqn}.exp_avg"].shape == states[f"{fqn}.exp_avg_sq"].shape
+                            assert (
+                                tensor.shape
+                                == states[fqn].shape
+                                == states[f"{fqn}.exp_avg"].shape
+                                == states[f"{fqn}.exp_avg_sq"].shape
+                            )
                             ckpt_fp32_params.append(states[fqn])
                             ckpt_exp_avg_list.append(states[f"{fqn}.exp_avg"])
                             ckpt_exp_avg_sq_list.append(states[f"{fqn}.exp_avg_sq"])
-                        
+
                         ckpt_flatten_fp32_param = flatten(ckpt_fp32_params)
                         ckpt_flatten_exp_avg = flatten(ckpt_exp_avg_list)
                         ckpt_flatten_exp_avg_sq = flatten(ckpt_exp_avg_sq_list)
-                        
-                        assert (
-                            self_flatten_fp32_param.shape == ckpt_flatten_fp32_param.shape
-                        ), f"The loaded parameter shape is inconsistent, {self_flatten_fp32_param.shape} != {ckpt_flatten_fp32_param.shape}"
+
+                        assert self_flatten_fp32_param.shape == ckpt_flatten_fp32_param.shape, (
+                            "The loaded parameter shape is inconsistent,"
+                            f"{self_flatten_fp32_param.shape} != {ckpt_flatten_fp32_param.shape}"
+                        )
+
                         self_flatten_fp32_param.data.copy_(ckpt_flatten_fp32_param.data)
-                        optim_states['state'][group_id]['exp_avg'] = ckpt_flatten_exp_avg
-                        optim_states['state'][group_id]['exp_avg_sq'] = ckpt_flatten_exp_avg_sq
-            
+                        optim_states["state"][group_id]["exp_avg"] = ckpt_flatten_exp_avg
+                        optim_states["state"][group_id]["exp_avg_sq"] = ckpt_flatten_exp_avg_sq
+
             self.optim.load_state_dict(optim_states)
 
     def reload_zero_fp32_buff(self):
