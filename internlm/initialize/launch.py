@@ -259,7 +259,7 @@ def args_sanity_check():
         # If 'auto_resume' is not given, we set it to True, so internlm can have opportunity
         # to auto-load latest checkpoint.
         ckpt._add_item("auto_resume", True)
-    
+
     if "universal_ckpt" not in ckpt:
         ckpt._add_item("universal_ckpt", dict(enable=False, aysnc_save=False, broadcast_load=False))
 
