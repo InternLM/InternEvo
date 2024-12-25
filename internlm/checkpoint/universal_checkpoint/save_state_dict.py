@@ -38,10 +38,10 @@ def save_state_dict(
     no_dist: bool = False,
     planner: Optional[SavePlanner] = None,
     async_io: bool = True,
-    last_write_futures: Future[List[WriteResult]] = None,
+    last_write_futures: Future[List[WriteResult]] = None,  # pylint: disable=E1136
     io_workers=None,
     is_optimizer=False,
-) -> Tuple[Metadata, Future[List[WriteResult]]]:
+) -> Tuple[Metadata, Future[List[WriteResult]]]:  # pylint: disable=E1136
     """
     Saves a model in SPMD style. Fix sub-group storage.
     """

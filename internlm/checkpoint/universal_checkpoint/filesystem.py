@@ -672,7 +672,7 @@ class FileSystemReader(StorageReader):
             metadata = pickle.load(metadata_file)
         return metadata
 
-    def set_up_storage_reader(self, metadata: Metadata, is_coordinator: bool) -> None:
+    def set_up_storage_reader(self, metadata: Metadata, is_coordinator: bool) -> None:  # pylint: disable=W0613
         self.storage_data = metadata.storage_data
         assert self.storage_data is not None
 

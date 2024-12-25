@@ -42,7 +42,7 @@ class PlanLRUCache:
     """
 
     def __init__(self) -> None:
-        self._cache: OrderedDict[Hashable, Tuple[SavePlan, Metadata]] = OrderedDict()
+        self._cache: OrderedDict[Hashable, Tuple[SavePlan, Metadata]] = OrderedDict()  # pylint: disable=E1136
         self._capacity = _MAX_CACHE_SIZE
 
     def get(self, key: Hashable) -> Optional[Tuple[SavePlan, Metadata]]:
