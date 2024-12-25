@@ -410,7 +410,6 @@ class FileSystemWriter(StorageWriter):
         super().__init__()
         self.path = Path(path)
         self.single_file_per_rank = single_file_per_rank
-        # self.single_file_per_rank = False
         self.sync_files = sync_files
         self.worker_count = worker_count
         self.per_process_copy_ahead = per_process_copy_ahead
