@@ -154,6 +154,7 @@ class TrainerBuilder(Trainer):
         self._set_attributes(
             kwargs["profiling"], train_dl, val_dls, train_state, optimizer, beta2_scheduler, isp_communicator
         )
+
         super().__init__(engine, scheduler)
 
     def _setup_time_and_logging(self) -> str:
@@ -257,6 +258,7 @@ class TrainerBuilder(Trainer):
         """
         self.train()
         train_iter = iter(self.train_dl)
+
         with initialize_llm_profile(profiling=self.profiling, start_time=self.current_time) as prof:
             gc.disable()
             for batch_count in range(self.train_state.batch_count, gpc.config.data.total_steps):
@@ -277,9 +279,6 @@ class TrainerBuilder(Trainer):
             timer("one-batch").stop()
             return False
 
-        if gpc.is_rank_for_log():
-            print(f"start trainging {batch_count}", flush=True)
-
         timer("fwd-bwd").start()
         loss, moe_loss = self._forward_backward(batch)
         timer("fwd-bwd").stop()
@@ -299,8 +298,6 @@ class TrainerBuilder(Trainer):
 
     def _load_and_prepare_batch(self, batch_count: int, train_iter):
         batch, train_iter = load_new_batch(train_dl=self.train_dl, train_iter=train_iter, train_state=self.train_state)
-        # torch.save(batch, "/mnt/petrelfs/lijiaxing/InternEvo/test_data_batch.py")
-
         self.train_state.batch_count = batch_count
         self.train_state.num_consumed_samples_in_epoch += len(batch[1])
         if batch[0].get("type_ids", None) is not None:

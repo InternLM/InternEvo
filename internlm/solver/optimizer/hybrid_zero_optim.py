@@ -207,7 +207,6 @@ class HybridZeroOptimizer(BaseOptimizer):
                 # No flat fp16 buffer is allocated if the process has no parameters.
                 if rank not in self.param_group_no_params_ranks[group_id]:
                     tensor_list = self._param_store.get_fp16_params_by_rank_group(rank, group_id)
-
                     with torch.no_grad():
                         flat_tensor = flatten(tensor_list)
                     flat_tensor = flat_tensor.data.to(get_current_device())
@@ -268,7 +267,6 @@ class HybridZeroOptimizer(BaseOptimizer):
         param_list = param_group["params"]
 
         sorted_params = sorted(param_list, key=lambda x: x.numel(), reverse=True)
-
         for i, param in enumerate(sorted_params):
             if param.requires_grad is False:
                 continue
