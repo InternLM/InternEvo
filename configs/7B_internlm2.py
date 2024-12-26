@@ -43,7 +43,7 @@ ckpt = dict(
     # as broadcast_load may cause loading performance degradation.
     # NOTE: If using aysnc_save, there is a risk of losing the latest ckpt
     # when there is a sudden training interruption.
-    universal_ckpt=dict(enable=True, aysnc_save=True, broadcast_load=False),
+    universal_ckpt=dict(enable=False, aysnc_save=True, broadcast_load=False),
 )
 
 TRAIN_FOLDER = None
