@@ -93,6 +93,8 @@ def try_load_internevo_ckpt(ckpt_mm, load_info, train_state: TrainState = None, 
         universal_load(
             load_ckpt_folder, checkpoint_state, broadcast_checkpoint=gpc.config.ckpt.universal_ckpt.broadcast_load
         )
+        if gpc.is_rank_for_log():
+            logger.warning("Finsh loading universal model checkpoint and optimizer checkpoint.")
 
     if not universal_ckpt and load_content.need_load(CheckpointLoadContent.MODEL):
         load_model_checkpoint(folder=load_ckpt_folder, model=ckpt_mm.model)
@@ -107,9 +109,9 @@ def try_load_internevo_ckpt(ckpt_mm, load_info, train_state: TrainState = None, 
         if not universal_ckpt and load_content.need_load(CheckpointLoadContent.OPIMIZER):
             load_optimizer_checkpoint(load_ckpt_folder, ckpt_mm.optimizer)
             load_content_str += f"{CheckpointLoadContent.OPIMIZER}, "
-        else:
-            if gpc.is_rank_for_log():
-                logger.warning("CheckpointManager has no 'optimizer', skip reload optim checkpoint!")
+
+        if not load_content.need_load(CheckpointLoadContent.OPIMIZER) and gpc.is_rank_for_log():
+            logger.warning("CheckpointManager has no 'optimizer', skip reload optim checkpoint!")
 
         # load lr scheduler states.
         if load_content.need_load(CheckpointLoadContent.SCHEDULAER):

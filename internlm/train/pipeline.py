@@ -175,7 +175,7 @@ def set_param_unique_tracking_name(model):
                                 assert global_fqn not in map_layer_attr, f"{map_layer_attr} exists"
                                 map_layer_attr[global_fqn] = {
                                     "offset": getattr(child, "offset", [0] * len(child.weight.size())),
-                                    "complete_size": getattr(child, "complete_size", child.weight.size()),
+                                    "complete_size": getattr(child, "complete_size", list(child.weight.size())),
                                 }
 
                         elif isinstance(child, (RMSNorm)) and uc_enable:
@@ -188,7 +188,7 @@ def set_param_unique_tracking_name(model):
                             )
                             map_layer_attr[global_fqn] = {
                                 "offset": getattr(child, "offset", [0] * len(child.weight.size())),
-                                "complete_size": getattr(child, "complete_size", child.weight.size()),
+                                "complete_size": getattr(child, "complete_size", list(child.weight.size())),
                             }
 
             else:
@@ -226,7 +226,7 @@ def set_param_unique_tracking_name(model):
 
                     map_layer_attr[local_fqn] = {
                         "offset": getattr(children, "offset", [0] * len(children.weight.size())),
-                        "complete_size": getattr(children, "complete_size", children.weight.size()),
+                        "complete_size": getattr(children, "complete_size", list(children.weight.size())),
                     }
 
 
