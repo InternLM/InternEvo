@@ -1,7 +1,4 @@
 import multiprocessing
-
-backup_ForkingPickler = multiprocessing.reduction.ForkingPickler
-backup_dump = multiprocessing.reduction.dump
 import os
 from functools import partial
 
@@ -24,6 +21,9 @@ from tests.test_utils.common_fixture import (  # noqa # pylint: disable=unused-i
     init_dist_and_model,
     reset_singletons,
 )
+
+backup_ForkingPickler = multiprocessing.reduction.ForkingPickler
+backup_dump = multiprocessing.reduction.dump
 
 # (TOTAL_STEP, CKPT_EVERY, SNPASHOT_EVERY)
 step_info_list = [(8, 4, 2), (3, 4, 2), (1, 6, 3)]
@@ -201,8 +201,8 @@ def return_latest_save_path(save_ckpt_folder, total_step, snapshot_freq, ckpt_fr
 @pytest.mark.parametrize("step_info", step_info_list)
 @pytest.mark.parametrize("ckpt_config", ckpt_config_list)
 def test_ckpt_mm(step_info, ckpt_config, init_dist_and_model):  # noqa # pylint: disable=unused-import
-    from internlm.core.context import global_context as gpc
     from internlm.checkpoint.checkpoint_manager import CheckpointLoadMask
+    from internlm.core.context import global_context as gpc
 
     ckpt_config = Config(ckpt_config)
     total_step, checkpoint_every, oss_snapshot_freq = step_info
@@ -222,6 +222,8 @@ def test_ckpt_mm(step_info, ckpt_config, init_dist_and_model):  # noqa # pylint:
     )
 
     model, opim = init_dist_and_model
+    gpc.config._add_item("ckpt", dict())
+    gpc.config.ckpt._add_item("universal_ckpt", dict(enable=False, aysnc_save=True, broadcast_load=False))
     train_state = TrainState(gpc.config, None)
     if isinstance(opim, HybridZeroOptimizer):
         print("Is HybridZeroOptimizer!", flush=True)
@@ -297,9 +299,9 @@ STOP_FILE_PATH = "./alter.log"
 
 
 def query_quit_file(rank, world_size=2):
+    from internlm.checkpoint.checkpoint_manager import CheckpointSaveType
     from internlm.core.context import global_context as gpc
     from internlm.initialize import initialize_distributed_env
-    from internlm.checkpoint.checkpoint_manager import CheckpointSaveType
 
     ckpt_config = Config(
         dict(
@@ -348,8 +350,6 @@ def query_quit_file(rank, world_size=2):
 
 
 def test_quit_siganl_handler():  # noqa # pylint: disable=unused-import
-    import multiprocessing
-
     # we do hack here to workaround the bug of 3rd party library dill, which only occurs in this unittest:
     # https://github.com/uqfoundation/dill/issues/380
     multiprocessing.reduction.ForkingPickler = backup_ForkingPickler
