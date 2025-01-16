@@ -16,9 +16,8 @@ from internlm.initialize import initialize_distributed_env
 from internlm.model.losses import InternLoss
 from internlm.train import (
     get_scheduler_hooks,
-    initialize_model,
+    initialize_model_and_parallel_communicator,
     initialize_optimizer,
-    initialize_parallel_communicator,
     load_new_batch,
 )
 from internlm.utils.common import BatchSkipper, launch_time
@@ -167,11 +166,8 @@ def train(
     dist.broadcast_object_list(objs, src=0)
     current_time = objs[0]
 
-    # initialize model
-    model = initialize_model()
-
-    # initialize isp communicator
-    isp_communicator = initialize_parallel_communicator(model)
+    # initialize model and isp_communicator
+    model, isp_communicator = initialize_model_and_parallel_communicator()
 
     # initialize loss function
     criterion = InternLoss(parallel_output=gpc.config.model.parallel_output, label_smoothing=label_smoothing)

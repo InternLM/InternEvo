@@ -1,15 +1,25 @@
 #!/usr/bin/env python
 # -*- encoding: utf-8 -*-
 
+import collections
+import functools
+import itertools
 import math
 import time
-from typing import Callable, Dict, Iterable, List, Optional, Tuple, TypeVar, Union
+from typing import Callable, Dict, Iterable, List, Optional, Set, Tuple, TypeVar, Union
 
 import torch
 from torch import nn
+from torch.distributed.fsdp import FullyShardedDataParallel as FSDP
+from torch.distributed.fsdp.fully_sharded_data_parallel import (
+    BackwardPrefetch,
+    ShardingStrategy,
+)
+from torch.distributed.fsdp.wrap import transformer_auto_wrap_policy
 from torch.utils.data import DataLoader
 
 from internlm.accelerator import AcceleratorType, get_accelerator
+from internlm.checkpoint.utils import init_fsdp_v1
 from internlm.core.context import (
     IS_REPLICA_EXPERT_DATA_PARALLEL,
     IS_REPLICA_ZERO_PARALLEL,
@@ -78,6 +88,7 @@ from internlm.solver.schedulers.beta2_scheduler import Beta2Scheduler
 from internlm.solver.schedulers.lr_scheduler import FineTuneCosineAnnealingWarmupLR
 from internlm.train.utils import create_param_groups, map_param_block, timeout_input
 from internlm.utils.common import DummyProfile, SchedulerHook, get_current_device
+from internlm.utils.lazy import LazyObject
 from internlm.utils.logger import get_logger
 from internlm.utils.megatron_timers import megatron_timer as timer
 from internlm.utils.parallel import (
@@ -85,6 +96,8 @@ from internlm.utils.parallel import (
     is_replica_zero_parallel_parameter,
     is_tensor_expert_data_parallel_parameter,
     is_tensor_zero_parallel_parameter,
+    is_using_fsdp,
+    is_using_hf,
     is_using_isp,
     is_weight_expert_data_parallel_parameter,
     is_weight_zero_parallel_parameter,
@@ -98,6 +111,25 @@ try:
     import torch_npu
 except (ImportError, ModuleNotFoundError):
     pass
+
+try:
+    from torch.distributed._composable.fsdp import fully_shard
+
+    FSDP2_SUPPORTED = True
+except (ImportError, ModuleNotFoundError):
+    FSDP2_SUPPORTED = False
+
+
+try:
+    from torch.distributed.checkpoint.state_dict import (
+        StateDictOptions,
+        set_model_state_dict,
+    )
+
+    DCP_SUPPORTED = True
+except (ImportError, ModuleNotFoundError):
+    DCP_SUPPORTED = False
+
 
 IS_INJECTED = "is_injected"
 
@@ -220,44 +252,49 @@ def set_parallel_attr_for_param_groups(model: Union[nn.Module, nn.ModuleList]):
                 setattr(param, IS_REPLICA_ZERO_PARALLEL, True)
 
     for _chunk in unwrap_naive_amp(model):
-        # special case for pure dp mode
-        if (
-            isinstance(gpc.config.parallel["tensor"], dict)
-            and gpc.config.parallel["tensor"].get("mode", TensorParallelMode.mtp.name) == TensorParallelMode.mtp.name
-            and gpc.get_world_size(ParallelMode.DATA) == gpc.get_world_size(ParallelMode.GLOBAL)
-        ):
-            _check_module_func = _check_module_pure_dp
-        else:
-            _check_module_func = _check_module
-        # set param parallel attribute
-        for name, module in _chunk.named_modules():
-            _check_module_func(name, module)
+        if not is_using_fsdp():
+            # special case for pure dp mode
+            if (
+                isinstance(gpc.config.parallel["tensor"], dict)
+                and gpc.config.parallel["tensor"].get("mode", TensorParallelMode.mtp.name)
+                == TensorParallelMode.mtp.name
+                and gpc.get_world_size(ParallelMode.DATA) == gpc.get_world_size(ParallelMode.GLOBAL)
+            ):
+                _check_module_func = _check_module_pure_dp
+            else:
+                _check_module_func = _check_module
+            # set param parallel attribute
+            for name, module in _chunk.named_modules():
+                _check_module_func(name, module)
 
-        for name, param in _chunk.named_parameters():
-            assert (
-                is_replica_zero_parallel_parameter(param)
-                or is_tensor_zero_parallel_parameter(param)
-                or is_weight_zero_parallel_parameter(param)
-                or is_tensor_expert_data_parallel_parameter(param)
-                or is_weight_expert_data_parallel_parameter(param)
-                or is_replica_expert_data_parallel_parameter(param)
-            ), f"parameter with name: {name} has no parallel attribution."
+            for name, param in _chunk.named_parameters():
+                assert (
+                    is_replica_zero_parallel_parameter(param)
+                    or is_tensor_zero_parallel_parameter(param)
+                    or is_weight_zero_parallel_parameter(param)
+                    or is_tensor_expert_data_parallel_parameter(param)
+                    or is_weight_expert_data_parallel_parameter(param)
+                    or is_replica_expert_data_parallel_parameter(param)
+                ), f"parameter with name: {name} has no parallel attribution."
 
 
-@llm_timeout(func_name="initialize_model")
-def initialize_model(pre_process_func: Optional[Callable] = None, post_process_func: Optional[Callable] = None):
+@llm_timeout(func_name="initialize_model_and_parallel_communicator")
+def initialize_model_and_parallel_communicator(
+    pre_process_func: Optional[Callable] = None, post_process_func: Optional[Callable] = None
+):
     """
     Initialize model with Automatic Mixed Precision.
     Returns:
         torch.nn.Module:
             The neural network model to be trained or evaluated.
+        An isp communicator for managing comp/comm overlap.
     """
     if pre_process_func:
         pre_process_output = pre_process_func()
 
     register_model_initializer()
 
-    model = create_model(model_type=gpc.config.model_type)
+    model = create_model()
 
     if post_process_func:
         post_process_func(pre_process_output)
@@ -276,11 +313,18 @@ def inject_model(model):
     Returns:
         torch.nn.Module:
             The injected neural network model to be trained or evaluated.
+        An isp communicator for managing comp/comm overlap.
     """
     if hasattr(model, IS_INJECTED) and getattr(model, IS_INJECTED):
         return model
 
-    inject_model_helper(model, inject_info=gpc.config.model.get("inject_info", None))
+    # For non-HF cases, set tracking name for parameters
+    if not is_using_hf():
+        set_param_unique_tracking_name(model)
+
+    # For non-fsdp cases, set model inject helper
+    if not is_using_fsdp():
+        inject_model_helper(model, inject_info=gpc.config.model.get("inject_info", None))
 
     # should be set before NaiveAMPModel
     set_fp32_attr_for_model(model)
@@ -310,7 +354,8 @@ def inject_model(model):
     # This sync is very important, cause the model weights kept in optimizer are copied
     # from the origin parameters in the memory, so we should make sure the dp sync
     # does not influence the model weights in optimizer be different with the origin parameters.
-    sync_model_param(model)
+    if not is_using_fsdp() or gpc.config.parallel.fsdp.get("init_method", "cuda") == "cuda":
+        sync_model_param(model)
 
     # This function is needed to make sure parameters that are not splitted by tensor parallelism are
     # the same across tensor parallelism.
@@ -321,10 +366,15 @@ def inject_model(model):
     random_mode = ParallelMode.WEIGHT_DATA if is_using_isp() else ParallelMode.DATA
     set_mode(random_mode)
 
+    # initialize isp communicator
+    isp_communicator = initialize_parallel_communicator(model)
+
+    model = wrap_FSDP_model(model)
+
     # set is_injected flag
     setattr(model, "IS_INJECTED", True)
 
-    return model
+    return model, isp_communicator
 
 
 _T = TypeVar("_T")
@@ -360,7 +410,7 @@ def initialize_parallel_communicator(model: Union[nn.Module, nn.ModuleList]):
                 get_current_device(),
                 gpc.config.model.checkpoint,
             ),
-            gpc.config.parallel.weight.overlap,
+            gpc.config.parallel.weight.overlap and not is_using_fsdp(),
             gpc.get_group(ParallelMode.WEIGHT),
             is_moe=False,
             selective_ckpt_offload=gpc.config.get("selective_checkpoint_offload", False),
@@ -495,8 +545,9 @@ def initialize_parallel_communicator(model: Union[nn.Module, nn.ModuleList]):
         _embedding_communicator = EmbeddingSequenceParallelCommunicator(ParallelMode.TENSOR)
 
     # register communitorc for embedding layer.
-    for embedding in _submodule_filter(model, Embedding1D):
-        _embedding_communicator.register_module_hook(embedding)
+    if not is_using_fsdp():
+        for embedding in _submodule_filter(model, Embedding1D):
+            _embedding_communicator.register_module_hook(embedding)
 
     # register communictor for head layer.
     ScaleColumnParallelLinear.register_cls_communicator(_head_communicator)
@@ -554,7 +605,7 @@ def initialize_optimizer(model: Union[nn.Module, nn.ModuleList], isp_communicato
     else:
         param_bcast_sync_handler = None
 
-    if not gpc.config.parallel.zero1.fsdp:
+    if not is_using_fsdp():
         if (
             "use_split_tensor_optim" not in gpc.config.hybrid_zero_optimizer
             or not gpc.config.hybrid_zero_optimizer.use_split_tensor_optim
@@ -973,6 +1024,122 @@ def inject_config(model: nn.Module) -> None:
     # For models that use GQA
     if hasattr(llm_cfg, "num_key_value_heads"):
         gpc.config.model.num_kv_attention_heads = gpc.config.NUM_KV_ATTENTION_HEAD = llm_cfg.num_key_value_heads
+
+
+def _get_modules_to_materialize(
+    root_module: nn.Module,
+    ignored_modules: Set[nn.Module],
+) -> List[nn.Module]:
+    # Run BFS to collect the modules to materialize via `reset_parameters()`,
+    # stopping at any module with FSDP already applied or at ignored modules.
+    modules_to_materialize: List[nn.Module] = []
+    queue = collections.deque([root_module])
+    visited_modules: Set[nn.Module] = {root_module}
+    while queue:
+        module = queue.popleft()
+        modules_to_materialize.append(module)
+        for child_module in module.children():
+            if child_module not in visited_modules and child_module not in ignored_modules:
+                visited_modules.add(child_module)
+                queue.append(child_module)
+    return modules_to_materialize
+
+
+def _materialize_meta_module(
+    root_module: nn.Module,
+    ignored_modules: Set[nn.Module],
+    device_id: Optional[torch.device],
+) -> None:
+    # Run default meta device initialization
+    modules_to_materialize = _get_modules_to_materialize(root_module, ignored_modules)
+    module = None
+    try:
+        # Assume that each module's `reset_parameters()` only initializes its
+        # own parameters and not those of its children
+        with torch.no_grad():
+            for module in modules_to_materialize:
+                # As a contract to the user, only call `reset_parameters()` if
+                # the module has directly managed parameters/buffers
+                module_state_iter = itertools.chain(module.parameters(recurse=False), module.buffers(recurse=False))
+                has_module_states = len(list(module_state_iter)) > 0
+                if has_module_states:
+                    module.to_empty(device=device_id, recurse=False)
+                    module.reset_parameters()  # type: ignore[operator]
+    except BaseException as e:
+        logger.warning(
+            "Unable to call `reset_parameters()` for module on meta "
+            f"device with error {str(e)}. Please ensure that your module of"
+            f"type {type(module)} implements a `reset_parameters()` method."  # type: ignore[possibly-undefined]
+        )
+        raise e
+
+
+def wrap_FSDP_model(model: Union[nn.Module, nn.ModuleList]):
+    if is_using_fsdp():
+        assert isinstance(model, nn.Module), "Currently FSDP does not support pipeline parallel."
+        wrap_cls = tuple(
+            LazyObject(warp_cls["mod"], warp_cls["mod_cls"]).build() for warp_cls in gpc.config.get("fsdp_wrap_cls", [])
+        )
+        fsdp_mode = gpc.config.parallel.fsdp.get("mode", "v1")
+        fsdp_init_method = gpc.config.parallel.fsdp.get("init_method", "cuda")
+
+        if fsdp_mode == "v1":
+            model = FSDP(
+                module=model,
+                process_group=gpc.get_group(ParallelMode.GLOBAL),
+                sharding_strategy=ShardingStrategy.FULL_SHARD,  # ZeRO2: SHARD_GRAD_OP, ZeRO3: FULL_SHARD
+                auto_wrap_policy=functools.partial(transformer_auto_wrap_policy, transformer_layer_cls=set(wrap_cls)),
+                sync_module_states=fsdp_init_method != "cuda",  # sync model paramters
+                forward_prefetch=True,
+                backward_prefetch=BackwardPrefetch.BACKWARD_PRE,
+                limit_all_gathers=True,
+                use_orig_params=True,
+                device_id=None if fsdp_init_method == "cuda" else get_current_device(),  # needed for sync_module_states
+            )
+            # For FSDP v1, to get ckpt resuming work normally, we do dummy forward.
+            # This hack is needed due to FSDP v1 lazy initialization in model construction.
+            # FYI: https://github.com/pytorch/pytorch/issues/113496
+            model = init_fsdp_v1(model, get_current_device())
+        elif FSDP2_SUPPORTED and fsdp_mode == "v2":
+            fsdp_kwargs = {
+                "reshard_after_forward": True,  # ZeRO2: False, ZeRO3: True
+            }
+            for module in model.modules():
+                if isinstance(module, wrap_cls):
+                    fully_shard(module, **fsdp_kwargs)
+            fully_shard(model, **fsdp_kwargs)
+            if fsdp_init_method == "meta":
+                _materialize_meta_module(model, set(), get_current_device())
+            elif fsdp_init_method == "cpu":
+                model.to(get_current_device())
+        else:
+            raise ValueError(f"Unsupported FSDP mode: {fsdp_mode}")
+
+        if is_using_hf() and not gpc.config.ckpt.get("auto_resume", False):
+            load_ckpt_info = gpc.config.ckpt.load_ckpt_info
+            load_ckpt_path = load_ckpt_info.get("path", None)
+            load_ckpt_content = load_ckpt_info.get("content", [])
+            if load_ckpt_path:
+                assert load_ckpt_content == (
+                    "model",
+                ), "If auto_resume=False and checkpoint path is given, only model can be loaded"
+                if DCP_SUPPORTED:
+                    hf = gpc.config.hf
+                    mod = LazyObject(hf.mod, hf.mod_cls)
+                    mod = mod.build()
+                    state_dict = mod.from_pretrained(
+                        pretrained_model_name_or_path=load_ckpt_path, use_safetensors=True
+                    ).state_dict()
+                    state_dict = {f"model.{key}": state_dict[key].clone().detach() for key in state_dict}
+                    set_model_state_dict(
+                        model=model, model_state_dict=state_dict, options=StateDictOptions(full_state_dict=True)
+                    )
+                    del state_dict
+                    internlm_accelerator.empty_cache()
+                else:
+                    raise RuntimeError("DCP is not supported in this version of PyTorch.")
+
+    return model
 
 
 def inject_model_helper(model: Union[nn.Module, nn.ModuleList], inject_info: Optional[Dict] = None) -> None:

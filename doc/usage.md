@@ -268,7 +268,6 @@ zero1 parallel (dict):
         * if size == 1, zero is not used, and all dp groups retain the full amount of model parameters.
         * if size > 1 and size <= dp world size, the world size of zero is a subset of dp world size.
         For smaller models, it is usually a better choice to split the parameters within nodes with a setting <= 8.
-    2. fsdp: bool, enable/disable torch's fully sharded data parallel, defaults to False.
 tensor parallel (dict):
     1. size: int, the size of tensor parallel.
     2. mode: str, the tensor parallel mode, should be in ['mtp', 'msp', 'fsp', 'isp'],
@@ -432,7 +431,6 @@ parallel = dict(
     - 当`zero1 <= 0`，则 zero1 进程组的大小等于数据并行进程组的大小，因此优化器状态参数将在数据并行范围内分配
     - 当`zero1 == 1`，则不使用 zero1 ，所有数据并行组保留完整的优化器状态参数
     - 当`zero1 > 1`且`zero1 <= data_parallel_world_size`，则 zero1 进程组是数据并行进程组的子集
-  2. fsdp: 布尔值，启用/禁用torch的完全分片数据并行，默认为False。
 - tensor（字典）：
   1. size: 整数，张量并行的大小。
   2. mode: 字符串，张量并行模式，应该是 ['mtp', 'msp', 'fsp', 'isp'] 中的一个，

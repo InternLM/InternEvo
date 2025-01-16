@@ -15,7 +15,9 @@ from internlm.core.context import global_context as gpc
 from internlm.core.context.process_group_initializer import ParallelMode
 from internlm.utils.common import get_master_node
 from internlm.utils.gputest import warmup_process_group
+from internlm.utils.lazy import LazyObject
 from internlm.utils.logger import get_logger
+from internlm.utils.parallel import is_using_hf
 from internlm.utils.timeout import llm_timeout
 from internlm.utils.utils import DataType, ModelType, TensorParallelMode
 
@@ -64,6 +66,28 @@ def get_default_parser():
     return parser
 
 
+def inject_hf_config_before_launch(hf: dict):
+    # get HuggingFace model config
+    cfg = LazyObject(hf.cfg, hf.cfg_cls)
+    cfg = cfg.build()
+    model_config = cfg(**hf.cfg_extra_kwargs)
+    # inject HuggingFace model config into InternTrain as much as we know
+    if hasattr(model_config, "vocab_size"):
+        gpc.config.model.vocab_size = gpc.config.VOCAB_SIZE = model_config.vocab_size
+    if hasattr(model_config, "num_hidden_layers"):
+        gpc.config.model.num_layers = gpc.config.NUM_LAYER = model_config.num_hidden_layers
+    if hasattr(model_config, "num_attention_heads"):
+        gpc.config.model.num_attention_heads = gpc.config.NUM_ATTENTION_HEAD = model_config.num_attention_heads
+    if hasattr(model_config, "num_key_value_heads"):
+        gpc.config.model.num_kv_attention_heads = gpc.config.NUM_KV_ATTENTION_HEAD = model_config.num_key_value_heads
+    if hasattr(model_config, "hidden_size"):
+        gpc.config.model.hidden_size = gpc.config.HIDDEN_SIZE = model_config.hidden_size
+    if hasattr(model_config, "intermediate_size"):
+        gpc.config.model.mlp_ratio = gpc.config.MLP_RATIO = model_config.intermediate_size / model_config.hidden_size
+    if hasattr(model_config, "num_experts"):
+        gpc.config.model.num_experts = model_config.num_experts
+
+
 def args_sanity_check():
     assert gpc.config is not None, "config is not load!"
 
@@ -75,6 +99,11 @@ def args_sanity_check():
     # the default model type is INTERNLM
     if "model_type" not in gpc.config:
         gpc.config._add_item("model_type", ModelType.INTERNLM.name)
+
+    # inject HuggingFace model config into IntrainTrain
+    if is_using_hf():
+        inject_hf_config_before_launch(gpc.config.hf)
+        gpc.config.model_type = "hf"
 
     if gpc.config.model_type == "InternLM3_M":
         # TODO: need check for isp overlap
@@ -88,11 +117,11 @@ def args_sanity_check():
 
     # procssing the parallel config in gpc
     if "zero1" not in gpc.config.parallel:
-        gpc.config.parallel._add_item("zero1", dict(size=-1, fsdp=False))
+        gpc.config.parallel._add_item("zero1", dict(size=-1))
 
     if isinstance(gpc.config.parallel.zero1, int):
         zero1_size = gpc.config.parallel.zero1
-        gpc.config.parallel._add_item("zero1", dict(size=zero1_size, fsdp=False))
+        gpc.config.parallel._add_item("zero1", dict(size=zero1_size))
 
     if "pipeline" not in gpc.config.parallel:
         gpc.config.parallel._add_item("pipeline", dict(size=1, interleaved_overlap=False, mode="1F1B"))
@@ -130,19 +159,6 @@ def args_sanity_check():
         ], f"unsupported pp mode {gpc.config.parallel.pipeline['mode']}"
         if gpc.config.parallel.pipeline["mode"] == "ZBV":
             gpc.v_shape = True
-
-    # check fsdp config
-    if "fsdp" not in gpc.config.parallel.zero1:
-        gpc.config.parallel.zero1._add_item("fsdp", False)
-
-    assert not (
-        gpc.config.parallel.zero1.fsdp and pp > 1
-    ), "FSDP is not supportted when pipeline size > 1, please set pipeline size to 1 or disabled FSDP"
-
-    if gpc.config.parallel.zero1.fsdp:
-        assert (
-            torch.__version__ >= "2.0.1"
-        ), f"requires torch>=2.0.1 when using fsdp but current version is {torch.__version__}"
 
     # processing the data config in gpc
     data = gpc.config.data
@@ -401,11 +417,6 @@ def args_sanity_check():
         gpc.config.parallel["tensor"] = dict(size=gpc.config.parallel["tensor"], mode=TensorParallelMode.mtp.name)
     if gpc.config.parallel["tensor"].get("mode", None) is None:
         gpc.config.parallel["tensor"]["mode"] = TensorParallelMode.mtp.name
-    if gpc.config.parallel["tensor"]["mode"] == TensorParallelMode.isp.name:
-        assert not gpc.config.parallel.zero1.fsdp, "FSDP does not support isp"
-        assert (
-            torch.__version__ >= "2.1.0"
-        ), f"requires torch>=2.1.0 when using isp but current version is {torch.__version__}"
 
     assert (
         gpc.config.model.vocab_size % gpc.config.parallel.weight.size == 0
@@ -563,7 +574,6 @@ def args_sanity_check():
 
     # moe not support overlap and zero1.5 for now
     if gpc.config.model.get("num_experts", 1) > 1:
-        assert not gpc.config.parallel.zero1.fsdp, "FSDP does not support num_experts > 1"
         assert (
             not optim_ckpt.overlap_sync_grad & optim_ckpt.overlap_sync_param
         ), "not support overlap and moe at the same time"

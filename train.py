@@ -16,7 +16,7 @@ from internlm.utils.common import parse_args
 @internevo_monitor(feishu_alert=True, clean_run=True)
 def main(args):
     # initialize model
-    model = create_model(model_type=gpc.config.model_type)
+    model = create_model()
 
     # initialize train dataloader
     train_dl, dataset_types = build_train_loader_with_data_type()

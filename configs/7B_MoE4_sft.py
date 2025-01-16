@@ -182,7 +182,6 @@ zero1 parallel (dict):
         * if size == 1, zero is not used, and all dp groups retain the full amount of model parameters.
         * if size > 1 and size <= dp world size, the world size of zero is a subset of dp world size.
         For smaller models, it is usually a better choice to split the parameters within nodes with a setting <= 8.
-    2. fsdp: bool, enable/disable torch's fully sharded data parallel, defaults to False.
 tensor parallel (dict):
     1. size: int, the size of tensor parallel.
     2. mode: str, the tensor parallel mode, should be in ['mtp', 'msp', 'fsp', 'isp'],
@@ -217,7 +216,7 @@ expert weight parallel (dict):
     4. forward_overlap_per: str, all gather prefetch granularity, per 'module' or per 'layer', defaults to 'layer'.
 """
 parallel = dict(
-    zero1=dict(size=-1, fsdp=False),
+    zero1=dict(size=-1),
     tensor=dict(size=1, mode="mtp"),
     pipeline=dict(size=1, interleaved_overlap=True),
     weight=dict(size=1, overlap=True, launch_allgather_before="wo", forward_overlap_per="layer"),

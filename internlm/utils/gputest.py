@@ -118,8 +118,6 @@ def warmup_process_group():
             dist.all_reduce(buffer, group=gpc.get_group(ParallelMode.ZERO1))
         if gpc.is_initialized(ParallelMode.MODEL):
             dist.all_reduce(buffer, group=gpc.get_group(ParallelMode.MODEL))
-        if gpc.is_initialized(ParallelMode.ZERO3_DP):
-            dist.all_reduce(buffer, group=gpc.get_group(ParallelMode.ZERO3_DP))
         if gpc.is_initialized(ParallelMode.EXPERT_DATA):
             dist.all_reduce(buffer, group=gpc.get_group(ParallelMode.EXPERT_DATA))
         if gpc.is_initialized(ParallelMode.EXPERT):

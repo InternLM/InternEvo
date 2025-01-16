@@ -36,9 +36,8 @@ from internlm.monitor import (  # noqa: E402
 from internlm.monitor.monitor import monitor_manager as mm  # noqa: E402
 from internlm.train import (  # noqa: E402
     initialize_llm_profile,
-    initialize_model,
+    initialize_model_and_parallel_communicator,
     initialize_optimizer,
-    initialize_parallel_communicator,
     record_current_batch_training_metrics,
 )
 from internlm.utils.common import (  # noqa: E402
@@ -116,8 +115,7 @@ def main(args):
     current_time = objs[0]
 
     # initialize model
-    model = initialize_model()
-    _ = initialize_parallel_communicator(model)
+    model , _ = initialize_model_and_parallel_communicator()
 
     with open(args.config, "r") as f:
         config_lines = f.readlines()

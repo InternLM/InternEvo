@@ -21,7 +21,7 @@ config = Config(
     dict(
         gradient_handler=[dict(type="PipelineSharedModuleGradientHandler")],
         parallel=dict(
-            zero1=dict(size=1, fsdp=False),
+            zero1=dict(size=1),
             tensor=dict(size=1, mode="mtp"),
             pipeline=dict(size=8, interleaved_overlap=True),
             weight=dict(size=1, overlap=True),
