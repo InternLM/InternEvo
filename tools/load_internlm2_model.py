@@ -11,7 +11,7 @@ from internlm.apis.inference import SequenceGenerator
 from internlm.core.context import ParallelMode
 from internlm.core.context import global_context as gpc
 from internlm.initialize.launch import initialize_distributed_env
-from internlm.train import initialize_model, initialize_parallel_communicator
+from internlm.train import initialize_model_and_parallel_communicator
 from internlm.utils.storage_manager import get_fns, init_storage_manager, llm_load
 from tools.interface import GenerationConfig
 
@@ -185,7 +185,7 @@ def initialize_internlm_model(
             model_type=model_type,
             model=model_config,
             parallel=dict(
-                zero1=dict(size=1, fsdp=False),
+                zero1=dict(size=1),
                 pipeline=dict(size=1, interleaved_overlap=True),
                 tensor=dict(size=get_tp_world_size(), mode="mtp"),
                 sequence_parallel=0,
@@ -197,8 +197,7 @@ def initialize_internlm_model(
         args_check=False,
     )
     # Directly get the origin model without NativeAMP wrapper.
-    model = initialize_model()
-    _ = initialize_parallel_communicator(model)
+    model, _ = initialize_model_and_parallel_communicator()
     model = model.model
 
     state_dict = merge_pp_within_tp(ckpt_dir, del_model_prefix=del_model_prefix)

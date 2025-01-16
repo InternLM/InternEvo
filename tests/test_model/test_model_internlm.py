@@ -33,7 +33,7 @@ internlm_accelerator = get_accelerator()
 config = Config(
     dict(
         parallel=dict(
-            zero1=dict(size=1, fsdp=False),
+            zero1=dict(size=1),
             tensor=dict(size=1, mode="mtp"),
             pipeline=dict(size=1, interleaved_overlap=True),
             weight=dict(size=1, overlap=True),

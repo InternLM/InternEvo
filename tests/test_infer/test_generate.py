@@ -6,7 +6,7 @@ from sentencepiece import SentencePieceProcessor
 
 from internlm.apis.inference import SequenceGenerator, batch_tokenize
 from internlm.initialize import initialize_distributed_env  # noqa: E402
-from internlm.train import initialize_model, initialize_parallel_communicator
+from internlm.train import initialize_model_and_parallel_communicator
 
 
 def set_seed(seed: int = 1024):
@@ -30,7 +30,7 @@ def load_and_generate(path, model_type="INTERNLM2_PUBLIC", tokenizer_path=""):
         model_type=model_type,
         model=model_config,
         parallel=dict(
-            zero1=dict(size=1, fsdp=False),
+            zero1=dict(size=1),
             pipeline=dict(size=1, interleaved_overlap=True),
             tensor=dict(size=1, mode="mtp"),
             sequence_parallel=0,
@@ -50,8 +50,7 @@ def load_and_generate(path, model_type="INTERNLM2_PUBLIC", tokenizer_path=""):
                 all_output_str.append(cur_sent)
         return all_output_str
 
-    model = initialize_model()
-    _ = initialize_parallel_communicator(model)
+    model, _ = initialize_model_and_parallel_communicator()
     # Directly get the origin model without NativeAMP wrapper.
     model = model.model
 

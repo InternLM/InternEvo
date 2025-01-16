@@ -45,9 +45,8 @@ from internlm.model.metrics import (  # noqa: E402  #pylint: disable=wrong-impor
     SchedulerMetricHook,
 )
 from internlm.train import (  # noqa: E402  #pylint: disable=wrong-import-position
-    initialize_model,
+    initialize_model_and_parallel_communicator,
     initialize_optimizer,
-    initialize_parallel_communicator,
     load_new_batch,
 )
 from internlm.utils.common import (  # noqa: E402  #pylint: disable=wrong-import-position
@@ -67,7 +66,7 @@ config = Config(
     dict(
         VOCAB_SIZE=103168,
         parallel=dict(
-            zero1=dict(size=-1, fsdp=False),
+            zero1=dict(size=-1),
             pipeline=dict(size=1, interleaved_overlap=False),
             sequence_parallel=False,
             tensor=dict(size=1, mode="mtp"),
@@ -220,8 +219,7 @@ def train_model(args):
     current_time = objs[0]
 
     # initialize model
-    model = initialize_model()
-    _ = initialize_parallel_communicator(model)
+    model, _ = initialize_model_and_parallel_communicator()
 
     # initialize loss function
     criterion = InternLoss(parallel_output=True, label_smoothing=gpc.config.loss.label_smoothing)

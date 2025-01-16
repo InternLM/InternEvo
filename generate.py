@@ -21,7 +21,7 @@ from internlm.data import build_generation_loader_with_data_type
 from internlm.initialize import initialize_distributed_env
 from internlm.monitor import initialize_monitor_manager
 from internlm.monitor.monitor import monitor_manager as mm
-from internlm.train import initialize_model, initialize_parallel_communicator
+from internlm.train import initialize_model_and_parallel_communicator
 from internlm.utils.common import (
     enable_pytorch_expandable_segments,
     launch_time,
@@ -106,8 +106,7 @@ def main():
         raise e
 
     # initialize model
-    model = initialize_model()
-    _ = initialize_parallel_communicator(model)
+    model, _ = initialize_model_and_parallel_communicator()
     model = model.model
 
     state_dict = merge_pp_within_tp(generation_config.ckpt_folder, del_model_prefix=True)

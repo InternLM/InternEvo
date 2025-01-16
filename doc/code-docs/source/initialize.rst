@@ -43,7 +43,7 @@ InternEvo 使用 `argparse <https://docs.python.org/3/library/argparse.html>`_ �
 模型初始化
 -------------------------
 
-.. autofunction:: internlm.train.initialize_model
+.. autofunction:: internlm.train.initialize_model_and_parallel_communicator
 
 InternEvo 在配置文件中使用字段 ``model_type`` 和 ``model`` 来控制模型初始化过程。示例模型初始化配置定义如下：
 
