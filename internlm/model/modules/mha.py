@@ -10,7 +10,12 @@ from einops import rearrange
 from torch import nn
 from torch.nn import functional as F
 
+from internlm.core.context import ParallelMode
 from internlm.core.context import global_context as gpc
+from internlm.core.parallel.comm.utils import (
+    gather_forward_split_backward,
+    split_forward_gather_backward,
+)
 from internlm.model.modules.embedding import new_rotary_embedding
 from internlm.model.modules.linear import new_linear
 from internlm.model.modules.utils import update_kv_cache
@@ -373,6 +378,30 @@ class MHA(nn.Module):
         return self.out_proj(rearrange(context, "b s h d -> b s (h d)"))
 
 
+class ChameleonLayerNorm(nn.LayerNorm):
+    """
+    LayerNorm but computes stats only over the last dim because Chameleon applies gamma and beta
+    from each shard separately to each head, instead of reducing. We can apply each head's own
+    gamma/beta by repeat-interleaving weights from each shard, but the stats have to be computed
+    in the last dimension. This module applies gamma/beta manually to fulfill this requirement.
+    """
+
+    def __init__(self, hidden_size, head_group_num, n_heads_per_group, *args, **kwargs):
+        if isinstance(hidden_size, int):
+            hidden_size = (hidden_size,)
+        super().__init__([head_group_num, *hidden_size], *args, **kwargs)
+        self.normalized_shape = (hidden_size[-1],)
+        self.n_heads_per_group = n_heads_per_group
+
+    def repeat_param(self, param):
+        return param.repeat_interleave(self.n_heads_per_group, dim=0)
+
+    def forward(self, hidden_states):
+        hidden_states = F.layer_norm(hidden_states, self.normalized_shape, None, None, eps=1e-5)
+        hidden_states = hidden_states * self.repeat_param(self.weight) + self.repeat_param(self.bias)
+        return hidden_states
+
+
 class GQA(nn.Module):
     """
     Multi-head self-attention and cross-attention.
@@ -397,6 +426,8 @@ class GQA(nn.Module):
         dtype (Optional[torch.dtype]): The type of data.
         qk_interleaved (Optional[bool]): whether the odd and even columns of wq and wk is interleaved. True by default.
         enable_qkv_fusion (bool): whether wq, wk and wv lienar is fused. True by default.
+        qk_norm (Optional[bool]): if set, the query and key will be applied by layer norm after qk_linear.
+                                  False by default.
     """
 
     def __init__(
@@ -419,6 +450,8 @@ class GQA(nn.Module):
         dtype: Optional[torch.dtype] = None,
         qk_interleaved: Optional[bool] = True,
         enable_qkv_fusion: bool = True,
+        qk_norm: bool = False,
+        chameleon_mp_size: int = 1,
     ) -> None:
         super().__init__()
         self.layer_idx = layer_idx
@@ -459,6 +492,10 @@ class GQA(nn.Module):
                 rotary_type="dynamic_ntk" if self.use_dynamic_ntk_rope else "native",
             )
 
+        self.qk_norm = qk_norm
+        if qk_norm:
+            assert enable_qkv_fusion is False, "qk_norm cannot be applied when fused wqkv"
+
         if enable_qkv_fusion:
             assert bias is False, "Fuesd wqkv only support bias is False."
             self.wqkv = new_linear("wqkv", embed_dim, q_dim + 2 * self.kv_dim, bias, **factory_kwargs)
@@ -470,6 +507,11 @@ class GQA(nn.Module):
             self.wq = new_linear("wq", embed_dim, q_dim, bias, **factory_kwargs)
             self.wk = new_linear("wk", embed_dim, self.kv_dim, bias, **factory_kwargs)
             self.wv = new_linear("wv", embed_dim, self.kv_dim, bias, **factory_kwargs)
+            if qk_norm:
+                assert num_heads % chameleon_mp_size == 0, "num_heads%chameleon_mp_size != 0 in GQA"
+                assert num_kv_heads % chameleon_mp_size == 0, "num_kv_heads%chameleon_mp_size != 0 in GQA"
+                self.q_norm = ChameleonLayerNorm(self.head_dim, chameleon_mp_size, num_heads // chameleon_mp_size)
+                self.k_norm = ChameleonLayerNorm(self.head_dim, chameleon_mp_size, num_kv_heads // chameleon_mp_size)
 
         self.inner_attn = SelfAttention(
             causal=causal, softmax_scale=softmax_scale, attention_dropout=dropout, layer_idx=layer_idx
@@ -508,10 +550,21 @@ class GQA(nn.Module):
             q = rearrange(q, "b s h gs d -> b s (h gs) d")
         else:
             q, k, v = self.wq(x), self.wk(x), self.wv(x)
-            q = rearrange(q, "b s (h d) -> b s h d", d=self.head_dim)
-            k = rearrange(k, "b s (h d) -> b s h d", d=self.head_dim)
-            v = rearrange(v, "b s (h d) -> b s h d", d=self.head_dim)
+            if self.qk_norm:
+                q = rearrange(q, "b s (h d) -> b s h d", d=self.head_dim)
+                k = rearrange(k, "b s (h d) -> b s h d", d=self.head_dim)
+                q_all = gather_forward_split_backward(q, ParallelMode.TENSOR, dim=-2)
+                q_norm_out = self.q_norm(q_all)
+                q = split_forward_gather_backward(q_norm_out, ParallelMode.TENSOR, dim=-2)
+                k_all = gather_forward_split_backward(k, ParallelMode.TENSOR, dim=-2)
+                k_norm_out = self.k_norm(k_all)
+                k = split_forward_gather_backward(k_norm_out, ParallelMode.TENSOR, dim=-2)
 
+                v = rearrange(v, "b s (h d) -> b s h d", d=self.head_dim)
+            else:
+                q = rearrange(q, "b s (h d) -> b s h d", d=self.head_dim)
+                k = rearrange(k, "b s (h d) -> b s h d", d=self.head_dim)
+                v = rearrange(v, "b s (h d) -> b s h d", d=self.head_dim)
         kwargs = _convert_cu_seqlens_for_qksplited(kwargs)
 
         # rotary embedding
@@ -584,9 +637,22 @@ class GQA(nn.Module):
             q = rearrange(q, "b s h gs d -> b s (h gs) d")
         else:
             q, k, v = self.wq(x), self.wk(x), self.wv(x)
-            q = rearrange(q, "b s (h d) -> b s h d", d=self.head_dim)
-            k = rearrange(k, "b s (h d) -> b s h d", d=self.head_dim)
-            v = rearrange(v, "b s (h d) -> b s h d", d=self.head_dim)
+            if self.qk_norm:
+                q = rearrange(q, "b s (h d) -> b s h d", d=self.head_dim)
+                k = rearrange(k, "b s (h d) -> b s h d", d=self.head_dim)
+
+                q_all = gather_forward_split_backward(q, ParallelMode.TENSOR, dim=-2)
+                q_norm_out = self.q_norm(q_all)
+                q = split_forward_gather_backward(q_norm_out, ParallelMode.TENSOR, dim=-2)
+                k_all = gather_forward_split_backward(k, ParallelMode.TENSOR, dim=-2)
+                k_norm_out = self.k_norm(k_all)
+                k = split_forward_gather_backward(k_norm_out, ParallelMode.TENSOR, dim=-2)
+
+                v = rearrange(v, "b s (h d) -> b s h d", d=self.head_dim)
+            else:
+                q = rearrange(q, "b s (h d) -> b s h d", d=self.head_dim)
+                k = rearrange(k, "b s (h d) -> b s h d", d=self.head_dim)
+                v = rearrange(v, "b s (h d) -> b s h d", d=self.head_dim)
 
         # rotary embedding, output: q, kv
         assert self.rotary_emb_dim > 0
