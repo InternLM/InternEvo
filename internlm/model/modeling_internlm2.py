@@ -21,7 +21,7 @@ from internlm.initialize.initialize_tensor import (
 from internlm.model.base_model import BaseModel
 from internlm.model.modules.embedding import Embedding1D
 from internlm.model.modules.linear import new_linear
-from internlm.model.modules.mha import GQA
+from internlm.model.modules.mha import GQA, MLA
 from internlm.model.modules.mlp import new_feed_forward
 from internlm.model.modules.norm import new_layer_norm
 from internlm.model.utils import (
@@ -132,25 +132,45 @@ class InternLM2Decoder(nn.Module):
         self.use_dynamic_ntk_rope = use_dynamic_ntk_rope
 
         head_dim = hidden_size // num_attention_heads
-        self.attention = GQA(
-            embed_dim=hidden_size,
-            num_heads=num_attention_heads,
-            num_kv_heads=num_kv_attention_heads,
-            dropout=attn_drop_rate,
-            max_position_embeddings=max_position_embeddings,
-            softmax_scale=1 / math.sqrt(head_dim),
-            causal=True,
-            layer_idx=layer_idx,
-            use_dynamic_ntk_rope=use_dynamic_ntk_rope,
-            rotary_emb_dim=head_dim,
-            rotary_emb_scale_base=0,
-            device=device,
-            dtype=dtype,
-            qk_interleaved=qk_interleaved,
-            bias=not no_bias,
-            rope_base=rope_base,
-            enable_qkv_fusion=True,
-        )
+        if gpc.config.get("attention_type", "GQA") == "MLA":
+            self.attention = MLA(
+                embed_dim=hidden_size,
+                num_heads=num_attention_heads,
+                dropout=attn_drop_rate,
+                max_position_embeddings=max_position_embeddings,
+                softmax_scale=1 / math.sqrt(head_dim),
+                causal=True,
+                layer_idx=layer_idx,
+                use_dynamic_ntk_rope=use_dynamic_ntk_rope,
+                rotary_emb_dim=head_dim,
+                rotary_emb_scale_base=0,
+                device=device,
+                dtype=dtype,
+                qk_interleaved=qk_interleaved,
+                bias=not no_bias,
+                rope_base=rope_base,
+                enable_qkv_fusion=True,
+            )
+        else:
+            self.attention = GQA(
+                embed_dim=hidden_size,
+                num_heads=num_attention_heads,
+                num_kv_heads=num_kv_attention_heads,
+                dropout=attn_drop_rate,
+                max_position_embeddings=max_position_embeddings,
+                softmax_scale=1 / math.sqrt(head_dim),
+                causal=True,
+                layer_idx=layer_idx,
+                use_dynamic_ntk_rope=use_dynamic_ntk_rope,
+                rotary_emb_dim=head_dim,
+                rotary_emb_scale_base=0,
+                device=device,
+                dtype=dtype,
+                qk_interleaved=qk_interleaved,
+                bias=not no_bias,
+                rope_base=rope_base,
+                enable_qkv_fusion=True,
+            )
 
         self.dropout1 = nn.Dropout(drop_rate)
         self.dropout2 = nn.Dropout(drop_rate)

@@ -2,14 +2,20 @@ JOB_NAME = "7b_train"
 model_type = "INTERNLM2_PUBLIC"
 DO_ALERT = False
 
-VOCAB_SIZE = 103168
-SEQ_LEN = 2048
+VOCAB_SIZE = 50304
+SEQ_LEN = 1024 * 1024
+
 HIDDEN_SIZE = 4096
 NUM_ATTENTION_HEAD = 32
-NUM_KV_ATTENTION_HEAD = 8
-MLP_RATIO = 8 / 3
+NUM_KV_ATTENTION_HEAD = 32
+MLP_RATIO = 3.5
 NUM_LAYER = 32
 
+# HIDDEN_SIZE = 8192
+# NUM_ATTENTION_HEAD = 64
+# NUM_KV_ATTENTION_HEAD = 64
+# MLP_RATIO = 3.5
+# NUM_LAYER = 80
 
 MODEL_ONLY_FOLDER = "local:llm_ckpts/xxxx"
 # Ckpt folder format:
@@ -54,15 +60,15 @@ VALID_FOLDER = None  # "/path/to/dataset"
 data = dict(
     seq_len=SEQ_LEN,
     # micro_num means the number of micro_batch contained in one gradient update
-    micro_num=4,
+    micro_num=1,
     # packed_length = micro_bsz * SEQ_LEN
-    micro_bsz=2,
+    micro_bsz=1,
     # defaults to the value of micro_num
     valid_micro_num=4,
     # defaults to 0, means disable evaluate
     valid_every=50,
     pack_sample_into_one=False,
-    total_steps=50000,
+    total_steps=20,
     skip_batches="",
     # rampup_batch_size (str): A string with three space-separated integers representing the
     #       starting batch size, the increment, and the number of steps between
@@ -76,7 +82,7 @@ data = dict(
     valid_folder=VALID_FOLDER,
     empty_cache_and_diag_interval=200,
     diag_outlier_ratio=1.1,
-    # use_packed_dataset=False,
+    use_packed_dataset=False,
 )
 
 grad_scaler = dict(
@@ -152,9 +158,11 @@ beta2_scheduler = dict(
 )
 
 use_fp32_norm = False
+attention_type = "MLA"
 model = dict(
     checkpoint=False,  # The proportion of layers for activation aheckpointing, the optional value are True/False/[0-1]
     num_attention_heads=NUM_ATTENTION_HEAD,
+    num_kv_attention_heads=NUM_KV_ATTENTION_HEAD,
     embed_split_hidden=True,
     vocab_size=VOCAB_SIZE,
     embed_grad_scale=1,
@@ -222,15 +230,15 @@ sequence_2D (dict):
                            interleaved the ranks in the same window to make full use of NIC as much as possible.
 """
 parallel = dict(
-    zero1=dict(size=-1),
-    tensor=dict(size=2, mode="isp"),
+    zero1=dict(size=8),
+    tensor=dict(size=64, mode="isp"),
     pipeline=dict(size=1, interleaved_overlap=True),
-    weight=dict(size=4, overlap=True, launch_allgather_before="wo", forward_overlap_per="layer"),
+    weight=dict(size=1, overlap=True, launch_allgather_before="wo", forward_overlap_per="module"),
     sequence_2D=dict(
-        enable=False,
-        head_size=2,
-        context_size=4,
-        window_size=1,
+        enable=True,
+        head_size=8,
+        context_size=8,
+        window_size=8,
         device_placement_strategy=dict(head_first=True, interleaved=False),
     ),
 )

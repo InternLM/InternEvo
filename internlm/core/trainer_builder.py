@@ -36,6 +36,7 @@ from internlm.utils.common import (
     enable_pytorch_expandable_segments,
     get_current_device,
     get_megatron_flops,
+    get_megatron_flops_mla,
     launch_time,
 )
 from internlm.utils.gputest import empty_cache_and_diag
@@ -338,19 +339,34 @@ class TrainerBuilder(Trainer):
         return success_update, grad_norm_groups
 
     def _record_metrics(self, batch_count: int, batch, start_time, loss, moe_loss, success_update, grad_norm_groups):
-        get_tflops_func = partial(
-            get_megatron_flops,
-            checkpoint=gpc.config.model.checkpoint,
-            seq_len=gpc.config.data["seq_len"],
-            hidden_size=gpc.config.model.hidden_size,
-            num_layers=gpc.config.model.num_layers,
-            vocab_size=gpc.config.model.vocab_size,
-            global_batch_size=gpc.config.data.micro_bsz
-            * gpc.config.data.micro_num
-            * gpc.get_world_size(ParallelMode.DATA),
-            global_world_size=gpc.get_world_size(ParallelMode.GLOBAL),
-            mlp_ratio=gpc.config.model["mlp_ratio"],
-        )
+        if gpc.config.get("attention_type", "GQA") == "MLA":
+            get_tflops_func = partial(
+                get_megatron_flops_mla,
+                checkpoint=gpc.config.model.checkpoint,
+                seq_len=gpc.config.data["seq_len"],
+                hidden_size=gpc.config.model.hidden_size,
+                num_layers=gpc.config.model.num_layers,
+                vocab_size=gpc.config.model.vocab_size,
+                global_batch_size=gpc.config.data.micro_bsz
+                * gpc.config.data.micro_num
+                * gpc.get_world_size(ParallelMode.DATA),
+                global_world_size=gpc.get_world_size(ParallelMode.GLOBAL),
+                mlp_ratio=gpc.config.model["mlp_ratio"],
+            )
+        else:
+            get_tflops_func = partial(
+                get_megatron_flops,
+                checkpoint=gpc.config.model.checkpoint,
+                seq_len=gpc.config.data["seq_len"],
+                hidden_size=gpc.config.model.hidden_size,
+                num_layers=gpc.config.model.num_layers,
+                vocab_size=gpc.config.model.vocab_size,
+                global_batch_size=gpc.config.data.micro_bsz
+                * gpc.config.data.micro_num
+                * gpc.get_world_size(ParallelMode.DATA),
+                global_world_size=gpc.get_world_size(ParallelMode.GLOBAL),
+                mlp_ratio=gpc.config.model["mlp_ratio"],
+            )
         record_current_batch_training_metrics(
             get_tflops_func=get_tflops_func,
             logger=logger,
