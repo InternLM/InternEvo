@@ -901,7 +901,6 @@ class ZeroBubblePipelineVShapeScheduler(InterleavedPipelineScheduler):
             else:
                 next_unit_chunk_id = 1
 
-            # import pdb; pdb.set_trace()
             if unit_step == num_units_stage1 - 1:
                 chunk0_B_need_recv_prev_chunk0_output = False
             else:

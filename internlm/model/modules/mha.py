@@ -157,8 +157,12 @@ class MHA(nn.Module):
 
         if self.enable_qkv_fusion:
             # bias=True is according to https://spaces.ac.cn/archives/9577
-            self.wqkv = new_linear("wqkv", embed_dim, 3 * embed_dim, bias, **factory_kwargs)
+            if gpc.config.parallel["tensor"]["tp_overlap"]:
+                self.wqkv = new_linear("wqkv", embed_dim, 3 * embed_dim, bias, tp_comm_buffer_name="qkv", **factory_kwargs)
+            else:
+                self.wqkv = new_linear("wqkv", embed_dim, 3 * embed_dim, bias, **factory_kwargs)
         else:
+            assert gpc.config.parallel["tensor"]["tp_overlap"] is False, "tp overlap currently only support fused wqkv."
             self.wq = new_linear("wq", embed_dim, embed_dim, bias, **factory_kwargs)
             self.wk = new_linear("wk", embed_dim, self.kv_dim, bias, **factory_kwargs)
             self.wv = new_linear("wv", embed_dim, self.kv_dim, bias, **factory_kwargs)
@@ -167,7 +171,10 @@ class MHA(nn.Module):
         self.inner_cross_attn = CrossAttention(causal=causal, softmax_scale=softmax_scale, attention_dropout=dropout)
 
         # output projection always have the bias (for now) (except for baichuan2 model)
-        self.out_proj = new_linear("out_proj", embed_dim, embed_dim, bias=out_bias, **factory_kwargs)
+        if gpc.config.parallel["tensor"]["tp_overlap"]:
+            self.out_proj = new_linear("out_proj", embed_dim, embed_dim, bias=out_bias, tp_comm_buffer_name="proj", **factory_kwargs)
+        else:
+            self.out_proj = new_linear("out_proj", embed_dim, embed_dim, bias=out_bias, **factory_kwargs)
 
     def register_checkpoint_compatibility_hooks(
         self, pre_load_hook: Optional[Callable] = None, pre_save_hook: Optional[Callable] = None
@@ -193,7 +200,6 @@ class MHA(nn.Module):
         if self.enable_qkv_fusion:
             qkv = self.wqkv(x)
             qkv = rearrange(qkv, "b s (three h d) -> b s three h d", three=3, d=self.head_dim)
-
             q = qkv[:, :, 0].squeeze(2)
             k = qkv[:, :, 1].squeeze(2)
             v = qkv[:, :, 2].squeeze(2)
@@ -214,8 +220,8 @@ class MHA(nn.Module):
         if gpc.config.data.use_packed_dataset is False or self.training is False:
             kwargs.pop("max_seqlen_q", None)
             kwargs.pop("max_seqlen_k", None)
-        context = self.inner_attn(q, k, v, **kwargs)
 
+        context = self.inner_attn(q, k, v, **kwargs)
         # wo
         return self.out_proj(rearrange(context, "b s h d -> b s (h d)"))
 
@@ -461,12 +467,16 @@ class GQA(nn.Module):
 
         if enable_qkv_fusion:
             assert bias is False, "Fuesd wqkv only support bias is False."
-            self.wqkv = new_linear("wqkv", embed_dim, q_dim + 2 * self.kv_dim, bias, **factory_kwargs)
+            if gpc.config.parallel["tensor"]["tp_overlap"]:
+                self.wqkv = new_linear("wqkv", embed_dim, q_dim + 2 * self.kv_dim, bias, tp_comm_buffer_name="qkv", **factory_kwargs)
+            else:
+                self.wqkv = new_linear("wqkv", embed_dim, q_dim + 2 * self.kv_dim, bias, **factory_kwargs)
             self._register_load_state_dict_pre_hook(
                 partial(_qkv_pre_load_convert, q_dim=q_dim, kv_dim=self.kv_dim), with_module=True
             )
             self._register_state_dict_hook(partial(_qkv_save_convert, q_dim=q_dim, kv_dim=self.kv_dim))
         else:
+            assert gpc.config.parallel["tensor"]["tp_overlap"] is False, "tp overlap currently only support fused wqkv."
             self.wq = new_linear("wq", embed_dim, q_dim, bias, **factory_kwargs)
             self.wk = new_linear("wk", embed_dim, self.kv_dim, bias, **factory_kwargs)
             self.wv = new_linear("wv", embed_dim, self.kv_dim, bias, **factory_kwargs)
@@ -478,7 +488,10 @@ class GQA(nn.Module):
             causal=causal, softmax_scale=softmax_scale, attention_dropout=dropout, layer_idx=layer_idx
         )
 
-        self.wo = new_linear("wo", q_dim, embed_dim, bias, **factory_kwargs)
+        if gpc.config.parallel["tensor"]["tp_overlap"]:
+            self.wo = new_linear("wo", q_dim, embed_dim, bias, tp_comm_buffer_name="proj", **factory_kwargs)
+        else:
+            self.wo = new_linear("wo", q_dim, embed_dim, bias, **factory_kwargs)
 
     def register_checkpoint_compatibility_hooks(
         self, pre_load_hook: Optional[Callable] = None, pre_save_hook: Optional[Callable] = None

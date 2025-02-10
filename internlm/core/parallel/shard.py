@@ -161,13 +161,19 @@ def get_parallel_strategies_split_mode(linear_name: str) -> str:
     if linear_name in ("gate"):
         return "gate"  # for MoE model
     elif linear_name in ("wqkv", "wq", "wk", "wv", "wkv", "w1", "w3", "w13"):
-        return "column"
+        if gpc.config.parallel.tensor.tp_overlap:
+            return "tecolumn"
+        else:
+            return "column"
     elif linear_name in ("fc1", "fc2", "linear_1", "linear_2"):  # for vit model
         return "column"
     elif linear_name in ("wo", "out_proj", "w2") and tp_mode == TensorParallelMode.isp.name:
         return "column"
     elif linear_name in ("wo", "out_proj", "w2"):
-        return "row"
+        if gpc.config.parallel.tensor.tp_overlap:
+            return "terow"
+        else:
+            return "row"
     elif linear_name in ("grouped_w1", "grouped_w2", "grouped_w3") and tp_mode == "isp":
         return "grouped_wp"
     elif linear_name in ("grouped_w1", "grouped_w3"):

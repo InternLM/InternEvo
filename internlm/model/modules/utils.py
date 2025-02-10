@@ -4,7 +4,8 @@
 import torch
 import torch.nn.functional as F
 from einops import rearrange
-
+from importlib.metadata import version
+from packaging.version import Version as PkgVersion
 from internlm.utils.logger import get_logger
 
 logger = get_logger(__file__)
@@ -91,3 +92,25 @@ def update_kv_cache(kv, inference_params, layer_idx):
             )
             v_cache[batch_start:batch_end, :, :sequence_end, :] = rearrange(kv[:, :, 1], "b s h d -> b h s d")
         return kv
+
+
+def get_te_version():
+    """Get TE version from __version__; if not available use pip's. Use caching."""
+
+    def get_te_version_str():
+        import transformer_engine as te
+
+        if hasattr(te, '__version__'):
+            return str(te.__version__)
+        else:
+            return version("transformer-engine")
+
+    _te_version = PkgVersion(get_te_version_str())
+    return _te_version
+
+
+def is_te_min_version(version, check_equality=True):
+    """Check if minimum version of `transformer-engine` is installed."""
+    if check_equality:
+        return get_te_version() >= PkgVersion(version)
+    return get_te_version() > PkgVersion(version)

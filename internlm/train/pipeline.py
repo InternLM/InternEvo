@@ -59,6 +59,8 @@ from internlm.model.modules.linear import (
     RewardModelLinear,
     RowParallelLinear,
     ScaleColumnParallelLinear,
+    TERowParallelLinear,
+    TEColumnParallelLinear,
     new_linear,
 )
 from internlm.model.modules.norm import new_layer_norm
@@ -207,7 +209,7 @@ def set_parallel_attr_for_param_groups(model: Union[nn.Module, nn.ModuleList]):
                 elif gpc.is_initialized(ParallelMode.WEIGHT) and is_using_isp():
                     setattr(param, IS_WEIGHT_EXPERT_DATA_PARALLEL, True)
         # for non-moe linear module
-        elif isinstance(module, ParallelLinearWithCommExt):
+        elif isinstance(module, (ParallelLinearWithCommExt, TERowParallelLinear, TEColumnParallelLinear)):
             for param in module.parameters():
                 if gpc.is_initialized(ParallelMode.TENSOR) and not is_using_isp():
                     setattr(param, IS_TENSOR_ZERO_PARALLEL, True)
