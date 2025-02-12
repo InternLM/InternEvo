@@ -18,6 +18,10 @@ env:
   WORKSPACE_PREFIX: $(echo $GITHUB_WORKSPACE |cut -d '/' -f 1-4)
   SLURM_PARTITION: llm_s
 
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
 jobs:
   unit_tests_core_pipeline:
     runs-on: [t_cluster]
@@ -31,12 +35,15 @@ jobs:
 
     - name: core_pipeline
       run: |
+        ssh ${USER}@${CI_HOST} bash << EOF
+        cd $GITHUB_WORKSPACE
         source activate ${evo_env_torch21_flash2}
         export PYTHONPATH=$PWD:$PYTHONPATH
         jobname=${GITHUB_RUN_ID}-${GITHUB_JOB}-${GITHUB_RUN_ATTEMPT}
-        srun -p ${SLURM_PARTITION} --kill-on-bad-exit=1 --job-name=$jobname -N 1 -n 1 --gres=gpu:8 python -m pytest -s -v ./tests/test_core/test_pipeline.py
+        srun -p ${SLURM_PARTITION} --kill-on-bad-exit=1 --job-name=\$jobname -N 1 -n 1 --gres=gpu:8 python -m pytest -s -v ./tests/test_core/test_pipeline.py
         exit_code=$?
-        sh ./ci_scripts/common/check_slurm_cancled.sh $exit_code $jobname
+        sh ./ci_scripts/common/check_slurm_cancled.sh \$exit_code \$jobname
+        EOF
 
   unit_tests_utils_storage_manager:
     runs-on: [t_cluster]
@@ -50,12 +57,15 @@ jobs:
 
     - name: utils_storage_manager
       run: |
+        ssh ${USER}@${CI_HOST} bash << EOF
+        cd $GITHUB_WORKSPACE
         source activate ${evo_env_torch21_flash2}
         export PYTHONPATH=$PWD:$PYTHONPATH
         jobname=${GITHUB_RUN_ID}-${GITHUB_JOB}-${GITHUB_RUN_ATTEMPT}
-        srun -p ${SLURM_PARTITION} --kill-on-bad-exit=1 --job-name=$jobname -N 1 -n 1 --gres=gpu:8 python -m pytest -s -v ./tests/test_utils/test_storage_manager.py
+        srun -p ${SLURM_PARTITION} --kill-on-bad-exit=1 --job-name=\$jobname -N 1 -n 1 --gres=gpu:8 python -m pytest -s -v ./tests/test_utils/test_storage_manager.py
         exit_code=$?
-        sh ./ci_scripts/common/check_slurm_cancled.sh $exit_code $jobname
+        sh ./ci_scripts/common/check_slurm_cancled.sh \$exit_code \$jobname
+        EOF
 
   unit_tests_model_fused_precision:
     runs-on: [t_cluster]
@@ -69,12 +79,15 @@ jobs:
 
     - name: model_fused_precision
       run: |
+        ssh ${USER}@${CI_HOST} bash << EOF
+        cd $GITHUB_WORKSPACE
         source activate ${evo_env_torch21_flash2}
         export PYTHONPATH=$PWD:$PYTHONPATH
         jobname=${GITHUB_RUN_ID}-${GITHUB_JOB}-${GITHUB_RUN_ATTEMPT}
-        srun -p ${SLURM_PARTITION} --kill-on-bad-exit=1 --job-name=$jobname -N 1 -n 1 --gres=gpu:8 python -m pytest -s -v ./tests/test_model/test_fused_precision/test_fused_precision.py
+        srun -p ${SLURM_PARTITION} --kill-on-bad-exit=1 --job-name=\$jobname -N 1 -n 1 --gres=gpu:8 python -m pytest -s -v ./tests/test_model/test_fused_precision/test_fused_precision.py
         exit_code=$?
-        sh ./ci_scripts/common/check_slurm_cancled.sh $exit_code $jobname
+        sh ./ci_scripts/common/check_slurm_cancled.sh \$exit_code \$jobname
+        EOF
 
   unit_tests_data_batch_sampler:
     runs-on: [t_cluster]
@@ -88,12 +101,15 @@ jobs:
 
     - name: data_batch_sample
       run: |
+        ssh ${USER}@${CI_HOST} bash << EOF
+        cd $GITHUB_WORKSPACE
         source activate ${evo_env_torch21_flash2}
         export PYTHONPATH=$PWD:$PYTHONPATH
         jobname=${GITHUB_RUN_ID}-${GITHUB_JOB}-${GITHUB_RUN_ATTEMPT}
-        srun -p ${SLURM_PARTITION} --kill-on-bad-exit=1 --job-name=$jobname -N 1 -n 1 --gres=gpu:8 python -m pytest -s -v ./tests/test_data/test_batch_sampler.py
+        srun -p ${SLURM_PARTITION} --kill-on-bad-exit=1 --job-name=\$jobname -N 1 -n 1 --gres=gpu:8 python -m pytest -s -v ./tests/test_data/test_batch_sampler.py
         exit_code=$?
-        sh ./ci_scripts/common/check_slurm_cancled.sh $exit_code $jobname
+        sh ./ci_scripts/common/check_slurm_cancled.sh \$exit_code \$jobname
+        EOF
 
   unit_tests_utils_timeout:
     runs-on: [t_cluster]
@@ -107,12 +123,15 @@ jobs:
 
     - name: utils_timeout
       run: |
+        ssh ${USER}@${CI_HOST} bash << EOF
+        cd $GITHUB_WORKSPACE
         source activate ${evo_env_torch21_flash2}
         export PYTHONPATH=$PWD:$PYTHONPATH
         jobname=${GITHUB_RUN_ID}-${GITHUB_JOB}-${GITHUB_RUN_ATTEMPT}
-        srun -p ${SLURM_PARTITION} --kill-on-bad-exit=1 --job-name=$jobname -N 1 -n 1 --gres=gpu:1 python -m pytest -s -v ./tests/test_utils/test_timeout.py
+        srun -p ${SLURM_PARTITION} --kill-on-bad-exit=1 --job-name=\$jobname -N 1 -n 1 --gres=gpu:1 python -m pytest -s -v ./tests/test_utils/test_timeout.py
         exit_code=$?
-        sh ./ci_scripts/common/check_slurm_cancled.sh $exit_code $jobname
+        sh ./ci_scripts/common/check_slurm_cancled.sh \$exit_code \$jobname
+        EOF
 
   unit_tests_utils_model_checkpoint:
     runs-on: [t_cluster]
@@ -126,12 +145,15 @@ jobs:
 
     - name: utils_model_checkpoint
       run: |
+        ssh ${USER}@${CI_HOST} bash << EOF
+        cd $GITHUB_WORKSPACE
         source activate ${evo_env_torch21_flash2}
         export PYTHONPATH=$PWD:$PYTHONPATH
         jobname=${GITHUB_RUN_ID}-${GITHUB_JOB}-${GITHUB_RUN_ATTEMPT}
-        srun -p ${SLURM_PARTITION} --kill-on-bad-exit=1 --job-name=$jobname -N 1 -n 1 --gres=gpu:2 python -m pytest -s -v  ./tests/test_utils/test_model_checkpoint.py
+        srun -p ${SLURM_PARTITION} --kill-on-bad-exit=1 --job-name=\$jobname -N 1 -n 1 --gres=gpu:2 python -m pytest -s -v  ./tests/test_utils/test_model_checkpoint.py
         exit_code=$?
-        sh ./ci_scripts/common/check_slurm_cancled.sh $exit_code $jobname
+        sh ./ci_scripts/common/check_slurm_cancled.sh \$exit_code \$jobname
+        EOF
 
   notify_to_feishu:
     if: ${{ always() && !cancelled() && contains(needs.*.result, 'failure') && (github.ref_name == 'develop' || github.ref_name == 'main') }}

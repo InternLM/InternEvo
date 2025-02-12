@@ -11,6 +11,10 @@ env:
   WORKSPACE_PREFIX: $(echo $GITHUB_WORKSPACE |cut -d '/' -f 1-4)
   SLURM_PARTITION: llm_s
 
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
 jobs:
   model_init_tests:
     runs-on: [t_cluster]
@@ -24,12 +28,15 @@ jobs:
 
     - name: model_init_tests
       run: |
+        ssh ${USER}@${CI_HOST} bash << EOF
+        cd $GITHUB_WORKSPACE
         source activate ${evo_env_torch21_flash2}
         export PYTHONPATH=$PWD:$PYTHONPATH
         jobname=internlm-${GITHUB_RUN_ID}-${GITHUB_JOB}-${GITHUB_RUN_ATTEMPT}
-        srun -p ${SLURM_PARTITION} --kill-on-bad-exit=1 --job-name=$jobname -N 1 -n 8 --ntasks-per-node=8 --gpus-per-task=1 python ./tests/test_training/train_CI.py --config ./tests/test_training/7B_check_init.py --seed=1024
+        srun -p ${SLURM_PARTITION} --kill-on-bad-exit=1 --job-name=\$jobname -N 1 -n 8 --ntasks-per-node=8 --gpus-per-task=1 python ./tests/test_training/train_CI.py --config ./tests/test_training/7B_check_init.py --seed=1024
         exit_code=$?
-        sh ./ci_scripts/common/check_slurm_cancled.sh $exit_code $jobname
+        sh ./ci_scripts/common/check_slurm_cancled.sh \$exit_code \$jobname
+        EOF
 
   test_forward_output_no_fa:
     runs-on: [t_cluster]
@@ -43,12 +50,15 @@ jobs:
 
     - name: forward_output_no_fa
       run: |
+        ssh ${USER}@${CI_HOST} bash << EOF
+        cd $GITHUB_WORKSPACE
         source activate ${evo_env_torch21_flash2}
         export PYTHONPATH=$PWD:$PYTHONPATH
         jobname=${GITHUB_RUN_ID}-${GITHUB_JOB}-${GITHUB_RUN_ATTEMPT}
-        srun -p ${SLURM_PARTITION} --kill-on-bad-exit=1 --job-name=$jobname -N 1 -n 1 --gres=gpu:8 python -m pytest -s ./tests/test_training/test_forward_output_no_fa.py
+        srun -p ${SLURM_PARTITION} --kill-on-bad-exit=1 --job-name=\$jobname -N 1 -n 1 --gres=gpu:8 python -m pytest -s ./tests/test_training/test_forward_output_no_fa.py
         exit_code=$?
-        sh ./ci_scripts/common/check_slurm_cancled.sh $exit_code $jobname
+        sh ./ci_scripts/common/check_slurm_cancled.sh \$exit_code \$jobname
+        EOF
 
   unit_test_model:
     runs-on: [t_cluster]
@@ -62,24 +72,33 @@ jobs:
 
     - name: test_embedding_accuracy
       run: |
+        ssh ${USER}@${CI_HOST} bash << EOF
+        cd $GITHUB_WORKSPACE
         source activate ${evo_env_torch21_flash2}
         jobname=embedding-${GITHUB_RUN_ID}-${GITHUB_JOB}-${GITHUB_RUN_ATTEMPT}
-        srun -p ${SLURM_PARTITION} --kill-on-bad-exit=1 --job-name=$jobname -N 1 -n 1 --gres=gpu:8 python -m pytest -s ./tests/test_model/test_embedding.py
+        srun -p ${SLURM_PARTITION} --kill-on-bad-exit=1 --job-name=\$jobname -N 1 -n 1 --gres=gpu:8 python -m pytest -s ./tests/test_model/test_embedding.py
         exit_code=$?
-        sh ./ci_scripts/common/check_slurm_cancled.sh $exit_code $jobname
+        sh ./ci_scripts/common/check_slurm_cancled.sh \$exit_code \$jobname
+        EOF
 
     - name: test_model_internlm_accuracy
       run: |
+        ssh ${USER}@${CI_HOST} bash << EOF
+        cd $GITHUB_WORKSPACE
         source activate ${evo_env_torch21_flash2}
         jobname=model-${GITHUB_RUN_ID}-${GITHUB_JOB}-${GITHUB_RUN_ATTEMPT}
-        srun -p ${SLURM_PARTITION} --kill-on-bad-exit=1 --job-name=$jobname -N 1 -n 1 --gres=gpu:8 python -m pytest -s ./tests/test_model/test_model_internlm.py
+        srun -p ${SLURM_PARTITION} --kill-on-bad-exit=1 --job-name=\$jobname -N 1 -n 1 --gres=gpu:8 python -m pytest -s ./tests/test_model/test_model_internlm.py
         exit_code=$?
-        sh ./ci_scripts/common/check_slurm_cancled.sh $exit_code $jobname
+        sh ./ci_scripts/common/check_slurm_cancled.sh \$exit_code \$jobname
+        EOF
 
     - name: test_norm_accuracy
       run: |
+        ssh ${USER}@${CI_HOST} bash << EOF
+        cd $GITHUB_WORKSPACE
         source activate ${evo_env_torch21_flash2}
         jobname=norm_${GITHUB_RUN_ID}-${GITHUB_JOB}-${GITHUB_RUN_ATTEMPT}
-        srun -p ${SLURM_PARTITION} --kill-on-bad-exit=1 --job-name=$jobname -N 1 -n 1 --gres=gpu:8 python -m pytest -s ./tests/test_model/test_norm.py
+        srun -p ${SLURM_PARTITION} --kill-on-bad-exit=1 --job-name=\$jobname -N 1 -n 1 --gres=gpu:8 python -m pytest -s ./tests/test_model/test_norm.py
         exit_code=$?
-        sh ./ci_scripts/common/check_slurm_cancled.sh $exit_code $jobname
+        sh ./ci_scripts/common/check_slurm_cancled.sh \$exit_code \$jobname
+        EOF

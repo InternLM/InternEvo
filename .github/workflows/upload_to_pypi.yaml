@@ -25,14 +25,18 @@ jobs:
 
     - name: install dependencies
       run: |
+        ssh ${USER}@${CI_HOST} bash << EOF
         pip install setuptools wheel twine
+        EOF
 
     - name: build and upload package
       run: |
+        ssh ${USER}@${CI_HOST} bash << EOF
+        cd $GITHUB_WORKSPACE
         source activate ${evo_env_torch21_flash2}
-        python_path=$(which python) && echo "Python executable is at: $python_path"
+        python_path=$(which python) && echo "Python executable is at: \$python_path"
         latest_tag=$(git describe --tags --abbrev=0)
-        echo "$latest_tag" > version.txt
+        echo "\$latest_tag" > version.txt
         export PYTHONPATH=$PWD:$PYTHONPATH
         export LLMPLATFORM=/mnt/petrelfs/share_data/llm_env
         export CUDA_PATH=${LLMPLATFORM}/dep/cuda-11.8
@@ -44,14 +48,15 @@ jobs:
         export CC=${GCC_HOME}/bin/gcc
         export CXX=${GCC_HOME}/bin/c++
         jobname=${GITHUB_RUN_ID}-${GITHUB_JOB}-${GITHUB_RUN_ATTEMPT}
-        srun -p ${SLURM_PARTITION} --kill-on-bad-exit=1 --job-name=$jobname -N 1 -n 1 --gres=gpu:1 python setup.py sdist bdist_wheel
+        srun -p ${SLURM_PARTITION} --kill-on-bad-exit=1 --job-name=\$jobname -N 1 -n 1 --gres=gpu:1 python setup.py sdist bdist_wheel
         cd csrc/rotary/
-        srun -p ${SLURM_PARTITION} --kill-on-bad-exit=1 --job-name=$jobname -N 1 -n 1 --gres=gpu:1 python setup.py sdist bdist_wheel
+        srun -p ${SLURM_PARTITION} --kill-on-bad-exit=1 --job-name=\$jobname -N 1 -n 1 --gres=gpu:1 python setup.py sdist bdist_wheel
         cd ../xentropy/
-        srun -p ${SLURM_PARTITION} --kill-on-bad-exit=1 --job-name=$jobname -N 1 -n 1 --gres=gpu:1 python setup.py sdist bdist_wheel
+        srun -p ${SLURM_PARTITION} --kill-on-bad-exit=1 --job-name=\$jobname -N 1 -n 1 --gres=gpu:1 python setup.py sdist bdist_wheel
         cd ../../
         exit_code=$?
         twine upload -u __token__ -p ${{ secrets.PYPI_API_TOKEN }} dist/*
         twine upload -u __token__ -p ${{ secrets.PYPI_API_TOKEN }} csrc/rotary/dist/*
         twine upload -u __token__ -p ${{ secrets.PYPI_API_TOKEN }} csrc/xentropy/dist/*
-        sh ./ci_scripts/common/check_slurm_cancled.sh $exit_code $jobname
+        sh ./ci_scripts/common/check_slurm_cancled.sh \$exit_code \$jobname
+        EOF
