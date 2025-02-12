@@ -1,7 +1,7 @@
 #!/usr/bin/env python
 # -*- encoding: utf-8 -*-
+# Copyright (c) InternLM. All rights reserved.
 
-import argparse
 import os
 from pathlib import Path
 from typing import Dict, Union
@@ -9,8 +9,8 @@ from typing import Dict, Union
 import torch
 
 from internlm.accelerator import AcceleratorType, get_accelerator
-from internlm.core.context import Config
-from internlm.core.context import global_context as gpc
+from internlm.core.context.parallel_context import Config
+from internlm.core.context.parallel_context import global_context as gpc
 from internlm.core.context.process_group_initializer import ParallelMode
 from internlm.utils.common import get_master_node
 from internlm.utils.gputest import warmup_process_group
@@ -32,37 +32,6 @@ else:
 
 logger = get_logger(__file__)
 internlm_accelerator = get_accelerator()
-
-
-def get_default_parser():
-    """Reads user command line and uses an argument parser to parse the input arguments.
-    Input arguments include configuration, host, port, world size, local rank, backend for torch.distributed.
-
-    Returns:
-       Parser: Returns the parser with the default arguments, the user may add customized arguments into this parser.
-    """
-    parser = argparse.ArgumentParser()
-    parser.add_argument("--config", type=str, help="path to the config file")
-    parser.add_argument(
-        "--launcher",
-        type=str,
-        default="slurm",
-        choices=["slurm", "torch"],
-        help="launcher for launching distributed environment",
-    )
-    parser.add_argument("--host", type=str, help="the master address for distributed training")
-    parser.add_argument("--port", type=int, default=8888, help="the master port for distributed training")
-    parser.add_argument("--world_size", type=int, help="world size for distributed training")
-    parser.add_argument("--rank", type=int, help="rank for the default process group")
-    parser.add_argument("--local_rank", type=int, help="local rank on the node")
-    parser.add_argument("--backend", type=str, default="nccl", help="backend for distributed communication")
-    parser.add_argument("--seed", type=int, default=1024)
-    parser.add_argument("--profiling", default=False, action="store_true", help="enable/disable profiling.")
-    parser.add_argument("--enable_ali_topology", default=False, action="store_true", help="enable ali switch topology.")
-    parser.add_argument(
-        "--disable_volc_topology", default=False, action="store_true", help="disable volc switch topology."
-    )
-    return parser
 
 
 def inject_hf_config_before_launch(hf: dict):
@@ -323,6 +292,9 @@ def args_sanity_check():
         logger.info(f"clip_grad_norm: {clip_grad_norm}")
 
     model = gpc.config.model
+    if "enable_qkv_fusion" not in model:
+        model._add_item("enable_qkv_fusion", True)
+
     if "dtype" not in model:
         logger.warning("dtype is not set, use torch.float16 by defalut!")
         model._add_item("dtype", torch.float16)

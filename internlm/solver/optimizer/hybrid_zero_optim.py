@@ -11,8 +11,7 @@ import torch.distributed as dist
 from torch.optim import Optimizer
 
 from internlm.accelerator import AcceleratorType, get_accelerator
-from internlm.core.context import Config, ParallelMode
-from internlm.core.context import global_context as gpc
+from internlm.core.context.parallel_context import Config
 from internlm.core.context.parallel_context import (
     IS_REPLICA_EXPERT_DATA_PARALLEL,
     IS_REPLICA_ZERO_PARALLEL,
@@ -20,7 +19,9 @@ from internlm.core.context.parallel_context import (
     IS_TENSOR_ZERO_PARALLEL,
     IS_WEIGHT_EXPERT_DATA_PARALLEL,
     IS_WEIGHT_ZERO_PARALLEL,
+    ParallelMode,
 )
+from internlm.core.context.parallel_context import global_context as gpc
 from internlm.core.parallel.comm.isp import ISPCommunicatorWrapper
 from internlm.core.parallel.comm.zero import ParamAsyncBcastHandler
 from internlm.model.modules.utils import is_gate_param, is_moe_param

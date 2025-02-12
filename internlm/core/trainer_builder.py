@@ -9,7 +9,7 @@ import torch.distributed as dist
 from torch.utils.data import DataLoader
 
 from internlm.checkpoint.checkpoint_manager import CheckpointManager
-from internlm.core.context import global_context as gpc
+from internlm.core.context.parallel_context import global_context as gpc
 from internlm.core.context.process_group_initializer import ParallelMode
 from internlm.core.parallel.comm import initialize_offload_manager
 from internlm.core.trainer import Trainer

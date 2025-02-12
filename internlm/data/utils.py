@@ -5,7 +5,7 @@ import re
 
 import torch
 
-from internlm.core.context import global_context as gpc
+from internlm.core.context.parallel_context import global_context as gpc
 from internlm.core.context.process_group_initializer import ParallelMode
 from internlm.utils.parallel import is_using_hf
 

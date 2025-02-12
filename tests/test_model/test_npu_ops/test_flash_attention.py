@@ -12,8 +12,8 @@ from einops import rearrange
 from torch import nn
 
 from internlm.accelerator import AcceleratorType, get_accelerator
-from internlm.core.context import Config
-from internlm.core.context import global_context as gpc
+from internlm.core.context.parallel_context import Config
+from internlm.core.context.parallel_context import global_context as gpc
 from internlm.model.ops.attention import SelfAttention
 from internlm.model.ops.utils import pack_output_after_attn, unpack_qkv_before_attn
 from internlm.utils.common import get_current_device, set_random_seed

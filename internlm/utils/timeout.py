@@ -63,7 +63,7 @@ else:
 
 def try_get_gpc_rank():
     try:
-        from internlm.core.context import global_context as gpc
+        from internlm.core.context.parallel_context import global_context as gpc
 
         rank = gpc.get_global_rank()
     except:  # noqa: E722  # pylint: disable=bare-except

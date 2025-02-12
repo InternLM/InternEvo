@@ -9,10 +9,11 @@ import torch
 import torch.distributed as dist
 from tqdm import tqdm
 
-import internlm
+from internlm.initialize.launch import launch_from_torch
+from internlm.initialize.initialize_trainer import initialize_trainer
 from internlm.accelerator import get_accelerator
 from internlm.core.context import ParallelMode
-from internlm.core.context import global_context as gpc
+from internlm.core.context.parallel_context import global_context as gpc
 from internlm.core.context.parallel_context import Config
 from internlm.core.trainer import Trainer
 from internlm.data import (
@@ -137,7 +138,7 @@ def build_environment(rank, world_size, config):
     os.environ["MASTER_PORT"] = "33333"
     internlm_accelerator.empty_cache()
     # launcher="torch"
-    internlm.launch_from_torch(config=config, seed=1024)
+    launch_from_torch(config=config, seed=1024)
     args_sanity_check()
 
 
@@ -302,7 +303,7 @@ def exam_loss(args):
         ),
     ]
 
-    engine, scheduler = internlm.initialize_trainer(
+    engine, scheduler = initialize_trainer(
         model=model,
         optimizer=optimizer,
         criterion=criterion,

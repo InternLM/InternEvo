@@ -7,7 +7,7 @@ import torch
 
 from internlm.accelerator import get_accelerator
 from internlm.core.context import ParallelMode
-from internlm.core.context import global_context as gpc
+from internlm.core.context.parallel_context import global_context as gpc
 from internlm.core.trainer import TrainState
 from internlm.model.moe import MoE
 from internlm.solver.optimizer import HybridZeroOptimizer, HybridZeroOptimizer_v2

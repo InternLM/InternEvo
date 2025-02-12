@@ -8,7 +8,7 @@ from torch import Tensor
 from torch._utils import _flatten_dense_tensors, _unflatten_dense_tensors
 
 from internlm.core.context import ParallelMode
-from internlm.core.context import global_context as gpc
+from internlm.core.context.parallel_context import global_context as gpc
 
 
 class BaseStore:

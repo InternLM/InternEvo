@@ -5,7 +5,7 @@ from subprocess import PIPE, STDOUT, Popen
 import pytest
 import torch
 
-from internlm.core.context import global_context as gpc
+from internlm.core.context.parallel_context import global_context as gpc
 from internlm.core.context.parallel_context import Config
 from internlm.core.naive_amp import NaiveAMPModel
 from internlm.model.builder import create_model

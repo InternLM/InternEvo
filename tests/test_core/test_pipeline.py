@@ -4,7 +4,7 @@ import pytest
 import torch
 
 from internlm.core.context import ParallelMode
-from internlm.core.context import global_context as gpc
+from internlm.core.context.parallel_context import global_context as gpc
 from internlm.core.context.parallel_context import Config
 from internlm.solver.optimizer.compatible_adamw import new_compatible_adamw
 from internlm.utils.common import get_current_device

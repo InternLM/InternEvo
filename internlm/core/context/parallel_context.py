@@ -3,12 +3,12 @@
 
 # adopted from https://github.com/hpcaitech/ColossalAI/blob/main/colossalai/context
 
+from importlib.machinery import SourceFileLoader
 import inspect
+from pathlib import Path
 import random
 import socket
 import sys
-from importlib.machinery import SourceFileLoader
-from pathlib import Path
 from typing import Union
 
 import numpy as np
@@ -16,8 +16,9 @@ import torch
 import torch.distributed as dist
 
 from internlm.accelerator import get_accelerator
-from internlm.utils.common import SingletonMeta
+from internlm.core.context.parallel_context import Config
 from internlm.utils.logger import get_logger
+from internlm.utils.common import SingletonMeta
 from internlm.utils.timeout import LLM_NCCL_TIMEOUT
 from internlm.utils.utils import TensorParallelMode
 

@@ -201,7 +201,7 @@ def return_latest_save_path(save_ckpt_folder, total_step, snapshot_freq, ckpt_fr
 @pytest.mark.parametrize("step_info", step_info_list)
 @pytest.mark.parametrize("ckpt_config", ckpt_config_list)
 def test_ckpt_mm(step_info, ckpt_config, init_dist_and_model):  # noqa # pylint: disable=unused-import
-    from internlm.core.context import global_context as gpc
+    from internlm.core.context.parallel_context import global_context as gpc
     from internlm.checkpoint.checkpoint_manager import CheckpointLoadMask
 
     ckpt_config = Config(ckpt_config)
@@ -297,7 +297,7 @@ STOP_FILE_PATH = "./alter.log"
 
 
 def query_quit_file(rank, world_size=2):
-    from internlm.core.context import global_context as gpc
+    from internlm.core.context.parallel_context import global_context as gpc
     from internlm.initialize import initialize_distributed_env
     from internlm.checkpoint.checkpoint_manager import CheckpointSaveType
 

@@ -29,7 +29,7 @@ from internlm.core.context import (
     IS_WEIGHT_ZERO_PARALLEL,
     ParallelMode,
 )
-from internlm.core.context import global_context as gpc
+from internlm.core.context.parallel_context import global_context as gpc
 from internlm.core.context.random import set_mode
 from internlm.core.naive_amp import (
     NaiveAMPModel,

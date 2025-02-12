@@ -4,7 +4,7 @@ import torch
 from torch import Tensor
 from torch.nn import Module, ModuleList
 
-from internlm.core.context import global_context as gpc
+from internlm.core.context.parallel_context import global_context as gpc
 from internlm.model.moe.experts import Experts
 from internlm.utils.common import get_current_device
 

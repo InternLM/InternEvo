@@ -9,7 +9,7 @@ import torch.distributed as dist
 from torch.optim.optimizer import Optimizer
 
 from internlm.core.context import ParallelMode
-from internlm.core.context import global_context as gpc
+from internlm.core.context.parallel_context import global_context as gpc
 from internlm.core.engine import Engine
 from internlm.core.scheduler import comm
 from internlm.utils.common import SchedulerHook, get_current_device

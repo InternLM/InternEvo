@@ -1,5 +1,5 @@
 # Copyright (c) InternLM. All rights reserved.
-from internlm.core.context import global_context as gpc
+from internlm.core.context.parallel_context import global_context as gpc
 from internlm.core.trainer import TrainState
 from internlm.utils.utils import DataType
 

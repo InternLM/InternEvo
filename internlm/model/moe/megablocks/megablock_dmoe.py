@@ -4,7 +4,7 @@ import numpy as np
 import torch
 
 from internlm.core.context import ParallelMode
-from internlm.core.context import global_context as gpc
+from internlm.core.context.parallel_context import global_context as gpc
 from internlm.model.moe.base_layer import BaseMoELayer
 from internlm.model.moe.megablocks.megablock_moe import MegaBlockMoE
 from internlm.model.moe.megablocks.mlp import MegaBlockGroupedFeedForward

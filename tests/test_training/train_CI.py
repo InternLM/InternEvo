@@ -16,10 +16,10 @@ script_dir = os.path.dirname(os.path.abspath(__file__))
 project_root = os.path.abspath(os.path.join(script_dir, "../../"))
 sys.path.append(project_root)
 
-import internlm  # noqa: E402
+from internlm.initialize.initialize_trainer import initialize_trainer  # noqa: E402
 from internlm.checkpoint import CheckpointManager  # noqa: E402
 from internlm.core.context import ParallelMode  # noqa: E402
-from internlm.core.context import global_context as gpc  # noqa: E402
+from internlm.core.context.parallel_context import global_context as gpc  # noqa: E402
 from internlm.core.trainer import Trainer, TrainState  # noqa: E402
 from internlm.data import (  # noqa: E402
     build_train_loader_with_data_type,
@@ -180,7 +180,7 @@ def main(args):
         ),
     ]
 
-    engine, scheduler = internlm.initialize_trainer(
+    engine, scheduler = initialize_trainer(
         model=model,
         optimizer=optimizer,
         criterion=criterion,

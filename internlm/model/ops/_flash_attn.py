@@ -2,7 +2,7 @@
 import torch
 
 from internlm.accelerator import get_accelerator
-from internlm.core.context import global_context as gpc
+from internlm.core.context.parallel_context import global_context as gpc
 from internlm.core.parallel.comm import get_offload_manager
 
 try:

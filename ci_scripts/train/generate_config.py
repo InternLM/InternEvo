@@ -5,7 +5,7 @@ import json
 import os
 
 from ci_scripts.common import com_func
-from internlm.core.context import Config
+from internlm.core.context.parallel_context import Config
 
 
 def generate_new_config(config_py_file, test_config_json, case_name):

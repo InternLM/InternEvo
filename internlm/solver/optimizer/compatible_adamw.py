@@ -3,7 +3,7 @@ from typing import Tuple
 import torch
 
 from internlm.accelerator import AcceleratorType, get_accelerator
-from internlm.core.context import global_context as gpc
+from internlm.core.context.parallel_context import global_context as gpc
 from internlm.utils.logger import get_logger
 
 logger = get_logger(__file__)

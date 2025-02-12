@@ -2,7 +2,7 @@ import torch
 import torch.nn.functional as F
 
 from internlm.core.context import ParallelMode
-from internlm.core.context import global_context as gpc
+from internlm.core.context.parallel_context import global_context as gpc
 from internlm.core.naive_amp import set_fp32_attr_to_module
 from internlm.model.modules.mlp import new_feed_forward
 from internlm.model.moe.dropless_layer import DroplessMoELayer

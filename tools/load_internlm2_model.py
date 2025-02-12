@@ -9,7 +9,7 @@ import torch
 
 from internlm.apis.inference import SequenceGenerator
 from internlm.core.context import ParallelMode
-from internlm.core.context import global_context as gpc
+from internlm.core.context.parallel_context import global_context as gpc
 from internlm.initialize.launch import initialize_distributed_env
 from internlm.train import initialize_model_and_parallel_communicator
 from internlm.utils.storage_manager import get_fns, init_storage_manager, llm_load
@@ -278,7 +278,7 @@ if __name__ == "__main__":
     >>> torchrun --master_port 12321 --nnodes=1 --node_rank=0 --nproc_per_node=1 tools/load_internlm2_model.py
     """
     model = initialize_internlm_model(
-        model_type="INTERNLM2_PUBLIC",
+        model_type="INTERNLM2",
         ckpt_dir=args.ckpt_dir,
         model_config=dict(
             num_chunks=1,

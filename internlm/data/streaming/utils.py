@@ -1,7 +1,7 @@
 #!/usr/bin/env python
 # -*- encoding: utf-8 -*-
 
-from internlm.core.context import global_context as gpc
+from internlm.core.context.parallel_context import global_context as gpc
 
 
 # simple auto_resume for streaming dataloader

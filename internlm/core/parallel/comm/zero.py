@@ -9,7 +9,7 @@ from torch import distributed as dist
 from torch import nn
 
 from internlm.core.context import ParallelMode
-from internlm.core.context import global_context as gpc
+from internlm.core.context.parallel_context import global_context as gpc
 from internlm.core.naive_amp import unwrap_naive_amp
 from internlm.core.parallel.comm.isp import ISPCommunicatorWrapper
 from internlm.model.modules.embedding import Embedding1D

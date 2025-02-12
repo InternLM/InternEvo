@@ -8,7 +8,7 @@ import torch.distributed as dist
 from torch import Tensor
 from torch.distributed import ProcessGroup
 
-from internlm.core.context import global_context as gpc
+from internlm.core.context.parallel_context import global_context as gpc
 
 
 class AsyncCommHandle(ABC):

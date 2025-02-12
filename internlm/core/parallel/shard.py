@@ -8,7 +8,7 @@ import torch
 from torch import nn
 
 from internlm.core.context import ParallelMode
-from internlm.core.context import global_context as gpc
+from internlm.core.context.parallel_context import global_context as gpc
 from internlm.core.parallel.comm.utils import _gather, _split
 from internlm.utils.logger import get_logger
 from internlm.utils.parallel import is_using_hf

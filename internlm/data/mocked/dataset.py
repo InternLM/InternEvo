@@ -7,7 +7,7 @@ import torch
 from torch.utils.data import Dataset
 
 from internlm.core.context import ParallelMode
-from internlm.core.context import global_context as gpc
+from internlm.core.context.parallel_context import global_context as gpc
 
 
 def merge_tensors(fn_pattern: str) -> torch.Tensor:

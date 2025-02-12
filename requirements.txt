@@ -1,4 +1,4 @@
-transformers
+transformers<4.47.0
 sentencepiece
 datasets
 numpy
@@ -6,15 +6,11 @@ tqdm
 einops
 psutil
 packaging
-pre-commit
 ninja
 gputil
-pytest
 boto3
 botocore
-torch-scatter
 pyecharts
 py-libnuma
 pynvml
 tensorboard
--f https://data.pyg.org/whl/torch-2.1.0+cu118.html

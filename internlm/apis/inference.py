@@ -7,7 +7,7 @@ from torch import nn
 
 from internlm.apis import InferenceParams, process_parallel_output
 from internlm.core.context import ParallelMode  # noqa: E402
-from internlm.core.context import global_context as gpc  # noqa: E402
+from internlm.core.context.parallel_context import global_context as gpc  # noqa: E402
 from internlm.core.trainer import Trainer
 
 __all__ = ["SequenceGenerator"]

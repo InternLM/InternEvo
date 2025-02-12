@@ -2,7 +2,7 @@ import torch
 from torch import nn
 
 from internlm.core.context import ParallelMode
-from internlm.core.context import global_context as gpc
+from internlm.core.context.parallel_context import global_context as gpc
 from internlm.model.modules.utils import Silu
 from internlm.model.moe.megablocks.utils import (
     act_fn,

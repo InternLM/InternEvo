@@ -7,10 +7,11 @@ import numpy as np
 import pytest
 import torch
 
-import internlm
+from internlm.initialize import launch_from_torch
+from internlm.initialize import initialize_trainer
 from internlm.accelerator import get_accelerator
 from internlm.core.context import ParallelMode
-from internlm.core.context import global_context as gpc
+from internlm.core.context.parallel_context import global_context as gpc
 from internlm.core.context.parallel_context import Config
 from internlm.core.trainer import Trainer
 from internlm.data import build_train_loader_with_data_type
@@ -69,7 +70,7 @@ config = Config(
             num_chunks=1,
             no_bias=True,
         ),
-        model_type="INTERNLM2_PUBLIC",
+        model_type="INTERNLM2",
         alert_address=None,
         monitor=dict(alert=dict(enable_feishu_alert=False, feishu_alert_address=None, light_monitor_address=None)),
         grad_scaler=dict(
@@ -133,7 +134,7 @@ def build_environment(rank, world_size, free_port, config):
     os.environ["MASTER_ADDR"] = "localhost"
     os.environ["MASTER_PORT"] = str(free_port)
     internlm_accelerator.empty_cache()
-    internlm.launch_from_torch(config=config, seed=1024)
+    launch_from_torch(config=config, seed=1024)
     args_sanity_check()
 
 
@@ -198,7 +199,7 @@ def train_check_output(args):
         ),
     ]
 
-    engine, scheduler = internlm.initialize_trainer(
+    engine, scheduler = initialize_trainer(
         model=model,
         optimizer=optimizer,
         criterion=criterion,

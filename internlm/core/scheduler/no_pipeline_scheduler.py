@@ -9,7 +9,7 @@ import torch
 import torch.distributed as dist
 
 from internlm.core.context import ParallelMode
-from internlm.core.context import global_context as gpc
+from internlm.core.context.parallel_context import global_context as gpc
 from internlm.core.engine import Engine
 from internlm.utils.common import (
     SchedulerHook,

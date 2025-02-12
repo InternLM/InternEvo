@@ -13,7 +13,7 @@ from torch import distributed as dist
 from torch import nn
 
 from internlm.core.context import ParallelMode
-from internlm.core.context import global_context as gpc
+from internlm.core.context.parallel_context import global_context as gpc
 from internlm.core.naive_amp import unwrap_naive_amp
 from internlm.core.parallel.comm.utils import (
     DUMMY_HANDLE_CONST,
@@ -25,7 +25,6 @@ from internlm.core.parallel.comm.utils import (
     expandKVPacked,
     reduce_scatter_raw,
 )
-from internlm.model.modules.embedding import Embedding1D
 from internlm.model.modules.linear import ParallelLinearWithCommExt
 from internlm.model.modules.utils import is_moe_param
 from internlm.utils.common import SchedulerHook, UniqueChainMap, get_current_device
@@ -179,14 +178,20 @@ class EmbeddingWeightParallelCommunicator:
     """
 
     def __init__(self, parallel_mode: ParallelMode) -> None:
+        from internlm.model.modules.embedding import Embedding1D
+
+        self._embedding1d_class = Embedding1D
+
         self.parallel_mode = parallel_mode
         self.gather_dim = 0
 
         self._cur_micro_step = 0
         self._num_micro_step = gpc.config.data.micro_num
 
-    def register_module_hook(self, module: Embedding1D) -> None:
-        assert isinstance(module, Embedding1D), "Embbeding weight parallel communicator is only support Embedding1D"
+    def register_module_hook(self, module: nn.Module) -> None:
+        assert isinstance(
+            module, self._embedding1d_class
+        ), "Embbeding weight parallel communicator is only support Embedding1D"
 
         module.weight.evo_tensor = None
         self.gather_dim = 0 if module.vocab_parallel else 1

@@ -15,7 +15,7 @@ from torch.utils.data import ConcatDataset, Dataset
 from tqdm import tqdm
 
 from internlm.accelerator import get_accelerator
-from internlm.core.context import global_context as gpc
+from internlm.core.context.parallel_context import global_context as gpc
 from internlm.data.tokenized.single_dataset import JsonlDataset
 from internlm.data.utils import get_dataset_type_id, get_dataset_type_ids_map
 from internlm.utils.logger import get_logger

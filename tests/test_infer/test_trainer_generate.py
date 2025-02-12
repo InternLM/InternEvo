@@ -3,10 +3,10 @@ import os
 import pytest
 from sentencepiece import SentencePieceProcessor
 
-import internlm  # noqa: E402
+from internlm.initialize.initialize_trainer import initialize_trainer  # noqa: E402
 from internlm.apis.inference import SequenceGenerator, batch_tokenize
 from internlm.checkpoint import CheckpointManager  # noqa: E402
-from internlm.core.context import global_context as gpc  # noqa: E402
+from internlm.core.context.parallel_context import global_context as gpc  # noqa: E402
 from internlm.core.trainer import TrainState, Trainer  # noqa: E402
 from internlm.data import build_train_loader_with_data_type  # noqa: E402
 from internlm.initialize import initialize_distributed_env  # noqa: E402
@@ -45,7 +45,7 @@ def setup_generator(config, tokenizer):
     ckpt_manager.try_resume_training(train_state)
 
     # initialize trainer
-    engine, scheduler = internlm.initialize_trainer(
+    engine, scheduler = initialize_trainer(
         model=model,
         optimizer=optimizer,
         criterion=criterion,

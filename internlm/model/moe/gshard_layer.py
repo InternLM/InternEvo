@@ -14,7 +14,7 @@ from torch import Tensor
 from torch.nn import Module
 
 from internlm.core.context import ParallelMode
-from internlm.core.context import global_context as gpc
+from internlm.core.context.parallel_context import global_context as gpc
 from internlm.model.modules.mlp import new_feed_forward
 from internlm.utils.logger import get_logger
 from internlm.utils.megatron_timers import megatron_timer as timer

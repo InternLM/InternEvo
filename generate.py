@@ -16,7 +16,7 @@ from tqdm import tqdm
 
 from internlm.accelerator import get_accelerator
 from internlm.apis.inference import SequenceGenerator
-from internlm.core.context import global_context as gpc
+from internlm.core.context.parallel_context import global_context as gpc
 from internlm.data import build_generation_loader_with_data_type
 from internlm.initialize import initialize_distributed_env
 from internlm.monitor import initialize_monitor_manager

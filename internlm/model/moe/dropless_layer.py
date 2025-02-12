@@ -14,7 +14,7 @@ from torch.nn import Module
 
 from internlm.accelerator import AcceleratorType, get_accelerator
 from internlm.core.context import ParallelMode
-from internlm.core.context import global_context as gpc
+from internlm.core.context.parallel_context import global_context as gpc
 from internlm.model.modules.mlp import new_feed_forward
 from internlm.utils.common import get_current_device
 from internlm.utils.logger import get_logger

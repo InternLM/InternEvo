@@ -4,7 +4,7 @@ import torch
 from torch import nn
 
 from internlm.core.context import ParallelMode
-from internlm.core.context import global_context as gpc
+from internlm.core.context.parallel_context import global_context as gpc
 from internlm.core.parallel.shard import pipeline_parallel_sharding_wrapper
 from internlm.model.base_model import BaseModel
 from internlm.model.modules.linear import (

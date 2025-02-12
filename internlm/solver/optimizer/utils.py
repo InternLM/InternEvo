@@ -11,7 +11,7 @@ from torch import Tensor
 from torch._utils import _flatten_dense_tensors, _unflatten_dense_tensors
 
 from internlm.core.context import ParallelMode
-from internlm.core.context import global_context as gpc
+from internlm.core.context.parallel_context import global_context as gpc
 from internlm.utils.common import get_current_device, get_tensor_norm, move_norm_to_cuda
 from internlm.utils.logger import get_logger
 from internlm.utils.parallel import (

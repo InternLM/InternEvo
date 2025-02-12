@@ -5,10 +5,10 @@ import torch
 from torch import nn
 from torch.testing import assert_close
 
-import internlm
+from internlm.initialize.launch import launch_from_torch
 from internlm.accelerator import get_accelerator
 from internlm.core.context import ParallelMode
-from internlm.core.context import global_context as gpc
+from internlm.core.context.parallel_context import global_context as gpc
 from internlm.core.engine import Engine
 from internlm.core.gradient_handler import PipelineSharedModuleGradientHandler
 from internlm.core.parallel.shard import partition_uniform
@@ -156,7 +156,7 @@ def build_environment(rank, world_size, config):
     os.environ["MASTER_PORT"] = "33333"
     internlm_accelerator.empty_cache()
     # launcher="torch"
-    internlm.launch_from_torch(config=config, seed=1024)
+    launch_from_torch(config=config, seed=1024)
 
 
 def loose_close(a, b, dtype: torch.dtype = torch.float32):

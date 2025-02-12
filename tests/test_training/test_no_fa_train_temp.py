@@ -2,10 +2,10 @@ import multiprocessing as mp
 
 import pytest
 
-import internlm
+from internlm.initialize.initialize_trainer import initialize_trainer
 from internlm.accelerator import get_accelerator
 from internlm.core.context import ParallelMode
-from internlm.core.context import global_context as gpc
+from internlm.core.context.parallel_context import global_context as gpc
 from internlm.core.trainer import Trainer
 from internlm.data import build_train_loader_with_data_type
 from internlm.model.losses import InternLoss
@@ -67,7 +67,7 @@ def train_check(args):
         dataset_types=dataset_types,
     )
 
-    engine, scheduler = internlm.initialize_trainer(
+    engine, scheduler = initialize_trainer(
         model=model,
         optimizer=optimizer,
         criterion=criterion,

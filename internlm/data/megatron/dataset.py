@@ -12,7 +12,7 @@ import numpy as np
 import torch
 
 from internlm.core.context import ParallelMode
-from internlm.core.context import global_context as gpc
+from internlm.core.context.parallel_context import global_context as gpc
 
 dtypes = {
     1: np.uint8,

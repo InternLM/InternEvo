@@ -3,7 +3,7 @@ from typing import Callable, List, Optional
 import torch
 
 from internlm.accelerator import AcceleratorType, get_accelerator
-from internlm.core.context import global_context as gpc
+from internlm.core.context.parallel_context import global_context as gpc
 from internlm.model.ops.cross_entropy import new_cross_entropy
 from internlm.utils.common import SchedulerHook, get_current_device
 from internlm.utils.logger import get_logger

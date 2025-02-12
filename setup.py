@@ -1,9 +1,7 @@
 import os
 import re
-import sys
-import subprocess
+from typing import List
 from setuptools import setup, find_packages
-from setuptools.command.install import install
 
 pwd = os.path.dirname(__file__)
 
@@ -12,32 +10,24 @@ def readme():
         content = f.read()
     return content
 
-def get_version():
-    with open(os.path.join(pwd, 'version.txt'), 'r') as f:
-        content = f.read()
-    return content
+def get_version() -> str:
+    with open(os.path.join("internlm", "env.py"), encoding="utf-8") as f:
+        file_content = f.read()
+        pattern = r"{}\W*=\W*\"([^\"]+)\"".format("VERSION")
+        (version,) = re.findall(pattern, file_content)
+        return version
 
-def has_nvcc():
-    try:
-        subprocess.run(['nvcc', '--version'], check=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
-        return True
-    except (subprocess.CalledProcessError, FileNotFoundError):
-        return False
+def get_requires() -> List[str]:
+    with open("requirements.txt", encoding="utf-8") as f:
+        file_content = f.read()
+        lines = [line.strip() for line in file_content.strip().split("\n") if not line.startswith("#")]
+        return lines
 
-def fetch_requirements(path):
-    with open(path, 'r') as fd:
-        return [r.strip() for r in fd.readlines() if 'torch-scatter' not in r and not r.startswith('-f ')]
-
-if has_nvcc():
-    install_requires = [
-        fetch_requirements('requirements/runtime.txt'),
-        'rotary_emb',
-        'xentropy',
-    ]
-else:
-    install_requires = [
-        fetch_requirements('requirements/runtime.txt'),
-    ]
+extra_require = {
+    "torch": ["torch>=1.13.1"],
+    "torch-npu": ["torch==2.1.0", "torch-npu==2.1.0.post3"],
+    "test": ["pre-commit", "pylint", "pytest"],
+}
 
 setup(
     name='InternEvo',
@@ -46,7 +36,8 @@ setup(
     long_description=readme(),
     long_description_content_type='text/markdown',
     packages=find_packages(),
-    install_requires=install_requires,
+    install_requires=get_requires(),
+    extras_require=extra_require,
     classifiers=[
         'Programming Language :: Python :: 3.10',
         'Intended Audience :: Developers',

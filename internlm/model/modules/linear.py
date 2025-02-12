@@ -13,7 +13,7 @@ from torch import nn
 
 from internlm.accelerator import get_accelerator
 from internlm.core.context import ParallelMode
-from internlm.core.context import global_context as gpc
+from internlm.core.context.parallel_context import global_context as gpc
 from internlm.core.parallel.shard import (
     get_head_parallel_mode,
     get_parallel_strategies_split_mode,

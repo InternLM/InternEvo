@@ -9,7 +9,7 @@ import torch
 
 from internlm.accelerator import get_accelerator
 from internlm.core.context import ParallelMode
-from internlm.core.context import global_context as gpc
+from internlm.core.context.parallel_context import global_context as gpc
 from internlm.core.trainer import TrainState
 from internlm.initialize.launch import get_config_value
 from internlm.initialize.legacy.launch import (

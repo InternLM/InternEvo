@@ -12,7 +12,7 @@ import torch
 from torch.nn.functional import linear as _torch_linear_forward_op
 
 from internlm.accelerator import AcceleratorType, get_accelerator
-from internlm.core.context import global_context as gpc
+from internlm.core.context.parallel_context import global_context as gpc
 
 try:
     from fused_dense_lib import linear_bias_wgrad as _flash_linear_backward_op
