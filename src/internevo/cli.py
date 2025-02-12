@@ -18,7 +18,7 @@ import subprocess
 import sys
 from enum import Enum, unique
 
-from internevo import trainer
+from internevo import train
 
 USAGE = (
     "-" * 70
@@ -43,7 +43,7 @@ def main():
                 "srun -p llm_s -N 1 -n 8 --ntasks-per-node=8 --gpus-per-task=1 python {file_name} --config {args}"
             )
             .format(
-                file_name=trainer.__file__,
+                file_name=train.__file__,
                 args=" ".join(sys.argv[1:]),
             )
             .split()
