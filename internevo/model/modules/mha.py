@@ -10,7 +10,7 @@ from einops import rearrange
 from torch import nn
 from torch.nn import functional as F
 
-from internevo.core.context import global_context as gpc
+from internevo.core.context.parallel_context import global_context as gpc
 from internevo.model.modules.embedding import new_rotary_embedding
 from internevo.model.modules.linear import new_linear
 from internevo.model.modules.utils import update_kv_cache

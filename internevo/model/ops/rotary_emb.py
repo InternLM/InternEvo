@@ -13,7 +13,7 @@ from einops import rearrange
 from torch import Tensor
 
 from internevo.accelerator import AcceleratorType, get_accelerator
-from internevo.core.context import global_context as gpc
+from internevo.core.context.parallel_context import global_context as gpc
 
 try:
     from rotary_emb import apply_rotary as _flash_apply_rotary_func

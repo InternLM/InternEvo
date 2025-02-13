@@ -22,8 +22,9 @@ def get_requires() -> List[str]:
         return lines
 
 extra_require = {
-    "torch": ["torch>=2.1.0"],
-    "dev": ["pre-commit", "pytest"],
+    "torch": ["torch>=1.13.1"],
+    "torch-npu": ["torch==2.1.0", "torch-npu==2.1.0.post3"],
+    "test": ["pre-commit", "pylint", "pytest"],
 }
 
 def get_console_scripts() -> List[str]:

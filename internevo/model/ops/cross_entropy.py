@@ -13,7 +13,7 @@ from torch import nn
 
 from internevo.accelerator import AcceleratorType, get_accelerator
 from internevo.core.context import ParallelMode
-from internevo.core.context import global_context as gpc
+from internevo.core.context.parallel_context import global_context as gpc
 from internevo.model.ops.cross_entropy_ops import (
     CrossEntropyApexVocabParallel,
     CrossEntropyLossApex,

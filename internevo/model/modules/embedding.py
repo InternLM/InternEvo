@@ -9,7 +9,7 @@ from einops import rearrange
 from torch import Tensor, nn
 
 from internevo.core.context import ParallelMode
-from internevo.core.context import global_context as gpc
+from internevo.core.context.parallel_context import global_context as gpc
 from internevo.model.ops.rotary_emb import apply_rotary_emb
 from internevo.utils.parallel import is_using_isp
 

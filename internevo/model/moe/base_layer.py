@@ -4,7 +4,7 @@ import torch
 from torch import Tensor
 from torch.nn import Module, ModuleList
 
-from internevo.core.context import global_context as gpc
+from internevo.core.context.parallel_context import global_context as gpc
 from internevo.model.moe.experts import Experts
 from internevo.utils.common import get_current_device
 

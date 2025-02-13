@@ -12,7 +12,7 @@ from torch.optim.optimizer import Optimizer
 from torch.utils.data import DataLoader
 
 from internevo.core.context import ParallelMode
-from internevo.core.context import global_context as gpc
+from internevo.core.context.parallel_context import global_context as gpc
 from internevo.core.engine import Engine
 from internevo.core.gradient_handler import PipelineSharedModuleGradientHandler
 from internevo.core.parallel.shard import split_data_for_sequence_parallel

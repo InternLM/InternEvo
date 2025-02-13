@@ -13,8 +13,8 @@ from internevo.initialize.launch import launch_from_torch
 from internevo.initialize.initialize_trainer import initialize_trainer
 from internevo.accelerator import get_accelerator
 from internevo.core.context import ParallelMode
-from internevo.core.context import global_context as gpc
-from internevo.core.context.parallel_context import Config
+from internevo.core.context.parallel_context import global_context as gpc
+from internevo.core.context.config import Config
 from internevo.core.trainer import Trainer
 from internevo.data import (
     build_train_loader_with_data_type,

@@ -6,7 +6,7 @@ import torch
 import torch.distributed as dist
 
 from internevo.core.context import ParallelMode
-from internevo.core.context import global_context as gpc
+from internevo.core.context.parallel_context import global_context as gpc
 from internevo.utils.common import get_current_device
 
 TensorShape = Union[torch.Size, List[int], Tuple[int]]

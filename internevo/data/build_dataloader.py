@@ -8,7 +8,7 @@ from torch.utils.data import ConcatDataset, DataLoader
 
 from internevo.accelerator.abstract_accelerator import get_accelerator
 from internevo.core.context import ParallelMode
-from internevo.core.context import global_context as gpc
+from internevo.core.context.parallel_context import global_context as gpc
 from internevo.data.megatron.collaters import megatron_collate_fn
 from internevo.data.megatron.dataset import build_megatron_dataset
 from internevo.data.mocked.batch_sampler import MockedSequentialBatchSampler

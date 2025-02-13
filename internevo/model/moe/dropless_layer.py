@@ -14,7 +14,7 @@ from torch.nn import Module
 
 from internevo.accelerator import AcceleratorType, get_accelerator
 from internevo.core.context import ParallelMode
-from internevo.core.context import global_context as gpc
+from internevo.core.context.parallel_context import global_context as gpc
 from internevo.model.modules.mlp import new_feed_forward
 from internevo.utils.common import get_current_device
 from internevo.utils.logger import get_logger

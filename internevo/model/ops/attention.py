@@ -16,7 +16,7 @@ from torch import nn
 
 from internevo.accelerator import AcceleratorType, get_accelerator
 from internevo.core.context import ParallelMode
-from internevo.core.context import global_context as gpc
+from internevo.core.context.parallel_context import global_context as gpc
 from internevo.core.parallel.comm.isp import (
     auto_wrap_distributed_attention,
     auto_wrap_func_distributed_attention,

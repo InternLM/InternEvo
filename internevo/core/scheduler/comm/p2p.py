@@ -12,7 +12,7 @@ import torch.distributed as dist
 
 from internevo.accelerator import get_accelerator
 from internevo.core.context import ParallelMode
-from internevo.core.context import global_context as gpc
+from internevo.core.context.parallel_context import global_context as gpc
 from internevo.utils.common import get_current_device
 
 from .utils import gather_split_1d_tensor, split_tensor_into_1d_equal_chunks

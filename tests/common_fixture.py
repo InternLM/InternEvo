@@ -7,8 +7,8 @@ import torch
 
 from internevo.initialize.launch import launch_from_torch
 from internevo.accelerator import get_accelerator
-from internevo.core.context import global_context as gpc
-from internevo.core.context.parallel_context import Config
+from internevo.core.context.parallel_context import global_context as gpc
+from internevo.core.context.config import Config
 from internevo.data.utils import unpack_type_ids
 from internevo.initialize.launch import args_sanity_check
 

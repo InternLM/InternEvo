@@ -2,7 +2,7 @@ import torch
 from torch import nn
 
 from internevo.core.context import ParallelMode
-from internevo.core.context import global_context as gpc
+from internevo.core.context.parallel_context import global_context as gpc
 from internevo.model.modules.utils import Silu
 from internevo.model.moe.megablocks.utils import (
     act_fn,

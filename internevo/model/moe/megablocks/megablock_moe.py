@@ -5,7 +5,7 @@ import torch
 import torch.nn.functional as F
 
 from internevo.core.context import ParallelMode
-from internevo.core.context import global_context as gpc
+from internevo.core.context.parallel_context import global_context as gpc
 from internevo.model.moe.base_layer import BaseMoELayer
 from internevo.model.moe.megablocks.mlp import MegaBlockFeedForward
 from internevo.model.moe.utils import all_to_all

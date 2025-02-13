@@ -7,7 +7,7 @@ import numpy as np
 import torch
 from torch.distributed.fsdp import FullyShardedDataParallel as FSDP
 
-from internevo.core.context import global_context as gpc
+from internevo.core.context.parallel_context import global_context as gpc
 from internevo.core.parallel.shard import split_data_for_sequence_parallel
 from internevo.data.utils import packed_data_normalizer, unpack_data
 from internevo.utils.logger import get_logger

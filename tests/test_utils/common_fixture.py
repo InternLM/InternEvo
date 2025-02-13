@@ -5,14 +5,14 @@ from subprocess import PIPE, STDOUT, Popen
 import pytest
 import torch
 
-from internevo.core.context import global_context as gpc
-from internevo.core.context.parallel_context import Config
+from internevo.core.context.parallel_context import global_context as gpc
+from internevo.core.context.config import Config
 from internevo.core.naive_amp import NaiveAMPModel
 from internevo.model.builder import create_model
 from internevo.model.registry import register_model_initializer
 from internevo.solver.optimizer.hybrid_zero_optim import HybridZeroOptimizer
 from internevo.train.utils import create_param_groups
-from internevo.utils.common import SingletonMeta
+from internevo.utils.singleton import SingletonMeta
 
 OSS_NAME = os.environ.get("OSS_BUCKET_NAME", None)
 OSS_IP = os.environ.get("OSS_IP", None)

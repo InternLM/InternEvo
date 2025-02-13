@@ -11,7 +11,7 @@ from torch.testing import assert_close
 
 from internevo.initialize.launch import launch_from_torch
 from internevo.accelerator import get_accelerator
-from internevo.core.context.parallel_context import Config, ParallelMode
+from internevo.core.context.config import Config, ParallelMode
 from internevo.core.parallel.comm.zero import ParamAsyncBcastHandler
 from internevo.solver.optimizer import HybridZeroOptimizer
 from internevo.utils.common import get_current_device

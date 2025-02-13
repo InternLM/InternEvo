@@ -14,7 +14,7 @@ from torch import Tensor
 from torch.nn import Module
 
 from internevo.core.context import ParallelMode
-from internevo.core.context import global_context as gpc
+from internevo.core.context.parallel_context import global_context as gpc
 from internevo.model.modules.mlp import new_feed_forward
 from internevo.utils.logger import get_logger
 from internevo.utils.megatron_timers import megatron_timer as timer

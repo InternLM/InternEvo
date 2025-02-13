@@ -19,7 +19,7 @@ except ImportError:
     GPUtil, psutil = None, None
 
 from internevo.core.context import ParallelMode
-from internevo.core.context import global_context as gpc
+from internevo.core.context.parallel_context import global_context as gpc
 
 logger = get_logger(__file__)
 internlm_accelerator = get_accelerator()

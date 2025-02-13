@@ -9,7 +9,7 @@ import torch
 
 from internevo.apis.inference import SequenceGenerator
 from internevo.core.context import ParallelMode
-from internevo.core.context import global_context as gpc
+from internevo.core.context.parallel_context import global_context as gpc
 from internevo.initialize.launch import initialize_distributed_env
 from internevo.train import initialize_model_and_parallel_communicator
 from internevo.utils.storage_manager import get_fns, init_storage_manager, llm_load

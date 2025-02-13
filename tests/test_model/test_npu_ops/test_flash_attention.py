@@ -12,8 +12,8 @@ from einops import rearrange
 from torch import nn
 
 from internevo.accelerator import AcceleratorType, get_accelerator
-from internevo.core.context import Config
-from internevo.core.context import global_context as gpc
+from internevo.core.context.config import Config
+from internevo.core.context.parallel_context import global_context as gpc
 from internevo.model.ops.attention import SelfAttention
 from internevo.model.ops.utils import pack_output_after_attn, unpack_qkv_before_attn
 from internevo.utils.common import get_current_device, set_random_seed

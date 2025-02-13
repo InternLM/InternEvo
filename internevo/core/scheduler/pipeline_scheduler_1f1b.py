@@ -10,7 +10,7 @@ import torch
 import torch.distributed as dist
 
 from internevo.core.context import ParallelMode
-from internevo.core.context import global_context as gpc
+from internevo.core.context.parallel_context import global_context as gpc
 from internevo.core.engine import Engine
 from internevo.core.naive_amp import NaiveAMPModel
 from internevo.core.scheduler import comm

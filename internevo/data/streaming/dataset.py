@@ -10,7 +10,7 @@ from PIL import Image
 from torch.utils.data import Dataset
 
 from internevo.core.context import ParallelMode
-from internevo.core.context import global_context as gpc
+from internevo.core.context.parallel_context import global_context as gpc
 from transformers import AutoTokenizer
 
 

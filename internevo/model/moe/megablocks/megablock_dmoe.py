@@ -4,7 +4,7 @@ import numpy as np
 import torch
 
 from internevo.core.context import ParallelMode
-from internevo.core.context import global_context as gpc
+from internevo.core.context.parallel_context import global_context as gpc
 from internevo.model.moe.base_layer import BaseMoELayer
 from internevo.model.moe.megablocks.megablock_moe import MegaBlockMoE
 from internevo.model.moe.megablocks.mlp import MegaBlockGroupedFeedForward

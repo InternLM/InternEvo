@@ -19,7 +19,7 @@ sys.path.append(project_root)
 from internevo.initialize.initialize_trainer import initialize_trainer  # noqa: E402
 from internevo.checkpoint import CheckpointManager  # noqa: E402
 from internevo.core.context import ParallelMode  # noqa: E402
-from internevo.core.context import global_context as gpc  # noqa: E402
+from internevo.core.context.parallel_context import global_context as gpc  # noqa: E402
 from internevo.core.trainer import Trainer, TrainState  # noqa: E402
 from internevo.data import (  # noqa: E402
     build_train_loader_with_data_type,

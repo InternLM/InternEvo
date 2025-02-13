@@ -9,7 +9,7 @@ import torch.distributed as dist
 from torch.optim.optimizer import Optimizer
 
 from internevo.core.context import ParallelMode
-from internevo.core.context import global_context as gpc
+from internevo.core.context.parallel_context import global_context as gpc
 from internevo.core.engine import Engine
 from internevo.core.scheduler import comm
 from internevo.utils.common import SchedulerHook, get_current_device

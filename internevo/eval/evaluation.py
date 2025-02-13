@@ -6,7 +6,7 @@ from tqdm import tqdm
 
 from internevo.accelerator import get_accelerator
 from internevo.core.context import ParallelMode
-from internevo.core.context import global_context as gpc
+from internevo.core.context.parallel_context import global_context as gpc
 from internevo.core.parallel.shard import split_data_for_sequence_parallel
 from internevo.core.scheduler.pipeline_scheduler_1f1b import get_tensor_shape
 from internevo.model.metrics import AccPerplex, SchedulerMetricHook

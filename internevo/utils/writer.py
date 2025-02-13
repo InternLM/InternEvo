@@ -9,7 +9,7 @@ import torch
 from torch.utils.tensorboard import SummaryWriter
 
 from internevo.accelerator import get_accelerator
-from internevo.core.context import global_context as gpc
+from internevo.core.context.parallel_context import global_context as gpc
 
 internlm_accelerator = get_accelerator()
 

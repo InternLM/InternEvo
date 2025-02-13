@@ -2,7 +2,7 @@ import torch
 from torch import nn
 
 from internevo.core.context import ParallelMode
-from internevo.core.context import global_context as gpc
+from internevo.core.context.parallel_context import global_context as gpc
 
 
 # Adapted from https://github.com/microsoft/Megatron-DeepSpeed/blob/main/megatron/core/ \

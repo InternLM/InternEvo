@@ -10,7 +10,7 @@ import torch
 from torch.utils.data import DataLoader, Dataset, Sampler
 
 from internevo.core.context import ParallelMode
-from internevo.core.context import global_context as gpc
+from internevo.core.context.parallel_context import global_context as gpc
 from internevo.utils.logger import get_logger
 
 logger = get_logger(__file__)

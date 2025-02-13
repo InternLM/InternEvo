@@ -29,7 +29,7 @@ from internevo.core.context import (
     IS_WEIGHT_ZERO_PARALLEL,
     ParallelMode,
 )
-from internevo.core.context import global_context as gpc
+from internevo.core.context.parallel_context import global_context as gpc
 from internevo.core.context.random import set_mode
 from internevo.core.naive_amp import (
     NaiveAMPModel,

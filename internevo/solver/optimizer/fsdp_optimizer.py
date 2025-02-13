@@ -8,8 +8,9 @@ import torch.distributed as dist
 from torch.optim import Optimizer
 
 from internevo.accelerator import get_accelerator
-from internevo.core.context import Config, ParallelMode
-from internevo.core.context import global_context as gpc
+from internevo.core.context.config import Config
+from internevo.core.context.parallel_context import ParallelMode
+from internevo.core.context.parallel_context import global_context as gpc
 from internevo.solver.optimizer.base_optimizer import BaseOptimizer
 from internevo.solver.optimizer.utils import (
     DynamicGradScaler,

@@ -4,7 +4,7 @@ import torch
 from torch import nn
 
 from internevo.core.context import ParallelMode
-from internevo.core.context import global_context as gpc
+from internevo.core.context.parallel_context import global_context as gpc
 from internevo.core.parallel.shard import pipeline_parallel_sharding_wrapper
 from internevo.model.base_model import BaseModel
 from internevo.model.modules.linear import (

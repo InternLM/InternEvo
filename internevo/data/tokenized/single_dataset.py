@@ -16,7 +16,7 @@ import numpy as np
 import torch
 
 from internevo.accelerator import get_accelerator
-from internevo.core.context import global_context as gpc
+from internevo.core.context.parallel_context import global_context as gpc
 from internevo.utils.logger import get_logger
 
 logger = get_logger(__file__)

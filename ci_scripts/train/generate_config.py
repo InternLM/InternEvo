@@ -5,7 +5,7 @@ import json
 import os
 
 from ci_scripts.common import com_func
-from internevo.core.context import Config
+from internevo.core.context.config import Config
 
 
 def generate_new_config(config_py_file, test_config_json, case_name):

@@ -3,7 +3,7 @@ from typing import Callable, List, Optional
 import torch
 
 from internevo.accelerator import AcceleratorType, get_accelerator
-from internevo.core.context import global_context as gpc
+from internevo.core.context.parallel_context import global_context as gpc
 from internevo.model.ops.cross_entropy import new_cross_entropy
 from internevo.utils.common import SchedulerHook, get_current_device
 from internevo.utils.logger import get_logger

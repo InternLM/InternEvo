@@ -4,7 +4,7 @@ import torch
 from torch import Tensor
 
 from internevo.core.context import ParallelMode
-from internevo.core.context import global_context as gpc
+from internevo.core.context.parallel_context import global_context as gpc
 from internevo.utils.common import get_current_device
 
 

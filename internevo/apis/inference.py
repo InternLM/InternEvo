@@ -7,7 +7,7 @@ from torch import nn
 
 from internevo.apis import InferenceParams, process_parallel_output
 from internevo.core.context import ParallelMode  # noqa: E402
-from internevo.core.context import global_context as gpc  # noqa: E402
+from internevo.core.context.parallel_context import global_context as gpc  # noqa: E402
 from internevo.core.trainer import Trainer
 
 __all__ = ["SequenceGenerator"]

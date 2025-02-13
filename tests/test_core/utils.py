@@ -8,7 +8,7 @@ from torch.testing import assert_close
 from internevo.initialize.launch import launch_from_torch
 from internevo.accelerator import get_accelerator
 from internevo.core.context import ParallelMode
-from internevo.core.context import global_context as gpc
+from internevo.core.context.parallel_context import global_context as gpc
 from internevo.core.engine import Engine
 from internevo.core.gradient_handler import PipelineSharedModuleGradientHandler
 from internevo.core.parallel.shard import partition_uniform

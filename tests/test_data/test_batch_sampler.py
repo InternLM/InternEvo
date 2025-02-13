@@ -5,10 +5,10 @@ import pytest
 import torch
 
 from internevo.core.context import ParallelMode
-from internevo.core.context import global_context as gpc
+from internevo.core.context.parallel_context import global_context as gpc
 
 # from internevo.core.context import ParallelMode
-from internevo.core.context.parallel_context import Config
+from internevo.core.context.config import Config
 from internevo.core.trainer import TrainState
 from internevo.data import (
     build_train_loader_with_data_type,

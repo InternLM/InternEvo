@@ -2,7 +2,7 @@
 import torch
 
 from internevo.accelerator import get_accelerator
-from internevo.core.context import global_context as gpc
+from internevo.core.context.parallel_context import global_context as gpc
 from internevo.core.parallel.comm import get_offload_manager
 
 try:

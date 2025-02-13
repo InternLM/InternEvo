@@ -8,7 +8,7 @@ from internevo.model.modeling_internlm import InternLM1
 from internevo.model.modeling_internlm2 import InternLM2
 from internevo.model.modeling_llama import Llama2
 from internevo.model.modeling_moe import Internlm1MoE
-from internevo.utils.common import SingletonMeta
+from internevo.utils.singleton import SingletonMeta
 from internevo.utils.utils import ModelType
 
 

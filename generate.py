@@ -16,7 +16,7 @@ from tqdm import tqdm
 
 from internevo.accelerator import get_accelerator
 from internevo.apis.inference import SequenceGenerator
-from internevo.core.context import global_context as gpc
+from internevo.core.context.parallel_context import global_context as gpc
 from internevo.data import build_generation_loader_with_data_type
 from internevo.initialize import initialize_distributed_env
 from internevo.monitor import initialize_monitor_manager

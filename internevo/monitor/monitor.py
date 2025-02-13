@@ -11,9 +11,9 @@ from functools import wraps
 from threading import Thread
 
 from internevo.accelerator.abstract_accelerator import get_accelerator
-from internevo.core.context import global_context as gpc
+from internevo.core.context.parallel_context import global_context as gpc
 from internevo.monitor.alert import send_feishu_msg_with_webhook
-from internevo.utils.common import SingletonMeta
+from internevo.utils.singleton import SingletonMeta
 
 from .utils import get_job_key, set_env_var
 
