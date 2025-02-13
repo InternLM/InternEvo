@@ -1,8 +1,8 @@
 import subprocess
 import sys
 from enum import Enum, unique
-from .env import VERSION
 
+from .env import VERSION
 
 HELP_MSG = (
     "-" * 70
@@ -39,6 +39,7 @@ def main():
     command = sys.argv.pop(1) if len(sys.argv) != 1 else Command.HELP
     if command == Command.TRAIN:
         from internevo import launcher
+
         process = subprocess.run(  # noqa # pylint: disable=W1510
             ("srun -p llm_s -N 1 -n 8 --ntasks-per-node=8 --gpus-per-task=1 python {file_name} --config {args}")
             .format(
