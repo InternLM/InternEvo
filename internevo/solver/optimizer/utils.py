@@ -12,7 +12,11 @@ from torch._utils import _flatten_dense_tensors, _unflatten_dense_tensors
 
 from internevo.core.context import ParallelMode
 from internevo.core.context.parallel_context import global_context as gpc
-from internevo.utils.common import get_current_device, get_tensor_norm, move_norm_to_cuda
+from internevo.utils.common import (
+    get_current_device,
+    get_tensor_norm,
+    move_norm_to_cuda,
+)
 from internevo.utils.logger import get_logger
 from internevo.utils.parallel import (
     is_replica_expert_data_parallel_parameter,

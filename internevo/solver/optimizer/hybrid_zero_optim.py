@@ -12,8 +12,6 @@ from torch.optim import Optimizer
 
 from internevo.accelerator import AcceleratorType, get_accelerator
 from internevo.core.context.config import Config
-from internevo.core.context.parallel_context import ParallelMode
-from internevo.core.context.parallel_context import global_context as gpc
 from internevo.core.context.parallel_context import (
     IS_REPLICA_EXPERT_DATA_PARALLEL,
     IS_REPLICA_ZERO_PARALLEL,
@@ -21,7 +19,9 @@ from internevo.core.context.parallel_context import (
     IS_TENSOR_ZERO_PARALLEL,
     IS_WEIGHT_EXPERT_DATA_PARALLEL,
     IS_WEIGHT_ZERO_PARALLEL,
+    ParallelMode,
 )
+from internevo.core.context.parallel_context import global_context as gpc
 from internevo.core.parallel.comm.isp import ISPCommunicatorWrapper
 from internevo.core.parallel.comm.zero import ParamAsyncBcastHandler
 from internevo.model.modules.utils import is_gate_param, is_moe_param

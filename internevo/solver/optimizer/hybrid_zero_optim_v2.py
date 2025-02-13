@@ -8,14 +8,14 @@ import torch.distributed as dist
 from torch.optim import Optimizer
 
 from internevo.core.context.config import Config
-from internevo.core.context.parallel_context import ParallelMode
-from internevo.core.context.parallel_context import global_context as gpc
 from internevo.core.context.parallel_context import (
     IS_REPLICA_ZERO_PARALLEL,
     IS_TENSOR_EXPERT_DATA_PARALLEL,
     IS_TENSOR_ZERO_PARALLEL,
     IS_WEIGHT_ZERO_PARALLEL,
+    ParallelMode,
 )
+from internevo.core.context.parallel_context import global_context as gpc
 from internevo.core.parallel.comm.zero import ParamAsyncBcastHandler
 from internevo.monitor import send_alert_message
 from internevo.solver.optimizer.store import (
