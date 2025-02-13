@@ -1,4 +1,5 @@
 import os
+import re
 from typing import List
 from setuptools import setup, find_packages
 
@@ -9,10 +10,12 @@ def readme():
         content = f.read()
     return content
 
-def get_version():
-    with open(os.path.join(pwd, 'version.txt'), 'r') as f:
-        content = f.read()
-    return content
+def get_version() -> str:
+    with open(os.path.join("internevo", "env.py"), encoding="utf-8") as f:
+        file_content = f.read()
+        pattern = r"{}\W*=\W*\"([^\"]+)\"".format("VERSION")
+        (version,) = re.findall(pattern, file_content)
+        return version
 
 def get_requires() -> List[str]:
     with open("requirements.txt", encoding="utf-8") as f:
