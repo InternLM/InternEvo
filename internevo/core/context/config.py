@@ -1,7 +1,7 @@
-from importlib.machinery import SourceFileLoader
 import inspect
-from pathlib import Path
 import sys
+from importlib.machinery import SourceFileLoader
+from pathlib import Path
 
 
 class Config(dict):

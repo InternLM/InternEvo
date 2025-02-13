@@ -2,7 +2,6 @@
 # -*- encoding: utf-8 -*-
 # Copyright (c) InternLM. All rights reserved.
 
-import argparse
 import os
 from pathlib import Path
 from typing import Dict, Union

@@ -6,7 +6,6 @@ import bisect
 import inspect
 import os
 import random
-import threading
 from abc import ABC, abstractmethod
 from collections import ChainMap
 from contextlib import contextmanager
