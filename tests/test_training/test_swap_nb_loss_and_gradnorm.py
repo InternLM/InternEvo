@@ -9,7 +9,8 @@ import torch
 import torch.distributed as dist
 from tqdm import tqdm
 
-import internevo
+from internevo.initialize.launch import launch_from_torch
+from internevo.initialize.initialize_trainer import initialize_trainer
 from internevo.accelerator import get_accelerator
 from internevo.core.context import ParallelMode
 from internevo.core.context import global_context as gpc
@@ -137,7 +138,7 @@ def build_environment(rank, world_size, config):
     os.environ["MASTER_PORT"] = "33333"
     internlm_accelerator.empty_cache()
     # launcher="torch"
-    internevo.launch_from_torch(config=config, seed=1024)
+    launch_from_torch(config=config, seed=1024)
     args_sanity_check()
 
 
@@ -302,7 +303,7 @@ def exam_loss(args):
         ),
     ]
 
-    engine, scheduler = internevo.initialize_trainer(
+    engine, scheduler = initialize_trainer(
         model=model,
         optimizer=optimizer,
         criterion=criterion,

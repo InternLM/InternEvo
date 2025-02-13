@@ -5,7 +5,7 @@ import os
 import pytest
 import torch
 
-import internevo
+from internevo.initialize.initialize_trainer import initialize_trainer
 from internevo.accelerator import get_accelerator
 from internevo.core.context import ParallelMode
 from internevo.core.context import global_context as gpc
@@ -87,7 +87,7 @@ def train_check_norm_weight(args):
         dataset_types=dataset_types,
     )
 
-    engine, scheduler = internevo.initialize_trainer(
+    engine, scheduler = initialize_trainer(
         model=model,
         optimizer=optimizer,
         criterion=criterion,

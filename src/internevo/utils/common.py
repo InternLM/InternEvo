@@ -15,7 +15,7 @@ from typing import Union
 import numpy as np
 import torch
 
-import internevo
+from internevo.initialize.launch import get_default_parser
 from internevo.accelerator import AcceleratorType, get_accelerator
 from internevo.utils.logger import get_logger
 
@@ -25,7 +25,7 @@ internlm_accelerator = get_accelerator()
 
 
 def parse_args():
-    parser = internevo.get_default_parser()
+    parser = get_default_parser()
     args = parser.parse_args()
 
     return args

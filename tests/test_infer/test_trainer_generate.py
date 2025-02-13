@@ -3,7 +3,7 @@ import os
 import pytest
 from sentencepiece import SentencePieceProcessor
 
-import internevo  # noqa: E402
+from internevo.initialize.initialize_trainer import initialize_trainer  # noqa: E402
 from internevo.apis.inference import SequenceGenerator, batch_tokenize
 from internevo.checkpoint import CheckpointManager  # noqa: E402
 from internevo.core.context import global_context as gpc  # noqa: E402
@@ -45,7 +45,7 @@ def setup_generator(config, tokenizer):
     ckpt_manager.try_resume_training(train_state)
 
     # initialize trainer
-    engine, scheduler = internevo.initialize_trainer(
+    engine, scheduler = initialize_trainer(
         model=model,
         optimizer=optimizer,
         criterion=criterion,

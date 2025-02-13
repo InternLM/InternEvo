@@ -14,7 +14,8 @@ import pytest  # noqa: E402  #pylint: disable=wrong-import-position
 import torch  # noqa: E402  #pylint: disable=wrong-import-position
 import torch.distributed as dist  # noqa: E402  #pylint: disable=wrong-import-position
 
-import internevo  # noqa: E402  #pylint: disable=wrong-import-position
+from internevo.initialize.initialize_trainer import initialize_trainer  # noqa: E402  #pylint: disable=wrong-import-position
+from internevo.initialize.launch import launch_from_torch
 from internevo.checkpoint import (  # noqa: E402  #pylint: disable=wrong-import-position
     CheckpointManager,
 )
@@ -174,7 +175,7 @@ def build_environment(rank, world_size, free_port, config):
     os.environ["MASTER_PORT"] = str(free_port)
     internlm_accelerator.empty_cache()
     # launcher="torch"
-    internevo.launch_from_torch(config=config, seed=1024)
+    launch_from_torch(config=config, seed=1024)
     args_sanity_check()
 
 
@@ -265,7 +266,7 @@ def train_model(args):
         ),
     ]
 
-    engine, scheduler = internevo.initialize_trainer(
+    engine, scheduler = initialize_trainer(
         model=model,
         optimizer=optimizer,
         criterion=criterion,

@@ -16,7 +16,7 @@ script_dir = os.path.dirname(os.path.abspath(__file__))
 project_root = os.path.abspath(os.path.join(script_dir, "../../"))
 sys.path.append(project_root)
 
-import internevo  # noqa: E402
+from internevo.initialize.initialize_trainer import initialize_trainer  # noqa: E402
 from internevo.checkpoint import CheckpointManager  # noqa: E402
 from internevo.core.context import ParallelMode  # noqa: E402
 from internevo.core.context import global_context as gpc  # noqa: E402
@@ -180,7 +180,7 @@ def main(args):
         ),
     ]
 
-    engine, scheduler = internevo.initialize_trainer(
+    engine, scheduler = initialize_trainer(
         model=model,
         optimizer=optimizer,
         criterion=criterion,

@@ -5,7 +5,7 @@ import pytest
 import torch
 import torch.distributed as dist
 
-import internevo
+from internevo.initialize.initialize_trainer import initialize_trainer
 from internevo.accelerator import AcceleratorType, get_accelerator
 from internevo.checkpoint import CheckpointManager
 from internevo.core.context import Config, ParallelMode
@@ -200,7 +200,7 @@ def train(
     metric = None
 
     # initialize trainer
-    engine, scheduler = internevo.initialize_trainer(
+    engine, scheduler = initialize_trainer(
         model=model,
         optimizer=optimizer,
         criterion=criterion,

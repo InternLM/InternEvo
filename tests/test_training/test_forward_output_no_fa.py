@@ -7,7 +7,8 @@ import numpy as np
 import pytest
 import torch
 
-import internevo
+from internevo.initialize.launch import launch_from_torch
+from internevo.initialize.initialize_trainer import initialize_trainer
 from internevo.accelerator import get_accelerator
 from internevo.core.context import ParallelMode
 from internevo.core.context import global_context as gpc
@@ -133,7 +134,7 @@ def build_environment(rank, world_size, free_port, config):
     os.environ["MASTER_ADDR"] = "localhost"
     os.environ["MASTER_PORT"] = str(free_port)
     internlm_accelerator.empty_cache()
-    internevo.launch_from_torch(config=config, seed=1024)
+    launch_from_torch(config=config, seed=1024)
     args_sanity_check()
 
 
@@ -198,7 +199,7 @@ def train_check_output(args):
         ),
     ]
 
-    engine, scheduler = internevo.initialize_trainer(
+    engine, scheduler = initialize_trainer(
         model=model,
         optimizer=optimizer,
         criterion=criterion,

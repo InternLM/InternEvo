@@ -8,7 +8,6 @@ import torch
 from tqdm import tqdm
 
 sys.path.append(".")
-import internevo  # noqa: E402,F401 # pylint: disable=W0611,C0413
 
 moe_str_prefix = None
 weight_key_suffix = ".weight"

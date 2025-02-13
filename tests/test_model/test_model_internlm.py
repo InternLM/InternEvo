@@ -6,7 +6,7 @@ import pytest
 import torch
 from torch import nn
 
-import internevo
+from internevo.initialize.launch import launch_from_torch
 from internevo.accelerator import get_accelerator
 from internevo.core.context import ParallelMode
 from internevo.core.context.parallel_context import Config
@@ -84,7 +84,7 @@ def build_environment(rank, world_size, free_port):
     os.environ["MASTER_PORT"] = free_port
     internlm_accelerator.empty_cache()
     # launcher="torch"
-    internevo.launch_from_torch(config=config, seed=1024)
+    launch_from_torch(config=config, seed=1024)
 
 
 def seed_all(seed, cuda_deterministic=False):
