@@ -1,7 +1,6 @@
 import os
 from typing import List
 from setuptools import setup, find_packages
-from setuptools.command.install import install
 
 pwd = os.path.dirname(__file__)
 
@@ -37,8 +36,7 @@ setup(
     description='an open-sourced lightweight training framework aims to support model pre-training without the need for extensive dependencies',
     long_description=readme(),
     long_description_content_type='text/markdown',
-    package_dir={"": "internevo"},
-    packages=find_packages("internevo"),
+    packages=find_packages(),
     install_requires=get_requires(),
     extras_require=extra_require,
     entry_points={"console_scripts": get_console_scripts()},
