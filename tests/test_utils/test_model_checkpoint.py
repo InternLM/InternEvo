@@ -10,7 +10,7 @@ import torch
 import torch.distributed as dist
 
 from internlm.checkpoint import CheckpointManager
-from internlm.core.context.config import Config
+from internlm.core.context.parallel_context import Config
 from internlm.core.trainer import TrainState
 from internlm.solver.optimizer.hybrid_zero_optim import HybridZeroOptimizer
 from internlm.utils.common import SingletonMeta

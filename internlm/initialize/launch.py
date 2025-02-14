@@ -9,7 +9,7 @@ from typing import Dict, Union
 import torch
 
 from internlm.accelerator import AcceleratorType, get_accelerator
-from internlm.core.context.config import Config
+from internlm.core.context.parallel_context import Config
 from internlm.core.context.parallel_context import global_context as gpc
 from internlm.core.context.process_group_initializer import ParallelMode
 from internlm.utils.common import get_master_node

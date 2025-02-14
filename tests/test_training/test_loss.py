@@ -8,7 +8,7 @@ import torch.distributed as dist
 from internlm.initialize.initialize_trainer import initialize_trainer
 from internlm.accelerator import AcceleratorType, get_accelerator
 from internlm.checkpoint import CheckpointManager
-from internlm.core.context.config import Config
+from internlm.core.context.parallel_context import Config
 from internlm.core.context.parallel_context import ParallelMode
 from internlm.core.context.parallel_context import global_context as gpc
 from internlm.core.trainer import Trainer, TrainState

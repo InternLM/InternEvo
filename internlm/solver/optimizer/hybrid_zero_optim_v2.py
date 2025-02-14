@@ -7,7 +7,7 @@ import torch
 import torch.distributed as dist
 from torch.optim import Optimizer
 
-from internlm.core.context.config import Config
+from internlm.core.context.parallel_context import Config
 from internlm.core.context.parallel_context import (
     IS_REPLICA_ZERO_PARALLEL,
     IS_TENSOR_EXPERT_DATA_PARALLEL,

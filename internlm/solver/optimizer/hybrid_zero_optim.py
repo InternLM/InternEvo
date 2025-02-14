@@ -11,7 +11,7 @@ import torch.distributed as dist
 from torch.optim import Optimizer
 
 from internlm.accelerator import AcceleratorType, get_accelerator
-from internlm.core.context.config import Config
+from internlm.core.context.parallel_context import Config
 from internlm.core.context.parallel_context import (
     IS_REPLICA_EXPERT_DATA_PARALLEL,
     IS_REPLICA_ZERO_PARALLEL,

@@ -12,7 +12,7 @@ from internlm.initialize import initialize_trainer
 from internlm.accelerator import get_accelerator
 from internlm.core.context import ParallelMode
 from internlm.core.context.parallel_context import global_context as gpc
-from internlm.core.context.config import Config
+from internlm.core.context.parallel_context import Config
 from internlm.core.trainer import Trainer
 from internlm.data import build_train_loader_with_data_type
 from internlm.initialize.launch import args_sanity_check

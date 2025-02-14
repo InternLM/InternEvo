@@ -8,7 +8,7 @@ import torch
 from internlm.initialize.launch import launch_from_torch
 from internlm.accelerator import get_accelerator
 from internlm.core.context.parallel_context import global_context as gpc
-from internlm.core.context.config import Config
+from internlm.core.context.parallel_context import Config
 from internlm.data.utils import unpack_type_ids
 from internlm.initialize.launch import args_sanity_check
 

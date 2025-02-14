@@ -9,7 +9,7 @@ from torch import nn
 from internlm.initialize.launch import launch_from_torch
 from internlm.accelerator import get_accelerator
 from internlm.core.context import ParallelMode
-from internlm.core.context.config import Config
+from internlm.core.context.parallel_context import Config
 from internlm.core.context.parallel_context import global_context as gpc
 from internlm.core.parallel.comm.tensor import (
     HeadTensorParallelCommunicator,

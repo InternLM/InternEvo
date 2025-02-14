@@ -3,7 +3,7 @@ import os
 import pytest
 import torch
 
-from internlm.core.context.config import Config
+from internlm.core.context.parallel_context import Config
 from internlm.initialize.launch import get_config_value
 from tests.test_utils.common_fixture import (  # noqa # pylint: disable=unused-import
     ALI_SAVE_PATH,
