@@ -9,10 +9,6 @@ from functools import partial
 from typing import Any, Callable, Dict, List, Optional, Tuple, Union
 
 import torch
-from torch import distributed as dist
-from torch import nn
-
-from internevo.core.context import ParallelMode
 from internevo.core.context.parallel_context import global_context as gpc
 from internevo.core.naive_amp import unwrap_naive_amp
 from internevo.core.parallel.comm.utils import (
@@ -25,10 +21,13 @@ from internevo.core.parallel.comm.utils import (
     expandKVPacked,
     reduce_scatter_raw,
 )
-
 from internevo.model.modules.linear import ParallelLinearWithCommExt
 from internevo.model.modules.utils import is_moe_param
 from internevo.utils.common import SchedulerHook, UniqueChainMap, get_current_device
+from torch import distributed as dist
+from torch import nn
+
+from internevo.core.context import ParallelMode
 from internevo.utils.utils import (
     CuSeqlenType,
     QKVPackType,
@@ -180,8 +179,9 @@ class EmbeddingWeightParallelCommunicator:
 
     def __init__(self, parallel_mode: ParallelMode) -> None:
         from internevo.model.modules.embedding import Embedding1D
+
         self._embedding1d_class = Embedding1D
-        
+
         self.parallel_mode = parallel_mode
         self.gather_dim = 0
 
@@ -189,7 +189,9 @@ class EmbeddingWeightParallelCommunicator:
         self._num_micro_step = gpc.config.data.micro_num
 
     def register_module_hook(self, module: nn.Module) -> None:
-        assert isinstance(module, self._embedding1d_class), "Embbeding weight parallel communicator is only support Embedding1D"
+        assert isinstance(
+            module, self._embedding1d_class
+        ), "Embbeding weight parallel communicator is only support Embedding1D"
 
         module.weight.evo_tensor = None
         self.gather_dim = 0 if module.vocab_parallel else 1
