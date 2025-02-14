@@ -11,9 +11,8 @@ from torch import nn
 from internlm.core.context import ParallelMode
 from internlm.core.context import global_context as gpc
 from internlm.core.naive_amp import unwrap_naive_amp
-from internlm.core.parallel.comm.isp import ISPCommunicatorWrapper
-from internlm.model.modules.embedding import Embedding1D
-from internlm.model.modules.linear import ScaleColumnParallelLinear
+from internlm.core.parallel.comm import ISPCommunicatorWrapper
+from internlm.model.model_ops.modules.linear import ScaleColumnParallelLinear
 from internlm.solver.optimizer.utils import flatten
 
 
@@ -28,6 +27,10 @@ class ParamAsyncBcastHandler:
         model: Union[nn.Module, nn.ModuleList],
         isp_communicator: ISPCommunicatorWrapper = None,
     ) -> None:
+        from internlm.model.model_ops.modules.embedding import Embedding1D
+
+        self.embedding1d_cls = Embedding1D
+
         self._block_to_param: Dict[nn.Module, List[nn.Parameter]] = OrderedDict()
         self._param_to_rank: Dict[nn.Parameter, int] = {}
         self._block_to_rank: Dict[nn.Module, int] = {}
@@ -121,7 +124,7 @@ class ParamAsyncBcastHandler:
             # NOTE: Although the layernorm layer does not have explicit processing,
             # both ISPCommunicator and ParamAsyncBcastHandler handle transformer blocks as granularity,
             # so everything is fine.
-            if isp_communicator is None or isinstance(block, (Embedding1D, ScaleColumnParallelLinear)):
+            if isp_communicator is None or isinstance(block, (self.embedding1d_cls, ScaleColumnParallelLinear)):
                 block.register_forward_pre_hook(_pre_forward_hook)
         if isp_communicator:
             isp_communicator.register_prerequisite_for_forward_prefetch_hooks(_pre_forward_hook)
@@ -170,7 +173,7 @@ class ParamAsyncBcastHandler:
             # NOTE: Although the layernorm layer does not have explicit processing,
             # both ISPCommunicator and ParamAsyncBcastHandler handle transformer blocks as granularity,
             # so everything is fine.
-            if isp_communicator is None or isinstance(block, (Embedding1D, ScaleColumnParallelLinear)):
+            if isp_communicator is None or isinstance(block, (self.embedding1d_cls, ScaleColumnParallelLinear)):
                 block.register_forward_pre_hook(_pre_forward_hook)
         if isp_communicator:
             isp_communicator.register_prerequisite_for_forward_prefetch_hooks(_pre_forward_hook)

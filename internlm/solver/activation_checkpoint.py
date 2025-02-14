@@ -10,16 +10,10 @@ from torch.distributed.algorithms._checkpoint.checkpoint_wrapper import (
 from torch.utils.checkpoint import check_backward_validity, detach_variable
 
 from internlm.accelerator import get_accelerator
-from internlm.core.context.parallel_context import global_context as gpc
-from internlm.core.context.random import (
-    get_current_mode,
-    get_states,
-    set_mode,
-    set_seed_states,
-    sync_states,
-)
-
-from ..utils.common import get_current_device
+from internlm.core.context import get_current_mode, get_states
+from internlm.core.context import global_context as gpc
+from internlm.core.context import set_mode, set_seed_states, sync_states
+from internlm.utils.common import get_current_device
 
 internlm_accelerator = get_accelerator()
 

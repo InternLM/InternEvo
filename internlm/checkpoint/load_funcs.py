@@ -1,8 +1,12 @@
 # Copyright (c) InternLM. All rights reserved.
 
-from internlm.model.modeling_internlm import InternLM1
-from internlm.model.modeling_internlm2 import InternLM2
-from internlm.model.modeling_llama import Llama2
+from internlm.model.model_implementations.transformers.modeling_internlm import (
+    InternLM1,
+)
+from internlm.model.model_implementations.transformers.modeling_internlm2 import (
+    InternLM2,
+)
+from internlm.model.model_implementations.transformers.modeling_llama import Llama2
 from internlm.utils.logger import get_logger
 
 logger = get_logger(__file__)

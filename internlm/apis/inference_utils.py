@@ -2,7 +2,7 @@ import torch
 
 from internlm.core.context import ParallelMode  # noqa: E402
 from internlm.core.context import global_context as gpc  # noqa: E402
-from internlm.core.parallel.comm.utils import _gather as gather
+from internlm.core.parallel.comm.utils import _gather
 
 
 class InferenceParams:
@@ -64,6 +64,6 @@ def process_parallel_output(model_output):
 
     # gather tp parallel output
     if gpc.config.model.parallel_output and gpc.is_initialized(ParallelMode.TENSOR):
-        return gather(model_output, ParallelMode.TENSOR, -1)
+        return _gather(model_output, ParallelMode.TENSOR, -1)
     else:
         return model_output

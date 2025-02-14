@@ -12,11 +12,13 @@ from functools import partial
 import torch
 import torch.distributed as dist
 
+from internlm.initialize.initialize_optimizer import initialize_optimizer
+from internlm.initialize.initialize_profiler import initialize_llm_profile
+
 script_dir = os.path.dirname(os.path.abspath(__file__))
 project_root = os.path.abspath(os.path.join(script_dir, "../../"))
 sys.path.append(project_root)
 
-import internlm  # noqa: E402
 from internlm.checkpoint import CheckpointManager  # noqa: E402
 from internlm.core.context import ParallelMode  # noqa: E402
 from internlm.core.context import global_context as gpc  # noqa: E402
@@ -25,21 +27,21 @@ from internlm.data import (  # noqa: E402
     build_train_loader_with_data_type,
     build_valid_loader_with_data_type,
 )
-from internlm.eval.evaluation import evaluate_on_val_dls  # noqa: E402
-from internlm.initialize import initialize_distributed_env  # noqa: E402
-from internlm.model.losses import InternLoss  # noqa: E402
-from internlm.model.metrics import AccPerplex, SchedulerMetricHook  # noqa: E402
-from internlm.monitor import (  # noqa: E402
-    initialize_monitor_manager,
-    send_alert_message,
-)
-from internlm.monitor.monitor import monitor_manager as mm  # noqa: E402
-from internlm.train import (  # noqa: E402
-    initialize_llm_profile,
+from internlm.eval import evaluate_on_val_dls  # noqa: E402
+from internlm.initialize import initialize_launcher  # noqa: E402
+from internlm.initialize.initialize_model import (  # noqa: E402
     initialize_model_and_parallel_communicator,
-    initialize_optimizer,
-    record_current_batch_training_metrics,
 )
+from internlm.initialize import initialize_trainer  # noqa: E402
+from internlm.model.model_ops.losses import InternLoss  # noqa: E402
+from internlm.model.model_ops.metrics import (  # noqa: E402
+    AccPerplex,
+    SchedulerMetricHook,
+)
+from internlm.monitor import initialize_monitor_manager  # noqa: E402
+from internlm.monitor import monitor_manager as mm  # noqa: E402
+from internlm.monitor import send_alert_message  # noqa: E402
+from internlm.core.trainer import record_current_batch_training_metrics  # noqa: E402
 from internlm.utils.common import (  # noqa: E402
     BatchSkipper,
     get_current_device,
@@ -115,7 +117,7 @@ def main(args):
     current_time = objs[0]
 
     # initialize model
-    model , _ = initialize_model_and_parallel_communicator()
+    model, _ = initialize_model_and_parallel_communicator()
 
     with open(args.config, "r") as f:
         config_lines = f.readlines()
@@ -180,7 +182,7 @@ def main(args):
         ),
     ]
 
-    engine, scheduler = internlm.initialize_trainer(
+    engine, scheduler = initialize_trainer(
         model=model,
         optimizer=optimizer,
         criterion=criterion,
@@ -361,7 +363,7 @@ if __name__ == "__main__":
     hostname = socket.gethostname()
 
     # initialize distributed environment
-    initialize_distributed_env(config=args.config, launcher=args.launcher, master_port=args.port, seed=args.seed)
+    initialize_launcher(config=args.config, launcher=args.launcher, distributed_port=args.port, seed=args.seed)
     assert hasattr(gpc, "config") and gpc.config is not None
 
     # initialize monitor manager context

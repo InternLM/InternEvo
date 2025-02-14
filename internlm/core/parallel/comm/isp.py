@@ -25,9 +25,8 @@ from internlm.core.parallel.comm.utils import (
     expandKVPacked,
     reduce_scatter_raw,
 )
-from internlm.model.modules.embedding import Embedding1D
-from internlm.model.modules.linear import ParallelLinearWithCommExt
-from internlm.model.modules.utils import is_moe_param
+from internlm.model.model_ops.modules.linear import ParallelLinearWithCommExt
+from internlm.model.model_ops.modules.utils import is_moe_param
 from internlm.utils.common import SchedulerHook, UniqueChainMap, get_current_device
 from internlm.utils.utils import (
     CuSeqlenType,
@@ -179,14 +178,19 @@ class EmbeddingWeightParallelCommunicator:
     """
 
     def __init__(self, parallel_mode: ParallelMode) -> None:
+        from internlm.model.model_ops.modules.embedding import Embedding1D
+
+        self.embedding1d_cls = Embedding1D
         self.parallel_mode = parallel_mode
         self.gather_dim = 0
 
         self._cur_micro_step = 0
         self._num_micro_step = gpc.config.data.micro_num
 
-    def register_module_hook(self, module: Embedding1D) -> None:
-        assert isinstance(module, Embedding1D), "Embbeding weight parallel communicator is only support Embedding1D"
+    def register_module_hook(self, module: nn.Module) -> None:
+        assert isinstance(
+            module, self.embedding1d_cls
+        ), "Embbeding weight parallel communicator is only support Embedding1D"
 
         module.weight.evo_tensor = None
         self.gather_dim = 0 if module.vocab_parallel else 1

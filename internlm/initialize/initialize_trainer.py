@@ -26,8 +26,8 @@ from internlm.core.scheduler import (
 from internlm.core.scheduler.pipeline_scheduler_1f1b import get_tensor_shape
 from internlm.core.trainer import Trainer
 from internlm.data.utils import packed_data_normalizer, unpack_data
-from internlm.solver.optimizer.hybrid_zero_optim import BaseOptimizer
-from internlm.solver.schedulers.beta2_scheduler import Beta2Scheduler
+from internlm.solver.optimizer import BaseOptimizer
+from internlm.solver.schedulers import Beta2Scheduler
 from internlm.utils.common import SchedulerHook, get_current_device
 from internlm.utils.parallel import is_using_isp
 

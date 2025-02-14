@@ -99,7 +99,7 @@ data = dict(
 
 Slurm環境で2ノード16カードを使用する場合、コマンドは以下の通りです：
 ```bash
-$ srun -p internllm -N 2 -n 16 --ntasks-per-node=8 --gpus-per-task=1 python train.py --config ./configs/7B_sft.py
+$ srun -p internllm -N 2 -n 16 --ntasks-per-node=8 --gpus-per-task=1 python -m internlm.launcher.launch --config ./configs/7B_sft.py
 ```
 
 torchを使用し、1ノード8カードで実行する場合、コマンドは以下の通りです：

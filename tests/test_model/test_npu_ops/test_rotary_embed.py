@@ -3,7 +3,7 @@ import torch
 from torch import nn
 
 from internlm.accelerator import get_accelerator
-from internlm.model.ops.rotary_emb import (
+from internlm.model.model_ops.ops.rotary_emb import (
     ApplyRotaryEmb,
     rotary_emb_in_rotate_half_style,
 )

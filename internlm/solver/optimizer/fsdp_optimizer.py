@@ -8,15 +8,16 @@ import torch.distributed as dist
 from torch.optim import Optimizer
 
 from internlm.accelerator import get_accelerator
-from internlm.core.context import Config, ParallelMode
+from internlm.core.context import ParallelMode
 from internlm.core.context import global_context as gpc
-from internlm.solver.optimizer.base_optimizer import BaseOptimizer
+from internlm.solver.optimizer import BaseOptimizer
 from internlm.solver.optimizer.utils import (
     DynamicGradScaler,
     get_norm,
     release_param_grad,
 )
 from internlm.utils.common import get_tensor_norm, move_norm_to_cuda
+from internlm.utils.config import Config
 from internlm.utils.logger import get_logger
 
 try:

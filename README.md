@@ -99,7 +99,7 @@ Training can be started on slurm or torch distributed environment.
 
 On slurm, using 2 nodes and 16 cards, the command is as follows:
 ```bash
-$ srun -p internllm -N 2 -n 16 --ntasks-per-node=8 --gpus-per-task=1 python train.py --config ./configs/7B_sft.py
+$ srun -p internllm -N 2 -n 16 --ntasks-per-node=8 --gpus-per-task=1 python -m internlm.launcher.launch --config ./configs/7B_sft.py
 ```
 
 On torch, using 1 node and 8 cards, the command is as follows:

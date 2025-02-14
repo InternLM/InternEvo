@@ -18,11 +18,11 @@
 - 初始化分布式训练环境
 .. code-block:: python
 
-    initialize_distributed_env(config=args.config, launcher=args.launcher, master_port=args.port, seed=args.seed)
+    init_distributed(config=args.config, launcher=args.launcher, master_port=args.port, seed=args.seed)
 
-调用 ``initialize_distributed_env`` 函数，支持通过 slurm 或 torch 方式启动训练脚本，并传入配置文件、端口号、进程随机种子等信息。函数详细说明如下：
+调用 ``init_distributed`` 函数，支持通过 slurm 或 torch 方式启动训练脚本，并传入配置文件、端口号、进程随机种子等信息。函数详细说明如下：
 
-.. autofunction:: internlm.initialize.initialize_distributed_env
+.. autofunction:: internlm.initialize.init_distributed
 
 - 初始化模型
 .. code-block:: python

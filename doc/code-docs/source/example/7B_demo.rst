@@ -165,7 +165,7 @@
 
 .. code-block:: bash
 
-    srun -p internllm -N 1 -n 8 --ntasks-per-node=8 --gpus-per-task=1 python train.py --config ./configs/7B_sft.py
+    srun -p internllm -N 1 -n 8 --ntasks-per-node=8 --gpus-per-task=1 python -m internlm.launcher.launch --config ./configs/7B_sft.py
 
 训练结果
 ----------------

@@ -39,7 +39,7 @@ ENABLE_TIMEOUT = os.getenv("INTERNLM_ENABLE_TIMEOUT", None)
 
 
 timeout_threshold_dict = {
-    "initialize_distributed_env": 240,
+    "init_distributed": 240,
     "nopp_forward_backward_step": 360,
     "initialize_model_and_parallel_communicator": 60,
     "initialize_optimizer": 60,

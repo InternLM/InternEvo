@@ -14,6 +14,7 @@ class DIPU_Accelerator(Accelerator):
     """
 
     def __init__(self) -> None:
+        super().__init__()
         self._name_str = "cuda"
         self._communication_backend_name = "nccl"
         self.amp = self.get_amp()

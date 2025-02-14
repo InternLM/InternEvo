@@ -5,8 +5,10 @@ import torch
 from sentencepiece import SentencePieceProcessor
 
 from internlm.apis.inference import SequenceGenerator, batch_tokenize
-from internlm.initialize import initialize_distributed_env  # noqa: E402
-from internlm.train import initialize_model_and_parallel_communicator
+from internlm.initialize import initialize_launcher  # noqa: E402
+from internlm.initialize.initialize_model import (
+    initialize_model_and_parallel_communicator,
+)
 
 
 def set_seed(seed: int = 1024):
@@ -36,7 +38,7 @@ def load_and_generate(path, model_type="INTERNLM2", tokenizer_path=""):
             sequence_parallel=0,
         ),
     )
-    initialize_distributed_env(evo_cfg, master_port=23574, args_check=False)
+    initialize_launcher(evo_cfg, distributed_port=23574, args_check=False)
 
     tokenizer = SentencePieceProcessor(tokenizer_path)  # pylint: disable=E1121
 

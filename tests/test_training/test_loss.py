@@ -5,22 +5,22 @@ import pytest
 import torch
 import torch.distributed as dist
 
-import internlm
 from internlm.accelerator import AcceleratorType, get_accelerator
 from internlm.checkpoint import CheckpointManager
-from internlm.core.context import Config, ParallelMode
+from internlm.core.context import ParallelMode
 from internlm.core.context import global_context as gpc
-from internlm.core.trainer import Trainer, TrainState
+from internlm.core.trainer import Trainer, TrainState, get_scheduler_hooks
 from internlm.data import build_train_loader_with_data_type
-from internlm.initialize import initialize_distributed_env
-from internlm.model.losses import InternLoss
-from internlm.train import (
-    get_scheduler_hooks,
+from internlm.initialize import initialize_launcher
+from internlm.initialize.initialize_model import (
     initialize_model_and_parallel_communicator,
-    initialize_optimizer,
-    load_new_batch,
 )
+from internlm.initialize.initialize_optimizer import initialize_optimizer
+from internlm.initialize import initialize_trainer
+from internlm.model.model_ops.losses import InternLoss
+from internlm.core.trainer import load_new_batch
 from internlm.utils.common import BatchSkipper, launch_time
+from internlm.utils.config import Config
 from internlm.utils.gputest import empty_cache_and_diag
 from internlm.utils.megatron_timers import megatron_timer as timer
 
@@ -129,7 +129,7 @@ def train(
         config.model.parallel_output = False
         config.model.checkpoint = True
 
-    initialize_distributed_env(config=config, launcher=launcher)
+    initialize_launcher(config=config, launcher=launcher)
     assert hasattr(gpc, "config") and gpc.config is not None
 
     # check parallel config
@@ -200,7 +200,7 @@ def train(
     metric = None
 
     # initialize trainer
-    engine, scheduler = internlm.initialize_trainer(
+    engine, scheduler = initialize_trainer(
         model=model,
         optimizer=optimizer,
         criterion=criterion,

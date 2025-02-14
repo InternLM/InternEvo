@@ -9,25 +9,27 @@ import torch.distributed as dist
 from torch.utils.data import DataLoader
 
 from internlm.checkpoint.checkpoint_manager import CheckpointManager
+from internlm.core.context import ParallelMode
 from internlm.core.context import global_context as gpc
-from internlm.core.context.process_group_initializer import ParallelMode
 from internlm.core.parallel.comm import initialize_offload_manager
-from internlm.core.trainer import Trainer
-from internlm.data.streaming.utils import streaming_simple_resume
-from internlm.data.train_state import get_train_state
-from internlm.eval.evaluation import evaluate_on_val_dls
-from internlm.initialize.initialize_trainer import initialize_trainer
-from internlm.model.losses.ce_loss import InternLoss
-from internlm.model.metrics import AccPerplex
-from internlm.monitor.monitor import send_alert_message
-from internlm.train.pipeline import (
+from internlm.core.trainer import (
+    Trainer,
     get_scheduler_hooks,
-    initialize_llm_profile,
-    initialize_optimizer,
-    inject_model,
     load_new_batch,
     record_current_batch_training_metrics,
 )
+from internlm.data.streaming.utils import streaming_simple_resume
+from internlm.data.train_state import get_train_state
+from internlm.eval import evaluate_on_val_dls
+from internlm.initialize import initialize_trainer
+from internlm.initialize.initialize_model import (
+    initialize_model_and_parallel_communicator,
+)
+from internlm.initialize.initialize_optimizer import initialize_optimizer
+from internlm.initialize.initialize_profiler import initialize_llm_profile
+from internlm.model.model_ops.losses.ce_loss import InternLoss
+from internlm.model.model_ops.metrics import AccPerplex
+from internlm.monitor import send_alert_message
 from internlm.utils.common import (
     BatchSkipper,
     check_cuda_env,
@@ -99,8 +101,8 @@ class TrainerBuilder(Trainer):
         # load config_lines
         config_lines = self._read_config(kwargs["config"])
 
-        # inject model for amp, parallel setting, parameter syncing and others
-        model, isp_communicator = inject_model(model)
+        # initialize model and communicators
+        model, isp_communicator = initialize_model_and_parallel_communicator(model)
 
         # check cuda env
         check_cuda_env()

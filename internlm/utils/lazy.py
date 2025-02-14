@@ -1,3 +1,4 @@
+# adapted from https://github.com/open-mmlab/mmengine/blob/main/mmengine/config/lazy.py
 # Copyright (c) OpenMMLab. All rights reserved.
 import abc
 import importlib
@@ -43,7 +44,7 @@ class LazyObject:
     During parsing process, the syntax like:
 
     Examples:
-        >>> import torch.nn as nn
+        >>> from torch import nn
         >>> from mmdet.models import RetinaNet
         >>> import mmcls.models
         >>> import mmcls.datasets
@@ -52,7 +53,7 @@ class LazyObject:
     Will be parsed as:
 
     Examples:
-        >>> # import torch.nn as nn
+        >>> # from torch import nn
         >>> nn = lazyObject('torch.nn')
         >>> # from mmdet.models import RetinaNet
         >>> RetinaNet = lazyObject('mmdet.models', 'RetinaNet')

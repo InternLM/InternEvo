@@ -407,7 +407,7 @@ After completing the data preparation and relevant training configurations menti
 If you want to start distributed training on slurm with 16 GPUs across multiple nodes, use the following command:
 
 ```bash
-$ srun -p internllm -N 2 -n 16 --ntasks-per-node=8 --gpus-per-task=1 python train.py --config ./configs/7B_sft.py
+$ srun -p internllm -N 2 -n 16 --ntasks-per-node=8 --gpus-per-task=1 python -m internlm.launcher.launch --config ./configs/7B_sft.py
 ```
 
 If you want to start distributed training on torch with 8 GPUs on a single node, use the following command:

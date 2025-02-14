@@ -63,6 +63,7 @@ jobs:
         export GITHUB_WORKSPACE=$GITHUB_WORKSPACE
         export SLURM_PARTITION=$SLURM_PARTITION
         source activate ${evo_env_torch21_flash2}
+        export PYTHONPATH=$PWD:$PYTHONPATH
         sh ./ci_scripts/train/slurm_train.sh ${GITHUB_RUN_ID}-${GITHUB_JOB}
         EOF
 
@@ -97,6 +98,7 @@ jobs:
         export GITHUB_WORKSPACE=$GITHUB_WORKSPACE
         export SLURM_PARTITION=$SLURM_PARTITION
         source activate ${evo_env_torch21_flash2}
+        export PYTHONPATH=$PWD:$PYTHONPATH
         sh ./ci_scripts/train/torchrun.sh ${GITHUB_RUN_ID}-${GITHUB_JOB}
         rm -rf $GITHUB_WORKSPACE/llm_ckpts
         EOF

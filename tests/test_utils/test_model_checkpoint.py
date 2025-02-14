@@ -10,10 +10,10 @@ import torch
 import torch.distributed as dist
 
 from internlm.checkpoint import CheckpointManager
-from internlm.core.context.parallel_context import Config
 from internlm.core.trainer import TrainState
-from internlm.solver.optimizer.hybrid_zero_optim import HybridZeroOptimizer
+from internlm.solver.optimizer import HybridZeroOptimizer
 from internlm.utils.common import SingletonMeta
+from internlm.utils.config import Config
 from internlm.utils.storage_manager import wait_async_upload_finish
 from tests.test_utils.common_fixture import (  # noqa # pylint: disable=unused-import
     ASYNC_TMP_FOLDER,
@@ -28,38 +28,6 @@ from tests.test_utils.common_fixture import (  # noqa # pylint: disable=unused-i
 # (TOTAL_STEP, CKPT_EVERY, SNPASHOT_EVERY)
 step_info_list = [(8, 4, 2), (3, 4, 2), (1, 6, 3)]
 ckpt_config_list = [
-    # Old interface format
-    dict(
-        enable_save_ckpt=True,
-        save_ckpt_folder=BOTO_SAVE_PATH,
-        load_optimizer=True,
-        checkpoint_every=0,
-        async_upload=True,
-        async_upload_tmp_folder=ASYNC_TMP_FOLDER,
-        snapshot_ckpt_folder="/".join([BOTO_SAVE_PATH, "snapshot"]) if BOTO_SAVE_PATH is not None else None,
-        oss_snapshot_freq=0,
-        stop_file_path=None,
-        load_model_only_folder=None,
-        load_given_ckpt=False,
-        load_ckpt_folder=None,
-        is_old_api=True,
-    ),
-    # Old interface format
-    dict(
-        enable_save_ckpt=True,
-        save_ckpt_folder=LOCAL_SAVE_PATH,
-        load_optimizer=True,
-        checkpoint_every=0,
-        async_upload=False,
-        async_upload_tmp_folder=ASYNC_TMP_FOLDER,
-        snapshot_ckpt_folder="/".join([LOCAL_SAVE_PATH, "snapshot"]),
-        oss_snapshot_freq=0,
-        stop_file_path=None,
-        load_model_only_folder=None,
-        load_given_ckpt=False,
-        load_ckpt_folder=None,
-        is_old_api=True,
-    ),
     # New interface format
     dict(
         enable_save_ckpt=True,
@@ -201,8 +169,8 @@ def return_latest_save_path(save_ckpt_folder, total_step, snapshot_freq, ckpt_fr
 @pytest.mark.parametrize("step_info", step_info_list)
 @pytest.mark.parametrize("ckpt_config", ckpt_config_list)
 def test_ckpt_mm(step_info, ckpt_config, init_dist_and_model):  # noqa # pylint: disable=unused-import
-    from internlm.core.context import global_context as gpc
     from internlm.checkpoint.checkpoint_manager import CheckpointLoadMask
+    from internlm.core.context import global_context as gpc
 
     ckpt_config = Config(ckpt_config)
     total_step, checkpoint_every, oss_snapshot_freq = step_info
@@ -297,9 +265,9 @@ STOP_FILE_PATH = "./alter.log"
 
 
 def query_quit_file(rank, world_size=2):
-    from internlm.core.context import global_context as gpc
-    from internlm.initialize import initialize_distributed_env
     from internlm.checkpoint.checkpoint_manager import CheckpointSaveType
+    from internlm.core.context import global_context as gpc
+    from internlm.initialize import initialize_launcher
 
     ckpt_config = Config(
         dict(
@@ -325,7 +293,7 @@ def query_quit_file(rank, world_size=2):
     os.environ["MASTER_ADDR"] = "127.0.0.1"
     os.environ["MASTER_PORT"] = "12376"
 
-    initialize_distributed_env(config=init_config, launcher="torch", master_port=12376, args_check=False)
+    initialize_launcher(config=init_config, launcher="torch", distributed_port=12376, args_check=False)
     train_state = TrainState(init_config, None)
     ckpt_mm = CheckpointManager(ckpt_config, model=None, optimizer=None)
     if rank == 0:

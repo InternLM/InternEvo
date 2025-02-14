@@ -5,12 +5,11 @@ import socket
 import numpy as np
 import torch
 
-import internlm
 from internlm.accelerator import get_accelerator
 from internlm.core.context import global_context as gpc
-from internlm.core.context.parallel_context import Config
 from internlm.data.utils import unpack_type_ids
-from internlm.initialize.launch import args_sanity_check
+from internlm.initialize import initialize_launcher
+from internlm.utils.config import Config
 
 internlm_accelerator = get_accelerator()
 
@@ -119,9 +118,7 @@ def build_environment(rank, world_size, free_port, config):
     os.environ["MASTER_ADDR"] = "localhost"
     os.environ["MASTER_PORT"] = str(free_port)
     internlm_accelerator.empty_cache()
-    # launcher="torch"
-    internlm.launch_from_torch(config=config, seed=1024)
-    args_sanity_check()
+    initialize_launcher(config=config, launcher="torch", distributed_port=8888, seed=1024, args_check=True, dist_backend="nccl")
 
 
 def seed_all(seed, cuda_deterministic=False):
