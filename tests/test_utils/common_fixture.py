@@ -5,14 +5,14 @@ from subprocess import PIPE, STDOUT, Popen
 import pytest
 import torch
 
-from internevo.core.context.parallel_context import global_context as gpc
-from internevo.core.context.config import Config
-from internevo.core.naive_amp import NaiveAMPModel
-from internevo.model.builder import create_model
-from internevo.model.registry import register_model_initializer
-from internevo.solver.optimizer.hybrid_zero_optim import HybridZeroOptimizer
-from internevo.train.utils import create_param_groups
-from internevo.utils.singleton import SingletonMeta
+from internlm.core.context.parallel_context import global_context as gpc
+from internlm.core.context.config import Config
+from internlm.core.naive_amp import NaiveAMPModel
+from internlm.model.builder import create_model
+from internlm.model.registry import register_model_initializer
+from internlm.solver.optimizer.hybrid_zero_optim import HybridZeroOptimizer
+from internlm.train.utils import create_param_groups
+from internlm.utils.singleton import SingletonMeta
 
 OSS_NAME = os.environ.get("OSS_BUCKET_NAME", None)
 OSS_IP = os.environ.get("OSS_IP", None)
@@ -153,14 +153,14 @@ def reset_singletons():
 
 
 def reset_seed():
-    from internevo.core.context.random import _SEED_MANAGER
+    from internlm.core.context.random import _SEED_MANAGER
 
     _SEED_MANAGER.reset()
 
 
 @pytest.fixture(scope="module")
 def init_dist_and_model(rank=0, world_size=1):
-    from internevo.initialize import initialize_distributed_env
+    from internlm.initialize import initialize_distributed_env
 
     os.environ["RANK"] = str(rank)
     os.environ["LOCAL_RANK"] = str(rank)

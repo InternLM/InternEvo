@@ -5,25 +5,25 @@ import pytest
 import torch
 import torch.distributed as dist
 
-from internevo.initialize.initialize_trainer import initialize_trainer
-from internevo.accelerator import AcceleratorType, get_accelerator
-from internevo.checkpoint import CheckpointManager
-from internevo.core.context.config import Config
-from internevo.core.context.parallel_context import ParallelMode
-from internevo.core.context.parallel_context import global_context as gpc
-from internevo.core.trainer import Trainer, TrainState
-from internevo.data import build_train_loader_with_data_type
-from internevo.initialize import initialize_distributed_env
-from internevo.model.losses import InternLoss
-from internevo.train import (
+from internlm.initialize.initialize_trainer import initialize_trainer
+from internlm.accelerator import AcceleratorType, get_accelerator
+from internlm.checkpoint import CheckpointManager
+from internlm.core.context.config import Config
+from internlm.core.context.parallel_context import ParallelMode
+from internlm.core.context.parallel_context import global_context as gpc
+from internlm.core.trainer import Trainer, TrainState
+from internlm.data import build_train_loader_with_data_type
+from internlm.initialize import initialize_distributed_env
+from internlm.model.losses import InternLoss
+from internlm.train import (
     get_scheduler_hooks,
     initialize_model_and_parallel_communicator,
     initialize_optimizer,
     load_new_batch,
 )
-from internevo.utils.common import BatchSkipper, launch_time
-from internevo.utils.gputest import empty_cache_and_diag
-from internevo.utils.megatron_timers import megatron_timer as timer
+from internlm.utils.common import BatchSkipper, launch_time
+from internlm.utils.gputest import empty_cache_and_diag
+from internlm.utils.megatron_timers import megatron_timer as timer
 
 CONFIG_FILE_PATH = os.getenv("CONFIG_FILE_PATH", "./configs/7B_internlm2.py")
 INTERNLM2_CKPT_PATH = os.path.join(os.environ["share_path"], "quailty_assurance/test_loss_pri/model_ckpt")

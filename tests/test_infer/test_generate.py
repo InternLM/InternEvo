@@ -4,9 +4,9 @@ import pytest
 import torch
 from sentencepiece import SentencePieceProcessor
 
-from internevo.apis.inference import SequenceGenerator, batch_tokenize
-from internevo.initialize import initialize_distributed_env  # noqa: E402
-from internevo.train import initialize_model_and_parallel_communicator
+from internlm.apis.inference import SequenceGenerator, batch_tokenize
+from internlm.initialize import initialize_distributed_env  # noqa: E402
+from internlm.train import initialize_model_and_parallel_communicator
 
 
 def set_seed(seed: int = 1024):

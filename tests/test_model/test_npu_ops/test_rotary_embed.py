@@ -2,12 +2,12 @@ import pytest
 import torch
 from torch import nn
 
-from internevo.accelerator import get_accelerator
-from internevo.model.ops.rotary_emb import (
+from internlm.accelerator import get_accelerator
+from internlm.model.ops.rotary_emb import (
     ApplyRotaryEmb,
     rotary_emb_in_rotate_half_style,
 )
-from internevo.utils.common import get_current_device
+from internlm.utils.common import get_current_device
 
 internlm_accelerator = get_accelerator()
 

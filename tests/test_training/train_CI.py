@@ -16,43 +16,43 @@ script_dir = os.path.dirname(os.path.abspath(__file__))
 project_root = os.path.abspath(os.path.join(script_dir, "../../"))
 sys.path.append(project_root)
 
-from internevo.initialize.initialize_trainer import initialize_trainer  # noqa: E402
-from internevo.checkpoint import CheckpointManager  # noqa: E402
-from internevo.core.context import ParallelMode  # noqa: E402
-from internevo.core.context.parallel_context import global_context as gpc  # noqa: E402
-from internevo.core.trainer import Trainer, TrainState  # noqa: E402
-from internevo.data import (  # noqa: E402
+from internlm.initialize.initialize_trainer import initialize_trainer  # noqa: E402
+from internlm.checkpoint import CheckpointManager  # noqa: E402
+from internlm.core.context import ParallelMode  # noqa: E402
+from internlm.core.context.parallel_context import global_context as gpc  # noqa: E402
+from internlm.core.trainer import Trainer, TrainState  # noqa: E402
+from internlm.data import (  # noqa: E402
     build_train_loader_with_data_type,
     build_valid_loader_with_data_type,
 )
-from internevo.eval.evaluation import evaluate_on_val_dls  # noqa: E402
-from internevo.initialize import initialize_distributed_env  # noqa: E402
-from internevo.model.losses import InternLoss  # noqa: E402
-from internevo.model.metrics import AccPerplex, SchedulerMetricHook  # noqa: E402
-from internevo.monitor import (  # noqa: E402
+from internlm.eval.evaluation import evaluate_on_val_dls  # noqa: E402
+from internlm.initialize import initialize_distributed_env  # noqa: E402
+from internlm.model.losses import InternLoss  # noqa: E402
+from internlm.model.metrics import AccPerplex, SchedulerMetricHook  # noqa: E402
+from internlm.monitor import (  # noqa: E402
     initialize_monitor_manager,
     send_alert_message,
 )
-from internevo.monitor.monitor import monitor_manager as mm  # noqa: E402
-from internevo.train import (  # noqa: E402
+from internlm.monitor.monitor import monitor_manager as mm  # noqa: E402
+from internlm.train import (  # noqa: E402
     initialize_llm_profile,
     initialize_model_and_parallel_communicator,
     initialize_optimizer,
     record_current_batch_training_metrics,
 )
-from internevo.utils.common import (  # noqa: E402
+from internlm.utils.common import (  # noqa: E402
     BatchSkipper,
     get_current_device,
     get_megatron_flops,
     launch_time,
     parse_args,
 )
-from internevo.utils.gputest import empty_cache_and_diag  # noqa: E402
-from internevo.utils.logger import get_logger  # noqa: E402
-from internevo.utils.megatron_timers import megatron_timer as timer  # noqa: E402
-from internevo.utils.parallel import get_parallel_log_file_name  # noqa: E402
-from internevo.utils.simple_memory_profiler import SimpleMemoryProfiler  # noqa: E402
-from internevo.utils.writer import Writer  # noqa: E402
+from internlm.utils.gputest import empty_cache_and_diag  # noqa: E402
+from internlm.utils.logger import get_logger  # noqa: E402
+from internlm.utils.megatron_timers import megatron_timer as timer  # noqa: E402
+from internlm.utils.parallel import get_parallel_log_file_name  # noqa: E402
+from internlm.utils.simple_memory_profiler import SimpleMemoryProfiler  # noqa: E402
+from internlm.utils.writer import Writer  # noqa: E402
 
 # global llm logger
 logger = get_logger(__file__)

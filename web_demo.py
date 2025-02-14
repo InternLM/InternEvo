@@ -14,8 +14,8 @@ import torch
 from transformers import AutoModelForCausalLM, AutoTokenizer
 from transformers.utils import logging
 
-from internevo.accelerator import get_accelerator
-from internevo.utils.common import get_current_device
+from internlm.accelerator import get_accelerator
+from internlm.utils.common import get_current_device
 from tools.interface import GenerationConfig, generate_interactive
 
 logger = logging.get_logger(__name__)

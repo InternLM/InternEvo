@@ -3,9 +3,9 @@ import copy
 import torch
 from torch import nn
 
-from internevo.accelerator import AcceleratorType, get_accelerator
-from internevo.solver.optimizer.npu_fused_adamw import AdamW as NPUAdamW
-from internevo.utils.common import get_current_device
+from internlm.accelerator import AcceleratorType, get_accelerator
+from internlm.solver.optimizer.npu_fused_adamw import AdamW as NPUAdamW
+from internlm.utils.common import get_current_device
 
 internlm_accelerator = get_accelerator()
 

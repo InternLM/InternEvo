@@ -5,12 +5,12 @@ import socket
 import numpy as np
 import torch
 
-from internevo.initialize.launch import launch_from_torch
-from internevo.accelerator import get_accelerator
-from internevo.core.context.parallel_context import global_context as gpc
-from internevo.core.context.config import Config
-from internevo.data.utils import unpack_type_ids
-from internevo.initialize.launch import args_sanity_check
+from internlm.initialize.launch import launch_from_torch
+from internlm.accelerator import get_accelerator
+from internlm.core.context.parallel_context import global_context as gpc
+from internlm.core.context.config import Config
+from internlm.data.utils import unpack_type_ids
+from internlm.initialize.launch import args_sanity_check
 
 internlm_accelerator = get_accelerator()
 

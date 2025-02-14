@@ -30,7 +30,7 @@ from transformers.modeling_utils import no_init_weights
 sys.path.insert(0, os.getcwd())
 
 try:
-    from internevo.utils.storage_manager import (
+    from internlm.utils.storage_manager import (
         check_folder,
         get_fns,
         init_storage_manager,

@@ -9,8 +9,8 @@ import torch
 import tqdm
 from datasets import load_dataset
 
-from internevo.accelerator import get_accelerator
-from internevo.utils.timeout import Timeout
+from internlm.accelerator import get_accelerator
+from internlm.utils.timeout import Timeout
 from tools.interface import GenerationConfig, generate_interactive
 from transformers import AutoModelForCausalLM, AutoTokenizer
 

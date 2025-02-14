@@ -3,8 +3,8 @@ import multiprocessing as mp
 import pytest
 import torch
 
-from internevo.model.modules.norm import new_layer_norm
-from internevo.utils.common import get_current_device
+from internlm.model.modules.norm import new_layer_norm
+from internlm.utils.common import get_current_device
 from tests.common_fixture import find_free_port
 from tests.test_model.test_model_internlm import build_environment, seed_all
 

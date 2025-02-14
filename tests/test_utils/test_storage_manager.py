@@ -3,8 +3,8 @@ import os
 import pytest
 import torch
 
-from internevo.core.context.config import Config
-from internevo.initialize.launch import get_config_value
+from internlm.core.context.config import Config
+from internlm.initialize.launch import get_config_value
 from tests.test_utils.common_fixture import (  # noqa # pylint: disable=unused-import
     ALI_SAVE_PATH,
     BOTO_SAVE_PATH,
@@ -94,7 +94,7 @@ def del_tmp():
 @pytest.mark.usefixtures("reset_singletons")
 @pytest.mark.parametrize("ckpt_config", ckpt_config_list)
 def test_storage_mm_save_load(ckpt_config):  # noqa # pylint: disable=unused-argument
-    from internevo.utils.storage_manager import (
+    from internlm.utils.storage_manager import (
         check_folder,
         get_fns,
         init_storage_manager,
@@ -142,7 +142,7 @@ internlm_ckpt_path = [
 
 @pytest.mark.parametrize("ckpt_path", internlm_ckpt_path)
 def test_try_get_storage_backend(ckpt_path):
-    from internevo.utils.storage_manager import try_get_storage_backend
+    from internlm.utils.storage_manager import try_get_storage_backend
 
     ipath, a_prefix, a_cut_path = ckpt_path
     b_prefix, b_cut_path = try_get_storage_backend(ipath)

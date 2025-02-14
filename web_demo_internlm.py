@@ -6,7 +6,7 @@ import logging
 import streamlit as st
 from sentencepiece import SentencePieceProcessor
 
-from internevo.accelerator import get_accelerator
+from internlm.accelerator import get_accelerator
 from tools.interface import GenerationConfig
 from tools.load_internlm2_model import (
     initialize_internlm_model,

@@ -5,21 +5,21 @@ import torch
 from torch import nn
 from torch.testing import assert_close
 
-from internevo.initialize.launch import launch_from_torch
-from internevo.accelerator import get_accelerator
-from internevo.core.context import ParallelMode
-from internevo.core.context.parallel_context import global_context as gpc
-from internevo.core.engine import Engine
-from internevo.core.gradient_handler import PipelineSharedModuleGradientHandler
-from internevo.core.parallel.shard import partition_uniform
-from internevo.core.scheduler import (
+from internlm.initialize.launch import launch_from_torch
+from internlm.accelerator import get_accelerator
+from internlm.core.context import ParallelMode
+from internlm.core.context.parallel_context import global_context as gpc
+from internlm.core.engine import Engine
+from internlm.core.gradient_handler import PipelineSharedModuleGradientHandler
+from internlm.core.parallel.shard import partition_uniform
+from internlm.core.scheduler import (
     InterleavedPipelineScheduler,
     NonPipelineScheduler,
     PipelineScheduler,
 )
-from internevo.model.metrics import SchedulerMetricHook
-from internevo.train import initialize_optimizer
-from internevo.utils.common import get_current_device
+from internlm.model.metrics import SchedulerMetricHook
+from internlm.train import initialize_optimizer
+from internlm.utils.common import get_current_device
 
 internlm_accelerator = get_accelerator()
 

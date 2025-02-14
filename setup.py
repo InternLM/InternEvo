@@ -11,7 +11,7 @@ def readme():
     return content
 
 def get_version() -> str:
-    with open(os.path.join("internevo", "env.py"), encoding="utf-8") as f:
+    with open(os.path.join("internlm", "env.py"), encoding="utf-8") as f:
         file_content = f.read()
         pattern = r"{}\W*=\W*\"([^\"]+)\"".format("VERSION")
         (version,) = re.findall(pattern, file_content)
@@ -29,10 +29,6 @@ extra_require = {
     "test": ["pre-commit", "pylint", "pytest"],
 }
 
-def get_console_scripts() -> List[str]:
-    console_scripts = ["internevo-cli = internevo.cli:main"]
-    return console_scripts
-
 setup(
     name='InternEvo',
     version=get_version(),
@@ -42,7 +38,6 @@ setup(
     packages=find_packages(),
     install_requires=get_requires(),
     extras_require=extra_require,
-    entry_points={"console_scripts": get_console_scripts()},
     classifiers=[
         'Programming Language :: Python :: 3.10',
         'Intended Audience :: Developers',

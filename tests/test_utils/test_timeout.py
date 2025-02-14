@@ -7,11 +7,11 @@ import pytest
 import torch
 import torch.distributed as dist
 
-from internevo.accelerator import get_accelerator
+from internlm.accelerator import get_accelerator
 
 os.environ["INTERNLM_ENABLE_TIMEOUT"] = "1"  # noqa  # pylint: disable=wrong-import-position
 os.environ["NCCL_TIMEOUT"] = "5"
-from internevo.utils.timeout import llm_timeout
+from internlm.utils.timeout import llm_timeout
 from tests.test_utils.common_fixture import (  # noqa # pylint: disable=unused-import
     init_config,
 )
@@ -65,7 +65,7 @@ def local_timeout(rank, _):
 
 def gpc_timeout(rank, world_size):
 
-    from internevo.initialize import initialize_distributed_env
+    from internlm.initialize import initialize_distributed_env
 
     os.environ["RANK"] = str(rank)
     os.environ["LOCAL_RANK"] = str(rank)

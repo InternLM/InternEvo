@@ -4,7 +4,7 @@ from peft import LoraConfig, TaskType, get_peft_model
 from torch.utils.data import DataLoader
 from tqdm import tqdm
 
-from internevo.accelerator import get_accelerator
+from internlm.accelerator import get_accelerator
 from transformers import (
     AutoModelForCausalLM,
     AutoTokenizer,

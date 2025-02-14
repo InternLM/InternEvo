@@ -3,8 +3,8 @@ import multiprocessing as mp
 import pytest
 import torch
 
-from internevo.model.modules.embedding import Embedding1D
-from internevo.utils.common import get_current_device
+from internlm.model.modules.embedding import Embedding1D
+from internlm.utils.common import get_current_device
 from tests.common_fixture import find_free_port
 from tests.test_model.test_model_internlm import build_environment, seed_all
 

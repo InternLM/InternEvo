@@ -4,23 +4,23 @@ import numpy as np
 import pytest
 import torch
 
-from internevo.core.context import ParallelMode
-from internevo.core.context.parallel_context import global_context as gpc
+from internlm.core.context import ParallelMode
+from internlm.core.context.parallel_context import global_context as gpc
 
-# from internevo.core.context import ParallelMode
-from internevo.core.context.config import Config
-from internevo.core.trainer import TrainState
-from internevo.data import (
+# from internlm.core.context import ParallelMode
+from internlm.core.context.config import Config
+from internlm.core.trainer import TrainState
+from internlm.data import (
     build_train_loader_with_data_type,
     build_valid_loader_with_data_type,
 )
-from internevo.eval.evaluation import (
+from internlm.eval.evaluation import (
     switch_evaluation_mode,
     switch_evaluation_pipeline_scheduler,
 )
-from internevo.train import load_new_batch
+from internlm.train import load_new_batch
 
-# from internevo.core.context.parallel_context import global_context as gpc
+# from internlm.core.context.parallel_context import global_context as gpc
 from tests.test_core.utils import build_environment, init_model_and_optim
 
 micro_bszs = [1, 2]

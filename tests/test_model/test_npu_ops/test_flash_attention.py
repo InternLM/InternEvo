@@ -11,12 +11,12 @@ import torch.nn.functional as F
 from einops import rearrange
 from torch import nn
 
-from internevo.accelerator import AcceleratorType, get_accelerator
-from internevo.core.context.config import Config
-from internevo.core.context.parallel_context import global_context as gpc
-from internevo.model.ops.attention import SelfAttention
-from internevo.model.ops.utils import pack_output_after_attn, unpack_qkv_before_attn
-from internevo.utils.common import get_current_device, set_random_seed
+from internlm.accelerator import AcceleratorType, get_accelerator
+from internlm.core.context.config import Config
+from internlm.core.context.parallel_context import global_context as gpc
+from internlm.model.ops.attention import SelfAttention
+from internlm.model.ops.utils import pack_output_after_attn, unpack_qkv_before_attn
+from internlm.utils.common import get_current_device, set_random_seed
 
 HEAD_NUM = 32
 HIDDEN_SZIE = 4096
@@ -139,7 +139,7 @@ def npu_transform(B, S, N_KV, dtype):
 def deeplink_fwd_transform(B, S, N_KV, dtype):
     from deeplink_ext.internevo_ops import FlashSelfAttention
 
-    from internevo.model.modules.multi_head_attention import CrossAttention
+    from internlm.model.modules.multi_head_attention import CrossAttention
 
     set_random_seed(1024)
     softmax_scale = 1 / math.sqrt(HEAD_DIM)

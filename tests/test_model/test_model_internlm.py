@@ -6,25 +6,25 @@ import pytest
 import torch
 from torch import nn
 
-from internevo.initialize.launch import launch_from_torch
-from internevo.accelerator import get_accelerator
-from internevo.core.context import ParallelMode
-from internevo.core.context.config import Config
-from internevo.core.context.parallel_context import global_context as gpc
-from internevo.core.parallel.comm.tensor import (
+from internlm.initialize.launch import launch_from_torch
+from internlm.accelerator import get_accelerator
+from internlm.core.context import ParallelMode
+from internlm.core.context.config import Config
+from internlm.core.context.parallel_context import global_context as gpc
+from internlm.core.parallel.comm.tensor import (
     HeadTensorParallelCommunicator,
     LinearRole,
     TensorParallelCommunicator,
 )
-from internevo.core.parallel.comm.utils import gather_forward_split_backward
-from internevo.model.modeling_internlm import InternLM1Decoder
-from internevo.model.modules.linear import (
+from internlm.core.parallel.comm.utils import gather_forward_split_backward
+from internlm.model.modeling_internlm import InternLM1Decoder
+from internlm.model.modules.linear import (
     ColumnParallelLinear,
     RowParallelLinear,
     ScaleColumnParallelLinear,
     new_linear,
 )
-from internevo.utils.common import get_current_device
+from internlm.utils.common import get_current_device
 from tests.common_fixture import find_free_port
 
 internlm_accelerator = get_accelerator()

@@ -1,8 +1,8 @@
 import pytest
 import torch
 
-from internevo.model.modules.mlp import new_feed_forward, split_fused_mlp_weight
-from internevo.utils.common import get_current_device
+from internlm.model.modules.mlp import new_feed_forward, split_fused_mlp_weight
+from internlm.utils.common import get_current_device
 
 SEQ_LEN = 64
 HIDDEN_SIZE = 128

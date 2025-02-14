@@ -14,24 +14,24 @@ import numpy as np
 import torch
 from tqdm import tqdm
 
-from internevo.accelerator import get_accelerator
-from internevo.apis.inference import SequenceGenerator
-from internevo.core.context.parallel_context import global_context as gpc
-from internevo.data import build_generation_loader_with_data_type
-from internevo.initialize import initialize_distributed_env
-from internevo.monitor import initialize_monitor_manager
-from internevo.monitor.monitor import monitor_manager as mm
-from internevo.train import initialize_model_and_parallel_communicator
-from internevo.utils.common import (
+from internlm.accelerator import get_accelerator
+from internlm.apis.inference import SequenceGenerator
+from internlm.core.context.parallel_context import global_context as gpc
+from internlm.data import build_generation_loader_with_data_type
+from internlm.initialize import initialize_distributed_env
+from internlm.monitor import initialize_monitor_manager
+from internlm.monitor.monitor import monitor_manager as mm
+from internlm.train import initialize_model_and_parallel_communicator
+from internlm.utils.common import (
     enable_pytorch_expandable_segments,
     launch_time,
     parse_args,
 )
-from internevo.utils.gputest import empty_cache_and_diag
-from internevo.utils.logger import get_logger
-from internevo.utils.megatron_timers import megatron_timer as timer
-from internevo.utils.parallel import get_parallel_log_file_name
-from internevo.utils.storage_manager import init_storage_manager
+from internlm.utils.gputest import empty_cache_and_diag
+from internlm.utils.logger import get_logger
+from internlm.utils.megatron_timers import megatron_timer as timer
+from internlm.utils.parallel import get_parallel_log_file_name
+from internlm.utils.storage_manager import init_storage_manager
 from tools.load_internlm2_model import get_model_device, merge_pp_within_tp
 
 # global llm logger

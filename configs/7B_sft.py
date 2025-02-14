@@ -155,7 +155,7 @@ model = dict(
     dtype="torch.bfloat16",  # Support: "torch.float16", "torch.half", "torch.bfloat16", "torch.float32", "torch.tf32"
     norm_type="rmsnorm",
     layer_norm_epsilon=1e-5,
-    use_flash_attn=True,
+    use_flash_attn=False,
     # Whether the odd and even columns of the query and key in the model are normally interleaved.
     # If it's True, the model's odd and even columns are normally ordered; if it's False,
     # it means that the model has prematurely concatenated all odd columns and even columns in front

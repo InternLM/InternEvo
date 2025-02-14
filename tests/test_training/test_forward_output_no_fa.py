@@ -7,23 +7,23 @@ import numpy as np
 import pytest
 import torch
 
-from internevo.initialize import launch_from_torch
-from internevo.initialize import initialize_trainer
-from internevo.accelerator import get_accelerator
-from internevo.core.context import ParallelMode
-from internevo.core.context.parallel_context import global_context as gpc
-from internevo.core.context.config import Config
-from internevo.core.trainer import Trainer
-from internevo.data import build_train_loader_with_data_type
-from internevo.initialize.launch import args_sanity_check
-from internevo.model.losses import InternLoss
-from internevo.model.metrics import AccPerplex, SchedulerMetricHook
-from internevo.train import (
+from internlm.initialize import launch_from_torch
+from internlm.initialize import initialize_trainer
+from internlm.accelerator import get_accelerator
+from internlm.core.context import ParallelMode
+from internlm.core.context.parallel_context import global_context as gpc
+from internlm.core.context.config import Config
+from internlm.core.trainer import Trainer
+from internlm.data import build_train_loader_with_data_type
+from internlm.initialize.launch import args_sanity_check
+from internlm.model.losses import InternLoss
+from internlm.model.metrics import AccPerplex, SchedulerMetricHook
+from internlm.train import (
     initialize_model_and_parallel_communicator,
     initialize_optimizer,
 )
-from internevo.utils.common import get_current_device
-from internevo.utils.logger import get_logger
+from internlm.utils.common import get_current_device
+from internlm.utils.logger import get_logger
 
 logger = get_logger(__file__)
 internlm_accelerator = get_accelerator()
