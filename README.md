@@ -141,8 +141,9 @@ Please refer to the [System Architecture document](./doc/en/structure.md) for ar
       </td>
       <td>
       <ul>
-        <li><a href="configs/_base_/models/internlm/internlm_7B.py">InternLM</a></li>
-        <li><a href="configs/_base_/models/internlm/internlm2_7B.py">InternLM2</a></li>
+        <li><a href="configs/7B_isp_sft.py">InternLM</a></li>
+        <li><a href="configs/7B_internlm2.py">InternLM2</a></li>
+        <li><a href="configs/8B_internlm3.py">InternLM3</a></li>
         <li><a href="configs/7B_llama2.py">Llama2</a></li>
         <li><a href="configs/7B_qwen2.py">Qwen2</a></li>
         <li><a href="configs/7B_baichuan2.py">Baichuan2</a></li>

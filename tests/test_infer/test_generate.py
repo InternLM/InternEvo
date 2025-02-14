@@ -19,7 +19,7 @@ def set_seed(seed: int = 1024):
     torch.manual_seed(seed)
 
 
-def load_and_generate(path, model_type="INTERNLM2_PUBLIC", tokenizer_path=""):
+def load_and_generate(path, model_type="INTERNLM2", tokenizer_path=""):
     model_cfg = os.path.join(path, "model_config.pt")
     model_wt = os.path.join(path, "model_tp0_pp0.pt")
     model_config = torch.load(model_cfg)

@@ -69,7 +69,7 @@ config = Config(
             num_chunks=1,
             no_bias=True,
         ),
-        model_type="INTERNLM2_PUBLIC",
+        model_type="INTERNLM2",
         alert_address=None,
         monitor=dict(alert=dict(enable_feishu_alert=False, feishu_alert_address=None, light_monitor_address=None)),
         grad_scaler=dict(
