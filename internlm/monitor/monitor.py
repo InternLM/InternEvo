@@ -13,7 +13,7 @@ from threading import Thread
 from internlm.accelerator.abstract_accelerator import get_accelerator
 from internlm.core.context.parallel_context import global_context as gpc
 from internlm.monitor.alert import send_feishu_msg_with_webhook
-from internlm.utils.singleton import SingletonMeta
+from internlm.utils.common import SingletonMeta
 
 from .utils import get_job_key, set_env_var
 

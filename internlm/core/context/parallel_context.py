@@ -14,7 +14,7 @@ import torch.distributed as dist
 from internlm.accelerator import get_accelerator
 from internlm.core.context.config import Config
 from internlm.utils.logger import get_logger
-from internlm.utils.singleton import SingletonMeta
+from internlm.utils.common import SingletonMeta
 from internlm.utils.timeout import LLM_NCCL_TIMEOUT
 from internlm.utils.utils import TensorParallelMode
 

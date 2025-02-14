@@ -6,7 +6,7 @@ import os
 
 from safetensors.torch import load_file, save_file
 
-from internlm.utils.singleton import SingletonMeta
+from internlm.utils.common import SingletonMeta
 
 if "USE_DILL_PICKLE" in os.environ:
     import dill

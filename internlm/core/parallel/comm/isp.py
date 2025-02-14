@@ -9,6 +9,10 @@ from functools import partial
 from typing import Any, Callable, Dict, List, Optional, Tuple, Union
 
 import torch
+from torch import distributed as dist
+from torch import nn
+
+from internlm.core.context import ParallelMode
 from internlm.core.context.parallel_context import global_context as gpc
 from internlm.core.naive_amp import unwrap_naive_amp
 from internlm.core.parallel.comm.utils import (
@@ -24,10 +28,6 @@ from internlm.core.parallel.comm.utils import (
 from internlm.model.modules.linear import ParallelLinearWithCommExt
 from internlm.model.modules.utils import is_moe_param
 from internlm.utils.common import SchedulerHook, UniqueChainMap, get_current_device
-from torch import distributed as dist
-from torch import nn
-
-from internlm.core.context import ParallelMode
 from internlm.utils.utils import (
     CuSeqlenType,
     QKVPackType,

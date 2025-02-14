@@ -13,7 +13,7 @@ from internlm.checkpoint import CheckpointManager
 from internlm.core.context.config import Config
 from internlm.core.trainer import TrainState
 from internlm.solver.optimizer.hybrid_zero_optim import HybridZeroOptimizer
-from internlm.utils.singleton import SingletonMeta
+from internlm.utils.common import SingletonMeta
 from internlm.utils.storage_manager import wait_async_upload_finish
 from tests.test_utils.common_fixture import (  # noqa # pylint: disable=unused-import
     ASYNC_TMP_FOLDER,
