@@ -555,7 +555,7 @@ class GShardMoELayer(BaseMoELayer):
         # group_size = kwargs['group_size'] if 'group_size' in kwargs.keys() else 1
         reshaped_inputs = inputs[0].reshape(-1, d_model)
 
-        self.l_aux, combine_weights, dispatch_mask, self.exp_counts = self.gate(reshaped_inputs, inputs[1])
+        l_aux, combine_weights, dispatch_mask, self.exp_counts = self.gate(reshaped_inputs, inputs[1])
         dispatched_inputs = einsum(
             "sec,sm->ecm", dispatch_mask.type_as(inputs[0]), reshaped_inputs
         )  # TODO: heavy memory usage due to long sequence length
@@ -608,4 +608,4 @@ class GShardMoELayer(BaseMoELayer):
             timer("moe").stop()
             self.time_moe = timer("moe").elapsed(reset=False)
 
-        return out
+        return out, l_aux
