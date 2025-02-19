@@ -9,8 +9,8 @@ from typing import TYPE_CHECKING, Optional, Union
 
 import torch
 import torch.distributed as dist
-from torch import nn
 import transformer_engine as te
+from torch import nn
 
 from internlm.accelerator import get_accelerator
 from internlm.core.context import ParallelMode
@@ -20,13 +20,13 @@ from internlm.core.parallel.shard import (
     get_parallel_strategies_split_mode,
     get_tensor_split_parallel_mode,
 )
+from internlm.model.modules.utils import is_te_min_version
 from internlm.model.ops.linear import (
     gmm_backward_op,
     gmm_forward_op,
     linear_backward_op,
     linear_forward_op,
 )
-from internlm.model.modules.utils import is_te_min_version
 from internlm.utils.logger import get_logger
 
 if TYPE_CHECKING:
@@ -1026,7 +1026,7 @@ class TEColumnParallelLinear(te.pytorch.Linear):
         tp_comm_buffer_name: str = None,
     ):
         if is_expert:
-            raise ValueError('Transformer Engine linear layers do not yet support MoE')
+            raise ValueError("Transformer Engine linear layers do not yet support MoE")
 
         # TE returns a zero length Tensor when bias=False and
         # return_bias=True, but we prefer None.  So in that case we
@@ -1041,14 +1041,18 @@ class TEColumnParallelLinear(te.pytorch.Linear):
             extra_kwargs["device"] = torch.cuda.current_device()
 
         if gpc.config.parallel["tensor"]["tp_overlap"]:
-            extra_kwargs["ub_bulk_wgrad"] = gpc.config.parallel["tensor"]["tp_overlap_cfg"].get("tp_comm_bulk_wgrad", True)
-            extra_kwargs["ub_bulk_dgrad"] = gpc.config.parallel["tensor"]["tp_overlap_cfg"].get("tp_comm_bulk_dgrad", True)
+            extra_kwargs["ub_bulk_wgrad"] = gpc.config.parallel["tensor"]["tp_overlap_cfg"].get(
+                "tp_comm_bulk_wgrad", True
+            )
+            extra_kwargs["ub_bulk_dgrad"] = gpc.config.parallel["tensor"]["tp_overlap_cfg"].get(
+                "tp_comm_bulk_dgrad", True
+            )
             if is_te_min_version("1.5.0", check_equality=False):
-                extra_kwargs["ub_overlap_ag"] = (
-                    gpc.config.parallel["tensor"]["tp_overlap_cfg"].get("tp_comm_overlap_ag", True)
+                extra_kwargs["ub_overlap_ag"] = gpc.config.parallel["tensor"]["tp_overlap_cfg"].get(
+                    "tp_comm_overlap_ag", True
                 )
             else:
-                raise NotImplementedError('tp overlap is supported only when transformer_engine version >= 1.5.0')
+                raise NotImplementedError("tp overlap is supported only when transformer_engine version >= 1.5.0")
             assert (
                 tp_comm_buffer_name is not None
             ), "Buffer name should be set to configure communication overlap settings"
@@ -1085,6 +1089,7 @@ class TERowParallelLinear(te.pytorch.Linear):
     """
     Wrapper for the Transformer-Engine's `Linear` layer.
     """
+
     def __init__(
         self,
         in_features: int,
@@ -1105,18 +1110,18 @@ class TERowParallelLinear(te.pytorch.Linear):
 
         if gpc.config.parallel["tensor"]["tp_overlap"]:
             if is_te_min_version("1.5.0"):
-                extra_kwargs["ub_overlap_ag"] = (
-                    gpc.config.parallel["tensor"]["tp_overlap_cfg"].get("tp_comm_overlap_ag", True)
+                extra_kwargs["ub_overlap_ag"] = gpc.config.parallel["tensor"]["tp_overlap_cfg"].get(
+                    "tp_comm_overlap_ag", True
                 )
-                extra_kwargs["ub_overlap_rs"] = (
-                    gpc.config.parallel["tensor"]["tp_overlap_cfg"].get("tp_comm_overlap_rs", True)
+                extra_kwargs["ub_overlap_rs"] = gpc.config.parallel["tensor"]["tp_overlap_cfg"].get(
+                    "tp_comm_overlap_rs", True
                 )
                 # Disable ub overlap for experts.
                 if is_expert:
                     extra_kwargs["ub_overlap_ag"] = False
                     extra_kwargs["ub_overlap_rs"] = False
             else:
-                raise NotImplementedError('tp overlap is supported only when transformer_engine version >= 1.5.0')
+                raise NotImplementedError("tp overlap is supported only when transformer_engine version >= 1.5.0")
             assert (
                 tp_comm_buffer_name is not None
             ), "Buffer name should be set to configure communication overlap settings"
@@ -1150,7 +1155,7 @@ class TERowParallelLinear(te.pytorch.Linear):
         )
 
         for param in self.parameters():
-            setattr(param, 'allreduce', not (is_expert and self.expert_parallel))
+            setattr(param, "allreduce", not (is_expert and self.expert_parallel))
 
     def forward(self, x):
         """Forward."""

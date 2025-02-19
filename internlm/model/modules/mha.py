@@ -158,7 +158,9 @@ class MHA(nn.Module):
         if self.enable_qkv_fusion:
             # bias=True is according to https://spaces.ac.cn/archives/9577
             if gpc.config.parallel["tensor"]["tp_overlap"]:
-                self.wqkv = new_linear("wqkv", embed_dim, 3 * embed_dim, bias, tp_comm_buffer_name="qkv", **factory_kwargs)
+                self.wqkv = new_linear(
+                    "wqkv", embed_dim, 3 * embed_dim, bias, tp_comm_buffer_name="qkv", **factory_kwargs
+                )
             else:
                 self.wqkv = new_linear("wqkv", embed_dim, 3 * embed_dim, bias, **factory_kwargs)
         else:
@@ -172,7 +174,9 @@ class MHA(nn.Module):
 
         # output projection always have the bias (for now) (except for baichuan2 model)
         if gpc.config.parallel["tensor"]["tp_overlap"]:
-            self.out_proj = new_linear("out_proj", embed_dim, embed_dim, bias=out_bias, tp_comm_buffer_name="proj", **factory_kwargs)
+            self.out_proj = new_linear(
+                "out_proj", embed_dim, embed_dim, bias=out_bias, tp_comm_buffer_name="proj", **factory_kwargs
+            )
         else:
             self.out_proj = new_linear("out_proj", embed_dim, embed_dim, bias=out_bias, **factory_kwargs)
 
@@ -468,7 +472,9 @@ class GQA(nn.Module):
         if enable_qkv_fusion:
             assert bias is False, "Fuesd wqkv only support bias is False."
             if gpc.config.parallel["tensor"]["tp_overlap"]:
-                self.wqkv = new_linear("wqkv", embed_dim, q_dim + 2 * self.kv_dim, bias, tp_comm_buffer_name="qkv", **factory_kwargs)
+                self.wqkv = new_linear(
+                    "wqkv", embed_dim, q_dim + 2 * self.kv_dim, bias, tp_comm_buffer_name="qkv", **factory_kwargs
+                )
             else:
                 self.wqkv = new_linear("wqkv", embed_dim, q_dim + 2 * self.kv_dim, bias, **factory_kwargs)
             self._register_load_state_dict_pre_hook(

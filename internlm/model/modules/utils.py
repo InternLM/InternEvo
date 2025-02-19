@@ -1,11 +1,13 @@
 #!/usr/bin/env python
 # -*- encoding: utf-8 -*-
 
+from importlib.metadata import version
+
 import torch
 import torch.nn.functional as F
 from einops import rearrange
-from importlib.metadata import version
 from packaging.version import Version as PkgVersion
+
 from internlm.utils.logger import get_logger
 
 logger = get_logger(__file__)
@@ -103,7 +105,7 @@ def get_te_version():
         except (ModuleNotFoundError, ImportError):
             return None
 
-        if hasattr(te, '__version__'):
+        if hasattr(te, "__version__"):
             return str(te.__version__)
         else:
             return version("transformer-engine")

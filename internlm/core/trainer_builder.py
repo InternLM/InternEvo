@@ -254,27 +254,33 @@ class TrainerBuilder(Trainer):
         return BatchSkipper(skip_batches)
 
     def _initialize_tp_comm_ub(self):
-        """ initializing the communicators with user buffers for high-performance tensor-model-parallel
-            communication overlap """
+        """initializing the communicators with user buffers for high-performance tensor-model-parallel
+        communication overlap"""
         try:
-            import transformer_engine
             from transformer_engine.pytorch import module as te_module
 
         except ImportError:
-            raise RuntimeError("Tensor Parallel Communication/GEMM Overlap optimization needs 'transformer_engine' package")
+            raise RuntimeError(
+                "Tensor Parallel Communication/GEMM Overlap optimization needs 'transformer_engine' package"
+            )
 
         input_shape = [gpc.config.data["seq_len"] * gpc.config.data["micro_bsz"], gpc.config.model["hidden_size"]]
 
         if is_te_min_version("1.9.0"):
             # The process group with the target bootstrap backend is created in Transformer Engine.
-            te_module.base.initialize_ub(shape = input_shape, tp_size = gpc.config.parallel["tensor"]["size"],
-                                         use_fp8 = False, bootstrap_backend = 'nccl')
+            te_module.base.initialize_ub(
+                shape=input_shape,
+                tp_size=gpc.config.parallel["tensor"]["size"],
+                use_fp8=False,
+                bootstrap_backend="nccl",
+            )
         else:
             # Create a MPI process group to help with TP communication overlap bootstrap.
-            torch.distributed.new_group(backend='mpi')
+            torch.distributed.new_group(backend="mpi")
 
-            te_module.base.initialize_ub(shape = input_shape, tp_size = gpc.config.parallel["tensor"]["size"],
-                                         use_fp8 = False)
+            te_module.base.initialize_ub(
+                shape=input_shape, tp_size=gpc.config.parallel["tensor"]["size"], use_fp8=False
+            )
 
     def _set_attributes(self, profiling, train_dl, val_dls, train_state, optimizer, beta2_scheduler, isp_communicator):
         self.profiling = profiling

@@ -101,7 +101,9 @@ def args_sanity_check():
         gpc.config.parallel.pipeline._add_item("mode", "1F1B")
 
     if "tensor" not in gpc.config.parallel:
-        gpc.config.parallel._add_item("tensor", dict(size=1, mode=TensorParallelMode.mtp.name, tp_overlap=False, tp_overlap_cfg=None))
+        gpc.config.parallel._add_item(
+            "tensor", dict(size=1, mode=TensorParallelMode.mtp.name, tp_overlap=False, tp_overlap_cfg=None)
+        )
 
     if "weight" not in gpc.config.parallel:
         gpc.config.parallel._add_item(
@@ -398,7 +400,9 @@ def args_sanity_check():
 
     # set default value for tensor parallel
     if isinstance(gpc.config.parallel["tensor"], int):
-        gpc.config.parallel["tensor"] = dict(size=gpc.config.parallel["tensor"], mode=TensorParallelMode.mtp.name, tp_overlap=False, tp_overlap_cfg=None)
+        gpc.config.parallel["tensor"] = dict(
+            size=gpc.config.parallel["tensor"], mode=TensorParallelMode.mtp.name, tp_overlap=False, tp_overlap_cfg=None
+        )
     if gpc.config.parallel["tensor"].get("mode", None) is None:
         gpc.config.parallel["tensor"]["mode"] = TensorParallelMode.mtp.name
     if gpc.config.parallel["tensor"]["mode"] == TensorParallelMode.isp.name:
@@ -458,20 +462,18 @@ def args_sanity_check():
     if gpc.config.parallel["tensor"].get("tp_overlap", None) is None:
         gpc.config.parallel["tensor"]["tp_overlap"] = False
     elif gpc.config.parallel["tensor"].get("tp_overlap", None) is True:
-        assert (
-            gpc.config.parallel["tensor"].get("mode", None) in [
-                TensorParallelMode.msp.name,
-                TensorParallelMode.fsp.name,
-            ]
-        ), "tp_overlap can be set to true only in msp and fsp mode"
-        
+        assert gpc.config.parallel["tensor"].get("mode", None) in [
+            TensorParallelMode.msp.name,
+            TensorParallelMode.fsp.name,
+        ], "tp_overlap can be set to true only in msp and fsp mode"
+
         if gpc.config.parallel["tensor"].get("tp_overlap_cfg", None) is None:
             gpc.config.parallel["tensor"]["tp_overlap_cfg"] = dict(
                 tp_comm_overlap_ag=True,
                 tp_comm_overlap_rs=True,
                 tp_comm_bulk_wgrad=True,
                 tp_comm_bulk_dgrad=True,
-                tp_comm_overlap_rs_dgrad=False
+                tp_comm_overlap_rs_dgrad=False,
             )
 
     # set default value for weight parallel

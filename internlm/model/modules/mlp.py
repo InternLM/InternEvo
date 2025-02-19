@@ -6,11 +6,11 @@ from typing import Dict, Optional
 import torch
 from torch import nn
 
+from internlm.core.context import global_context as gpc
 from internlm.model.modules.linear import new_linear
 from internlm.model.modules.utils import Gelu, Silu
 from internlm.utils.logger import get_logger
 from internlm.utils.utils import ActivationType
-from internlm.core.context import global_context as gpc
 
 logger = get_logger(__file__)
 
@@ -89,10 +89,24 @@ class FeedForward(nn.Module):
 
             if gpc.config.parallel["tensor"]["tp_overlap"]:
                 self.fused_w1_w3 = new_linear(
-                    "w13", in_features, hidden_features * 2, bias, device=device, dtype=dtype, is_expert=is_expert, tp_comm_buffer_name="fc1"
+                    "w13",
+                    in_features,
+                    hidden_features * 2,
+                    bias,
+                    device=device,
+                    dtype=dtype,
+                    is_expert=is_expert,
+                    tp_comm_buffer_name="fc1",
                 )
                 self.w2 = new_linear(
-                    "w2", hidden_features, out_features, bias, device=device, dtype=dtype, is_expert=is_expert, tp_comm_buffer_name="fc2"
+                    "w2",
+                    hidden_features,
+                    out_features,
+                    bias,
+                    device=device,
+                    dtype=dtype,
+                    is_expert=is_expert,
+                    tp_comm_buffer_name="fc2",
                 )
             else:
                 self.fused_w1_w3 = new_linear(

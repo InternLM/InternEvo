@@ -59,8 +59,8 @@ from internlm.model.modules.linear import (
     RewardModelLinear,
     RowParallelLinear,
     ScaleColumnParallelLinear,
-    TERowParallelLinear,
     TEColumnParallelLinear,
+    TERowParallelLinear,
     new_linear,
 )
 from internlm.model.modules.norm import new_layer_norm
