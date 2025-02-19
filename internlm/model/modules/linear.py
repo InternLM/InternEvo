@@ -1011,9 +1011,9 @@ class GroupedWPLinear(GroupedParallelLinearWithCommExt):
         self.full_weight_shape = torch.Size((num_groups, in_features, out_features))
 
 
-class TEColumnParallelLinear(te.pytorch.LayerNormLinear):
+class TEColumnParallelLinear(te.pytorch.Linear):
     """
-    Wrapper for the Transformer-Engine's `LayerNormLinear` layer.
+    Wrapper for the Transformer-Engine's `Linear` layer.
     """
 
     def __init__(
@@ -1040,15 +1040,6 @@ class TEColumnParallelLinear(te.pytorch.LayerNormLinear):
         if is_te_min_version("0.12.0"):
             extra_kwargs["device"] = torch.cuda.current_device()
 
-        # Only Transformer-Engine version >= 0.11.0 supports `RMSNorm`
-        # if is_te_min_version("0.11.0"):
-        #     extra_kwargs["normalization"] = self.config.normalization
-        # elif self.config.normalization != "LayerNorm":
-        #     te_version = get_te_version()
-        #     raise ValueError(
-        #         f"Transformer Engine v{te_version} does not support {self.config.normalization}."
-        #     )
-
         if gpc.config.parallel["tensor"]["tp_overlap"]:
             extra_kwargs["ub_bulk_wgrad"] = gpc.config.parallel["tensor"]["tp_overlap_cfg"].get("tp_comm_bulk_wgrad", True)
             extra_kwargs["ub_bulk_dgrad"] = gpc.config.parallel["tensor"]["tp_overlap_cfg"].get("tp_comm_bulk_dgrad", True)
@@ -1056,10 +1047,6 @@ class TEColumnParallelLinear(te.pytorch.LayerNormLinear):
                 extra_kwargs["ub_overlap_ag"] = (
                     gpc.config.parallel["tensor"]["tp_overlap_cfg"].get("tp_comm_overlap_ag", True)
                 )
-                if is_te_min_version("1.6.0.dev0", check_equality=False):
-                    extra_kwargs["ub_overlap_rs_dgrad"] = (
-                        gpc.config.parallel["tensor"]["tp_overlap_cfg"].get("tp_comm_overlap_rs_dgrad", False)
-                    )
             else:
                 raise NotImplementedError('tp overlap is supported only when transformer_engine version >= 1.5.0')
             assert (
@@ -1079,7 +1066,6 @@ class TEColumnParallelLinear(te.pytorch.LayerNormLinear):
             bias=bias,
             return_bias=self.te_return_bias,
             parallel_mode="column",
-            return_layernorm_output=False,
             **extra_kwargs,
         )
 

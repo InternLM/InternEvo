@@ -98,7 +98,10 @@ def get_te_version():
     """Get TE version from __version__; if not available use pip's. Use caching."""
 
     def get_te_version_str():
-        import transformer_engine as te
+        try:
+            import transformer_engine as te
+        except (ModuleNotFoundError, ImportError):
+            return None
 
         if hasattr(te, '__version__'):
             return str(te.__version__)
@@ -111,6 +114,7 @@ def get_te_version():
 
 def is_te_min_version(version, check_equality=True):
     """Check if minimum version of `transformer-engine` is installed."""
+    ver = get_te_version()
     if check_equality:
-        return get_te_version() >= PkgVersion(version)
-    return get_te_version() > PkgVersion(version)
+        return ver is not None and ver >= PkgVersion(version)
+    return ver is not None and ver > PkgVersion(version)
