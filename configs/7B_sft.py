@@ -199,6 +199,8 @@ parallel = dict(
         tp_overlap_cfg=dict(
             tp_comm_overlap_ag=True,
             tp_comm_overlap_rs=True,
+            tp_comm_bulk_wgrad=True,
+            tp_comm_bulk_dgrad=True,
         ),
     ),
     pipeline=dict(size=1, interleaved_overlap=True),

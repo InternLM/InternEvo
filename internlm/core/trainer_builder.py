@@ -155,7 +155,7 @@ class TrainerBuilder(Trainer):
             scheduler_hooks=get_scheduler_hooks(self.metric, optimizer, isp_communicator),
         )
 
-        if gpc.config.parallel["tensor"]["tp_overlap"]:
+        if gpc.config.parallel["tensor"].get("tp_overlap", False):
             self._initialize_tp_comm_ub()
 
         # set attributes

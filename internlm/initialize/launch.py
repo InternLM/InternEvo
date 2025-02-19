@@ -473,7 +473,6 @@ def args_sanity_check():
                 tp_comm_overlap_rs=True,
                 tp_comm_bulk_wgrad=True,
                 tp_comm_bulk_dgrad=True,
-                tp_comm_overlap_rs_dgrad=False,
             )
 
     # set default value for weight parallel
