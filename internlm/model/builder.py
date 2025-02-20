@@ -1,6 +1,7 @@
 from typing import List, Union
 
 import torch
+import transformer_engine.pytorch as te
 from torch import nn
 
 from internlm.core.context import ParallelMode
@@ -18,6 +19,31 @@ from internlm.utils.logger import get_logger
 from internlm.utils.parallel import is_using_fsdp, is_using_hf, is_using_isp
 
 logger = get_logger(__file__)
+
+
+def simple_swap(model, device):
+    for submodule_name, submodule in model.named_modules():
+        if isinstance(submodule, torch.nn.Linear):
+            path_in_state_dict = submodule_name.split(".")
+            current_module = model
+
+            # traverse to leaf module
+            leaf_path = path_in_state_dict[:-1]
+            leaf_name = path_in_state_dict[-1]
+            for child_name in leaf_path:
+                current_module = getattr(current_module, child_name)
+
+            # perform a swap
+            old_leaf = getattr(current_module, leaf_name)
+            new_leaf = te.Linear(old_leaf.in_features, old_leaf.out_features, old_leaf.bias is not None, device=device)
+            with torch.no_grad():
+                new_leaf.weight.copy_(old_leaf.weight)
+                assert torch.equal(new_leaf.weight, old_leaf.weight)
+                if old_leaf.bias is not None:
+                    new_leaf.bias.copy_(old_leaf.bias)
+                    assert torch.equal(new_leaf.bias, old_leaf.bias)
+
+            setattr(current_module, leaf_name, new_leaf)
 
 
 def create_model() -> Union[nn.Module, List[nn.Module]]:
@@ -125,5 +151,8 @@ def create_model_hf(hf: dict) -> nn.Module:
             setattr(model, "output", output_new)
         else:
             traverse(model)
+
+    if gpc.config.get("fp8", None) is not None:
+        simple_swap(model, fsdp_init_method)
 
     return model

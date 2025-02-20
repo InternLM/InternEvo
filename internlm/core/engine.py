@@ -3,13 +3,18 @@
 
 # adopted from https://github.com/hpcaitech/ColossalAI/blob/main/colossalai/engine
 
+from contextlib import nullcontext
 from typing import List, Optional
 
 import torch
+import transformer_engine.pytorch as te
 from torch.nn import Module
 from torch.nn.modules.loss import _Loss
 from torch.optim.lr_scheduler import _LRScheduler
+from transformer_engine.common.recipe import DelayedScaling, Format
 
+from internlm.core.context import ParallelMode
+from internlm.core.context import global_context as gpc
 from internlm.core.gradient_handler import BaseGradientHandler
 from internlm.solver.optimizer.hybrid_zero_optim import BaseOptimizer
 from internlm.solver.schedulers.beta2_scheduler import Beta2Scheduler
@@ -77,6 +82,28 @@ class Engine:
 
         # build gradient handler
         self._gradient_handlers = gradient_handlers if gradient_handlers else []
+
+        # FP8 GEMM
+        fp8_cfg = gpc.config.get("fp8", None)
+        self.use_fp8 = fp8_cfg is not None
+        self.fp8_recipe = None
+        self.fp8_group = None
+        if self.use_fp8:
+            self.fp8_group = gpc.get_group(ParallelMode.GLOBAL)
+            if fp8_cfg.format == "e4m3":
+                fp8_format = Format.E4M3
+            elif fp8_cfg.format == "hybrid":
+                fp8_format = Format.HYBRID
+            else:
+                raise ValueError("The DelayedScaling recipe only supports E4M3 and HYBRID formats.")
+            self.fp8_recipe = DelayedScaling(
+                margin=fp8_cfg.margin,
+                interval=fp8_cfg.interval,
+                fp8_format=fp8_format,
+                amax_history_len=fp8_cfg.amax_history_len,
+                amax_compute_algo=fp8_cfg.amax_compute_algo,
+                override_linear_precision=(False, False, not fp8_cfg.fp8_wgrad),
+            )
 
     @property
     def model(self):
@@ -166,7 +193,11 @@ class Engine:
         Returns:
             torch.Tensor: The output of the model.
         """
-        return self.model(*args, **kwargs)
+        with te.fp8_autocast(
+            enabled=self.use_fp8, fp8_recipe=self.fp8_recipe, fp8_group=self.fp8_group
+        ) if self.use_fp8 else nullcontext():
+            output = self.model(*args, **kwargs)
+        return output
 
     def load_batch(self, data_iter, to_gpu=True):
         """
