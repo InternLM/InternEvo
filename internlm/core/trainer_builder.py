@@ -20,6 +20,7 @@ from internlm.model.losses.ce_loss import FlashGPTLMLoss
 from internlm.model.metrics import AccPerplex
 from internlm.monitor.monitor import send_alert_message
 from internlm.train.pipeline import (
+    generate_meta_data,
     get_scheduler_hooks,
     initialize_llm_profile,
     initialize_optimizer,
@@ -124,8 +125,13 @@ class TrainerBuilder(Trainer):
         # initialize optimizer
         optimizer, beta2_scheduler, lr_scheduler = initialize_optimizer(model, isp_communicator)
 
+        # generate ckpt metaData
+        meta_data = generate_meta_data(optimizer)
+
         # initialize checkpoint manager and try resume training
-        self.ckpt_manager = self._initialize_checkpoint_manager(model, optimizer, lr_scheduler, train_dl, config_lines)
+        self.ckpt_manager = self._initialize_checkpoint_manager(
+            model, optimizer, lr_scheduler, train_dl, config_lines, meta_data
+        )
         self.ckpt_manager.try_resume_training(train_state, self.current_time)
 
         # initialize customed llm writer
@@ -178,7 +184,7 @@ class TrainerBuilder(Trainer):
         )
 
     def _initialize_checkpoint_manager(
-        self, model, optimizer, lr_scheduler, train_dl, config_lines
+        self, model, optimizer, lr_scheduler, train_dl, config_lines, meta_data
     ) -> CheckpointManager:
         return CheckpointManager(
             ckpt_config=gpc.config.ckpt,
@@ -189,6 +195,7 @@ class TrainerBuilder(Trainer):
             model_config=gpc.config.model,
             model_config_file="".join(config_lines),
             feishu_address=gpc.config.monitor.alert.feishu_alert_address,
+            meta_data=meta_data,
         )
 
     def _initialize_writer(self, train_state, config_lines) -> Writer:

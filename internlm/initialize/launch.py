@@ -214,6 +214,9 @@ def args_sanity_check():
     if "enable_save_ckpt" not in ckpt:
         ckpt._add_item("enable_save_ckpt", True)
 
+    if "generate_meta_data" not in ckpt:
+        ckpt._add_item("generate_meta_data", dict(enable=False, path=None))
+
     # Saving checkpoint args.
     if ckpt.enable_save_ckpt:
         assert "checkpoint_every" in ckpt, "If enable save checkpoint, must give checkpoint_every in config.data!"

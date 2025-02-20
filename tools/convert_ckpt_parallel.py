@@ -17,7 +17,8 @@ def parse_args():
     args.add_argument("target_ckpt_path", type=str, default=None)
     args.add_argument("--origin_meta_path", type=str, default=None)
     args.add_argument("--target_meta_path", type=str, default=None)
-    args.add_argument("--copy_file", type=bool, default=True)
+    args.add_argument("--copy_file", type=bool, default=True, help="enable/disable copy other file.")
+    args.add_argument("--convert_optimizer", type=bool, default=True, help="enable/disable optimizer converting.")
     return args.parse_args()
 
 
@@ -620,28 +621,29 @@ if __name__ == "__main__":
         new_states=new_states,
     )
 
-    processed_ckpt_states = preprocess_optimizer_state(
-        old_tp_size, old_pp_size, old_zero1_size, old_meta, folder, old_tp_mode
-    )
-    new_states = [
-        [[defaultdict(dict) for _ in range(new_zero1_size)] for _ in range(new_pp_size)] for _ in range(new_tp_size)
-    ]
-    convert_optimizer_ckpt(
-        old_meta=old_meta,
-        new_meta=new_meta,
-        old_pp_size=old_pp_size,
-        new_pp_size=new_pp_size,
-        old_tp_size=old_tp_size,
-        new_tp_size=new_tp_size,
-        old_zero1_size=old_zero1_size,
-        new_zero1_size=new_zero1_size,
-        old_meta_data=old_meta_data,
-        new_meta_data=new_meta_data,
-        new_tp_mode=new_tp_mode,
-        saved_folder=saved_folder,
-        new_states=new_states,
-        processed_ckpt_states=processed_ckpt_states,
-    )
+    if args.convert_optimizer:
+        processed_ckpt_states = preprocess_optimizer_state(
+            old_tp_size, old_pp_size, old_zero1_size, old_meta, folder, old_tp_mode
+        )
+        new_states = [
+            [[defaultdict(dict) for _ in range(new_zero1_size)] for _ in range(new_pp_size)] for _ in range(new_tp_size)
+        ]
+        convert_optimizer_ckpt(
+            old_meta=old_meta,
+            new_meta=new_meta,
+            old_pp_size=old_pp_size,
+            new_pp_size=new_pp_size,
+            old_tp_size=old_tp_size,
+            new_tp_size=new_tp_size,
+            old_zero1_size=old_zero1_size,
+            new_zero1_size=new_zero1_size,
+            old_meta_data=old_meta_data,
+            new_meta_data=new_meta_data,
+            new_tp_mode=new_tp_mode,
+            saved_folder=saved_folder,
+            new_states=new_states,
+            processed_ckpt_states=processed_ckpt_states,
+        )
 
     if args.copy_file:
         file_list = ["context.pt", "sampler.pt", "schedulder.pt"]

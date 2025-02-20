@@ -2,10 +2,12 @@
 # -*- encoding: utf-8 -*-
 
 import math
+import os
 import time
 from typing import Callable, Dict, Iterable, List, Optional, Tuple, TypeVar, Union
 
 import torch
+import torch.distributed as dist
 from torch import nn
 from torch.utils.data import DataLoader
 
@@ -116,17 +118,32 @@ LINEAR2NEWLINEAR_NAME_MAPPING = dict(
 logger = get_logger(__file__)
 internlm_accelerator = get_accelerator()
 
+# For universal checkpoint
+# record offset and complete_size of param in each layer
+map_layer_attr = {}
+map_fqn_local_to_global = {}
+map_fqn_global_to_local = {}
+
 
 def set_param_unique_tracking_name(model):
     for chunk_id, chunk in enumerate(unwrap_naive_amp(model)):
         # Important: only works for llama-class models
         childrens = chunk.named_children()
-        for _, children in childrens:
+        for children_name, children in childrens:
             if isinstance(children, nn.ModuleList):
                 for idx, block in enumerate(children):
                     for name, child in block.named_modules():
+                        if name == "":
+                            continue
+
+                        full_name = f"{chunk_id}.{idx}.{name}"
+                        name_parts = f"{full_name}.weight".split(".", 2)
+                        # global_id for pipeline parallel case
+                        global_id = model.first_layer + idx
+                        local_fqn = f"{children_name}." + ".".join(name_parts[1:])
+                        global_fqn = f"{children_name}.{global_id}." + ".".join(name_parts[2:])
+
                         if isinstance(child, (ParallelLinearWithCommExt)):
-                            full_name = f"{chunk_id}.{idx}.{name}"
                             setattr(
                                 child.weight,
                                 "tracking_name",
@@ -138,19 +155,132 @@ def set_param_unique_tracking_name(model):
                                     "tracking_name",
                                     f"{full_name}.bias",
                                 )
+
+                            setattr(
+                                child.weight,
+                                "fqn",
+                                f"{local_fqn}",
+                            )
+                            if child.bias is not None:
+                                setattr(
+                                    child.bias,
+                                    "fqn",
+                                    f"{local_fqn}",
+                                )
+
+                            assert hasattr(child, "offset"), f"{child}"
+                            map_fqn_local_to_global[local_fqn] = global_fqn
+                            map_fqn_global_to_local[global_fqn] = local_fqn
+
+                            assert global_fqn not in map_layer_attr, f"{map_layer_attr} exists"
+                            map_layer_attr[global_fqn] = {
+                                "offset": getattr(child, "offset", [0] * len(child.weight.size())),
+                                "complete_size": getattr(child, "complete_size", list(child.weight.size())),
+                            }
+
+                        elif isinstance(child, (RMSNorm)):
+                            map_fqn_local_to_global[local_fqn] = global_fqn
+                            map_fqn_global_to_local[global_fqn] = local_fqn
+                            setattr(
+                                child.weight,
+                                "fqn",
+                                f"{local_fqn}",
+                            )
+                            map_layer_attr[global_fqn] = {
+                                "offset": getattr(child, "offset", [0] * len(child.weight.size())),
+                                "complete_size": getattr(child, "complete_size", list(child.weight.size())),
+                            }
+
             else:
+                full_name = f"{chunk_id}.{children_name}"
+                local_fqn = f"{children_name}.weight"
+                assert getattr(children, "bias", None) is None
                 if isinstance(children, Embedding1D):
                     setattr(
                         children.weight,
                         "tracking_name",
-                        f"{chunk_id}_embedding.weight",
+                        f"{chunk_id}_embeddings.weight",
                     )
+                    assert local_fqn not in map_layer_attr, f"{map_layer_attr} exists"
                 else:
                     setattr(
                         children.weight,
                         "tracking_name",
-                        f"{chunk_id}_head.weight",
+                        f"{full_name}.weight",
                     )
+                    assert local_fqn not in map_layer_attr, f"{map_layer_attr} exists"
+
+                setattr(
+                    children.weight,
+                    "fqn",
+                    f"{local_fqn}",
+                )
+                if getattr(children, "bias", None) is not None:
+                    if children.bias is not None:
+                        setattr(
+                            children.bias,
+                            "fqn",
+                            f"{local_fqn}",
+                        )
+
+                map_layer_attr[local_fqn] = {
+                    "offset": getattr(children, "offset", [0] * len(children.weight.size())),
+                    "complete_size": getattr(children, "complete_size", list(children.weight.size())),
+                }
+
+
+def generate_meta_data(optimizer):
+    if not (gpc.config.ckpt.enable_save_ckpt or gpc.config.ckpt.generate_meta_data.enable):
+        return
+
+    if gpc.get_world_size(ParallelMode.PIPELINE) > 1:
+        assert optimizer.meta_for_zero is not None
+        dst = gpc.get_ranks_in_group(ParallelMode.PIPELINE)[0]
+        if gpc.get_global_rank() == dst:
+            output = [None for _ in range(gpc.get_world_size(ParallelMode.PIPELINE))]
+        else:
+            output = None
+
+        dist.gather_object(optimizer.meta_for_zero, output, dst=dst, group=gpc.get_group(ParallelMode.PIPELINE))
+        pp_gather_output = output
+
+    else:
+        pp_gather_output = [optimizer.meta_for_zero]
+
+    tp_parallel = ParallelMode.WEIGHT if is_using_isp() else ParallelMode.TENSOR
+    if gpc.get_world_size(tp_parallel) > 1:
+        dst = gpc.get_ranks_in_group(tp_parallel)[0]
+        if gpc.get_global_rank() == dst:
+            output = [None for _ in range(gpc.get_world_size(tp_parallel))]
+        else:
+            output = None
+
+        dist.gather_object(pp_gather_output, output, dst=dst, group=gpc.get_group(tp_parallel))
+        final_output = output
+    else:
+        final_output = [pp_gather_output]
+
+    if gpc.get_global_rank() == 0:
+        assert len(final_output) == gpc.get_world_size(tp_parallel)
+        assert len(final_output[0]) == gpc.get_world_size(ParallelMode.PIPELINE)
+        assert len(final_output[0][0]) == gpc.get_world_size(ParallelMode.ZERO1)
+        tp_mode = "wp_size" if is_using_isp() else "tp_size"
+        final_meta = {
+            "parallel_setting": {
+                tp_mode: gpc.get_world_size(tp_parallel),
+                "pp_size": gpc.get_world_size(ParallelMode.PIPELINE),
+                "zero1_size": gpc.get_world_size(ParallelMode.ZERO1),
+            },
+            "metaData": final_output,
+        }
+
+        if gpc.config.ckpt.generate_meta_data.enable:
+            save_path = os.path.join(gpc.config.ckpt.generate_meta_data.path, "metadata.pt")
+            torch.save(final_meta, save_path)
+            logger.info(f"Successfully generate metadata.pt in {gpc.config.ckpt.generate_meta_data.path}")
+
+        return final_meta
+    return None
 
 
 def set_fp32_attr_for_model(model: Union[nn.Module, nn.ModuleList]):
