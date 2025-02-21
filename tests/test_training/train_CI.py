@@ -60,7 +60,7 @@ logger = get_logger(__file__)
 
 
 def fuse_wqkv(key, state_dict) -> None:  # pylint: disable=W0613
-    prefix = key.rstrip("wqkv.weight")
+    prefix = key.rstrip("Wqkv.weight")
     wq_name, wk_name, wv_name = (
         f"{prefix}wq.weight",
         f"{prefix}wk.weight",
@@ -78,8 +78,12 @@ def check_model_weights(model, ckpt_path, total_equal=False):
     copy_of_ordered_dict = model2_dict.copy()
 
     for key in copy_of_ordered_dict.keys():
+        if "wqkv" in key:
+            model2_dict[key.replace("wqkv", "Wqkv")] = model2_dict.pop(key)
+            key = key.replace("wqkv", "Wqkv")
+
         if key not in model1_dict:
-            if "wqkv" in key:
+            if "Wqkv" in key:
                 fuse_wqkv(key, model1_dict)
             else:
                 assert False, f"Error: The key {key} for current model dose not exist in standard ckpt!"

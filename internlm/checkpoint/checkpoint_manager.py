@@ -631,7 +631,7 @@ now step_count is {train_state.step_count}",
         save_optimizer_checkpoint(optim=optimizer, state_path=folder)
         timer("save-optimizer").stop()
 
-        if gpc.get_global_rank() == 0:
+        if gpc.get_global_rank() == 0 and gpc.config.ckpt.need_metadata:
             assert self.meta_data is not None
             llm_save(os.path.join(folder, "metadata.pt"), saved_obj=self.meta_data)
 

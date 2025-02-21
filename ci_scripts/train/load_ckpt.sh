@@ -8,7 +8,7 @@ source ./ci_scripts/common/variables.sh
 readonly CKPTS_PATH="$GITHUB_WORKSPACE/llm_ckpts"
 readonly CKPTS40_PATH="$GITHUB_WORKSPACE/llm_ckpts/40"
 readonly CKPTS40_OUTPUT="${CKPTS40_PATH}/*.pt"
-expected_num=22
+expected_num=23
 exit_code=0
 
 source ./ci_scripts/common/basic_func.sh

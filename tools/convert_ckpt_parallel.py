@@ -1,3 +1,16 @@
+"""
+Usage:
+    python tools/convert_ckpt_parallel.py \
+    <origin_ckpt_path> <target_ckpt_path> \
+    (optional) [--origin_meta_path <origin_meta_path>] [--target_meta_path <target_meta_path>] \
+    (optional) [--copy_file <True/False>] [--convert_optimizer <True/False>]
+
+    When meta_path is not specified, it will automatically search and load meta in the ckpt path.
+    Default to convert optimizer state and copy files.
+Example:
+    srun -p llm_s python tools/convert_ckpt_parallel.py \
+    /llm_ckpt/100 /target_ckpt/converted
+"""
 import argparse
 import os
 import shutil
@@ -530,7 +543,6 @@ def convert_optimizer_ckpt(
                     base_state["base_optim_states"]["state"][group_id] = state
                     base_state["flat_fp32_weights"][group_id] = flat_fp32_weights
 
-                # print(f"optimizer tp{new_tp_rank}_pp{new_pp_rank}_zo{new_zero1_rank}: {base_state}")
                 torch.save(base_state, os.path.join(saved_folder, file_name))
 
     print("Finish optimizer convert", flush=True)
@@ -559,6 +571,7 @@ if __name__ == "__main__":
         new_meta_path
     ), "new meta file does not exist, plese generate it before converting checkpoint."
 
+    # read and process metaData for original ckpt
     old_meta = torch.load(old_meta_path, map_location="cpu")
     old_pp_size = old_meta["parallel_setting"]["pp_size"]
     old_zero1_size = old_meta["parallel_setting"]["zero1_size"]
@@ -570,16 +583,19 @@ if __name__ == "__main__":
         assert False, "tp or wp should be in parallel setting."
     old_tp_size = old_meta["parallel_setting"][f"{old_tp_mode}_size"]
 
+    # To facilitate key query, summarize meta_data.
     old_meta_data = {}
     for pp_rank in range(old_pp_size):
         for zero_rank in range(old_zero1_size):
             for states in old_meta["metaData"][0][pp_rank][zero_rank].values():
                 old_meta_data.update(states)
 
+    # map local fqn to global fqn
     old_map_local_to_global = [{} for _ in range(old_pp_size)]
     for global_fqn, states in old_meta_data.items():
         old_map_local_to_global[states["pp"]][states["fqn"]] = global_fqn
 
+    # read and process metaData for target ckpt
     new_meta = torch.load(new_meta_path, map_location="cpu")
     new_pp_size = new_meta["parallel_setting"]["pp_size"]
     new_zero1_size = new_meta["parallel_setting"]["zero1_size"]
@@ -597,6 +613,7 @@ if __name__ == "__main__":
     ), "Error: old meta and new meta have diffent group_id lists."
     group_id_list = list(new_meta["metaData"][0][0][0].keys())
 
+    # To facilitate key query, summarize meta_data.
     new_meta_data = {}
     for pp_rank in range(new_pp_size):
         for zero_rank in range(new_zero1_size):
