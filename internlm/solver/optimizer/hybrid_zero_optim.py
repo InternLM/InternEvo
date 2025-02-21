@@ -166,7 +166,7 @@ class HybridZeroOptimizer(BaseOptimizer):
             self._zero_local_rank.append(gpc.get_local_rank(zero_mode))
             self._zero_world_size.append(gpc.get_world_size(zero_mode))
 
-            if self.meta_for_zero is None:
+            if gpc.config.ckpt.need_metadata and self.meta_for_zero is None:
                 self.meta_for_zero = [{} for _ in range(gpc.get_world_size(zero_mode))]
             # TODO _broadcast_parallel_mode is not only used in broadcast, maybe can change its name
             self._broadcast_parallel_mode.append(zero_mode)
@@ -281,24 +281,23 @@ class HybridZeroOptimizer(BaseOptimizer):
             else:
                 rank_to_go = numel_per_rank.index(min(numel_per_rank))
             params_per_rank[rank_to_go].append(param)
-
-            if group_id not in self.meta_for_zero[rank_to_go]:
-                self.meta_for_zero[rank_to_go][group_id] = {}
-
-            from internlm.train.pipeline import map_fqn_local_to_global
-
-            global_fqn = map_fqn_local_to_global[param.fqn] if param.fqn in map_fqn_local_to_global else param.fqn
-            self.meta_for_zero[rank_to_go][group_id][global_fqn] = {
-                "tp_dim": getattr(param, "tp_dim", -1),
-                "pp": gpc.get_local_rank(ParallelMode.PIPELINE),
-                "zero1": rank_to_go,
-                "fqn": param.fqn,
-                "shape": param.shape,
-                "group_id": group_id,
-            }
-
             self.params_per_rank_id_dict[-1][rank_to_go].append(global_id)
             numel_per_rank[rank_to_go] += param.numel()
+
+            if gpc.config.ckpt.need_metadata:
+                if group_id not in self.meta_for_zero[rank_to_go]:
+                    self.meta_for_zero[rank_to_go][group_id] = {}
+
+                from internlm.train.pipeline import map_fqn_local_to_global
+                global_fqn = map_fqn_local_to_global[param.fqn] if param.fqn in map_fqn_local_to_global else param.fqn
+                self.meta_for_zero[rank_to_go][group_id][global_fqn] = {
+                    "tp_dim": getattr(param, "tp_dim", -1),
+                    "pp": gpc.get_local_rank(ParallelMode.PIPELINE),
+                    "zero1": rank_to_go,
+                    "fqn": param.fqn,
+                    "shape": param.shape,
+                    "group_id": group_id,
+                }
 
         # check whether any rank is not assigned to parameters.
         for rank, params in enumerate(params_per_rank):

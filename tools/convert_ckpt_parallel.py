@@ -70,23 +70,21 @@ def flatten(input_):
 
 
 def unflatten_tensor(flat_tensor, states):
-    """
-    根据目标形状，将扁平化的张量拆分为多个子张量。
-    """
     start = 0
     unflat_tensors = []
 
     for _, state in states.items():
         shape = state["shape"]
-        size = torch.prod(torch.tensor(shape))  # 计算每个子张量的大小
-        tensor = flat_tensor[start : start + size].reshape(*shape)  # 切分并恢复形状
+        size = torch.prod(torch.tensor(shape))
+        tensor = flat_tensor[start : start + size].reshape(*shape)
         unflat_tensors.append(tensor)
-        start += size  # 更新起始位置
+        start += size
 
     return unflat_tensors
 
 
 def preprocess_optimizer_state(old_tp_size, old_pp_size, old_zero1_size, old_meta, folder, old_tp_mode):
+    # preprocess optimizer_state to unflatten format
     processed_ckpt_states = [
         [[{} for _ in range(old_zero1_size)] for _ in range(old_pp_size)] for _ in range(old_tp_size)
     ]

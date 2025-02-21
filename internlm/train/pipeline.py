@@ -230,7 +230,7 @@ def set_param_unique_tracking_name(model):
 
 
 def generate_meta_data(optimizer):
-    if not (gpc.config.ckpt.enable_save_ckpt or gpc.config.ckpt.generate_meta_data.enable):
+    if not gpc.config.ckpt.need_metadata:
         return
 
     if gpc.get_world_size(ParallelMode.PIPELINE) > 1:
