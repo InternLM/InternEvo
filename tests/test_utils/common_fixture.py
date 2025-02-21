@@ -85,6 +85,7 @@ init_config = Config(
         tensorboard_folder="",
         alert_address=None,
         monitor=dict(alert=dict(enable_feishu_alert=False, feishu_alert_address=None, light_monitor_address=None)),
+        ckpt=dict(need_metadata=False),
     )
 )
 

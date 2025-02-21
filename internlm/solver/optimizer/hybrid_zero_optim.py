@@ -289,6 +289,7 @@ class HybridZeroOptimizer(BaseOptimizer):
                     self.meta_for_zero[rank_to_go][group_id] = {}
 
                 from internlm.train.pipeline import map_fqn_local_to_global
+
                 global_fqn = map_fqn_local_to_global[param.fqn] if param.fqn in map_fqn_local_to_global else param.fqn
                 self.meta_for_zero[rank_to_go][group_id][global_fqn] = {
                     "tp_dim": getattr(param, "tp_dim", -1),
