@@ -60,11 +60,11 @@ logger = get_logger(__file__)
 
 
 def fuse_wqkv(key, state_dict) -> None:  # pylint: disable=W0613
-    prefix = key.rstrip("Wqkv.weight")
+    prefix = key.rstrip(".Wqkv.weight")
     wq_name, wk_name, wv_name = (
-        f"{prefix}wq.weight",
-        f"{prefix}wk.weight",
-        f"{prefix}wv.weight",
+        f"{prefix}.wq.weight",
+        f"{prefix}.wk.weight",
+        f"{prefix}.wv.weight",
     )
 
     wq, wk, wv = state_dict.pop(wq_name), state_dict.pop(wk_name), state_dict.pop(wv_name)
