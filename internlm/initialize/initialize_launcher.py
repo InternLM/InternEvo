@@ -53,6 +53,28 @@ def dispatch_hf_config_before_launch(model_config) -> None:
         gpc.config.model.num_experts = model_config.num_experts
 
 
+def inject_hf_config_before_launch(hf: dict):
+    # get HuggingFace model config
+    cfg = LazyObject(hf.cfg, hf.cfg_cls)
+    cfg = cfg.build()
+    model_config = cfg(**hf.cfg_extra_kwargs)
+    # inject HuggingFace model config into InternTrain as much as we know
+    if hasattr(model_config, "vocab_size"):
+        gpc.config.model.vocab_size = gpc.config.VOCAB_SIZE = model_config.vocab_size
+    if hasattr(model_config, "num_hidden_layers"):
+        gpc.config.model.num_layers = gpc.config.NUM_LAYER = model_config.num_hidden_layers
+    if hasattr(model_config, "num_attention_heads"):
+        gpc.config.model.num_attention_heads = gpc.config.NUM_ATTENTION_HEAD = model_config.num_attention_heads
+    if hasattr(model_config, "num_key_value_heads"):
+        gpc.config.model.num_kv_attention_heads = gpc.config.NUM_KV_ATTENTION_HEAD = model_config.num_key_value_heads
+    if hasattr(model_config, "hidden_size"):
+        gpc.config.model.hidden_size = gpc.config.HIDDEN_SIZE = model_config.hidden_size
+    if hasattr(model_config, "intermediate_size"):
+        gpc.config.model.mlp_ratio = gpc.config.MLP_RATIO = model_config.intermediate_size / model_config.hidden_size
+    if hasattr(model_config, "num_experts"):
+        gpc.config.model.num_experts = model_config.num_experts
+
+
 def args_sanity_check():
     assert gpc.config is not None, "config is not load!"
 
