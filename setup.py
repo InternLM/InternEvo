@@ -27,7 +27,7 @@ def get_requires() -> List[str]:
 
 extra_require = {
     "torch": ["torch>=2.1.0"],
-    "torch-npu": ["torch==2.1.0", "torch-npu==2.1.0.post3"],
+    "torch-npu": ["torch==2.1.0", "torch-npu==2.1.0.post3", "numpy==1.26.4", "scipy", "decorator"],
 }
 
 setup(
