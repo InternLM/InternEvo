@@ -8,7 +8,6 @@ import torch
 import torch.distributed as dist
 from torch.utils.data import DataLoader
 
-from internlm.accelerator import AcceleratorType, get_accelerator
 from internlm.checkpoint.checkpoint_manager import CheckpointManager
 from internlm.core.context import ParallelMode
 from internlm.core.context import global_context as gpc
@@ -49,7 +48,6 @@ from internlm.utils.writer import Writer
 
 # global llm logger
 logger = logging.getLogger(__file__)
-internlm_accelerator = get_accelerator()
 
 
 class TrainerBuilder(Trainer):
@@ -116,8 +114,7 @@ class TrainerBuilder(Trainer):
         criterion = self._initialize_criterion()
 
         # initialize cpu offload manager for selective checkpoint
-        if internlm_accelerator.get_accelerator_backend() == AcceleratorType.GPU:
-            initialize_offload_manager(gpc.config.get("selective_checkpoint_offload", False))
+        initialize_offload_manager(gpc.config.get("selective_checkpoint_offload", False))
 
         # initialize train state
         train_state = get_train_state(train_dl)
