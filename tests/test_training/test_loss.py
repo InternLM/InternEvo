@@ -16,9 +16,8 @@ from internlm.initialize import initialize_distributed_env
 from internlm.model.losses import InternLoss
 from internlm.train import (
     get_scheduler_hooks,
-    initialize_model,
+    initialize_model_and_parallel_communicator,
     initialize_optimizer,
-    initialize_parallel_communicator,
     load_new_batch,
 )
 from internlm.utils.common import BatchSkipper, launch_time
@@ -60,7 +59,7 @@ def train(
     enable_sp: bool = False,
     save_ckpt: bool = False,
     load_ckpt: bool = False,
-    model_type: str = "INTERNLM2_PUBLIC",
+    model_type: str = "INTERNLM2",
     optimizer_ver: str = "v1",
     pp_mode: str = "1F1B",
 ):
@@ -91,7 +90,7 @@ def train(
         config.model.checkpoint = True
 
     # update ckpt config
-    if model_type == "INTERNLM2_PUBLIC" and tp_mode != "isp" and interleaved is False:
+    if model_type == "INTERNLM2" and tp_mode != "isp" and interleaved is False:
         config.ckpt.load_ckpt_info = dict(path=INTERNLM2_CKPT_PATH, content=("model",), ckpt_type="internlm2_test")
 
     if save_ckpt:
@@ -167,11 +166,8 @@ def train(
     dist.broadcast_object_list(objs, src=0)
     current_time = objs[0]
 
-    # initialize model
-    model = initialize_model()
-
-    # initialize isp communicator
-    isp_communicator = initialize_parallel_communicator(model)
+    # initialize model and isp_communicator
+    model, isp_communicator = initialize_model_and_parallel_communicator()
 
     # initialize loss function
     criterion = InternLoss(parallel_output=gpc.config.model.parallel_output, label_smoothing=label_smoothing)
@@ -221,7 +217,7 @@ def train(
 
     train_iter = iter(train_dl)
 
-    if model_type == "INTERNLM2_PUBLIC":
+    if model_type == "INTERNLM2":
         data_path = os.path.join(os.environ["share_path"], "quailty_assurance/test_loss/data_batch_4DP")
         data_batch = torch.load(f"{data_path}/{gpc.get_local_rank(ParallelMode.DATA)}_data_batch.pt")
 
@@ -230,7 +226,7 @@ def train(
         empty_cache_and_diag(batch_count, interval=gpc.config.data.empty_cache_and_diag_interval)
         timer("one-batch").start()
 
-        if model_type == "INTERNLM2_PUBLIC":
+        if model_type == "INTERNLM2":
             if batch_count >= 10:
                 batch = data_batch[batch_count - 10]
             else:

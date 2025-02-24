@@ -1,7 +1,7 @@
 from .pipeline import (
     get_scheduler_hooks,
     initialize_llm_profile,
-    initialize_model,
+    initialize_model_and_parallel_communicator,
     initialize_optimizer,
     initialize_parallel_communicator,
     load_new_batch,
@@ -12,7 +12,7 @@ from .pipeline import (
 
 __all__ = [
     "initialize_llm_profile",
-    "initialize_model",
+    "initialize_model_and_parallel_communicator",
     "initialize_parallel_communicator",
     "initialize_optimizer",
     "load_new_batch",

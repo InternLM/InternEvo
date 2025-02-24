@@ -1,21 +1,22 @@
-JOB_NAME = "7b_train"
-model_type = "INTERNLM2"
+# Copyright (c) InternLM. All rights reserved.
+JOB_NAME = "8b_internlm3_train"
+model_type = "INTERNLM3"
 DO_ALERT = False
 
-VOCAB_SIZE = 92544
-SEQ_LEN = 128 * 1024
+VOCAB_SIZE = 128512
+SEQ_LEN = 4096
 HIDDEN_SIZE = 4096
 NUM_ATTENTION_HEAD = 32
-NUM_KV_ATTENTION_HEAD = 8
-MLP_RATIO = 3.5
-NUM_LAYER = 32
+NUM_KV_ATTENTION_HEAD = 2
+MLP_RATIO = 2.5
+NUM_LAYER = 48
 
 
-MODEL_ONLY_FOLDER = "local:llm_ckpts/xxxx"
+MODEL_ONLY_FOLDER = None  # "local:llm_ckpts/xxxx"
 # Ckpt folder format:
 # fs: 'local:/mnt/nfs/XXX'
-SAVE_CKPT_FOLDER = "local:llm_ckpts"
-LOAD_CKPT_FOLDER = "local:llm_ckpts/49"
+SAVE_CKPT_FOLDER = None  # "local:llm_ckpts"
+# LOAD_CKPT_FOLDER = "local:llm_ckpts/49"
 
 # boto3 Ckpt folder format:
 # import os
@@ -26,14 +27,12 @@ CHECKPOINT_EVERY = 50
 ckpt = dict(
     enable_save_ckpt=False,  # enable ckpt save.
     save_ckpt_folder=SAVE_CKPT_FOLDER,  # Path to save training ckpt.
-    # load_ckpt_folder= dict(path=MODEL_ONLY_FOLDER, content=["model"], ckpt_type="normal"),
-    load_ckpt_folder="local:llm_ckpts/",
     # 'load_ckpt_info' setting guide:
     # 1. the 'path' indicate ckpt path,
     # 2. the 'content‘ means what states will be loaded, support: "model", "sampler", "optimizer", "scheduler", "all"
     # 3. the ’ckpt_type‘ means the type of checkpoint to be loaded, support: "internevo", "hf", or other custom-defined
     # load function such as "llama"
-    load_ckpt_info=dict(path=MODEL_ONLY_FOLDER, content=("model",), ckpt_type="internevo"),
+    load_ckpt_info=dict(path=MODEL_ONLY_FOLDER, content=("model",), ckpt_type="hf"),
     # 'auto_resume' is designed to automatically load the latest checkpoint from 'save_ckpt_folder' when encountering
     # training interruptions/hangs caused by hardware failures, using a scheduling system (such as k8s/slurm)
     # with an automatic restart mechanism upon training reboot.
@@ -41,28 +40,29 @@ ckpt = dict(
     # path specified in `load_ckpt_info` by default.
     # If you want to initialize your model weights from another model, you must set `auto_resume` to False.
     # If you want to train from scratch, please set `auto_resume` to False and 'load_ckpt_info' to None.
-    auto_resume=True,
+    auto_resume=False,
     checkpoint_every=CHECKPOINT_EVERY,
     async_upload=True,  # async ckpt upload. (only work for boto3 ckpt)
     async_upload_tmp_folder="/dev/shm/internlm_tmp_ckpt/",  # path for temporarily files during asynchronous upload.
     oss_snapshot_freq=int(CHECKPOINT_EVERY / 2),  # snapshot ckpt save frequency.
+    # 'enable_internevo2hf_ckpt' is designed to convert the saved model checkpoint in internevo format to the huggingface format.
+    enable_internevo2hf_ckpt=False,
 )
 
-TRAIN_FOLDER = "/mnt/petrelfs/share_data/llm_data/0715_llama_tokenized_refined_real/train/"
-# TRAIN_FOLDER = None  # "/path/to/dataset"
+TRAIN_FOLDER = None
 VALID_FOLDER = None  # "/path/to/dataset"
 data = dict(
     seq_len=SEQ_LEN,
     # micro_num means the number of micro_batch contained in one gradient update
     micro_num=1,
     # packed_length = micro_bsz * SEQ_LEN
-    micro_bsz=1,
+    micro_bsz=2,
     # defaults to the value of micro_num
     valid_micro_num=4,
     # defaults to 0, means disable evaluate
-    valid_every=50,
+    valid_every=0,
     pack_sample_into_one=False,
-    total_steps=50000,
+    total_steps=20000,
     skip_batches="",
     # rampup_batch_size (str): A string with three space-separated integers representing the
     #       starting batch size, the increment, and the number of steps between
@@ -76,7 +76,7 @@ data = dict(
     valid_folder=VALID_FOLDER,
     empty_cache_and_diag_interval=200,
     diag_outlier_ratio=1.1,
-    use_packed_dataset=False,
+    # use_packed_dataset=False,
 )
 
 grad_scaler = dict(
@@ -101,7 +101,7 @@ grad_scaler = dict(
 hybrid_zero_optimizer = dict(
     # Enable low_level_optimzer overlap_communication
     overlap_sync_grad=True,
-    overlap_sync_param=False,
+    overlap_sync_param=True,
     # bucket size for nccl communication params
     reduce_bucket_size=512 * 1024 * 1024,
     # grad clipping
@@ -122,11 +122,7 @@ hybrid_zero_optimizer = dict(
 
 #         * op_types that ends with "naive" only support parallel_output=False;
 #         * if in no-GPU env, only "torch_naive" and "py_vocab_parallel" are supported.
-
-loss = dict(
-    label_smoothing=0,
-    op_type="flash_vocab_parallel",
-)
+loss = dict(label_smoothing=0, op_type="py_vocab_parallel")
 
 adam = dict(
     lr=1e-4,
@@ -153,7 +149,8 @@ beta2_scheduler = dict(
 
 use_fp32_norm = False
 model = dict(
-    checkpoint=True,  # The proportion of layers for activation aheckpointing, the optional value are True/False/[0-1]
+    checkpoint=False,
+    num_chunks=1,
     num_attention_heads=NUM_ATTENTION_HEAD,
     num_kv_attention_heads=NUM_KV_ATTENTION_HEAD,
     embed_split_hidden=True,
@@ -165,11 +162,10 @@ model = dict(
     no_bias=True,
     mlp_ratio=MLP_RATIO,
     apply_post_layer_norm=False,
-    dtype="torch.bfloat16",  # Support: "torch.float16", "torch.half", "torch.bfloat16", "torch.float32", "torch.tf32"
+    dtype="torch.bfloat16",
     norm_type="rmsnorm",
     layer_norm_epsilon=1e-5,
     use_flash_attn=True,
-    num_chunks=1,  # if num_chunks > 1, interleaved pipeline scheduler is used.
     # Whether the odd and even columns of the query and key in the model are normally interleaved.
     # If it's True, the model's odd and even columns are normally ordered; if it's False,
     # it means that the model has prematurely concatenated all odd columns and even columns in front
@@ -178,6 +174,8 @@ model = dict(
     # qk_interleaved = True: q[-1] = [q1,q2,q3,q4,q5,q6,...], k[-1] = [k1,k2,k3,k4,k5,k6,...]
     # qk_interleaved = False: q[-1] = [q1,q3,q5,...,q2,q4,q6,...], k[-1] = [k1,k3,k5,...,k2,k4,k6,...]
     qk_interleaved=False,
+    rope_base=50000000,
+    enable_qkv_fusion=False,
 )
 
 """
@@ -188,6 +186,7 @@ zero1 parallel (dict):
         * if size == 1, zero is not used, and all dp groups retain the full amount of model parameters.
         * if size > 1 and size <= dp world size, the world size of zero is a subset of dp world size.
         For smaller models, it is usually a better choice to split the parameters within nodes with a setting <= 8.
+    2. fsdp: bool, enable/disable torch's fully sharded data parallel, defaults to False.
 tensor parallel (dict):
     1. size: int, the size of tensor parallel.
     2. mode: str, the tensor parallel mode, should be in ['mtp', 'msp', 'fsp', 'isp'],
@@ -222,14 +221,14 @@ sequence_2D (dict):
                            interleaved the ranks in the same window to make full use of NIC as much as possible.
 """
 parallel = dict(
-    zero1=dict(size=-1),
-    tensor=dict(size=64, mode="isp"),
+    zero1=dict(size=1),
+    tensor=dict(size=1, mode="isp"),
     pipeline=dict(size=1, interleaved_overlap=True),
-    weight=dict(size=1, overlap=True, launch_allgather_before="wo", forward_overlap_per="layer"),
+    weight=dict(size=16, overlap=True, launch_allgather_before="wo", forward_overlap_per="module"),
     sequence_2D=dict(
-        enable=True,
-        head_size=8,
-        context_size=8,
+        enable=False,
+        head_size=2,
+        context_size=4,
         window_size=1,
         device_placement_strategy=dict(head_first=True, interleaved=False),
     ),
@@ -237,8 +236,6 @@ parallel = dict(
 
 cudnn_deterministic = False
 cudnn_benchmark = False
-
-# selective_checkpoint = True
 
 monitor = dict(
     # feishu alert configs
@@ -256,3 +253,18 @@ monitor = dict(
 # metric_dtype can be "fp32" or other string
 # only when set to "fp32" will use fp32 to calc in metrics
 # metric_dtype = "fp32"
+
+generation = dict(
+    ckpt_folder="/path/to/saved/ckpt",
+    output_folder="/path/to/save/generation",
+    batch_size=1,
+    eos_id=[2, 0],
+    bos_id=1,
+    max_length=100,
+    do_sample=True,
+    temperature=1.0,
+    top_k=50,
+    top_p=1.0,
+    repetition_penalty=1,
+    length_penalty=1.0,
+)

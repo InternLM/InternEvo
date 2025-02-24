@@ -16,6 +16,18 @@ from internlm.core.context import global_context as gpc
 from internlm.utils.utils import TensorParallelMode
 
 
+def is_using_hf():
+    return "hf" in gpc.config
+
+
+def is_using_fsdp():
+    return (
+        "fsdp" in gpc.config.parallel
+        and isinstance(gpc.config.parallel["fsdp"], dict)
+        and gpc.config.parallel["fsdp"].get("enable", False)
+    )
+
+
 def is_using_sequence_parallel():
     return (
         isinstance(gpc.config.parallel["tensor"], dict)

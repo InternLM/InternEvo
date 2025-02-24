@@ -288,7 +288,12 @@ class DroplessMoELayer(BaseMoELayer):
 
         # Reshape the output tensor
         output = output.view(self.hidden_shape)
-        return output
+
+        # Note: 1. we need to relase self.l_aux and its compute graph; 2. we need self.l_aux to simplify code
+        #   so we first use self.l_aux and then reset it.
+        l_aux = self.l_aux
+        self.l_aux = None
+        return output, l_aux
 
     def topk_softmax_with_capacity(self, gates):
         expert_weights, indices = torch.topk(gates, self.topk, dim=1)

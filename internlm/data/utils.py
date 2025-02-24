@@ -7,6 +7,7 @@ import torch
 
 from internlm.core.context import global_context as gpc
 from internlm.core.context.process_group_initializer import ParallelMode
+from internlm.utils.parallel import is_using_hf
 
 
 def get_dataset_type_ids_map(path):
@@ -64,7 +65,7 @@ def unpack_data(data, label):
     data["indexes"] = data["indexes"][0]
 
     # If model has inject_info and data_helper is enabled, we provide position_ids
-    if "inject_info" in gpc.config.model and gpc.config.model.inject_info.get("data_helper", False):
+    if ("inject_info" in gpc.config.model and gpc.config.model.inject_info.get("data_helper", False)) or is_using_hf():
         data.pop("max_seqlen")
         data["position_ids"] = data.pop("indexes").unsqueeze(0)  # [batch, seqlen]
 
@@ -81,7 +82,7 @@ def packed_data_normalizer(data, label):
     data["max_seqlen"] = (data["cu_seqlens"][1:] - data["cu_seqlens"][:-1]).max().item()
 
     # If model has inject_info and data_helper is enabled, we provide position_ids, cu_seqlens, max_seqlen
-    if "inject_info" in gpc.config.model and gpc.config.model.inject_info.get("data_helper", False):
+    if ("inject_info" in gpc.config.model and gpc.config.model.inject_info.get("data_helper", False)) or is_using_hf():
         gpc.config.data[f"cu_seqlens_data_rank{gpc.get_local_rank(ParallelMode.DATA)}"] = data.pop("cu_seqlens")
         gpc.config.data[f"max_seqlen_data_rank{gpc.get_local_rank(ParallelMode.DATA)}"] = data.pop("max_seqlen")
         data["position_ids"] = data.pop("indexes").unsqueeze(0)  # [batch, seqlen]

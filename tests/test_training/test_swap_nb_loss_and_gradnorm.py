@@ -24,9 +24,8 @@ from internlm.initialize.launch import args_sanity_check
 from internlm.model.losses import InternLoss
 from internlm.model.metrics import AccPerplex, SchedulerMetricHook
 from internlm.train import (
-    initialize_model,
+    initialize_model_and_parallel_communicator,
     initialize_optimizer,
-    initialize_parallel_communicator,
 )
 from internlm.utils.common import get_current_device
 from internlm.utils.logger import get_logger
@@ -271,8 +270,7 @@ def exam_loss(args):
     seed_all(1024)
 
     # initialize model
-    model = initialize_model()
-    _ = initialize_parallel_communicator(model)
+    model, _ = initialize_model_and_parallel_communicator()
 
     # initialize loss function
     criterion = InternLoss(parallel_output=True, label_smoothing=gpc.config.loss.label_smoothing)

@@ -1,26 +1,83 @@
 #!/usr/bin/env python
 # -*- encoding: utf-8 -*-
+import math
+from typing import Iterable
 
+import torch
+import torch.distributed as dist
 from torch.optim import Optimizer
 
+from internlm.accelerator import get_accelerator
 from internlm.core.context import Config, ParallelMode
 from internlm.core.context import global_context as gpc
+from internlm.solver.optimizer.base_optimizer import BaseOptimizer
 from internlm.solver.optimizer.utils import (
     DynamicGradScaler,
-    reduce_tensor,
+    get_norm,
     release_param_grad,
 )
+from internlm.utils.common import get_tensor_norm, move_norm_to_cuda
 from internlm.utils.logger import get_logger
 
-from .base_optimizer import BaseOptimizer
-from .utils import compute_norm
+try:
+    from torch.distributed.tensor import DTensor
+
+    DTENSOR_SUPPORTED = True
+except (ModuleNotFoundError, ImportError):
+    DTENSOR_SUPPORTED = False
 
 logger = get_logger(__file__)
+
+inf = math.inf
+
+internlm_accelerator = get_accelerator()
+
+
+def compute_norm(
+    gradients: Iterable[torch.Tensor],
+    parameters: Iterable[torch.Tensor],
+) -> float:
+    """Get L2 norm
+    Arguments:
+        gradients (Iterable[Tensor]): The gradient value.
+        parameters (Iterable[Tensor]): The parameter each gradient corresponds to.
+
+    Returns:
+        Total norm of the parameters, need total_norm**(1/norm) before using.
+    """
+
+    enable_cuda_kernels = gradients[0].device.type != "cpu"
+
+    # Calculate norm.
+    tensor_parallel_grads = [g.data.float() for g, _ in zip(gradients, parameters)]
+    tensor_parallel_norm = get_norm(tensor_parallel_grads, float(2), enable_cuda_kernels)
+    # If norm is type of float, then we convert them into torch.Tensor.
+    total_norm = get_tensor_norm(tensor_parallel_norm, enable_cuda_kernels)
+    # If grads are on CPU, the norms is also on CPU. Cast them to CUDA tensors
+    if not enable_cuda_kernels:
+        total_norm = move_norm_to_cuda(total_norm)
+
+    if DTENSOR_SUPPORTED and isinstance(total_norm, DTensor):
+        total_norm = total_norm.full_tensor()
+
+    dist.all_reduce(total_norm, op=dist.ReduceOp.SUM, group=gpc.get_group(ParallelMode.GLOBAL))
+
+    if torch.is_tensor(total_norm):
+        total_norm = total_norm.item()
+
+    # Scale.
+    if total_norm == float("inf") or total_norm == -float("inf"):
+        total_norm = -1
+
+    if math.isnan(total_norm):
+        total_norm = -2
+
+    return total_norm
 
 
 class FSDPadaptOptimizer(BaseOptimizer):
     """
-    optimizer for Pytorch FSDP if 'parallel.zero1.fsdp' is True in config file
+    optimizer for Pytorch FSDP if 'parallel.fsdp' is not None in config file
     reserve some necessary components of hybird-optim:
         grad_scaler;
         grad_clip and unscale;
@@ -44,6 +101,7 @@ class FSDPadaptOptimizer(BaseOptimizer):
             growth_interval=grad_scal_cfg.fp16.growth_interval,
             hysteresis=grad_scal_cfg.hysteresis,
             max_scale=grad_scal_cfg.max_scale,
+            dtype=gpc.config.model.dtype,
         )
 
         # clip gradient
@@ -93,16 +151,6 @@ class FSDPadaptOptimizer(BaseOptimizer):
                 param.grad = None
 
     def step(self):
-        # in case that fsdp-zero3 size is not equal to dp size
-        # FSDP module will only reduce gradient within FSDP process group
-        # so manually reduce grad is essential between two parallel FSDP process group
-        for group_idx in range(len(self.param_groups)):
-            params = self._fp16_param_groups[group_idx]
-            for param in params:
-                if param.requires_grad and param.grad is not None:
-                    handle = reduce_tensor(tensor=param.grad, parallel_mode=ParallelMode.ZERO3_DP)
-                    handle.wait()
-
         # compute norm
         found_inf = False
         norm_groups = {}
@@ -206,13 +254,6 @@ class FSDPadaptOptimizer(BaseOptimizer):
         grad_scaler = states["grad_scaler"]
         self.grad_scaler.load_state_dict(grad_scaler)
         optim_states = states["base_optim_states"]
-
-        if gpc.config.get("only_load_lr", False):
-            if gpc.is_rank_for_log():
-                logger.info("Only load lr in param_groups, skip loading weights in optimizer...")
-            for pg1, pg2 in zip(self.optim.param_groups, optim_states["param_groups"]):
-                pg1["lr"] = pg2["lr"]
-            return
 
         self.optim.load_state_dict(optim_states)
 

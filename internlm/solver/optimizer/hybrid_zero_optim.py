@@ -839,9 +839,9 @@ class HybridZeroOptimizer(BaseOptimizer):
                 param_shape == flat_fp32_avg_grads.shape
             ), f"fp32 param and grad have different shape {param_shape} vs {flat_fp32_avg_grads.shape}"
 
-            single_grad_partition_groups.append(flat_fp32_avg_grads)
             device = self._fp32_flat_param_groups_of_current_rank[group_id].device
             self._fp32_flat_param_groups_of_current_rank[group_id].grad = flat_fp32_avg_grads.to(device)
+            single_grad_partition_groups.append(self._fp32_flat_param_groups_of_current_rank[group_id].grad)
         # unscale and clip grads
         # get the global norm
         global_norm_groups = {}
