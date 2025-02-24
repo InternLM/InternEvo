@@ -2,10 +2,7 @@
 # -*- encoding: utf-8 -*-
 
 from internlm.core.context import global_context as gpc
-from internlm.core.parallel.shard import split_data_for_sequence_parallel
-from internlm.data.utils import packed_data_normalizer, unpack_data
 from internlm.utils.logger import get_logger
-from internlm.utils.parallel import is_using_isp
 
 logger = get_logger(__file__)
 
