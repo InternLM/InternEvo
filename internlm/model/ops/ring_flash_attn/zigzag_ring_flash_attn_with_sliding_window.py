@@ -481,7 +481,6 @@ class ZigZagRingFlashAttnFunc(torch.autograd.Function):
     @staticmethod
     def backward(ctx, dout, *args):  # pylint: disable=W0613
 
-        torch.cuda.synchronize()
         q, k, v, out, softmax_lse = ctx.saved_tensors
 
         dq, dk, dv = zigzag_double_ring_flash_attn_backward(
@@ -503,8 +502,6 @@ class ZigZagRingFlashAttnFunc(torch.autograd.Function):
             alibi_slopes=ctx.alibi_slopes,
             deterministic=ctx.deterministic,
         )
-
-        torch.cuda.synchronize()
 
         return dq, dk, dv, None, None, None, None, None, None, None, None, None, None, None, None, None, None
 

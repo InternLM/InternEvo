@@ -11,12 +11,13 @@ from torch.utils.data import DataLoader
 from internlm.checkpoint.checkpoint_manager import CheckpointManager
 from internlm.core.context import global_context as gpc
 from internlm.core.context.process_group_initializer import ParallelMode
+from internlm.core.parallel.comm import initialize_offload_manager
 from internlm.core.trainer import Trainer
 from internlm.data.streaming.utils import streaming_simple_resume
 from internlm.data.train_state import get_train_state
 from internlm.eval.evaluation import evaluate_on_val_dls
 from internlm.initialize.initialize_trainer import initialize_trainer
-from internlm.model.losses.ce_loss import FlashGPTLMLoss
+from internlm.model.losses.ce_loss import InternLoss
 from internlm.model.metrics import AccPerplex
 from internlm.monitor.monitor import send_alert_message
 from internlm.train.pipeline import (
@@ -118,6 +119,9 @@ class TrainerBuilder(Trainer):
         # initialize isp communicator
         isp_communicator = initialize_parallel_communicator(model)
 
+        # initialize cpu offload manager for selective checkpoint
+        initialize_offload_manager(gpc.config.get("selective_checkpoint_offload", False))
+
         # initialize train state
         train_state = get_train_state(train_dl)
 
@@ -172,9 +176,11 @@ class TrainerBuilder(Trainer):
         with open(config_path, "r") as f:
             return f.readlines()
 
-    def _initialize_criterion(self) -> FlashGPTLMLoss:
-        return FlashGPTLMLoss(
-            parallel_output=gpc.config.model.parallel_output, label_smoothing=gpc.config.loss.label_smoothing
+    def _initialize_criterion(self) -> InternLoss:
+        return InternLoss(
+            parallel_output=gpc.config.model.parallel_output,
+            label_smoothing=gpc.config.loss.label_smoothing,
+            op_type=gpc.config.loss.op_type,
         )
 
     def _initialize_checkpoint_manager(

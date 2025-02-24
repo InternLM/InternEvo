@@ -181,7 +181,7 @@ class MoE(MoEBase):
 
             * exp_counts (int): expert count
         """
-        output = self.moe_layer(hidden_states, used_token)
+        output, l_aux = self.moe_layer(hidden_states, used_token)
         if self.num_shared_experts > 0:
             # Residual MoE
             output_mlp = self.residual_mlp(hidden_states)
@@ -190,7 +190,7 @@ class MoE(MoEBase):
             coef = self.coefficient(hidden_states)
             coef = torch.nn.functional.softmax(coef, dim=-1)
             output = output * coef[..., 0:1] + output_mlp * coef[..., 1:]
-        return output, self.moe_layer.l_aux, self.moe_layer.exp_counts
+        return output, l_aux, self.moe_layer.exp_counts
 
 
 class Qwen2MoE(MoEBase):
@@ -264,7 +264,7 @@ class Qwen2MoE(MoEBase):
 
             * exp_counts (int): expert count
         """
-        output = self.moe_layer(hidden_states, used_token)
+        output, l_aux = self.moe_layer(hidden_states, used_token)
         if self.num_shared_experts > 0:
             # Residual MoE
             output_mlp = self.residual_mlp(hidden_states)
@@ -273,4 +273,4 @@ class Qwen2MoE(MoEBase):
             coef = self.coefficient(hidden_states)
             output_mlp = F.sigmoid(coef) * output_mlp
             output = output + output_mlp
-        return output, self.moe_layer.l_aux, self.moe_layer.exp_counts
+        return output, l_aux, self.moe_layer.exp_counts

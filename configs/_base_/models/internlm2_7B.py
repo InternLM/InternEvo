@@ -1,6 +1,6 @@
 # Copyright (c) InternLM. All rights reserved.
 
-model_type = "INTERNLM2_PUBLIC"
+model_type = "INTERNLM2"
 
 VOCAB_SIZE = 92544
 HIDDEN_SIZE = 4096

@@ -108,7 +108,7 @@ class MockedDataset(Dataset):
         ]
 
         # simple sanity check: ensure loaded per-step data is equivalent to saved per-step data
-        self.sanity_check(tokens_list, labels_list)
+        self._sanity_check(tokens_list, labels_list)
 
     def __len__(self) -> int:
         return len(self.db_tokens)
@@ -122,7 +122,7 @@ class MockedDataset(Dataset):
             "type_ids": [0] * (self.micro_bsz * self.seq_len),
         }
 
-    def sanity_check(self, tokens_list: List[torch.Tensor], labels_list: List[torch.Tensor]):
+    def _sanity_check(self, tokens_list: List[torch.Tensor], labels_list: List[torch.Tensor]):
         tokens_list_tocheck = []
         for i in range(len(self.db_tokens)):
             tokens_list_tocheck += self.db_tokens[i]

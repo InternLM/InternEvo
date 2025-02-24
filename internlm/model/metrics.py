@@ -305,6 +305,7 @@ class LossWithTypeId:
             reduction="none",
             parallel_output=gpc.config.model.parallel_output,
             inplace_backward=True,
+            op_type=gpc.config.loss.op_type,
         )
         self.scatter_sum = scatter_sum_impl
 

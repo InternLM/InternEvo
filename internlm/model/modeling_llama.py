@@ -246,7 +246,7 @@ class Llama2Decoder(nn.Module):
                     def _dropout_and_norm_ffn(_residual, _hidden_states):
                         _dropped = self.dropout2(_hidden_states)
                         _residual = (_dropped + _residual) if _residual is not None else _dropped
-                        _hidden_states = self.ffn_norm(_residual.to(torch.float32))
+                        _hidden_states = self.ffn_norm(_residual.to(self.ffn_norm.weight.dtype))
 
                         return _residual, _hidden_states
 

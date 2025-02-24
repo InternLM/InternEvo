@@ -2,48 +2,36 @@ import torch
 
 
 def megatron_collate_fn(batch, micro_num, micro_bsz, seq_len):
-
-    input_ids_result = [[] for _ in range(micro_num)]
-    labels_result = [[] for _ in range(micro_num)]
-    cu_seqlens = []
+    input_ids_list = [[] for _ in range(micro_num)]
+    labels_list = [[] for _ in range(micro_num)]
     cu_seqlens_list = []
-    indexes = []
     indexes_list = []
 
-    for i, item in enumerate(batch):
-        assert i < micro_num * micro_bsz
-        seq_len_list = item["text"]
-        assert len(seq_len_list) == seq_len + 1
-
-        micro_bsz_index = i % micro_bsz
-        micro_num_index = i // micro_bsz
-
-        input_ids_result[micro_num_index].append(seq_len_list[:-1])
-        labels_result[micro_num_index].append(seq_len_list[1:])
-
-        cu_seqlens.append(seq_len * micro_bsz_index)
-        indexes = indexes + list(range(seq_len))
+    assert len(batch) == micro_bsz * micro_num
+    for idx, b in enumerate(batch):
+        tokens = b["text"]
+        # The length of megatron preprocessed data samples is (seq_len + 1)
+        # So we use the first seq_len tokens as input and the last seq_len tokens as shifted labels
+        assert len(tokens) == seq_len + 1
+        micro_bsz_index = idx % micro_bsz
+        micro_num_index = idx // micro_bsz
+        input_ids_list[micro_num_index].append(tokens[:-1])
+        labels_list[micro_num_index].append(tokens[1:])
 
         if micro_bsz_index == micro_bsz - 1:
-            input_ids_result[micro_num_index] = torch.cat(
-                [torch.from_numpy(arr).long() for arr in input_ids_result[micro_num_index]], dim=0
+            # Since megatron data sample is numpy format, we need to convert it to tensor and concate within micro batch
+            input_ids_list[micro_num_index] = torch.cat(
+                [torch.from_numpy(arr) for arr in input_ids_list[micro_num_index]], dim=0
             )
-            labels_result[micro_num_index] = torch.cat(
-                [torch.from_numpy(arr).long() for arr in labels_result[micro_num_index]], dim=0
+            labels_list[micro_num_index] = torch.cat(
+                [torch.from_numpy(arr) for arr in labels_list[micro_num_index]], dim=0
             )
-            cu_seqlens.append(seq_len * micro_bsz)
-            cu_seqlens_list.append(torch.IntTensor(cu_seqlens))
-            cu_seqlens = []
-            indexes_list.append(torch.IntTensor(indexes))
-            indexes = []
-
-    input_ids = torch.stack(input_ids_result)
-    labels = torch.stack(labels_result)
-    indexes = torch.stack(indexes_list)
+            cu_seqlens_list.append(torch.IntTensor([i * seq_len for i in range(micro_bsz + 1)]))
+            indexes_list.append(torch.IntTensor(list(range(seq_len)) * micro_bsz))
 
     return {
-        "input_ids": input_ids,
+        "input_ids": torch.stack(input_ids_list),
         "cu_seqlens": cu_seqlens_list,
-        "indexes": indexes,
+        "indexes": torch.stack(indexes_list),
         "type_ids": torch.zeros(micro_num, micro_bsz * seq_len, dtype=torch.int64),
-    }, labels
+    }, torch.stack(labels_list)

@@ -20,14 +20,14 @@ import internlm  # noqa: E402
 from internlm.checkpoint import CheckpointManager  # noqa: E402
 from internlm.core.context import ParallelMode  # noqa: E402
 from internlm.core.context import global_context as gpc  # noqa: E402
-from internlm.core.trainer import TrainState, Trainer  # noqa: E402
+from internlm.core.trainer import Trainer, TrainState  # noqa: E402
 from internlm.data import (  # noqa: E402
     build_train_loader_with_data_type,
     build_valid_loader_with_data_type,
 )
 from internlm.eval.evaluation import evaluate_on_val_dls  # noqa: E402
 from internlm.initialize import initialize_distributed_env  # noqa: E402
-from internlm.model.losses import FlashGPTLMLoss  # noqa: E402
+from internlm.model.losses import InternLoss  # noqa: E402
 from internlm.model.metrics import AccPerplex, SchedulerMetricHook  # noqa: E402
 from internlm.monitor import (  # noqa: E402
     initialize_monitor_manager,
@@ -60,6 +60,7 @@ logger = get_logger(__file__)
 
 
 def check_model_weights(model, ckpt_path, total_equal=False):
+    model = model.model
     model1_dict = torch.load(ckpt_path, map_location="cuda")
     model2_dict = model.state_dict()
 
@@ -122,7 +123,7 @@ def main(args):
         config_lines = f.readlines()
 
     # initialize loss function
-    criterion = FlashGPTLMLoss(parallel_output=True, label_smoothing=label_smoothing)
+    criterion = InternLoss(parallel_output=True, label_smoothing=label_smoothing)
 
     # initialize the train and validation data loader
     train_dl, dataset_types = build_train_loader_with_data_type()
@@ -214,13 +215,14 @@ def main(args):
     # check model init weights
     if hasattr(gpc.config, "CHECK_INIT") and gpc.config.CHECK_INIT == 1:
         ckpt_name = (
-            f"model_dp{gpc.get_local_rank(ParallelMode.DATA)}"
+            f"model"
             f"_tp{gpc.get_local_rank(ParallelMode.TENSOR)}"
             f"_pp{gpc.get_local_rank(ParallelMode.PIPELINE)}.pt"
         )
-        ckpt_path = os.path.join(os.environ["share_path"], "quailty_assurance/7B_init_dp=2_tp=2_pp=2_ckpt", ckpt_name)
+        ckpt_path = os.path.join(
+            os.environ["share_path"], "quailty_assurance/7B_internlm2_init_dp=2_tp=2_pp=2_ckpt/init", ckpt_name
+        )
         check_model_weights(model, ckpt_path, total_equal=True)
-
     with initialize_llm_profile(profiling=args.profiling, start_time=current_time) as prof:
         # start iterating the train data and begin training
         for batch_count in range(train_state.batch_count, total_steps):
@@ -327,12 +329,17 @@ def main(args):
                 )
 
             # check model weights
-            if gpc.is_rank_for_log() and batch_count > 0 and batch_count % 100 == 0:
+            if batch_count > 0 and batch_count % 100 == 0:
+                ckpt_name = (
+                    f"model"
+                    f"_tp{gpc.get_local_rank(ParallelMode.TENSOR)}"
+                    f"_pp{gpc.get_local_rank(ParallelMode.PIPELINE)}.pt"
+                )
                 ckpt_path = os.path.join(
                     os.environ["share_path"],
-                    "quailty_assurance/7B_model_weights_ckpt",
+                    "quailty_assurance/7B_internlm2_init_dp=2_tp=2_pp=2_ckpt",
                     str(batch_count),
-                    "model_tp0_pp0.pt",
+                    ckpt_name,
                 )
                 check_model_weights(model, ckpt_path)
 

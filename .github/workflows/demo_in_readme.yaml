@@ -11,6 +11,10 @@ env:
   WORKSPACE_PREFIX: $(echo $GITHUB_WORKSPACE |cut -d '/' -f 1-4)
   SLURM_PARTITION: llm_s
 
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
 jobs:
   dataset-preparation:
     runs-on: [t_cluster]
@@ -23,13 +27,23 @@ jobs:
 
     - name: raw-chinese-data
       run: |
+        ssh ${USER}@${CI_HOST} bash << EOF
+        cd $GITHUB_WORKSPACE
+        export GITHUB_WORKSPACE=$GITHUB_WORKSPACE
+        export SLURM_PARTITION=$SLURM_PARTITION
         source activate ${evo_env_torch21_flash2}
         sh ./ci_scripts/data/tokenizer_chinese.sh ${GITHUB_RUN_ID}-${GITHUB_JOB}
+        EOF
 
     - name: alpaca-data
       run: |
+        ssh ${USER}@${CI_HOST} bash << EOF
+        cd $GITHUB_WORKSPACE
+        export GITHUB_WORKSPACE=$GITHUB_WORKSPACE 
+        export SLURM_PARTITION=$SLURM_PARTITION
         source activate ${evo_env_torch21_flash2}
         sh ./ci_scripts/data/tokenizer_alpaca.sh
+        EOF
 
   train:
     runs-on: [t_cluster]
@@ -44,28 +58,48 @@ jobs:
     - name: slurm-train
       id: basic_train
       run: |
+        ssh ${USER}@${CI_HOST} bash << EOF
+        cd $GITHUB_WORKSPACE
+        export GITHUB_WORKSPACE=$GITHUB_WORKSPACE
+        export SLURM_PARTITION=$SLURM_PARTITION
         source activate ${evo_env_torch21_flash2}
         sh ./ci_scripts/train/slurm_train.sh ${GITHUB_RUN_ID}-${GITHUB_JOB}
+        EOF
 
     - name: load_preset_ckpt
       if: ${{ failure() && steps.basic_train.conclusion == 'failure' }}
       run: |
+        ssh ${USER}@${CI_HOST} bash << EOF
+        cd $GITHUB_WORKSPACE
+        export GITHUB_WORKSPACE=$GITHUB_WORKSPACE
+        export SLURM_PARTITION=$SLURM_PARTITION
         source activate ${evo_env_torch21_flash2}
         export PYTHONPATH=$PWD:$PYTHONPATH
         sh ./ci_scripts/train/load_ckpt.sh 7B_load_preset_ckpt ${GITHUB_RUN_ID}-${GITHUB_JOB}
+        EOF
 
     - name: load_new_ckpt
       run: |
+        ssh ${USER}@${CI_HOST} bash << EOF
+        cd $GITHUB_WORKSPACE
+        export GITHUB_WORKSPACE=$GITHUB_WORKSPACE
+        export SLURM_PARTITION=$SLURM_PARTITION
         source activate ${evo_env_torch21_flash2}
         export PYTHONPATH=$PWD:$PYTHONPATH
         sh ./ci_scripts/train/load_ckpt.sh 7B_load_new_ckpt ${GITHUB_RUN_ID}-${GITHUB_JOB}
         rm -rf $GITHUB_WORKSPACE/llm_ckpts
+        EOF
 
     - name: torchrun-train
       run: |
+        ssh ${USER}@${CI_HOST} bash << EOF
+        cd $GITHUB_WORKSPACE
+        export GITHUB_WORKSPACE=$GITHUB_WORKSPACE
+        export SLURM_PARTITION=$SLURM_PARTITION
         source activate ${evo_env_torch21_flash2}
         sh ./ci_scripts/train/torchrun.sh ${GITHUB_RUN_ID}-${GITHUB_JOB}
         rm -rf $GITHUB_WORKSPACE/llm_ckpts
+        EOF
 
   convert-model-then-load:
     runs-on: [t_cluster]
@@ -79,13 +113,18 @@ jobs:
 
     - name: convert-model-then-load
       run: |
+        ssh ${USER}@${CI_HOST} bash << EOF
+        cd $GITHUB_WORKSPACE
+        export GITHUB_WORKSPACE=$GITHUB_WORKSPACE
+        export SLURM_PARTITION=$SLURM_PARTITION
         source activate ${evo_env_torch21_flash2}
         export PYTHONPATH=$PWD:$PYTHONPATH
         sh ./ci_scripts/model/convert_to_hf.sh
         cd ./hf_ckpt
         jobname=${GITHUB_RUN_ID}-${GITHUB_JOB}-${GITHUB_RUN_ATTEMPT}
-        srun -p ${SLURM_PARTITION} --kill-on-bad-exit=1 --job-name=$jobname --gpus-per-task=2 python ../ci_scripts/model/loaded_as_transformer.py
+        srun -p ${SLURM_PARTITION} --kill-on-bad-exit=1 --job-name=\$jobname --gpus-per-task=2 python ../ci_scripts/model/loaded_as_transformer.py
         exit_code=$?
         cd ..
         rm -rf $GITHUB_WORKSPACE/hf_ckpt
-        sh ./ci_scripts/common/check_slurm_cancled.sh $exit_code $jobname
+        sh ./ci_scripts/common/check_slurm_cancled.sh \$exit_code \$jobname
+        EOF

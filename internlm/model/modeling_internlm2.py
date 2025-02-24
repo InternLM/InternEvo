@@ -1,16 +1,17 @@
 # Copyright (c) InternLM. All rights reserved.
 import math
 import os
+from functools import reduce
 from typing import Optional
 
 import torch
-from einops import rearrange
 from torch import nn
 from tqdm import tqdm
 
 from internlm.accelerator import get_accelerator
 from internlm.core.context import ParallelMode
 from internlm.core.context.parallel_context import global_context as gpc
+from internlm.core.parallel.shard import partition_uniform
 from internlm.initialize.initialize_tensor import (
     normal_,
     scaled_init_method_normal,
@@ -26,6 +27,7 @@ from internlm.model.modules.norm import new_layer_norm
 from internlm.model.utils import (
     convert_attn_args_to_kwargs,
     convert_attn_kwargs_to_args,
+    get_parallel_size_from_file,
 )
 from internlm.solver.activation_checkpoint import activation_checkpoint
 from internlm.utils.logger import get_logger
@@ -78,6 +80,7 @@ class InternLM2Decoder(nn.Module):
         rope_base (int): The value of `base` for rotary position embeddings. 10000 by default.
         mlp_layer_fusion (bool): Whether to fuse layers in the mlp module for optimization.
         multiple_of (int): Ensures mlp dimensions are multiples of this value for efficient hardware utilization.
+        enable_qkv_fusion(bool): Whether to fuse Wq,Wk,Wv computation. True by default.
     """
 
     def __init__(
@@ -112,6 +115,7 @@ class InternLM2Decoder(nn.Module):
         rope_base: int = 10000,
         mlp_layer_fusion: bool = False,
         multiple_of: int = 256,
+        enable_qkv_fusion: bool = True,
     ):
         super().__init__()
         self.checkpoint = checkpoint
@@ -147,7 +151,7 @@ class InternLM2Decoder(nn.Module):
             qk_interleaved=qk_interleaved,
             bias=not no_bias,
             rope_base=rope_base,
-            enable_qkv_fusion=True,
+            enable_qkv_fusion=enable_qkv_fusion,
         )
 
         self.dropout1 = nn.Dropout(drop_rate)
@@ -254,7 +258,7 @@ class InternLM2Decoder(nn.Module):
                     def _dropout_and_norm_ffn(_residual, _hidden_states):
                         _dropped = self.dropout2(_hidden_states)
                         _residual = (_dropped + _residual) if _residual is not None else _dropped
-                        _hidden_states = self.ffn_norm(_residual.to(torch.float32))
+                        _hidden_states = self.ffn_norm(_residual.to(self.ffn_norm.weight.dtype))
 
                         return _residual, _hidden_states
 
@@ -332,6 +336,7 @@ class InternLM2(BaseModel):
         norm_head (bool): Whether to use norm head. False by default.
         mlp_layer_fusion (bool): Whether to fuse layers in the mlp module for optimization.
         multiple_of (int): Ensures mlp dimensions are multiples of this value for efficient hardware utilization.
+        enable_qkv_fusion(bool): Whether to fuse Wq,Wk,Wv computation. True by default.
     """
 
     def __init__(
@@ -375,6 +380,7 @@ class InternLM2(BaseModel):
         norm_head: bool = False,
         mlp_layer_fusion: bool = False,
         multiple_of: int = 256,
+        enable_qkv_fusion: bool = True,
     ):
         super().__init__()
 
@@ -424,6 +430,7 @@ class InternLM2(BaseModel):
                     rope_base=rope_base,
                     mlp_layer_fusion=mlp_layer_fusion,
                     multiple_of=multiple_of,
+                    enable_qkv_fusion=enable_qkv_fusion,
                 )
                 for lid in range(num_layers)
             ]
@@ -473,6 +480,7 @@ class InternLM2(BaseModel):
     def load_hf_weights(folder: str, model: nn.Module) -> None:
         """NOTE: when loading huggingface's llama pretrained weights, you should set `adapt_hf=True` in your config."""
         assert folder is not None, "Please specify the folder of the pretrained model"
+        assert not gpc.config.model["qk_interleaved"], "The qk_interleaved should set True."
         if gpc.is_rank_for_log():
             logger.info(f"Loading pretrained model from {folder}")
 
@@ -504,44 +512,72 @@ class InternLM2(BaseModel):
 
         new_state_dict = {}
 
+        is_internlm3 = gpc.config.model_type == "INTERNLM3"
+
         for idx, i in enumerate(range(model.first_layer, model.last_layer)):
             layer_ids = i
 
             # attn
-            state_dict[f"layers.{i}.attention.wqkv.weight"] = torch.chunk(
-                state_dict.pop(f"model.layers.{layer_ids}.attention.wqkv.weight"),
-                split_size,
-                dim=0,
-            )[local_rank]
+            if is_internlm3:
+                state_dict[f"layers.{i}.attention.wq.weight"] = torch.chunk(
+                    state_dict.pop(f"model.layers.{layer_ids}.self_attn.q_proj.weight"),
+                    split_size,
+                    dim=0,
+                )[local_rank]
+                state_dict[f"layers.{i}.attention.wk.weight"] = torch.chunk(
+                    state_dict.pop(f"model.layers.{layer_ids}.self_attn.k_proj.weight"),
+                    split_size,
+                    dim=0,
+                )[local_rank]
+                state_dict[f"layers.{i}.attention.wv.weight"] = torch.chunk(
+                    state_dict.pop(f"model.layers.{layer_ids}.self_attn.v_proj.weight"),
+                    split_size,
+                    dim=0,
+                )[local_rank]
+            else:
+                state_dict[f"layers.{i}.attention.wqkv.weight"] = torch.chunk(
+                    state_dict.pop(f"model.layers.{layer_ids}.attention.wqkv.weight"),
+                    split_size,
+                    dim=0,
+                )[local_rank]
+            wo_name = "self_attn.o_proj" if is_internlm3 else "attention.wo"
             state_dict[f"layers.{i}.attention.wo.weight"] = torch.chunk(
-                state_dict.pop(f"model.layers.{layer_ids}.attention.wo.weight"),
+                state_dict.pop(f"model.layers.{layer_ids}.{wo_name}.weight"),
                 split_size,
                 dim=row_dim,
             )[local_rank]
 
             # ffn
+            w1_name = "mlp.gate_proj" if is_internlm3 else "feed_forward.w1"
+            w3_name = "mlp.up_proj" if is_internlm3 else "feed_forward.w3"
+            w2_name = "mlp.down_proj" if is_internlm3 else "feed_forward.w2"
+
             state_dict[f"layers.{i}.feed_forward.w1.weight"] = torch.chunk(
-                state_dict.pop(f"model.layers.{layer_ids}.feed_forward.w1.weight"),
+                state_dict.pop(f"model.layers.{layer_ids}.{w1_name}.weight"),
                 split_size,
                 dim=0,
             )[local_rank]
             state_dict[f"layers.{i}.feed_forward.w3.weight"] = torch.chunk(
-                state_dict.pop(f"model.layers.{layer_ids}.feed_forward.w3.weight"),
+                state_dict.pop(f"model.layers.{layer_ids}.{w3_name}.weight"),
                 split_size,
                 dim=0,
             )[local_rank]
             state_dict[f"layers.{i}.feed_forward.w2.weight"] = torch.chunk(
-                state_dict.pop(f"model.layers.{layer_ids}.feed_forward.w2.weight"),
+                state_dict.pop(f"model.layers.{layer_ids}.{w2_name}.weight"),
                 split_size,
                 dim=row_dim,
             )[local_rank]
 
             # attn norm
+            attn_norm_name = "input_layernorm" if is_internlm3 else "attention_norm"
             state_dict[f"layers.{i}.attention_norm.weight"] = state_dict.pop(
-                f"model.layers.{layer_ids}.attention_norm.weight"
+                f"model.layers.{layer_ids}.{attn_norm_name}.weight"
             )
             # ffn norm
-            state_dict[f"layers.{i}.ffn_norm.weight"] = state_dict.pop(f"model.layers.{layer_ids}.ffn_norm.weight")
+            ffn_norm_name = "post_attention_layernorm" if is_internlm3 else "ffn_norm"
+            state_dict[f"layers.{i}.ffn_norm.weight"] = state_dict.pop(
+                f"model.layers.{layer_ids}.{ffn_norm_name}.weight"
+            )
 
             # replace value within decoder layer
             for name in list(state_dict.keys()):
@@ -550,16 +586,18 @@ class InternLM2(BaseModel):
 
         # embedding
         if (gpc.get_local_rank(ParallelMode.PIPELINE) == 0) or (not gpc.is_using_parallel_mode(ParallelMode.PIPELINE)):
+            embedding_name = "embed_tokens" if is_internlm3 else "tok_embeddings"
             new_state_dict["tok_embeddings.weight"] = torch.chunk(
-                state_dict.pop("model.tok_embeddings.weight"),
+                state_dict.pop(f"model.{embedding_name}.weight"),
                 split_size,
                 dim=embed_concat_dim,
             )[local_rank]
 
         # output
         if gpc.is_last_rank(ParallelMode.PIPELINE):
+            output_name = "lm_head" if is_internlm3 else "output"
             new_state_dict["output.weight"] = torch.chunk(
-                state_dict.pop("output.weight"),
+                state_dict.pop(f"{output_name}.weight"),
                 split_size,
                 dim=0,
             )[local_rank]
@@ -577,19 +615,197 @@ class InternLM2(BaseModel):
         internlm_accelerator.empty_cache()
 
     @staticmethod
-    def convert_internevo2hf_weights(src: str, tgt: str) -> None:
-        def permute(qkv, num_heads, num_kv_heads, head_dim, adapt_hf=True):
-            if adapt_hf:
-                return qkv
-            q_per_kv = num_heads // num_kv_heads
-            qkv = rearrange(qkv.T, "o (g n i) -> o g n i", n=q_per_kv + 2, i=head_dim)
-            q, k, v = qkv[..., :q_per_kv, :], qkv[..., -2:-1, :], qkv[..., -1:, :]
-            q = torch.cat([q[..., ::2], q[..., 1::2]], dim=-1)
-            k = torch.cat([k[..., ::2], k[..., 1::2]], dim=-1)
-            qkv = torch.cat((q, k, v), dim=2)
-            qkv = rearrange(qkv, "o g n i -> o (g n i)").T
-            return qkv
+    def load_internlm2_with_dynamic_parallel_size(folder, model):
+        """Load InternLM2 with dynamic parallel size."""
+        assert folder is not None, "Please specify the folder of the pretrained model"
+        assert gpc.config.model_type in ["INTERNLM2"], "dynamic_parallel is only for INTERNLM2"
 
+        fns = get_fns(folder)
+        if gpc.is_rank_for_log():
+            logger.info(f"Loading pretrained model from {folder}")
+        model_fns, old_tp, old_pp = get_parallel_size_from_file(fns)  # pylint: disable=W0612
+
+        tp = gpc.get_world_size(ParallelMode.TENSOR)
+        tp_rank = gpc.get_local_rank(ParallelMode.TENSOR)
+        assert old_tp % tp == 0 or tp % old_tp == 0, (
+            f"Expected TP size in loaded checkpoint to be fit with TP size in current config, but got {old_tp} in "
+            f"checkpoint and {tp} in current config"
+        )
+
+        correspond_tps = []
+
+        if old_tp <= tp:
+            correspond_tps.append(tp_rank // (tp // old_tp))
+            ratio = tp // old_tp
+            rank = tp_rank % ratio
+        else:
+            for i in range(old_tp // tp):
+                correspond_tps.append(tp_rank * (old_tp // tp) + i)
+            rank = 0
+            ratio = 1
+
+        current_states = {}
+
+        pp = gpc.get_world_size(ParallelMode.PIPELINE)  # noqa: F841 # pylint: disable=W0612
+
+        assert gpc.config.model.num_chunks == 1, "May cause future collisions, ignore this if necessary"
+
+        old_pp_partition = partition_uniform(gpc.config.model.num_layers, old_pp, 1)
+
+        for idx, parts in enumerate(old_pp_partition):
+            start, end = parts[0]
+            if model.last_layer <= start or model.first_layer >= end:
+                continue
+            tmp_states = {}
+
+            for correspond_tp in correspond_tps:
+                model_name = f"model_tp{correspond_tp}_pp{idx}.pt"
+                states = llm_load(os.path.join(folder, model_name), map_location="cpu")
+                states = {k.replace("model.", ""): v for k, v in states.items()}
+                for i in range(start, end):
+                    if i >= model.last_layer:
+                        break
+                    if i < model.first_layer:
+                        continue
+
+                    for name in list(states.keys()):
+                        if f".{i-start}." in name:
+                            to_name = name.replace(f".{i-start}.", f".{i-model.first_layer}.")
+
+                            if gpc.config.model_type == "INTERNLM2":
+                                if "norm" in name:
+                                    tmp_states[to_name] = [states.pop(name)]
+                                elif any(x in name for x in ("wo", "w2")):
+                                    tmp_states[to_name] = tmp_states.get(to_name, [])
+                                    tmp_states[to_name].append(states.pop(name).chunk(ratio, dim=1)[rank])
+                                elif any(x in name for x in ("w1", "w3")):
+                                    tmp_states[to_name] = tmp_states.get(to_name, [])
+                                    tmp_states[to_name].append(states.pop(name).chunk(ratio, dim=0)[rank])
+                                elif any(x in name for x in ("wqkv",)):
+                                    tmp_states[to_name] = tmp_states.get(to_name, [])
+                                    if tp > gpc.config.model.num_kv_attention_heads:
+                                        assert old_tp <= gpc.config.model.num_kv_attention_heads, (
+                                            f"`old_tp ({old_tp}) => tp ({tp})` is not supported. "
+                                            "At least one of `tp` and `old_tp` should be less than or "
+                                            "equal to `num_kv_attention_heads`"
+                                        )
+                                        # Suitable for cases where the num_kv_attention_head is small,
+                                        # but you want to have a large TP Size
+                                        q_per_kv = (
+                                            gpc.config.model.num_attention_heads
+                                            // gpc.config.model.num_kv_attention_heads
+                                        )
+                                        head_dim = gpc.config.model.hidden_size // gpc.config.model.num_attention_heads
+                                        index = torch.concat(
+                                            (
+                                                torch.arange(q_per_kv).chunk(ratio, dim=0)[tp_rank % ratio],
+                                                torch.tensor([q_per_kv, q_per_kv + 1]),
+                                            )
+                                        )
+                                        index = index + (q_per_kv + 2) * (tp_rank // ratio)
+                                        index = index % (
+                                            (q_per_kv + 2) * (gpc.config.model.num_kv_attention_heads / old_tp)
+                                        )
+                                        index = index * head_dim
+                                        index = index.repeat_interleave(head_dim) + torch.arange(head_dim).repeat(
+                                            index.shape[0]
+                                        )
+                                        tmp_states[to_name].append(
+                                            torch.index_select(states.pop(name), 0, index.to(torch.int32))
+                                        )
+                                    else:
+                                        tmp_states[to_name].append(states.pop(name).chunk(ratio, dim=0)[rank])
+                                else:
+                                    raise KeyError(f"Unknown key {name}.")
+
+                            else:
+                                assert False, "unsupported model type"
+
+                if "tok_embeddings.weight" in states and model.first_layer == 0:
+                    tmp_states["tok_embeddings.weight"] = tmp_states.get("tok_embeddings.weight", [])
+                    tmp_states["tok_embeddings.weight"].append(
+                        states["tok_embeddings.weight"].chunk(ratio, dim=1)[rank]
+                    )
+                if "output.weight" in states and model.last_layer == gpc.config.model.num_layers:
+                    tmp_states["norm.weight"] = [states["norm.weight"]]
+                    tmp_states["output.weight"] = tmp_states.get("output.weight", [])
+                    tmp_states["output.weight"].append(states["output.weight"].chunk(ratio, dim=0)[rank])
+
+                states = {}
+
+            for name in list(tmp_states.keys()):
+                data = tmp_states.pop(name)
+                if len(data) == 1:
+                    current_states[name] = data[0]
+                else:
+                    current_states[name] = torch.concat(
+                        data, dim=1 if name == "tok_embeddings.weight" or any(x in name for x in ("wo", "w2")) else 0
+                    )
+                    # Merge copied kv heads
+                    if "wqkv" in name and old_tp > gpc.config.model.num_kv_attention_heads:
+                        assert (
+                            tp <= gpc.config.model.num_kv_attention_heads
+                        ), "new_tp should be less than or equal to num_kv_attention_heads"
+                        head_dim = gpc.config.model.hidden_size // gpc.config.model.num_attention_heads
+                        q_per_kv = gpc.config.model.num_attention_heads // gpc.config.model.num_kv_attention_heads
+                        copied_times = old_tp // gpc.config.model.num_kv_attention_heads
+                        cur_q_per_kv = q_per_kv // copied_times
+
+                        # pylint: disable=all
+                        def duplicate_kv_index(i):
+                            if i % (cur_q_per_kv + 2) >= cur_q_per_kv:
+                                return i
+                            else:
+                                return -100
+
+                        def unique_kv_index(i):
+                            if i // (cur_q_per_kv + 2) == copied_times - 1 or i % (cur_q_per_kv + 2) < cur_q_per_kv:
+                                return i
+                            else:
+                                return -100
+
+                        # pylint: enable=all
+
+                        # Verify
+                        duplicate_index = [duplicate_kv_index(i) for i in range((cur_q_per_kv + 2) * copied_times)]
+                        duplicate_index = [i for i in duplicate_index if i != -100]
+                        duplicate_index = _duplicate_index = torch.tensor(duplicate_index)
+                        for i in range(gpc.config.model.num_kv_attention_heads // tp - 1):
+                            duplicate_index = torch.concat(
+                                (duplicate_index, _duplicate_index + duplicate_index.max() + 1), dim=0
+                            )
+                        duplicate_kv = []
+                        for index in duplicate_index.reshape(-1, copied_times * 2).chunk(copied_times, dim=-1):
+                            index = index.reshape(-1) * head_dim
+                            index = index.repeat_interleave(head_dim) + torch.arange(head_dim).repeat(index.shape[0])
+                            duplicate_kv.append(torch.index_select(current_states[name], 0, index))
+                        assert reduce(
+                            lambda x, y: x and y,
+                            [torch.allclose(duplicate_kv[0], x, atol=1e-5) for x in duplicate_kv[1:]],
+                        ), "Copied kv heads are not equal after training!"
+
+                        # Merge
+                        unique_index = [unique_kv_index(i) for i in range((cur_q_per_kv + 2) * copied_times)]
+                        unique_index = [i for i in unique_index if i != -100]
+                        unique_index = _unique_index = torch.tensor(unique_index)
+                        for i in range(gpc.config.model.num_kv_attention_heads // tp - 1):
+                            unique_index = torch.concat((unique_index, _unique_index + unique_index.max() + 1), dim=0)
+                        unique_index = unique_index * head_dim
+                        unique_index = unique_index.repeat_interleave(head_dim) + torch.arange(head_dim).repeat(
+                            unique_index.shape[0]
+                        )
+                        current_states[name] = torch.index_select(current_states[name], 0, unique_index)
+        missing_keys, unexpected_keys = model.load_state_dict(current_states, strict=False)
+
+        if gpc.get_local_rank(ParallelMode.DATA) == 0:
+            pp_rank = 0 if not gpc.is_initialized(ParallelMode.PIPELINE) else gpc.get_local_rank(ParallelMode.PIPELINE)
+            logger.info(
+                f"Missing keys:{missing_keys}, unexpected keys:{unexpected_keys} in "
+                f"tp:{gpc.get_local_rank(ParallelMode.TENSOR)}, pp:{pp_rank}"
+            )
+
+    @staticmethod
+    def convert_internevo2hf_weights(src: str, tgt: str) -> None:
         model_config = gpc.config.model
         tp_mode = gpc.config.parallel.tensor["mode"]
         row_dim = 0 if tp_mode == "isp" else 1
@@ -600,39 +816,55 @@ class InternLM2(BaseModel):
 
         # load states
         states, num_shards = InternLM2.load_sharded_states(src)
+        is_internlm3 = gpc.config.model_type == "INTERNLM3"
 
         # convert state_dict
         state_dict = {}
         embedding_key_list = ["tok_embeddings.word_embeddings.weight", "tok_embeddings.weight", None]
         for layer_i in tqdm(range(model_config["num_layers"])):
             # attn norm, ffn norm
+            attn_norm_name = "input_layernorm" if is_internlm3 else "attention_norm"
+            ffn_norm_name = "post_attention_layernorm" if is_internlm3 else "ffn_norm"
             state_dict.update(
                 {
-                    f"model.layers.{layer_i}.attention_norm.weight": states[0][
+                    f"model.layers.{layer_i}.{attn_norm_name}.weight": states[0][
                         f"layers.{layer_i}.attention_norm.weight"
                     ].clone(),
-                    f"model.layers.{layer_i}.ffn_norm.weight": states[0][f"layers.{layer_i}.ffn_norm.weight"].clone(),
+                    f"model.layers.{layer_i}.{ffn_norm_name}.weight": states[0][
+                        f"layers.{layer_i}.ffn_norm.weight"
+                    ].clone(),
                 }
             )
             # attn
-            state_dict[f"model.layers.{layer_i}.attention.wqkv.weight"] = permute(
-                torch.cat([states[i][f"layers.{layer_i}.attention.wqkv.weight"] for i in range(num_shards)], dim=0),
-                num_heads=model_config["num_attention_heads"],
-                num_kv_heads=model_config["num_kv_attention_heads"],
-                head_dim=model_config["hidden_size"] // model_config["num_attention_heads"],
-                adapt_hf=model_config.get("adapt_hf", True),
+            wq_name = "self_attn.q_proj" if is_internlm3 else "attention.wq"
+            wk_name = "self_attn.k_proj" if is_internlm3 else "attention.wk"
+            wv_name = "self_attn.v_proj" if is_internlm3 else "attention.wv"
+            wo_name = "self_attn.o_proj" if is_internlm3 else "attention.wo"
+
+            state_dict[f"model.layers.{layer_i}.{wq_name}.weight"] = torch.cat(
+                [states[i][f"layers.{layer_i}.attention.wq.weight"] for i in range(num_shards)], dim=0
             )
-            state_dict[f"model.layers.{layer_i}.attention.wo.weight"] = torch.cat(
+            state_dict[f"model.layers.{layer_i}.{wk_name}.weight"] = torch.cat(
+                [states[i][f"layers.{layer_i}.attention.wk.weight"] for i in range(num_shards)], dim=0
+            )
+            state_dict[f"model.layers.{layer_i}.{wv_name}.weight"] = torch.cat(
+                [states[i][f"layers.{layer_i}.attention.wv.weight"] for i in range(num_shards)], dim=0
+            )
+            state_dict[f"model.layers.{layer_i}.{wo_name}.weight"] = torch.cat(
                 [states[i][f"layers.{layer_i}.attention.wo.weight"] for i in range(num_shards)], dim=row_dim
             )
             # ffn
-            state_dict[f"model.layers.{layer_i}.feed_forward.w1.weight"] = torch.cat(
+            w1_name = "mlp.gate_proj" if is_internlm3 else "feed_forward.w1"
+            w2_name = "mlp.down_proj" if is_internlm3 else "feed_forward.w2"
+            w3_name = "mlp.up_proj" if is_internlm3 else "feed_forward.w3"
+
+            state_dict[f"model.layers.{layer_i}.{w1_name}.weight"] = torch.cat(
                 [states[i][f"layers.{layer_i}.feed_forward.w1.weight"] for i in range(num_shards)], dim=0
             )
-            state_dict[f"model.layers.{layer_i}.feed_forward.w2.weight"] = torch.cat(
+            state_dict[f"model.layers.{layer_i}.{w2_name}.weight"] = torch.cat(
                 [states[i][f"layers.{layer_i}.feed_forward.w2.weight"] for i in range(num_shards)], dim=row_dim
             )
-            state_dict[f"model.layers.{layer_i}.feed_forward.w3.weight"] = torch.cat(
+            state_dict[f"model.layers.{layer_i}.{w3_name}.weight"] = torch.cat(
                 [states[i][f"layers.{layer_i}.feed_forward.w3.weight"] for i in range(num_shards)], dim=0
             )
         # embedding, output
@@ -641,13 +873,15 @@ class InternLM2(BaseModel):
                 break
         if embedding_key is None:
             raise KeyError("Cannot find embedding key!")
+        embedding_name = "embed_tokens" if is_internlm3 else "tok_embeddings"
+        output_name = "lm_head" if is_internlm3 else "output"
         state_dict.update(
             {
                 "model.norm.weight": states[0]["norm.weight"],
-                "model.tok_embeddings.weight": torch.cat(
+                f"model.{embedding_name}.weight": torch.cat(
                     [states[i][embedding_key] for i in range(num_shards)], dim=embed_concat_dim
                 ),
-                "output.weight": torch.cat([states[i]["output.weight"] for i in range(num_shards)], dim=0),
+                f"{output_name}.weight": torch.cat([states[i]["output.weight"] for i in range(num_shards)], dim=0),
             },
         )
 

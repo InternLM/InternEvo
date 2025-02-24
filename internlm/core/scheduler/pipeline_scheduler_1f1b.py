@@ -35,7 +35,11 @@ def get_tensor_shape():
     if not gpc.is_initialized(ParallelMode.PIPELINE):
         return None
 
-    if hasattr(gpc.config, "SEQ_LEN") and hasattr(gpc.config.data, "micro_bsz") and hasattr(gpc.config, "HIDDEN_SIZE"):
+    if (
+        hasattr(gpc.config.data, "seq_len")
+        and hasattr(gpc.config.data, "micro_bsz")
+        and hasattr(gpc.config.model, "hidden_size")
+    ):
         if gpc.config.data.use_packed_dataset and gpc.is_evaluating is False:
             if gpc.config.parallel.sequence_parallel:
                 sequence_world_size = gpc.get_world_size(ParallelMode.TENSOR)

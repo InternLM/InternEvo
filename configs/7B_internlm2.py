@@ -1,5 +1,5 @@
 JOB_NAME = "7b_internlm2_train"
-model_type = "INTERNLM2_PUBLIC"
+model_type = "INTERNLM2"
 DO_ALERT = False
 
 VOCAB_SIZE = 92544
@@ -98,9 +98,21 @@ hybrid_zero_optimizer = dict(
     clip_grad_norm=1.0,
 )
 
-loss = dict(
-    label_smoothing=0,
-)
+
+# loss config (dict):
+#     1. label_smoothing
+#     2. op_type: cross_entropy operator type, we support five types for loss computing,
+#                 including ["torch_naive", "apex_naive", "py_naive", "flash_vocab_parallel", "py_vocab_parallel"]
+#                 default is "py_vocab_parallel".
+#         "torch_naive": cross_entropy imported from torch, i.e. torch.nn.CrossEntropyLoss
+#         "apex_naive": cross_entropy from apex
+#         "py_naive": self-implemented cross_entropy
+#         "flash_vocab_parallel": vocab parallel cross_entropy imported from flash_attn
+#         "py_vocab_parallel": self-implemented vocab parallel cross_entropy
+
+#         * op_types that ends with "naive" only support parallel_output=False;
+#         * if in no-GPU env, only "torch_naive" and "py_vocab_parallel" are supported.
+loss = dict(label_smoothing=0, op_type="py_vocab_parallel")
 
 adam = dict(
     lr=1e-4,

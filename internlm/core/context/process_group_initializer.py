@@ -6,10 +6,15 @@
 import math
 from abc import ABC, abstractmethod
 from enum import Enum
+from functools import reduce
+from typing import Any, Dict, List, Optional, Tuple, Union
 
 import torch.distributed as dist
 
+from internlm.utils.logger import get_logger
 from internlm.utils.timeout import LLM_NCCL_TIMEOUT
+
+logger = get_logger(__file__)
 
 
 # parallel modes
@@ -69,9 +74,6 @@ class ParallelMode(Enum):
     # real data parallel for isp
     ISP_DATA = "isp_data"
 
-    # grouped query attention
-    GQA = "gqa"
-
     # sequence 2D parallel
     HEAD = "head"
     CONTEXT = "context"
@@ -79,6 +81,349 @@ class ParallelMode(Enum):
     INTRA_WINDOW = "intra_window"
     DKV_INTER_WINDOW = "dkv_inter_window"
     DKV_INTRA_WINDOW = "dkv_intra_window"
+
+
+class GroupConfig:
+    """config for initialze a process group"""
+
+    def __init__(
+        self,
+        mode: ParallelMode,
+        size: int,
+        anonymous: bool = False,
+        allow_partial_group: bool = False,
+        subgroups: Optional[List["GroupConfig"]] = None,
+    ) -> None:
+        self.mode = mode
+        self.size = size
+        self.anonymous = anonymous
+        self.allow_partial_group = allow_partial_group
+        self.subgroups = subgroups if subgroups is not None else []
+
+        self._early_subgroup_checking()
+
+    def _early_subgroup_checking(self) -> None:
+        if len(self.subgroups) == 0:
+            return
+
+        group_target_size = reduce(lambda x, y: x * y, [_g.size for _g in self.subgroups])
+        assert group_target_size <= self.size, "subgroup size should less than father group"
+
+
+def init_cpu_group(group, ranks, use_cpu: bool = False):
+    if use_cpu:
+        cpu_group = (
+            dist.new_group(ranks, backend="gloo", timeout=LLM_NCCL_TIMEOUT) if dist.get_backend() != "gloo" else group
+        )
+    else:
+        cpu_group = None
+
+    return cpu_group
+
+
+def get_group_ranks(
+    global_ranks_or_sizes: Union[int, List[int]],
+    cur_group_size: int,
+    pre_group_size: int,
+    allow_partial_group: bool = False,
+):
+    group_ranks = []
+
+    if isinstance(global_ranks_or_sizes, list):
+        global_size = len(global_ranks_or_sizes)
+        global_ranks = global_ranks_or_sizes
+    else:
+        global_size = global_ranks_or_sizes
+        global_ranks = None
+
+    real_global_size = global_size
+
+    if allow_partial_group:
+        global_size = math.ceil(global_size / cur_group_size) * cur_group_size
+
+    assert global_size % cur_group_size == 0, "err1"
+
+    def _get_local_starts():
+        for i in range(0, global_size, cur_group_size * pre_group_size):
+            for j in range(pre_group_size):
+                yield 0 + i + j
+
+    for start in _get_local_starts():
+        ranks = [
+            start + i * pre_group_size for i in range(cur_group_size) if start + i * pre_group_size < real_global_size
+        ]
+        if global_ranks is not None:
+            ranks = [global_ranks[_idx] for _idx in ranks]
+
+        group_ranks.append(ranks)
+
+    assert len(group_ranks) == global_size // cur_group_size, f"{group_ranks}, {global_size}, {cur_group_size}"
+
+    return group_ranks
+
+
+def _create_parallel_process_groups(
+    global_ranks_or_sizes: int,
+    self_rank: int,
+    pre_group_size: int,
+    group_configs: List[GroupConfig],
+    with_cpu_group: bool = False,
+):
+    group_results = []
+
+    for group in group_configs:
+        if group.anonymous is True:
+            pre_group_size = pre_group_size * group.size
+            continue
+
+        group_ranks, accelerator_group = None, None
+        all_group_ranks = get_group_ranks(global_ranks_or_sizes, group.size, pre_group_size, group.allow_partial_group)
+
+        for idx, ranks in enumerate(all_group_ranks):
+            _pg = dist.new_group(ranks, timeout=LLM_NCCL_TIMEOUT)
+            if self_rank in ranks:
+                group_ranks, accelerator_group = all_group_ranks[idx], _pg
+            else:
+                dist.destroy_process_group(_pg)
+
+        if group_ranks is None:
+            pre_group_size = pre_group_size * group.size
+            continue
+
+        cpu_group = init_cpu_group(accelerator_group, group_ranks, with_cpu_group)
+
+        group_results.append(
+            (group_ranks.index(self_rank), len(group_ranks), accelerator_group, cpu_group, group_ranks, group.mode)
+        )
+
+        if len(group.subgroups) > 0:
+            subgroup_results = _create_parallel_process_groups(
+                global_ranks_or_sizes, self_rank, pre_group_size, group.subgroups, with_cpu_group
+            )
+            group_results.extend(subgroup_results)
+
+        pre_group_size = pre_group_size * group.size
+
+    return group_results
+
+
+def create_parallel_process_groups(
+    world_size: int, self_rank: int, group_configs: List[List[GroupConfig]], with_cpu_group: bool = False
+):
+    group_results = []
+    already_allocated_group = {}
+
+    def _checker(order: str, result: Tuple[Any]) -> bool:
+        parallel_mode = result[-1]
+
+        if parallel_mode not in already_allocated_group:
+            already_allocated_group[parallel_mode] = (order, result)
+            return True
+        else:
+            # check
+            ranks_in_group_idx = -2
+            pre_order, pre_allocate_result = already_allocated_group[parallel_mode]
+
+            error_msg = (
+                f"The ranks allocated for {parallel_mode} are inconsistent in config {pre_order} and {order}: "
+                + f"{pre_allocate_result[ranks_in_group_idx]} != {result[ranks_in_group_idx]}"
+            )
+            assert pre_allocate_result[ranks_in_group_idx] == result[ranks_in_group_idx], error_msg
+
+            # release process group
+            dist.destroy_process_group(result[2])  # accelerator_group
+            if with_cpu_group:
+                dist.destroy_process_group(result[3])  # cpu_group
+
+        return False
+
+    for order, group_config in group_configs:
+        pre_group_size = 1
+
+        results = _create_parallel_process_groups(
+            world_size,
+            self_rank,
+            pre_group_size,
+            group_config,
+            with_cpu_group,
+        )
+
+        for result in results:
+            if _checker(order, result) is True:
+                group_results.append(result)
+
+    return group_results
+
+
+def create_single_process_group(
+    world_size: int, self_rank: int, config: GroupConfig, with_cpu_group: bool = False, pre_anonymous_size: int = 1
+):
+    pre_group_size = pre_anonymous_size
+
+    return _create_parallel_process_groups(
+        world_size,
+        self_rank,
+        pre_group_size,
+        [config],
+        with_cpu_group,
+    )[0]
+
+
+MTP_GROUP_ORDER = [ParallelMode.TENSOR, ParallelMode.DATA, ParallelMode.PIPELINE]
+MTP_MOE_GROUP_ORDER = [ParallelMode.EXPERT_TENSOR, ParallelMode.EXPERT, ParallelMode.EXPERT_DATA, ParallelMode.PIPELINE]
+ISP_SP_GROUP_ORDER = [ParallelMode.TENSOR, ParallelMode.DATA, ParallelMode.PIPELINE]
+ISP_WP_GROUP_ORDER = [ParallelMode.WEIGHT, ParallelMode.WEIGHT_DATA, ParallelMode.PIPELINE]
+ISP_MOE_GROUP_ORDER = [ParallelMode.EXPERT_WEIGHT, ParallelMode.EXPERT, ParallelMode.EXPERT_DATA, ParallelMode.PIPELINE]
+FSDP_ORDER = [ParallelMode.DATA]  # TODO: should we support moe for fsdp?
+
+SUBGROUP_SPEC = {
+    "mtp": {
+        ParallelMode.DATA: [ParallelMode.ZERO1],
+    },
+    "isp": {
+        ParallelMode.WEIGHT_DATA: [ParallelMode.ZERO1],
+    },  # TODO: WEIGHT_ZERO1
+    "fsdp": {
+        ParallelMode.DATA: [ParallelMode.ZERO3_DP, ParallelMode.ZERO1],
+    },
+}
+
+
+def generate_parallel_group_configs(
+    parallel_strategy: str, parallel_sizes: Dict[ParallelMode, int], enable_moe: bool = False
+) -> List[List[GroupConfig]]:
+
+    group_configs = []
+    subgroup_spec = SUBGROUP_SPEC.get(parallel_strategy, SUBGROUP_SPEC["mtp"])
+
+    def _recurse_generater(order: List[ParallelMode]):
+        config = []
+
+        for mode in order:
+            # disable pp process group for compatibility when pp size is 1.
+            anonymous = mode is ParallelMode.PIPELINE and parallel_sizes[mode] == 1
+
+            if mode not in subgroup_spec:
+                config.append(GroupConfig(mode, parallel_sizes[mode], anonymous))
+            else:
+                config.append(
+                    GroupConfig(
+                        mode, parallel_sizes[mode], anonymous, subgroups=_recurse_generater(subgroup_spec[mode])
+                    )
+                )
+
+        return config
+
+    if parallel_strategy == "isp":
+        # sp configs
+        group_configs.append(("isp-sp", _recurse_generater(ISP_SP_GROUP_ORDER)))
+        # wp configs
+        group_configs.append(("isp-wp", _recurse_generater(ISP_WP_GROUP_ORDER)))
+        if enable_moe:
+            group_configs.append(("isp-moe", _recurse_generater(ISP_MOE_GROUP_ORDER)))
+    elif parallel_strategy == "fsdp":
+        group_configs.append(("fsdp", _recurse_generater(FSDP_ORDER)))
+    else:  # 3d parallel: mtp, msp, fsp
+        group_configs.append(("3d", _recurse_generater(MTP_GROUP_ORDER)))
+        if enable_moe:
+            group_configs.append(("3d-moe", _recurse_generater(MTP_MOE_GROUP_ORDER)))
+
+    return group_configs
+
+
+def generate_2d_attn_process_group(
+    world_size: int,
+    self_rank: int,
+    config: Dict[str, Any],
+    parallel_sizes: Dict[ParallelMode, int],
+    with_cpu_group: bool = False,
+):
+
+    assert config.context_size * config.head_size == parallel_sizes[ParallelMode.SEQUENCE]
+    assert world_size % parallel_sizes[ParallelMode.SEQUENCE] == 0
+
+    if config.window_size >= 8 or config.window_size == config.context_size:
+        logger.warning("interleaved is forced False when window size > 8 or equals context size.")
+        config.interleaved = False
+
+    if config.device_placement_strategy.head_first and config.head_size > 1:
+        logger.warning("interleaved is forced False when head_first is True and head size > 1.")
+        config.interleaved = False
+
+    group_results = []
+    sp_pre_group_size = 1
+    for parallel_mode in ISP_SP_GROUP_ORDER:
+        if parallel_mode is ParallelMode.TENSOR:  # assert sp is tp.
+            break
+        else:
+            sp_pre_group_size *= parallel_sizes[parallel_mode]
+
+    # head and context process groups.
+    if config.device_placement_strategy.head_first:
+        group_configs = [
+            GroupConfig(ParallelMode.HEAD, config.head_size),
+            GroupConfig(ParallelMode.CONTEXT, config.context_size),
+        ]
+        context_results_index = 1
+    else:
+        group_configs = [
+            GroupConfig(ParallelMode.CONTEXT, config.context_size),
+            GroupConfig(ParallelMode.HEAD, config.head_size),
+        ]
+        context_results_index = 0
+
+    group_results.extend(
+        _create_parallel_process_groups(world_size, self_rank, sp_pre_group_size, group_configs, with_cpu_group)
+    )
+
+    # window process groups.
+    window_num = config.context_size // config.window_size
+    cp_pre_group_size = 1 if context_results_index == 0 else config.head_size
+    every_context_ranks = get_group_ranks(world_size, config.context_size, cp_pre_group_size)
+
+    def _gen_window_process_groups(context_ranks: List[int]):
+        if not config.device_placement_strategy.interleaved:
+            window_ranks = context_ranks
+        else:
+            _indexes = [
+                j * 2 + i * config.window_size if i % 2 == 0 else j * 2 + 1 + (i - 1) * config.window_size
+                for i in range(window_num)
+                for j in range(config.window_size)
+            ]
+            window_ranks = [context_ranks[_i] for _i in _indexes]
+
+        group_results.extend(
+            _create_parallel_process_groups(
+                window_ranks,
+                self_rank,
+                1,
+                [
+                    GroupConfig(ParallelMode.INTRA_WINDOW, config.window_size),
+                    GroupConfig(ParallelMode.INTER_WINDOW, window_num),
+                ],
+                with_cpu_group,
+            )
+        )
+        group_results.extend(
+            _create_parallel_process_groups(
+                window_ranks,
+                self_rank,
+                1,
+                [
+                    GroupConfig(ParallelMode.DKV_INTRA_WINDOW, config.window_size),
+                    GroupConfig(ParallelMode.DKV_INTER_WINDOW, window_num),
+                ],
+                with_cpu_group,
+            )
+        )
+
+    for context_ranks in every_context_ranks:
+        _gen_window_process_groups(context_ranks)
+
+    # print(get_group_ranks(window_ranks, config.window_size, 1))
+    # print(get_group_ranks(window_ranks, window_num, config.window_size))
+
+    return group_results
 
 
 class ProcessGroupInitializer(ABC):
@@ -1102,86 +1447,6 @@ class Initializer_ISP_Data(ProcessGroupInitializer):
                 process_group = group
                 cpu_group = group_cpu
                 ranks_in_group = ranks
-
-        return local_rank, group_world_size, process_group, cpu_group, ranks_in_group, mode
-
-
-class Initializer_GQA(ProcessGroupInitializer):
-    """A ProcessGroupInitializer for allreduce kv gradients with common attention head.
-
-    Args:
-        rank (int): The rank of current process.
-        world_size (int): Size of whole communication world.
-        weight_parallel_size (int): Size of model weight parallel.
-        weight_data_parallel_size (int): Size of data parallel for common weight.
-        sequence_parallel_size (int): Size of data sequence parallel.
-        data_parallel_size (int): Size of data parallel.
-        pipeline_parallel_size (int): Size of pipeline parallel.
-        tensor_parallel_size (int): Size of tensor parallel.
-        zero1_parallel_size (int): Size of zero1 parallel.
-        nettest_parallel_size (int): Size of net testing parallel.
-        expert_parallel_size (int): Size of expert parallel.
-    """
-
-    def __init__(self, *args, **kwargs):
-        super().__init__(*args, **kwargs)
-        # TODO: should adapt to general case
-        self.num_kv_attention_heads = 8
-        self.NUM_ATTENTION_HEAD = 32
-        self.kv_head_repeats_num = self.NUM_ATTENTION_HEAD // self.num_kv_attention_heads
-        self.num_kv_group_per_tp = self.num_kv_attention_heads
-        self.num_kv_groups = self.num_kv_group_per_tp * self.data_parallel_size
-
-        assert self.world_size % self.tensor_parallel_size == 0
-        assert self.world_size % (self.pipeline_parallel_size * self.tensor_parallel_size) == 0
-        assert self.pipeline_parallel_size == 1
-
-    def init_dist_group(self, use_cpu: bool = False):
-        """Initialize weight's data parallel groups, and assign local_ranks and groups to each gpu.
-
-        Returns:
-            Tuple (local_rank, group_world_size, process_group, ranks_in_group, mode):
-                A WEIGHT_DATA parallelism's information tuple.
-
-        n=128 sp=32 wp=64 zo1=1 with nopp
-        sp groups: [0-31] [32-63] [64-95] [96-127]
-        wp groups: [0-63] [64-127]
-        kv_head groups: [0,1,2,3] [4,5,6,7] [8,9,10,11] [12,13,14,15]
-                        [16,17,18,19] [20,21,22,23] [24,25,26,27] [28,29,30,31]
-                        ...
-                        ...
-                        ...
-        """
-        local_rank = None
-        ranks_in_group = None
-        process_group = None
-        cpu_group = None
-        group_world_size = None
-        mode = ParallelMode.GQA
-
-        # TODO: consider PP
-        for i in range(self.data_parallel_size):
-            for j in range(self.num_kv_group_per_tp):
-                ranks = [
-                    i * self.tensor_parallel_size + j * self.kv_head_repeats_num + k
-                    for k in range(self.kv_head_repeats_num)
-                ]
-                group = dist.new_group(ranks, timeout=LLM_NCCL_TIMEOUT)
-                if use_cpu:
-                    group_cpu = (
-                        dist.new_group(ranks, backend="gloo", timeout=LLM_NCCL_TIMEOUT)
-                        if dist.get_backend() != "gloo"
-                        else group
-                    )
-                else:
-                    group_cpu = None
-
-                if self.rank in ranks:
-                    local_rank = ranks.index(self.rank)
-                    group_world_size = len(ranks)
-                    process_group = group
-                    cpu_group = group_cpu
-                    ranks_in_group = ranks
 
         return local_rank, group_world_size, process_group, cpu_group, ranks_in_group, mode
 

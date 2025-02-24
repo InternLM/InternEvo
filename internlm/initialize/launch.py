@@ -1,5 +1,6 @@
 #!/usr/bin/env python
 # -*- encoding: utf-8 -*-
+# Copyright (c) InternLM. All rights reserved.
 
 import argparse
 import os
@@ -66,12 +67,21 @@ def get_default_parser():
 def args_sanity_check():
     assert gpc.config is not None, "config is not load!"
 
+    gpc.is_forward = True
+
     if "JOB_NAME" not in gpc.config:
         gpc.config._add_item("JOB_NAME", "AnonymousJob")
 
     # the default model type is INTERNLM
     if "model_type" not in gpc.config:
         gpc.config._add_item("model_type", ModelType.INTERNLM.name)
+
+    if gpc.config.model_type == "InternLM3_M":
+        # TODO: need check for isp overlap
+        num_layers = gpc.config.model.num_self_decoder_layers + gpc.config.model.num_cross_decoder_layers
+    else:
+        num_layers = gpc.config.model.num_layers
+    gpc.config.isp_num_layers = num_layers
 
     if "use_apex_adam" not in gpc.config:
         gpc.config._add_item("use_apex_adam", False)
@@ -91,13 +101,17 @@ def args_sanity_check():
         gpc.config.parallel._add_item("tensor", dict(size=1, mode=TensorParallelMode.mtp.name))
 
     if "weight" not in gpc.config.parallel:
-        gpc.config.parallel._add_item("weight", dict(size=1, overlap=False))
+        gpc.config.parallel._add_item(
+            "weight", dict(size=1, overlap=False, launch_allgather_before="wo", forward_overlap_per="layer")
+        )
 
     if "expert" not in gpc.config.parallel:
         gpc.config.parallel._add_item("expert", dict(size=-1, no_tp=False))
 
     if "expert_weight" not in gpc.config.parallel:
-        gpc.config.parallel._add_item("expert_weight", dict(size=1, overlap=False))
+        gpc.config.parallel._add_item(
+            "expert_weight", dict(size=1, overlap=False, launch_allgather_before="wo", forward_overlap_per="layer")
+        )
 
     if isinstance(gpc.config.parallel.pipeline, int):
         pp = gpc.config.parallel.pipeline
@@ -298,6 +312,9 @@ def args_sanity_check():
         logger.info(f"clip_grad_norm: {clip_grad_norm}")
 
     model = gpc.config.model
+    if "enable_qkv_fusion" not in model:
+        model._add_item("enable_qkv_fusion", True)
+
     if "dtype" not in model:
         logger.warning("dtype is not set, use torch.float16 by defalut!")
         model._add_item("dtype", torch.float16)
@@ -351,17 +368,6 @@ def args_sanity_check():
     if "use_flash_attn" not in gpc.config.model:
         gpc.config.model._add_item("use_flash_attn", True)
 
-    old_parallel_output = gpc.config.model.get("parallel_output", None)
-    # Try to change user setting
-    if internlm_accelerator.get_accelerator_backend() is not AcceleratorType.GPU:
-        gpc.config.model.update({"parallel_output": False})
-        if old_parallel_output is True and gpc.is_rank_for_log():
-            logger.warning(
-                "'parallel_output' is converted from 'True' to 'False'."
-                "Because 'parallel_output' only support by FlashCrossEntropyLoss."
-                "Please make sure you are using flash attention in cuda device."
-            )
-
     if "MoE" in gpc.config.get("model_type", ModelType.INTERNLM.name):
         if "num_experts" not in model:
             model._add_item("num_experts", 1)
@@ -399,17 +405,18 @@ def args_sanity_check():
         gpc.config.parallel["tensor"] = dict(size=gpc.config.parallel["tensor"], mode=TensorParallelMode.mtp.name)
     if gpc.config.parallel["tensor"].get("mode", None) is None:
         gpc.config.parallel["tensor"]["mode"] = TensorParallelMode.mtp.name
-    assert (
-        gpc.config.VOCAB_SIZE % gpc.config.parallel.tensor.size == 0
-    ), "VOCAB_SIZE must be integer multiple of tensor parallel size"
     if gpc.config.parallel["tensor"]["mode"] == TensorParallelMode.isp.name:
         assert not gpc.config.parallel.zero1.fsdp, "FSDP does not support isp"
         assert (
             torch.__version__ >= "2.1.0"
         ), f"requires torch>=2.1.0 when using isp but current version is {torch.__version__}"
-        assert (
-            gpc.config.VOCAB_SIZE % gpc.config.parallel.weight.size == 0
-        ), "VOCAB_SIZE must be integer multiple of wp size"
+
+    assert (
+        gpc.config.model.vocab_size % gpc.config.parallel.weight.size == 0
+    ), "model.vocab_size must be integer multiple of weight parallel size"
+    assert (
+        gpc.config.model.vocab_size % gpc.config.parallel.tensor.size == 0
+    ), "model.vocab_size must be integer multiple of tensor parallel size"
 
     assert gpc.config.parallel["tensor"].get("mode", None) in [
         TensorParallelMode.mtp.name,
@@ -449,16 +456,27 @@ def args_sanity_check():
     ]:
         gpc.config.parallel.sequence_parallel = True
 
+        if gpc.config.model.get("parallel_output", False) is False:
+            logger.warning("When enable sequence parallel, it recommend to enable parallel_output")
+
     # set default value for weight parallel
     if gpc.config.parallel["weight"].get("overlap", None) is None:
         gpc.config.parallel["weight"]["overlap"] = False
     if gpc.config.parallel["tensor"]["mode"] != TensorParallelMode.isp.name:
         assert gpc.config.parallel["weight"]["size"] <= 1, "weight parallel is only supported with isp"
+
+    if "early_reduce_scatter_release" not in gpc.config.parallel.weight:
+        gpc.config.parallel.weight["early_reduce_scatter_release"] = True
+
     # set default value for expert_weight parallel
     if gpc.config.parallel["expert_weight"].get("overlap", None) is None:
         gpc.config.parallel["expert_weight"]["overlap"] = False
     if gpc.config.parallel["expert"].get("no_tp", None) is None:
         gpc.config.parallel["expert"]["no_tp"] = False
+
+    if "early_reduce_scatter_release" not in gpc.config.parallel.expert_weight:
+        gpc.config.parallel.expert_weight["early_reduce_scatter_release"] = True
+
     # currently only interleaved pipeline scheduler with overlap can guarantee loss accuracy
     if hasattr(gpc.config.model, "num_chunks") and gpc.config.model.num_chunks > 1:
         assert (
@@ -532,7 +550,20 @@ def args_sanity_check():
         gpc.config.loss._add_item("moe_loss_coeff", 1.0)
 
     if "selective_checkpoint" not in gpc.config:
-        gpc.config._add_item("selective_checkpoint", False)
+        gpc.config.selective_checkpoint = False
+    if "selective_checkpoint_offload" not in gpc.config:
+        gpc.config.selective_checkpoint_offload = False
+    if gpc.config.selective_checkpoint is True:
+        assert (
+            gpc.config.parallel["tensor"]["mode"] == "isp"
+        ), "When using selective_checkpoint, tensor parallel mode must be isp"
+    if gpc.config.selective_checkpoint_offload is True:
+        assert (
+            gpc.config.selective_checkpoint is True
+        ), "When using selective_checkpoint_offload, selective_checkpoint must be True"
+        assert (
+            gpc.config.parallel.weight.launch_allgather_before == "wo"
+        ), "When using selective_checkpoint_offload, wp launch allgather communication should be set before 'wo' module"
 
     # moe not support overlap and zero1.5 for now
     if gpc.config.model.get("num_experts", 1) > 1:
@@ -582,6 +613,11 @@ def args_sanity_check():
             assert (
                 gpc.config.data.use_packed_dataset is False
             ), "only unpacked data is supported when using 2D sequence parallel."
+
+    # loss operator type
+    loss_cfg = gpc.config.loss
+    if loss_cfg.get("op_type", None) is None:
+        loss_cfg._add_item("op_type", "py_vocab_parallel")
 
 
 def launch(

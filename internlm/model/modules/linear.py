@@ -338,11 +338,15 @@ class GroupedGemmSPFusedDenseFunc(torch.autograd.Function):
             raise NotImplementedError(f"Invalid backend: {backend}")
 
         input_numel = x.numel()
+        ctx.input_numel = input_numel
         if input_numel == 0:
             backend = "bmm"
 
         ctx.compute_weight_gradient = weight.requires_grad
         ctx.backend = backend
+
+        saved_x = None if ctx.compute_weight_gradient is False else x
+        ctx.save_for_backward(saved_x, weight, batch_sizes)
 
         if torch.is_autocast_enabled():
             x = x.to(dtype=torch.get_autocast_gpu_dtype())
@@ -354,12 +358,13 @@ class GroupedGemmSPFusedDenseFunc(torch.autograd.Function):
             if input_numel == 0:
                 # if inp is empty, reshape to make grad flow.
                 # inp shape: (0, hdim)
-                weight = weight.view(x.shape[-1], -1)
+                output = torch.matmul(x, weight.view(x.shape[-1], -1))
+            else:
+                output = torch.matmul(x, weight)
 
-            output = torch.matmul(x, weight)
+        assert len(output.shape) == len(x.shape)
 
-        saved_x = None if ctx.compute_weight_gradient is False else x
-        ctx.save_for_backward(saved_x, weight, batch_sizes)
+        assert len(output.shape) == len(x.shape)
 
         return output
 
@@ -372,19 +377,33 @@ class GroupedGemmSPFusedDenseFunc(torch.autograd.Function):
         x, weight, batch_sizes = ctx.saved_tensors
         grad_input, grad_weight = None, None
 
+        if grad_output.numel() == 0:
+            if ctx.needs_input_grad[1]:
+                grad_weight = torch.zeros_like(weight)
+            if ctx.needs_input_grad[0]:
+                grad_input = torch.zeros_like(x)
+
+            return grad_input, grad_weight, None, None, None, None, None
+
         if ctx.needs_input_grad[1]:
             assert ctx.compute_weight_gradient
             if backend == "gmm":
                 grad_input, grad_weight = gmm_backward_op(x, grad_output, batch_sizes, input_weight=weight)
             else:
-                grad_weight = torch.matmul(x.transpose(-1, -2), grad_output)
+                if ctx.input_numel == 0:
+                    grad_weight = torch.zeros_like(weight)
+                else:
+                    grad_weight = torch.matmul(x.transpose(-1, -2), grad_output)
 
         if ctx.needs_input_grad[0]:
             if backend == "gmm":
                 if grad_input is None:
                     grad_input, _ = gmm_backward_op(grad_output, weight, batch_sizes, is_grad_input=True)
             else:
-                grad_input = torch.matmul(grad_output, weight.transpose(-1, -2))
+                if ctx.input_numel == 0:
+                    grad_input = torch.zeros_like(x)
+                else:
+                    grad_input = torch.matmul(grad_output, weight.transpose(-1, -2))
 
         return grad_input, grad_weight, None, None, None, None, None
 
@@ -450,6 +469,8 @@ class GroupedGemmWPFusedDenseFunc(torch.autograd.Function):
         saved_x = None if ctx.compute_weight_gradient is False else x
         ctx.save_for_backward(saved_x, weight, batch_sizes)
 
+        assert len(output.shape) == len(x.shape)
+
         return output
 
     @staticmethod
@@ -461,19 +482,27 @@ class GroupedGemmWPFusedDenseFunc(torch.autograd.Function):
         backend = ctx.backend
         full_weight_shape = ctx.full_weight_shape
 
+        if grad_output.numel() == 0:
+            if ctx.needs_input_grad[1]:
+                total_weight_shape = torch.Size(
+                    (full_weight_shape.numel() // full_weight_shape[-1], full_weight_shape[-1])
+                )
+                grad_weight = torch.zeros(total_weight_shape, dtype=weight.dtype, device=weight.device)
+                grad_weight, grad_weight_sync = communicator.grad_hook(
+                    grad_weight, async_op=True, module=module, is_bias=False
+                )
+            if ctx.needs_input_grad[0]:
+                grad_input = torch.zeros_like(x)
+            if ctx.needs_input_grad[1]:
+                grad_weight_sync.wait()
+
+            return grad_input, grad_weight, None, None, None, None, None
+
         grad_output = grad_output.contiguous()
 
         total_weight = communicator.weight_hook(weight, module=module)
         total_weight = total_weight.reshape(full_weight_shape)
         grad_input, grad_weight = None, None
-        if grad_output.numel() == 0:
-            if ctx.needs_input_grad[0]:
-                grad_input = torch.zeros_like(x)
-            if ctx.needs_input_grad[1]:
-                grad_weight = torch.zeros_like(total_weight).reshape(-1, full_weight_shape[-1])
-                grad_weight, _ = communicator.grad_hook(grad_weight, async_op=False, module=module, is_bias=False)
-
-            return grad_input, grad_weight, None, None, None, None, None
 
         if ctx.needs_input_grad[1]:
             assert ctx.compute_weight_gradient

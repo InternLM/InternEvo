@@ -164,7 +164,7 @@ def set_fp32_attr_for_model(model: Union[nn.Module, nn.ModuleList]):
 
 
 def set_parallel_attr_for_param_groups(model: Union[nn.Module, nn.ModuleList]):
-    def _check_module_pure_dp_wdp(name, module):  # pylint: disable=W0613
+    def _check_module_pure_dp(name, module):  # pylint: disable=W0613
         for param in module.parameters():
             setattr(param, IS_REPLICA_ZERO_PARALLEL, True)
 
@@ -220,11 +220,13 @@ def set_parallel_attr_for_param_groups(model: Union[nn.Module, nn.ModuleList]):
                 setattr(param, IS_REPLICA_ZERO_PARALLEL, True)
 
     for _chunk in unwrap_naive_amp(model):
-        # special case for pure dp or pure wdp mode
-        if gpc.get_world_size(ParallelMode.DATA) == gpc.get_world_size(ParallelMode.GLOBAL) and gpc.get_world_size(
-            ParallelMode.WEIGHT_DATA
-        ) == gpc.get_world_size(ParallelMode.GLOBAL):
-            _check_module_func = _check_module_pure_dp_wdp
+        # special case for pure dp mode
+        if (
+            isinstance(gpc.config.parallel["tensor"], dict)
+            and gpc.config.parallel["tensor"].get("mode", TensorParallelMode.mtp.name) == TensorParallelMode.mtp.name
+            and gpc.get_world_size(ParallelMode.DATA) == gpc.get_world_size(ParallelMode.GLOBAL)
+        ):
+            _check_module_func = _check_module_pure_dp
         else:
             _check_module_func = _check_module
         # set param parallel attribute
@@ -361,6 +363,8 @@ def initialize_parallel_communicator(model: Union[nn.Module, nn.ModuleList]):
             gpc.config.parallel.weight.overlap,
             gpc.get_group(ParallelMode.WEIGHT),
             is_moe=False,
+            selective_ckpt_offload=gpc.config.get("selective_checkpoint_offload", False),
+            early_reduce_scatter_release=gpc.config.parallel.weight.early_reduce_scatter_release,
         )
         # register communicator for isp column parallel linear.
         ColumnParallelLinear.register_cls_communicator(isp_communicator)
@@ -386,6 +390,7 @@ def initialize_parallel_communicator(model: Union[nn.Module, nn.ModuleList]):
                 gpc.config.parallel.expert_weight.overlap,
                 gpc.get_group(ParallelMode.EXPERT_WEIGHT),
                 is_moe=True,
+                early_reduce_scatter_release=gpc.config.parallel.expert_weight.early_reduce_scatter_release,
             )
             for moe in _submodule_filter(model, Experts):
                 for column_linear in _submodule_filter(moe, (ColumnParallelLinear, GroupedWPLinear)):
@@ -954,22 +959,34 @@ def inject_norm(model: nn.Module, inject=False, interactive=False) -> None:
 
 
 def inject_config(model: nn.Module) -> None:
+    # Compatibility for Vision-Language Model
     if hasattr(model.config, "text_config"):
-        model_config = model.config.text_config
+        llm_cfg = model.config.text_config
     else:
-        model_config = model.config
-    gpc.config.model.vocab_size = gpc.config.VOCAB_SIZE = model_config.vocab_size
-    gpc.config.model.hidden_size = gpc.config.HIDDEN_SIZE = model_config.hidden_size
-    gpc.config.model.num_layers = gpc.config.NUM_LAYER = model_config.num_hidden_layers
-    gpc.config.model.num_attention_heads = gpc.config.NUM_ATTENTION_HEAD = model_config.num_attention_heads
-    gpc.config.model.mlp_ratio = gpc.config.MLP_RATIO = model_config.intermediate_size / model_config.hidden_size
+        llm_cfg = model.config
+    gpc.config.model.vocab_size = gpc.config.VOCAB_SIZE = llm_cfg.vocab_size
+    gpc.config.model.hidden_size = gpc.config.HIDDEN_SIZE = llm_cfg.hidden_size
+    gpc.config.model.num_layers = gpc.config.NUM_LAYER = llm_cfg.num_hidden_layers
+    # Compatibility for Mamba
+    if hasattr(llm_cfg, "num_attention_heads"):
+        gpc.config.model.num_attention_heads = gpc.config.NUM_ATTENTION_HEAD = llm_cfg.num_attention_heads
+    gpc.config.model.mlp_ratio = gpc.config.MLP_RATIO = llm_cfg.intermediate_size / llm_cfg.hidden_size
     # For models that use GQA
-    if hasattr(model_config, "num_key_value_heads"):
-        gpc.config.model.num_kv_attention_heads = gpc.config.NUM_KV_ATTENTION_HEAD = model_config.num_key_value_heads
+    if hasattr(llm_cfg, "num_key_value_heads"):
+        gpc.config.model.num_kv_attention_heads = gpc.config.NUM_KV_ATTENTION_HEAD = llm_cfg.num_key_value_heads
 
 
 def inject_model_helper(model: Union[nn.Module, nn.ModuleList], inject_info: Optional[Dict] = None) -> None:
-    # get inject_info
+    """
+    Inject model helper functions.
+
+    Args:
+        model (Union[nn.Module, nn.ModuleList]):
+            For built-in models, it is nn.Module for no pp and nn.ModuleList for pp.
+            For injected models, it is nn.Module.
+        inject_info (Optional[Dict]): configurations for injected_models.
+    """
+    # parse inject_info
     if inject_info is not None:
         inject = inject_info.get("inject", False)
         interactive = inject_info.get("interactive", False)
@@ -991,31 +1008,37 @@ def inject_model_helper(model: Union[nn.Module, nn.ModuleList], inject_info: Opt
         "norm": inject_norm,
     }
 
+    # inject config
+    if inject:
+        inject_config(model)
+
     if not isinstance(model, nn.ModuleList):
         model = [model]
-
-    # inject modules
     for _chunk in model:
-        if gpc.get_world_size(ParallelMode.DATA) == gpc.get_world_size(ParallelMode.GLOBAL) and gpc.get_world_size(
-            ParallelMode.WEIGHT_DATA
-        ) == gpc.get_world_size(ParallelMode.GLOBAL):
+        # Special case for pure dp mode: skip
+        if (
+            isinstance(gpc.config.parallel["tensor"], dict)
+            and gpc.config.parallel["tensor"].get("mode", TensorParallelMode.mtp.name) == TensorParallelMode.mtp.name
+            and gpc.get_world_size(ParallelMode.DATA) == gpc.get_world_size(ParallelMode.GLOBAL)
+        ):
             continue
+        # In-place replacement or check for modules: "embed", "linear", "norm"
+        # (1) If inject=True, in-place replacement
+        # (2) If inject=False, check
         for mod in modules:
             inject_funcs[mod](_chunk, inject, interactive)
-
-    # reset parameters and move model to device
+        # reset parameters if needed, model should have reset_parameters() method
+        if reset_params:
+            _chunk.reset_parameters()
     for _chunk in model:
-        if inject:
-            if reset_params:
-                _chunk.reset_parameters()
+        # If model is initialized on cpu, model should be moved to cuda device after injection
+        if not next(_chunk.parameters()).is_cuda:
             _chunk.to(get_current_device())
 
-    # inject configs
-    if inject:
-        inject_config(model[0])
-        if gpc.is_rank_for_log():
-            logger.info(
-                f"inject is enabled, please check the model carefully, "
-                f"if there are any problems, please report issue to us. "
-                f"The injected model is \n {model}"
-            )
+    # print injected model
+    if inject and gpc.is_rank_for_log():
+        logger.info(
+            f"inject is enabled, please check the model carefully, "
+            f"if there are any problems, please report issue to us. "
+            f"The injected model is \n {model}"
+        )

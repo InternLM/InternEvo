@@ -37,6 +37,8 @@ from internlm.utils.utils import (
     params_dispatch_with_condition,
 )
 
+from .attn_offload import get_offload_manager
+
 
 # not really useful, only for code hint.
 class WPCommunicator(ABC):
@@ -266,7 +268,6 @@ class ISPCommModelConfig:
         dtype: torch.dtype = torch.half,
         device: torch.device = None,
         activation_checkpointing: float = 0.0,
-        module_shapes: Dict[str, torch.Size] = None,
     ) -> None:
         self.dtype = dtype
         if device is None:
@@ -274,7 +275,6 @@ class ISPCommModelConfig:
         else:
             self.device = device
         self.activation_checkpointing = activation_checkpointing
-        self.module_shapes = module_shapes
 
 
 class ISPOverlapState:
@@ -285,7 +285,7 @@ class ISPOverlapState:
     def __init__(self) -> None:
         self.num_blocks: int = 0
         self.ckpt_block_num: int = 0
-        self.isp_outs: List[nn.Module] = []
+        self.isp_prefetch_launch_module: List[nn.Module] = []
         self.isp_modules: List[nn.Module] = []
         self.index_to_isp_modules: Dict[int, nn.Module] = {}
         self.index_to_block: Dict[int, nn.Module] = {}
@@ -308,6 +308,8 @@ class ISPCommunicator(WPCommunicator):
         overlap: bool = False,
         process_group: dist.ProcessGroup = None,
         is_moe: bool = False,
+        selective_ckpt_offload: bool = False,
+        early_reduce_scatter_release: bool = True,
     ) -> None:
         self.process_group = process_group
         self.overlap = overlap
@@ -315,8 +317,22 @@ class ISPCommunicator(WPCommunicator):
         self.is_moe = is_moe
         self.is_forward = True
         self.reduce_scatter_handlers = {}
-        self._module_shapes = {}
         self._forward_prefetch_prerequisites = []
+        self._zero_const_pool = {}
+
+        self._enable_early_reduce_scatter_release = early_reduce_scatter_release
+        self._early_prev_layer_rs_handles = []
+        self._early_curr_layer_rs_handles = []
+        self._forward_overlap_per = self._get_forward_overlap_granularity()
+        self._launch_before_module = self._get_launch_before_module()
+        # As an optimization, do not release weight after forward for the last
+        # transformer block since wp would prefetch it immediately
+        self.layers_wp_not_release = []  # [gpc.config.isp_num_layers - 1]
+        self.layers_fa_not_release = [
+            gpc.config.isp_num_layers - 1,
+            int(gpc.config.model.checkpoint * gpc.config.isp_num_layers) - 1,
+        ]
+        self.sc_offload = selective_ckpt_offload
 
         # real overlap state for each chunk.
         self._overlap_states: Dict[int, ISPOverlapState] = {}
@@ -324,7 +340,7 @@ class ISPCommunicator(WPCommunicator):
         # inner interface variables of overlap state.
         self._num_blocks = None
         self._ckpt_block_num = None
-        self._isp_outs = None
+        self._isp_prefetch_launch_module = None
         self._isp_modules = None
         # key: isp module; value: module global all-gather op handle
         self._weight_global_handle = None
@@ -351,13 +367,45 @@ class ISPCommunicator(WPCommunicator):
                 self._register_sync_parameters_hook()
             # switch to chunk 0 at first.
             self.switch_current_model_chunk(0)
-            self.model_conf.module_shapes = self._module_shapes
+
+    def _get_launch_before_module(self):
+        if self.is_moe is True:
+            _launch_before = gpc.config.parallel.expert_weight.get("launch_allgather_before", "wo")
+        else:
+            _launch_before = gpc.config.parallel.weight.get("launch_allgather_before", "wo")
+
+        if _launch_before == "wqkv":
+            return ["wqkv", "Wqkv", "qkv", "q_a_proj", "q_proj"]
+        elif _launch_before == "attn":
+            return ["attn"]
+        elif _launch_before == "wo":
+            return ["out_proj", "wo"]
+        elif _launch_before == "w1":
+            return ["w1", "fused_w1_w3"]
+        else:
+            assert False, "launch module should be in ['wqkv', 'attn', 'wo', 'w1']"
+
+    def _get_forward_overlap_granularity(self):
+        if self.is_moe is True:
+            _overlap_granularity = gpc.config.parallel.expert_weight.get("forward_overlap_per", "layer")
+        else:
+            _overlap_granularity = gpc.config.parallel.weight.get("forward_overlap_per", "layer")
+
+        assert _overlap_granularity in ["module", "layer"]
+        return _overlap_granularity
 
     def _parse_model_structure(self, cid: int, model: nn.Module) -> None:
         self._overlap_states[cid] = ISPOverlapState()
 
         def get_model(obj: nn.Module) -> nn.Module:
             return get_model(obj.model) if hasattr(obj, "model") else obj
+
+        def is_allgather_launch_module(name, module):
+            return (
+                hasattr(module, "is_attn_cls")
+                and getattr(module, "is_attn_cls")
+                and self._launch_before_module == ["attn"]
+            ) or (name.split(".")[-1] in self._launch_before_module)
 
         # Important: only works for llama-class models
         children_name = get_model(model).named_children()
@@ -369,23 +417,18 @@ class ISPCommunicator(WPCommunicator):
                     self._overlap_states[cid].index_to_isp_modules[idx] = []
                     self._overlap_states[cid].index_to_block[idx] = block
                     for name, child in block.named_modules():
-                        if name.split(".")[-1] in ["out_proj", "wo"]:
-                            self._overlap_states[cid].isp_outs.append(child)
-                            self._overlap_states[cid].module_to_index[child] = idx
+                        if is_allgather_launch_module(name, child):
+                            self._overlap_states[cid].isp_prefetch_launch_module.append(child)
                         if isinstance(child, (ParallelLinearWithCommExt)):
                             if is_moe_param(child.weight) != self.is_moe:
                                 continue
-                            if name not in self._module_shapes:
-                                weight_parallel_size = dist.get_world_size(self.process_group)
-                                origin_shape = tuple(
-                                    [child.weight.shape[0] * weight_parallel_size] + list(child.weight.shape[1:])
-                                )
-                                self._module_shapes[name] = torch.Size(origin_shape)
+
                             self._overlap_states[cid].module_to_index[child] = idx
                             self._overlap_states[cid].isp_modules.append(child)
                             self._overlap_states[cid].index_to_isp_modules[idx].append(child)
 
                             setattr(child, "isp_name", name)
+                            setattr(child, "isp_layer_idx", idx)
 
                             full_name = f"{cid}.{idx}.{name}"
                             setattr(
@@ -403,25 +446,28 @@ class ISPCommunicator(WPCommunicator):
         self._overlap_states[cid].num_blocks = len(self._overlap_states[cid].index_to_isp_modules)
 
     def _all_gather_module_weight(self, module):
+        assert module not in self._bias_global_output and module not in self._weight_global_output
         with_bias = module.bias is not None
 
         # submit the all-gather communication for weight and bias.
         if with_bias:
-            bias_output, bias_handle = all_gather_raw(
-                module.bias,
+            if module not in self._bias_global_output:
+                bias_output, bias_handle = all_gather_raw(
+                    module.bias,
+                    self.process_group,
+                    async_op=True,
+                )
+                self._bias_global_handle[module] = bias_handle
+                self._bias_global_output[module] = bias_output
+
+        if module not in self._weight_global_output:
+            weight_output, weight_handle = all_gather_raw(
+                module.weight,
                 self.process_group,
                 async_op=True,
             )
-            self._bias_global_handle[module] = bias_handle
-            self._bias_global_output[module] = bias_output
-
-        weight_output, weight_handle = all_gather_raw(
-            module.weight,
-            self.process_group,
-            async_op=True,
-        )
-        self._weight_global_handle[module] = weight_handle
-        self._weight_global_output[module] = weight_output
+            self._weight_global_handle[module] = weight_handle
+            self._weight_global_output[module] = weight_output
 
     def _all_gather_block_weight(self, block_index: int):
         block = self._index_to_block[block_index]
@@ -463,23 +509,39 @@ class ISPCommunicator(WPCommunicator):
         """
         prefetch weight for block 0 before forward.
         """
-        if self.is_forward is True:
+        if self._forward_overlap_per == "layer" and self.is_forward is True:
             self._all_gather_block_weight(0)
 
-    def _pre_forward_hook_for_last_ckpt_block(self, *args):  # pylint: disable=W0613
-        if self.is_forward is False:
-            self._all_gather_block_weight(self._ckpt_block_num - 1)
-
-    def _pre_forward_hook_for_out_proj(self, module: nn.Module, *args):  # pylint: disable=W0613
+    def _pre_forward_hook_for_prefetch_launch_module(self, module: nn.Module, *args):  # pylint: disable=W0613
         block_index = self._module_to_index[module]
 
-        if (block_index - 1 < self._ckpt_block_num) and self.is_forward is False:
-            if block_index - 1 >= 0:
-                self._all_gather_block_weight(block_index - 1)
-        else:
-            # start the all-gather for next block
-            if block_index + 1 < self._num_blocks:
-                self._all_gather_block_weight(block_index + 1)
+        if self._forward_overlap_per == "layer":
+            if (block_index - 1 < self._ckpt_block_num) and self.is_forward is False:
+                if block_index - 1 >= 0:
+                    self._all_gather_block_weight(block_index - 1)
+            else:
+                # start the all-gather for next block
+                if block_index + 1 < self._num_blocks:
+                    self._all_gather_block_weight(block_index + 1)
+
+        # register offload and prefetch hook for selective ckpt with wo linear
+        if self.sc_offload is True:
+            # move current layer's attn output from GPU to CPU asynchronizely
+            if (
+                self.is_forward is True
+                and gpc.config.selective_checkpoint
+                and block_index not in self.layers_fa_not_release
+                and block_index < self._ckpt_block_num
+            ):
+                get_offload_manager().offload_fa_output_with_layer(layer_idx=block_index)
+
+            # load previous layer's attn output from CPU to GPU asynchronizely
+            if (
+                self.is_forward is False
+                and gpc.config.selective_checkpoint
+                and (0 <= (block_index - 1) < self._ckpt_block_num)
+            ):
+                get_offload_manager().preload_fa_output_with_layer(layer_idx=block_index - 1)
 
     def _pre_forward_hook_for_module(self, module: nn.Module, *args):  # pylint: disable=W0613
         if module not in self._weight_global_handle:
@@ -487,7 +549,36 @@ class ISPCommunicator(WPCommunicator):
 
         self._wait_handle(module)
 
+        if self._forward_overlap_per == "module":
+            # start the all-gather for next module
+            # 1.forward prefetch for next module
+            module_index = self._isp_modules.index(module)
+            module_layer_id = self._module_to_index[module]
+            if module_index + 1 < len(self._isp_modules) and self.is_forward is True:
+                next_module = self._isp_modules[module_index + 1]
+                self._all_gather_module_weight(next_module)
+
+            # 2.recompute forward prefetch for next module
+            if self.is_forward is False:
+                if module_index + 1 < len(self._isp_modules):
+                    next_module = self._isp_modules[module_index + 1]
+                    next_module_layer_id = self._module_to_index[next_module]
+                    if module_layer_id == next_module_layer_id:
+                        self._all_gather_module_weight(next_module)
+                    # if current module is the last module in current layer, prefetch previous layer's first module
+                    elif module_layer_id - 1 >= 0:
+                        next_module = self._index_to_isp_modules[module_layer_id - 1][0]
+                        self._all_gather_module_weight(next_module)
+                else:
+                    # if current module is the last module, prefetch previous layer's first module
+                    if module_layer_id - 1 >= 0:
+                        next_module = self._index_to_isp_modules[module_layer_id - 1][0]
+                        self._all_gather_module_weight(next_module)
+
     def _post_forward_hook_for_module(self, module: nn.Module, *args):  # pylint: disable=W0613
+        if int(module.isp_layer_idx) in self.layers_wp_not_release:
+            # print(f"the layer {module.isp_layer_idx} after forward not clear weight")
+            return
         if not ((self._module_to_index[module] < self._ckpt_block_num) and self.is_forward is False):
             self._clear_handle(module)
             self._clear_weight(module)
@@ -510,34 +601,36 @@ class ISPCommunicator(WPCommunicator):
         self._clear_handle(module)
         self._clear_weight(module)
 
+    def _early_reduce_scatter_release_hook(self, *args):  # pylint: disable=W0613
+        for handle in self._early_prev_layer_rs_handles:
+            handle.wait()
+
+        self._early_prev_layer_rs_handles = self._early_curr_layer_rs_handles
+        self._early_curr_layer_rs_handles = []
+
     def _register_sync_parameters_hook(self) -> None:
         """
         register forward hooks and backward hooks for isp modules.
         """
         # register forward hooks
-        # 1. register pre_forward_hook @block_0 to prefetch for block 0
-        # 2. register pre_forward_hook @block_(ckpt_block_num-1) to prefetch for the last ckpt block
-        # 3. register pre_forward_hook @out_proj module to prefetch for next block,
-        #    notice that next block's all_gather op should be after current block's all_to_all op
-        # 4. register pre_forward_hook @isp_module to wait handle for current module
-        # 5. register post_forward_hook @isp_module to release resource
+        # 1. register pre_forward_hook @block_0 to prefetch weight for block 0.
+        # 2. register pre_forward_hook @prefetch_launch_module to prefetch weight for next block,
+        #    when forward overlap granularity is 'layer'.
+        # 3. register pre_forward_hook @isp_module to wait handle for current module,
+        #    and prefetch weight for next module when forward overlap granularity is 'module'.
+        # 4. register post_forward_hook @isp_module to release memory resource.
         self._index_to_block[0].register_forward_pre_hook(self._pre_forward_hook_for_first_block)
 
-        if self._ckpt_block_num >= 1:
-            self._index_to_block[self._ckpt_block_num - 1].register_forward_pre_hook(
-                self._pre_forward_hook_for_last_ckpt_block
-            )
-
-        for out_proj in self._isp_outs:
-            out_proj.register_forward_pre_hook(self._pre_forward_hook_for_out_proj)
+        for module in self._isp_prefetch_launch_module:
+            module.register_forward_pre_hook(self._pre_forward_hook_for_prefetch_launch_module)
 
         for module in self._isp_modules:
             module.register_forward_pre_hook(self._pre_forward_hook_for_module)
             module.register_forward_hook(self._post_forward_hook_for_module)
 
         # register backward hooks
-        # 1. register pre_backward_hook @isp_module to wait handle for current module and to prefetch for next module
-        # 2. register post_backward_hook @isp_module to release resource
+        # 1. register pre_backward_hook @isp_module to wait handle for current module and to prefetch for next module.
+        # 2. register post_backward_hook @isp_module to release memory resource.
         if self._ckpt_block_num < self._num_blocks:
             for module in self._isp_modules:
                 module.register_full_backward_pre_hook(self._pre_backward_hook_for_module)
@@ -545,18 +638,24 @@ class ISPCommunicator(WPCommunicator):
         for module in self._isp_modules:
             module.register_full_backward_hook(self._post_backward_hook_for_module)
 
+        if self._enable_early_reduce_scatter_release:
+            for block_idx in range(self._num_blocks):
+                block = self._index_to_block[block_idx]
+                block.register_full_backward_hook(self._early_reduce_scatter_release_hook)
+
     def _get_constant_zero(self, size: tuple) -> torch.Tensor:
-        return torch.zeros(
-            *size,
-            dtype=self.model_conf.dtype,
-            device=self.model_conf.device,
-        ).contiguous()
+        if size not in self._zero_const_pool:
+            self._zero_const_pool[size] = torch.zeros(
+                *size, dtype=self.model_conf.dtype, device=self.model_conf.device
+            ).contiguous()
+
+        return self._zero_const_pool[size]
 
     def communication_mode(self) -> str:
         return "wp"
 
     def switch_current_model_chunk(self, chunk_id: int) -> None:
-        self._isp_outs = self._overlap_states[chunk_id].isp_outs
+        self._isp_prefetch_launch_module = self._overlap_states[chunk_id].isp_prefetch_launch_module
         self._isp_modules = self._overlap_states[chunk_id].isp_modules
         self._weight_global_handle = self._overlap_states[chunk_id].weight_global_handle
         self._bias_global_handle = self._overlap_states[chunk_id].bias_global_handle
@@ -637,12 +736,17 @@ class ISPCommunicator(WPCommunicator):
                 assert hasattr(module.weight, "isp_reduce_scatter_name")
                 key = getattr(module.weight, "isp_reduce_scatter_name")
 
-            self.reduce_scatter_handlers[key] = reduce_scatter_raw(
+            output, handle = reduce_scatter_raw(
                 tensor,
                 self.process_group,
                 op=reduce_op,
                 async_op=async_op,
             )
+
+            if self._enable_early_reduce_scatter_release:
+                self._early_curr_layer_rs_handles.append(handle)
+
+            self.reduce_scatter_handlers[key] = (output, handle)
 
             result, handle = (
                 self._get_constant_zero(
@@ -697,6 +801,10 @@ class ISPCommunicatorSchedulerHook(SchedulerHook):
                 and not self._zero_optim.skip_grad_reduce
             ):
                 self._zero_optim.reduce_left_grads_after_backward()
+
+        if self._isp_communicator and self._isp_communicator._enable_early_reduce_scatter_release:
+            self._isp_communicator._early_prev_layer_rs_handles = []
+            self._isp_communicator._early_curr_layer_rs_handles = []
 
     def post_helper_func(self, scheduler, outputs, label) -> None:  # pylint: disable=W0613
         pass
@@ -872,9 +980,7 @@ class DistributedAttention(nn.Module):
 
         q, kv = _SeqAllToAll.apply(self.spg, [2, 3], [1, 1], q, kv)
 
-        torch.cuda.synchronize()
         context = self.local_attn(q, kv, *args, **kwargs)
-        torch.cuda.synchronize()
 
         context = _SeqAllToAll.apply(self.spg, 1, 2, context)
 

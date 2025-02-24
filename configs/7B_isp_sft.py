@@ -1,5 +1,5 @@
 JOB_NAME = "7b_train"
-# model_type = "INTERNLM2_PUBLIC"
+model_type = "INTERNLM2"
 DO_ALERT = False
 
 VOCAB_SIZE = 103168
@@ -31,7 +31,7 @@ ckpt = dict(
     # 'load_ckpt_info' setting guide:
     # 1. the 'path' indicate ckpt path,
     # 2. the 'content‘ means what states will be loaded, support: "model", "sampler", "optimizer", "scheduler", "all"
-    # 3. the ’ckpt_type‘ means the type of checkpoint to be loaded, support: "internevo", "hf", or other custom-defined 
+    # 3. the ’ckpt_type‘ means the type of checkpoint to be loaded, support: "internevo", "hf", or other custom-defined
     # load function such as "llama"
     load_ckpt_info=dict(path=MODEL_ONLY_FOLDER, content=("model",), ckpt_type="internevo"),
     # 'auto_resume' is designed to automatically load the latest checkpoint from 'save_ckpt_folder' when encountering
@@ -108,8 +108,24 @@ hybrid_zero_optimizer = dict(
     clip_grad_norm=1.0,
 )
 
+
+# loss config (dict):
+#     1. label_smoothing
+#     2. op_type: cross_entropy operator type, we support five types for loss computing,
+#                 including ["torch_naive", "apex_naive", "py_naive", "flash_vocab_parallel", "py_vocab_parallel"]
+#                 default is "py_vocab_parallel".
+#         "torch_naive": cross_entropy imported from torch, i.e. torch.nn.CrossEntropyLoss
+#         "apex_naive": cross_entropy from apex
+#         "py_naive": self-implemented cross_entropy
+#         "flash_vocab_parallel": vocab parallel cross_entropy imported from flash_attn
+#         "py_vocab_parallel": self-implemented vocab parallel cross_entropy
+
+#         * op_types that ends with "naive" only support parallel_output=False;
+#         * if in no-GPU env, only "torch_naive" and "py_vocab_parallel" are supported.
+
 loss = dict(
     label_smoothing=0,
+    op_type="flash_vocab_parallel",
 )
 
 adam = dict(
@@ -145,7 +161,7 @@ model = dict(
     parallel_output=True,
     hidden_size=HIDDEN_SIZE,
     num_layers=NUM_LAYER,
-    # no_bias=True,
+    no_bias=True,
     mlp_ratio=MLP_RATIO,
     apply_post_layer_norm=False,
     dtype="torch.bfloat16",  # Support: "torch.float16", "torch.half", "torch.bfloat16", "torch.float32", "torch.tf32"
@@ -186,26 +202,30 @@ pipeline parallel (dict):
 weight parallel (dict):
     1. size: int, the size of weight parallel.
     2. overlap: bool, enable/disable all_gather/reduce_scatter communication overlap, defaults to False.
+    3. launch_allgather_before: str, before which module to launch the all gather communication to
+        prefetch next layer's weight, should be in ['wqkv', 'attn', 'wo', 'w1'], defaults to 'wo'.
+        Must be used with forward_overlap_per 'layer'.
+    4. forward_overlap_per: str, all gather prefetch granularity, per 'module' or per 'layer', defaults to 'layer'.
 sequence_2D (dict):
     1. enable: bool, whether enable the 2D sequence parallel or not.
-    2. head_size: int, the parallel degree of head parallelism (DeepSpeed Ulysses). 
+    2. head_size: int, the parallel degree of head parallelism (DeepSpeed Ulysses).
                   head_size * context_size should be equal tensor size.
     3. context_size: int, the parallel degree of context parallelism.
                   head_size * context_size should be equal tensor size.
     4. window_size: int, the sliding window size in context parallelism.
     5. device_placement_strategy: dict,
-        head_first: bool, if `True`, ranks of the same head parallel group are 
+        head_first: bool, if `True`, ranks of the same head parallel group are
                               given high priority for colocation on the same node;
                               if `False`, ranks of the same context parallel group are
                               given high priority for colocation on the same node;
-        interleaved: bool, if `head_first` is `False` and `window_size` > 1, this config could 
+        interleaved: bool, if `head_first` is `False` and `window_size` > 1, this config could
                            interleaved the ranks in the same window to make full use of NIC as much as possible.
 """
 parallel = dict(
     zero1=dict(size=-1),
     tensor=dict(size=2, mode="isp"),
     pipeline=dict(size=1, interleaved_overlap=True),
-    weight=dict(size=4, overlap=True),
+    weight=dict(size=4, overlap=True, launch_allgather_before="wo", forward_overlap_per="layer"),
     sequence_2D=dict(
         enable=False,
         head_size=2,

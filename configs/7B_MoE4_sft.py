@@ -103,6 +103,20 @@ hybrid_zero_optimizer = dict(
     clip_grad_norm=1.0,
 )
 
+
+# loss config (dict):
+#     1. label_smoothing
+#     2. op_type: cross_entropy operator type, we support five types for loss computing,
+#                 including ["torch_naive", "apex_naive", "py_naive", "flash_vocab_parallel", "py_vocab_parallel"]
+#                 default is "py_vocab_parallel".
+#         "torch_naive": cross_entropy imported from torch, i.e. torch.nn.CrossEntropyLoss
+#         "apex_naive": cross_entropy from apex
+#         "py_naive": self-implemented cross_entropy
+#         "flash_vocab_parallel": vocab parallel cross_entropy imported from flash_attn
+#         "py_vocab_parallel": self-implemented vocab parallel cross_entropy
+#         * op_types that ends with "naive" only support parallel_output=False;
+#         * if in no-GPU env, only "torch_naive" and "py_vocab_parallel" are supported.
+
 loss = dict(
     label_smoothing=0,
     moe_loss_coeff=0.1,
@@ -183,6 +197,10 @@ pipeline parallel (dict):
 weight parallel (dict):
     1. size: int, the size of weight parallel.
     2. overlap: bool, enable/disable all_gather/reduce_scatter communication overlap, defaults to False.
+    3. launch_allgather_before: str, before which module to launch the all gather communication to
+        prefetch next layer's weight, should be in ['wqkv', 'attn', 'wo', 'w1'], defaults to 'wo'.
+        Must be used with forward_overlap_per 'layer'.
+    4. forward_overlap_per: str, all gather prefetch granularity, per 'module' or per 'layer', defaults to 'layer'.
 expert parallel (dict):
     1. size: int
         * if size <= 0, ep size equals to dp size, but if the number of experts is smaller than dp size, set ep size
@@ -193,14 +211,18 @@ expert parallel (dict):
 expert weight parallel (dict):
     1. size: int, the size of weight parallel for expert module, distinct with global weight parallel size.
     2. overlap: bool, enable/disable all_gather/reduce_scatter communication overlap, defaults to False.
+    3. launch_allgather_before: str, before which module to launch the all gather communication to
+        prefetch next layer's weight, should be in ['wqkv', 'attn', 'wo', 'w1'], defaults to 'wo'.
+        Must be used with forward_overlap_per 'layer'.
+    4. forward_overlap_per: str, all gather prefetch granularity, per 'module' or per 'layer', defaults to 'layer'.
 """
 parallel = dict(
     zero1=dict(size=-1, fsdp=False),
     tensor=dict(size=1, mode="mtp"),
     pipeline=dict(size=1, interleaved_overlap=True),
-    weight=dict(size=1, overlap=True),
+    weight=dict(size=1, overlap=True, launch_allgather_before="wo", forward_overlap_per="layer"),
     expert=dict(size=-1, no_tp=False),
-    expert_weight=dict(size=1, overlap=True),
+    expert_weight=dict(size=1, overlap=True, launch_allgather_before="wo", forward_overlap_per="layer"),
 )
 
 cudnn_deterministic = False
