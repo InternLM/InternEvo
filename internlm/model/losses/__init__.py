@@ -1,5 +1,5 @@
-from .ce_loss import FlashGPTLMLoss
+from .ce_loss import InternLoss
 
 __all__ = [
-    "FlashGPTLMLoss",
+    "InternLoss",
 ]

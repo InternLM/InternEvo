@@ -279,7 +279,7 @@ if __name__ == "__main__":
     >>> torchrun --master_port 12321 --nnodes=1 --node_rank=0 --nproc_per_node=1 tools/load_internlm2_model.py
     """
     model = initialize_internlm_model(
-        model_type="INTERNLM2_PUBLIC",
+        model_type="INTERNLM2",
         ckpt_dir=args.ckpt_dir,
         model_config=dict(
             num_chunks=1,

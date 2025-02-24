@@ -1,21 +1,22 @@
-JOB_NAME = "7b_internlm2_train"
-model_type = "INTERNLM2"
+# Copyright (c) InternLM. All rights reserved.
+JOB_NAME = "8b_internlm3_train"
+model_type = "INTERNLM3"
 DO_ALERT = False
 
-VOCAB_SIZE = 92544
-SEQ_LEN = 2048
+VOCAB_SIZE = 128512
+SEQ_LEN = 4096
 HIDDEN_SIZE = 4096
 NUM_ATTENTION_HEAD = 32
-NUM_KV_ATTENTION_HEAD = 8
-MLP_RATIO = 3.5
-NUM_LAYER = 32
+NUM_KV_ATTENTION_HEAD = 2
+MLP_RATIO = 2.5
+NUM_LAYER = 48
 
 
-MODEL_ONLY_FOLDER = "local:llm_ckpts/xxxx"
+MODEL_ONLY_FOLDER = None  # "local:llm_ckpts/xxxx"
 # Ckpt folder format:
 # fs: 'local:/mnt/nfs/XXX'
-SAVE_CKPT_FOLDER = "local:llm_ckpts"
-LOAD_CKPT_FOLDER = "local:llm_ckpts/49"
+SAVE_CKPT_FOLDER = None  # "local:llm_ckpts"
+# LOAD_CKPT_FOLDER = "local:llm_ckpts/49"
 
 # boto3 Ckpt folder format:
 # import os
@@ -26,6 +27,12 @@ CHECKPOINT_EVERY = 50
 ckpt = dict(
     enable_save_ckpt=False,  # enable ckpt save.
     save_ckpt_folder=SAVE_CKPT_FOLDER,  # Path to save training ckpt.
+    # 'load_ckpt_info' setting guide:
+    # 1. the 'path' indicate ckpt path,
+    # 2. the 'content‘ means what states will be loaded, support: "model", "sampler", "optimizer", "scheduler", "all"
+    # 3. the ’ckpt_type‘ means the type of checkpoint to be loaded, support: "internevo", "hf", or other custom-defined
+    # load function such as "llama"
+    load_ckpt_info=dict(path=MODEL_ONLY_FOLDER, content=("model",), ckpt_type="hf"),
     # 'auto_resume' is designed to automatically load the latest checkpoint from 'save_ckpt_folder' when encountering
     # training interruptions/hangs caused by hardware failures, using a scheduling system (such as k8s/slurm)
     # with an automatic restart mechanism upon training reboot.
@@ -38,6 +45,8 @@ ckpt = dict(
     async_upload=True,  # async ckpt upload. (only work for boto3 ckpt)
     async_upload_tmp_folder="/dev/shm/internlm_tmp_ckpt/",  # path for temporarily files during asynchronous upload.
     oss_snapshot_freq=int(CHECKPOINT_EVERY / 2),  # snapshot ckpt save frequency.
+    # 'enable_internevo2hf_ckpt' is designed to convert the saved model checkpoint in internevo format to the huggingface format.
+    enable_internevo2hf_ckpt=False,
 )
 
 TRAIN_FOLDER = None
@@ -45,9 +54,9 @@ VALID_FOLDER = None  # "/path/to/dataset"
 data = dict(
     seq_len=SEQ_LEN,
     # micro_num means the number of micro_batch contained in one gradient update
-    micro_num=4,
+    micro_num=1,
     # packed_length = micro_bsz * SEQ_LEN
-    micro_bsz=1,
+    micro_bsz=2,
     # defaults to the value of micro_num
     valid_micro_num=4,
     # defaults to 0, means disable evaluate
@@ -67,6 +76,7 @@ data = dict(
     valid_folder=VALID_FOLDER,
     empty_cache_and_diag_interval=200,
     diag_outlier_ratio=1.1,
+    # use_packed_dataset=False,
 )
 
 grad_scaler = dict(
@@ -91,7 +101,7 @@ grad_scaler = dict(
 hybrid_zero_optimizer = dict(
     # Enable low_level_optimzer overlap_communication
     overlap_sync_grad=True,
-    overlap_sync_param=False,
+    overlap_sync_param=True,
     # bucket size for nccl communication params
     reduce_bucket_size=512 * 1024 * 1024,
     # grad clipping
@@ -142,6 +152,7 @@ model = dict(
     checkpoint=False,
     num_chunks=1,
     num_attention_heads=NUM_ATTENTION_HEAD,
+    num_kv_attention_heads=NUM_KV_ATTENTION_HEAD,
     embed_split_hidden=True,
     vocab_size=VOCAB_SIZE,
     embed_grad_scale=1,
@@ -154,7 +165,6 @@ model = dict(
     dtype="torch.bfloat16",
     norm_type="rmsnorm",
     layer_norm_epsilon=1e-5,
-    num_kv_attention_heads=NUM_KV_ATTENTION_HEAD,
     use_flash_attn=True,
     # Whether the odd and even columns of the query and key in the model are normally interleaved.
     # If it's True, the model's odd and even columns are normally ordered; if it's False,
@@ -164,6 +174,8 @@ model = dict(
     # qk_interleaved = True: q[-1] = [q1,q2,q3,q4,q5,q6,...], k[-1] = [k1,k2,k3,k4,k5,k6,...]
     # qk_interleaved = False: q[-1] = [q1,q3,q5,...,q2,q4,q6,...], k[-1] = [k1,k3,k5,...,k2,k4,k6,...]
     qk_interleaved=False,
+    rope_base=50000000,
+    enable_qkv_fusion=False,
 )
 
 """
@@ -186,16 +198,40 @@ pipeline parallel (dict):
     1. size: int, the size of pipeline parallel.
     2. interleaved_overlap: bool, enable/disable communication overlap when using interleaved pipeline scheduler,
         defaults to False.
-    3. mode: str, the pipeline parallel mode, should be in ['1f1b', 'zbh1', 'zbv']. The defalut is 1f1b.
 weight parallel (dict):
     1. size: int, the size of weight parallel.
     2. overlap: bool, enable/disable all_gather/reduce_scatter communication overlap, defaults to False.
+    3. launch_allgather_before: str, before which module to launch the all gather communication to
+        prefetch next layer's weight, should be in ['wqkv', 'attn', 'wo', 'w1'], defaults to 'wo'.
+        Must be used with forward_overlap_per 'layer'.
+    4. forward_overlap_per: str, all gather prefetch granularity, per 'module' or per 'layer', defaults to 'layer'.
+sequence_2D (dict):
+    1. enable: bool, whether enable the 2D sequence parallel or not.
+    2. head_size: int, the parallel degree of head parallelism (DeepSpeed Ulysses).
+                  head_size * context_size should be equal tensor size.
+    3. context_size: int, the parallel degree of context parallelism.
+                  head_size * context_size should be equal tensor size.
+    4. window_size: int, the sliding window size in context parallelism.
+    5. device_placement_strategy: dict,
+        head_first: bool, if `True`, ranks of the same head parallel group are
+                              given high priority for colocation on the same node;
+                              if `False`, ranks of the same context parallel group are
+                              given high priority for colocation on the same node;
+        interleaved: bool, if `head_first` is `False` and `window_size` > 1, this config could
+                           interleaved the ranks in the same window to make full use of NIC as much as possible.
 """
 parallel = dict(
-    zero1=dict(size=-1),
-    tensor=dict(size=2, mode="isp"),
-    pipeline=dict(size=1, interleaved_overlap=True, mode="1f1b"),
-    weight=dict(size=2, overlap=True),
+    zero1=dict(size=1),
+    tensor=dict(size=1, mode="isp"),
+    pipeline=dict(size=1, interleaved_overlap=True),
+    weight=dict(size=16, overlap=True, launch_allgather_before="wo", forward_overlap_per="module"),
+    sequence_2D=dict(
+        enable=False,
+        head_size=2,
+        context_size=4,
+        window_size=1,
+        device_placement_strategy=dict(head_first=True, interleaved=False),
+    ),
 )
 
 cudnn_deterministic = False

@@ -15,7 +15,7 @@ from internlm.core.context.parallel_context import Config
 from internlm.core.trainer import Trainer
 from internlm.data import build_train_loader_with_data_type
 from internlm.initialize.launch import args_sanity_check
-from internlm.model.losses import FlashGPTLMLoss
+from internlm.model.losses import InternLoss
 from internlm.model.metrics import AccPerplex, SchedulerMetricHook
 from internlm.train import (
     initialize_model,
@@ -70,7 +70,7 @@ config = Config(
             num_chunks=1,
             no_bias=True,
         ),
-        model_type="INTERNLM2_PUBLIC",
+        model_type="INTERNLM2",
         alert_address=None,
         monitor=dict(alert=dict(enable_feishu_alert=False, feishu_alert_address=None, light_monitor_address=None)),
         grad_scaler=dict(
@@ -175,7 +175,7 @@ def train_check_output(args):
     _ = initialize_parallel_communicator(model)
 
     # initialize loss function
-    criterion = FlashGPTLMLoss(parallel_output=False, label_smoothing=gpc.config.loss.label_smoothing)
+    criterion = InternLoss(parallel_output=False, label_smoothing=gpc.config.loss.label_smoothing)
 
     optimizer, beta2_scheduler, lr_scheduler = initialize_optimizer(model=model)
 

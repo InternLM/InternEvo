@@ -27,7 +27,7 @@ from internlm.data import (  # noqa: E402
 )
 from internlm.eval.evaluation import evaluate_on_val_dls  # noqa: E402
 from internlm.initialize import initialize_distributed_env  # noqa: E402
-from internlm.model.losses import FlashGPTLMLoss  # noqa: E402
+from internlm.model.losses import InternLoss  # noqa: E402
 from internlm.model.metrics import AccPerplex, SchedulerMetricHook  # noqa: E402
 from internlm.monitor import (  # noqa: E402
     initialize_monitor_manager,
@@ -123,7 +123,7 @@ def main(args):
         config_lines = f.readlines()
 
     # initialize loss function
-    criterion = FlashGPTLMLoss(parallel_output=True, label_smoothing=label_smoothing)
+    criterion = InternLoss(parallel_output=True, label_smoothing=label_smoothing)
 
     # initialize the train and validation data loader
     train_dl, dataset_types = build_train_loader_with_data_type()

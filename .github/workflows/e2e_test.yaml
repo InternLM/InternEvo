@@ -10,6 +10,10 @@ env:
   WORKSPACE_PREFIX: $(echo $GITHUB_WORKSPACE |cut -d '/' -f 1-4)
   SLURM_PARTITION: llm_s
 
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
 jobs:
   training_4GPU:
     runs-on: [t_cluster]
@@ -23,11 +27,14 @@ jobs:
 
     - name: training_4GPU
       run: |
+        ssh ${USER}@${CI_HOST} bash << EOF
+        cd $GITHUB_WORKSPACE
         source activate ${evo_env_torch21_flash2}
         jobname=${GITHUB_RUN_ID}-${GITHUB_JOB}-${GITHUB_RUN_ATTEMPT}
-        srun -p ${SLURM_PARTITION} --exclusive --kill-on-bad-exit=1 --job-name=$jobname -n4 --ntasks-per-node=4 --cpus-per-task=4 --gpus-per-task=1 pytest -s -v --color=yes -m "training_4GPU" ./tests/test_training/test_loss.py
+        srun -p ${SLURM_PARTITION} --exclusive --kill-on-bad-exit=1 --job-name=\$jobname -n4 --ntasks-per-node=4 --cpus-per-task=4 --gpus-per-task=1 pytest -s -v --color=yes -m "training_4GPU" ./tests/test_training/test_loss.py
         exit_code=$?
-        sh ./ci_scripts/common/check_slurm_cancled.sh $exit_code $jobname
+        sh ./ci_scripts/common/check_slurm_cancled.sh \$exit_code \$jobname
+        EOF
 
   training_8GPU_ISP:
     runs-on: [t_cluster]
@@ -41,11 +48,14 @@ jobs:
 
     - name: training_8GPU_ISP
       run: |
+        ssh ${USER}@${CI_HOST} bash << EOF
+        cd $GITHUB_WORKSPACE
         source activate ${evo_env_torch21_flash2}
         jobname=ISP-${GITHUB_RUN_ID}-${GITHUB_JOB}-${GITHUB_RUN_ATTEMPT}
-        srun -p ${SLURM_PARTITION} --kill-on-bad-exit=1 --job-name=$jobname -n8 --ntasks-per-node=8 --cpus-per-task=4 --gpus-per-task=1 pytest -s -v --color=yes -m "training_8GPU_ISP" ./tests/test_training/test_loss.py
+        srun -p ${SLURM_PARTITION} --kill-on-bad-exit=1 --job-name=\$jobname -n8 --ntasks-per-node=8 --cpus-per-task=4 --gpus-per-task=1 pytest -s -v --color=yes -m "training_8GPU_ISP" ./tests/test_training/test_loss.py
         exit_code=$?
-        sh ./ci_scripts/common/check_slurm_cancled.sh $exit_code $jobname
+        sh ./ci_scripts/common/check_slurm_cancled.sh \$exit_code \$jobname
+        EOF
 
   training_8GPU_ISP_CKPT:
     runs-on: [t_cluster]
@@ -59,16 +69,17 @@ jobs:
 
     - name: training_8GPU_ISP_CKPT
       run: |
+        ssh ${USER}@${CI_HOST} bash << EOF
+        cd $GITHUB_WORKSPACE
         source activate ${evo_env_torch21_flash2}
         jobname=ISP_CKPT-${GITHUB_RUN_ID}-${GITHUB_JOB}-${GITHUB_RUN_ATTEMPT}
-        srun -p ${SLURM_PARTITION} --kill-on-bad-exit=1 --job-name=$jobname -n8 --ntasks-per-node=8 --cpus-per-task=4 --gpus-per-task=1 pytest -s -v --color=yes -m "training_8GPU_ISP_SAVE_CKPT" ./tests/test_training/test_loss.py
-        exit_code=$?
-        sh ./ci_scripts/common/check_slurm_cancled.sh $exit_code $jobname
+        srun -p ${SLURM_PARTITION} --kill-on-bad-exit=1 --job-name=\$jobname -n8 --ntasks-per-node=8 --cpus-per-task=4 --gpus-per-task=1 pytest -s -v --color=yes -m "training_8GPU_ISP_SAVE_CKPT" ./tests/test_training/test_loss.py
 
         jobname=LOAD-${GITHUB_RUN_ID}-${GITHUB_JOB}-${GITHUB_RUN_ATTEMPT}
-        srun -p ${SLURM_PARTITION} --kill-on-bad-exit=1 --job-name=$jobname -n8 --ntasks-per-node=8 --cpus-per-task=4 --gpus-per-task=1 pytest -s -v --color=yes -m "training_8GPU_ISP_LOAD_CKPT" ./tests/test_training/test_loss.py
+        srun -p ${SLURM_PARTITION} --kill-on-bad-exit=1 --job-name=\$jobname -n8 --ntasks-per-node=8 --cpus-per-task=4 --gpus-per-task=1 pytest -s -v --color=yes -m "training_8GPU_ISP_LOAD_CKPT" ./tests/test_training/test_loss.py
         exit_code=$?
-        sh ./ci_scripts/common/check_slurm_cancled.sh $exit_code $jobname
+        sh ./ci_scripts/common/check_slurm_cancled.sh \$exit_code \$jobname
+        EOF
 
   training_8GPU_4DP2TP:
     strategy:
@@ -85,11 +96,14 @@ jobs:
     - name: training_8GPU_4DP2TP_T
       if: ${{ matrix.runner == 't_cluster' }}
       run: |
+        ssh ${USER}@${CI_HOST} bash << EOF
+        cd $GITHUB_WORKSPACE
         source activate ${evo_env_torch21_flash2}
         jobname=${GITHUB_RUN_ID}-${GITHUB_JOB}-${GITHUB_RUN_ATTEMPT}
-        srun -p ${SLURM_PARTITION} --kill-on-bad-exit=1 --job-name=$jobname -n8 --ntasks-per-node=8 --cpus-per-task=4 --gpus-per-task=1 pytest -s -v --color=yes -m "training_8GPU_4DP2TP" ./tests/test_training/test_loss.py
+        srun -p ${SLURM_PARTITION} --kill-on-bad-exit=1 --job-name=\$jobname -n8 --ntasks-per-node=8 --cpus-per-task=4 --gpus-per-task=1 pytest -s -v --color=yes -m "training_8GPU_4DP2TP" ./tests/test_training/test_loss.py
         exit_code=$?
-        sh ./ci_scripts/common/check_slurm_cancled.sh $exit_code $jobname
+        sh ./ci_scripts/common/check_slurm_cancled.sh \$exit_code \$jobname
+        EOF
 
   training_8GPU_4DP2TPSP:
     strategy:
@@ -106,11 +120,13 @@ jobs:
     - name: training_8GPU_4DP2TPSP_T
       if: ${{ matrix.runner == 't_cluster' }}
       run: |
+        ssh ${USER}@${CI_HOST} bash << EOF
+        cd $GITHUB_WORKSPACE
         source activate ${evo_env_torch21_flash2}
-        jobname=${GITHUB_RUN_ID}-${GITHUB_JOB}-${GITHUB_RUN_ATTEMPT}
-        srun -p ${SLURM_PARTITION} --kill-on-bad-exit=1 --job-name=$jobname -n8 --ntasks-per-node=8 --cpus-per-task=4 --gpus-per-task=1 pytest -s -v --color=yes -m "training_8GPU_4DP2TPSP" ./tests/test_training/test_loss.py
+        srun -p ${SLURM_PARTITION} --kill-on-bad-exit=1 --job-name=\$jobname -n8 --ntasks-per-node=8 --cpus-per-task=4 --gpus-per-task=1 pytest -s -v --color=yes -m "training_8GPU_4DP2TPSP" ./tests/test_training/test_loss.py
         exit_code=$?
-        sh ./ci_scripts/common/check_slurm_cancled.sh $exit_code $jobname
+        sh ./ci_scripts/common/check_slurm_cancled.sh \$exit_code \$jobname
+        EOF
 
   training_8GPU_4DP2PP:
     strategy:
@@ -127,11 +143,14 @@ jobs:
     - name: training_8GPU_4DP2PP_T
       if: ${{ matrix.runner == 't_cluster' }}
       run: |
+        ssh ${USER}@${CI_HOST} bash << EOF
+        cd $GITHUB_WORKSPACE
         source activate ${evo_env_torch21_flash2}
         jobname=${GITHUB_RUN_ID}-${GITHUB_JOB}-${GITHUB_RUN_ATTEMPT}
-        srun -p ${SLURM_PARTITION} --kill-on-bad-exit=1 --job-name=$jobname -n8 --ntasks-per-node=8 --cpus-per-task=4 --gpus-per-task=1 pytest -s -v --color=yes -m "training_8GPU_4DP2PP" ./tests/test_training/test_loss.py
+        srun -p ${SLURM_PARTITION} --kill-on-bad-exit=1 --job-name=\$jobname -n8 --ntasks-per-node=8 --cpus-per-task=4 --gpus-per-task=1 pytest -s -v --color=yes -m "training_8GPU_4DP2PP" ./tests/test_training/test_loss.py
         exit_code=$?
-        sh ./ci_scripts/common/check_slurm_cancled.sh $exit_code $jobname
+        sh ./ci_scripts/common/check_slurm_cancled.sh \$exit_code \$jobname
+        EOF
 
   training_8GPU_4DP2PP_ZB:
     runs-on: [t_cluster]
@@ -145,11 +164,14 @@ jobs:
 
     - name: training_8GPU_4DP2PP_ZB
       run: |
+        ssh ${USER}@${CI_HOST} bash << EOF
+        cd $GITHUB_WORKSPACE
         source activate ${evo_env_torch21_flash2}
         jobname=${GITHUB_RUN_ID}-${GITHUB_JOB}-${GITHUB_RUN_ATTEMPT}
-        srun -p ${SLURM_PARTITION} --kill-on-bad-exit=1 --job-name=$jobname -n8 --ntasks-per-node=8 --cpus-per-task=4 --gpus-per-task=1 pytest -s -v --color=yes -m "training_8GPU_4DP2PP_ZB" ./tests/test_training/test_loss.py
+        srun -p ${SLURM_PARTITION} --kill-on-bad-exit=1 --job-name=\$jobname -n8 --ntasks-per-node=8 --cpus-per-task=4 --gpus-per-task=1 pytest -s -v --color=yes -m "training_8GPU_4DP2PP_ZB" ./tests/test_training/test_loss.py
         exit_code=$?
-        sh ./ci_scripts/common/check_slurm_cancled.sh $exit_code $jobname
+        sh ./ci_scripts/common/check_slurm_cancled.sh \$exit_code \$jobname
+        EOF
 
   training_16GPU_4DP2TP2PP_MTP:
     strategy:
@@ -166,11 +188,14 @@ jobs:
     - name: training_16GPU_4DP2TP2PP_MTP_T
       if: ${{ matrix.runner == 't_cluster' }}
       run: |
+        ssh ${USER}@${CI_HOST} bash << EOF
+        cd $GITHUB_WORKSPACE
         source activate ${evo_env_torch21_flash2}
         jobname=${GITHUB_RUN_ID}-${GITHUB_JOB}-${GITHUB_RUN_ATTEMPT}
-        srun -p ${SLURM_PARTITION} --kill-on-bad-exit=1 --job-name=$jobname -n16 --ntasks-per-node=8 --cpus-per-task=4 --gpus-per-task=1 pytest -s -v --color=yes -m "training_16GPU_4DP2TP2PP_MTP" ./tests/test_training/test_loss.py
+        srun -p ${SLURM_PARTITION} --kill-on-bad-exit=1 --job-name=\$jobname -n16 --ntasks-per-node=8 --cpus-per-task=4 --gpus-per-task=1 pytest -s -v --color=yes -m "training_16GPU_4DP2TP2PP_MTP" ./tests/test_training/test_loss.py
         exit_code=$?
-        sh ./ci_scripts/common/check_slurm_cancled.sh $exit_code $jobname
+        sh ./ci_scripts/common/check_slurm_cancled.sh \$exit_code \$jobname
+        EOF
 
   training_16GPU_4DP2TP2PP_MSP:
     strategy:
@@ -187,11 +212,14 @@ jobs:
     - name: training_16GPU_4DP2TP2PP_MSP_T
       if: ${{ matrix.runner == 't_cluster' }}
       run: |
+        ssh ${USER}@${CI_HOST} bash << EOF
+        cd $GITHUB_WORKSPACE
         source activate ${evo_env_torch21_flash2}
         jobname=${GITHUB_RUN_ID}-${GITHUB_JOB}-${GITHUB_RUN_ATTEMPT}
-        srun -p ${SLURM_PARTITION} --kill-on-bad-exit=1 --job-name=$jobname -n16 --ntasks-per-node=8 --cpus-per-task=4 --gpus-per-task=1 pytest -s -v --color=yes -m "training_16GPU_4DP2TP2PP_MSP" ./tests/test_training/test_loss.py
+        srun -p ${SLURM_PARTITION} --kill-on-bad-exit=1 --job-name=\$jobname -n16 --ntasks-per-node=8 --cpus-per-task=4 --gpus-per-task=1 pytest -s -v --color=yes -m "training_16GPU_4DP2TP2PP_MSP" ./tests/test_training/test_loss.py
         exit_code=$?
-        sh ./ci_scripts/common/check_slurm_cancled.sh $exit_code $jobname
+        sh ./ci_scripts/common/check_slurm_cancled.sh \$exit_code \$jobname
+        EOF
 
   training_16GPU_4DP2TP2PP_FSP:
     strategy:
@@ -208,11 +236,14 @@ jobs:
     - name: training_16GPU_4DP2TP2PP_FSP_T
       if: ${{ matrix.runner == 't_cluster' }}
       run: |
+        ssh ${USER}@${CI_HOST} bash << EOF
+        cd $GITHUB_WORKSPACE
         source activate ${evo_env_torch21_flash2}
         jobname=${GITHUB_RUN_ID}-${GITHUB_JOB}-${GITHUB_RUN_ATTEMPT}
-        srun -p ${SLURM_PARTITION} --kill-on-bad-exit=1 --job-name=$jobname -n16 --ntasks-per-node=8 --cpus-per-task=4 --gpus-per-task=1 pytest -s -v --color=yes -m "training_16GPU_4DP2TP2PP_FSP" ./tests/test_training/test_loss.py
+        srun -p ${SLURM_PARTITION} --kill-on-bad-exit=1 --job-name=\$jobname -n16 --ntasks-per-node=8 --cpus-per-task=4 --gpus-per-task=1 pytest -s -v --color=yes -m "training_16GPU_4DP2TP2PP_FSP" ./tests/test_training/test_loss.py
         exit_code=$?
-        sh ./ci_scripts/common/check_slurm_cancled.sh $exit_code $jobname
+        sh ./ci_scripts/common/check_slurm_cancled.sh \$exit_code \$jobname
+        EOF
 
   training_llama2:
     strategy:
@@ -228,8 +259,11 @@ jobs:
     - uses: actions/checkout@v3
     - name: training_llama2_T
       run: |
+        ssh ${USER}@${CI_HOST} bash << EOF
+        cd $GITHUB_WORKSPACE
         source activate ${evo_env_torch21_flash2}
         jobname=${GITHUB_RUN_ID}-${GITHUB_JOB}-${GITHUB_RUN_ATTEMPT}
-        srun -p ${SLURM_PARTITION} --kill-on-bad-exit=1 --job-name=$jobname -n8 --ntasks-per-node=8 --cpus-per-task=4 --gpus-per-task=1 pytest -s -v --color=yes -m "training_llama2" ./tests/test_training/test_loss.py
+        srun -p ${SLURM_PARTITION} --kill-on-bad-exit=1 --job-name=\$jobname -n8 --ntasks-per-node=8 --cpus-per-task=4 --gpus-per-task=1 pytest -s -v --color=yes -m "training_llama2" ./tests/test_training/test_loss.py
         exit_code=$?
-        sh ./ci_scripts/common/check_slurm_cancled.sh $exit_code $jobname
+        sh ./ci_scripts/common/check_slurm_cancled.sh \$exit_code \$jobname
+        EOF

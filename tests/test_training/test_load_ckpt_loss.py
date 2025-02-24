@@ -38,7 +38,7 @@ from internlm.initialize.launch import (  # noqa: E402  #pylint: disable=wrong-i
     args_sanity_check,
 )
 from internlm.model.losses import (  # noqa: E402  #pylint: disable=wrong-import-position
-    FlashGPTLMLoss,
+    InternLoss,
 )
 from internlm.model.metrics import (  # noqa: E402  #pylint: disable=wrong-import-position
     AccPerplex,
@@ -224,7 +224,7 @@ def train_model(args):
     _ = initialize_parallel_communicator(model)
 
     # initialize loss function
-    criterion = FlashGPTLMLoss(parallel_output=True, label_smoothing=gpc.config.loss.label_smoothing)
+    criterion = InternLoss(parallel_output=True, label_smoothing=gpc.config.loss.label_smoothing)
 
     # initialize the train and validation data loader
     train_dl, dataset_types = build_train_loader_with_data_type()

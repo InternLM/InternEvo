@@ -10,7 +10,7 @@ on:
 jobs:
   # lint check can be auto-executed by the workflow
   lint-check:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-20.04
     steps:
     - uses: actions/checkout@v3
 

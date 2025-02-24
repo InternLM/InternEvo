@@ -303,6 +303,6 @@ class MegaBlockMoE(BaseMoELayer):
 
         x, tokens_per_expert = self.forward_fn(x, expert_weights, top_experts)
 
-        self.l_aux = self.load_balancing_loss(tokens_per_expert, all_probs)
+        l_aux = self.load_balancing_loss(tokens_per_expert, all_probs)
 
-        return x.view(*input_shape)
+        return x.view(*input_shape), l_aux

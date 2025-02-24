@@ -10,7 +10,7 @@ from internlm.core.context import global_context as gpc  # noqa: E402
 from internlm.core.trainer import TrainState, Trainer  # noqa: E402
 from internlm.data import build_train_loader_with_data_type  # noqa: E402
 from internlm.initialize import initialize_distributed_env  # noqa: E402
-from internlm.model.losses import FlashGPTLMLoss  # noqa: E402
+from internlm.model.losses import InternLoss  # noqa: E402
 from internlm.train import (  # noqa: E402
     get_scheduler_hooks,
     initialize_model,
@@ -25,7 +25,7 @@ def setup_generator(config, tokenizer):
     model = initialize_model()
     isp_communicator = initialize_parallel_communicator(model)
 
-    criterion = FlashGPTLMLoss()
+    criterion = InternLoss()
 
     # initialize the train data loader
     train_dl, _ = build_train_loader_with_data_type()

@@ -364,6 +364,7 @@ def initialize_parallel_communicator(model: Union[nn.Module, nn.ModuleList]):
             gpc.get_group(ParallelMode.WEIGHT),
             is_moe=False,
             selective_ckpt_offload=gpc.config.get("selective_checkpoint_offload", False),
+            early_reduce_scatter_release=gpc.config.parallel.weight.early_reduce_scatter_release,
         )
         # register communicator for isp column parallel linear.
         ColumnParallelLinear.register_cls_communicator(isp_communicator)
@@ -389,6 +390,7 @@ def initialize_parallel_communicator(model: Union[nn.Module, nn.ModuleList]):
                 gpc.config.parallel.expert_weight.overlap,
                 gpc.get_group(ParallelMode.EXPERT_WEIGHT),
                 is_moe=True,
+                early_reduce_scatter_release=gpc.config.parallel.expert_weight.early_reduce_scatter_release,
             )
             for moe in _submodule_filter(model, Experts):
                 for column_linear in _submodule_filter(moe, (ColumnParallelLinear, GroupedWPLinear)):

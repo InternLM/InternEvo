@@ -1,5 +1,6 @@
 #!/usr/bin/env python
 # -*- encoding: utf-8 -*-
+# Copyright (c) InternLM. All rights reserved.
 
 import argparse
 import os
@@ -312,6 +313,9 @@ def args_sanity_check():
         logger.info(f"clip_grad_norm: {clip_grad_norm}")
 
     model = gpc.config.model
+    if "enable_qkv_fusion" not in model:
+        model._add_item("enable_qkv_fusion", True)
+
     if "dtype" not in model:
         logger.warning("dtype is not set, use torch.float16 by defalut!")
         model._add_item("dtype", torch.float16)
@@ -364,17 +368,6 @@ def args_sanity_check():
     # process the model config
     if "use_flash_attn" not in gpc.config.model:
         gpc.config.model._add_item("use_flash_attn", True)
-
-    old_parallel_output = gpc.config.model.get("parallel_output", None)
-    # Try to change user setting
-    if internlm_accelerator.get_accelerator_backend() is not AcceleratorType.GPU:
-        gpc.config.model.update({"parallel_output": False})
-        if old_parallel_output is True and gpc.is_rank_for_log():
-            logger.warning(
-                "'parallel_output' is converted from 'True' to 'False'."
-                "Because 'parallel_output' only support by FlashCrossEntropyLoss."
-                "Please make sure you are using flash attention in cuda device."
-            )
 
     if "MoE" in gpc.config.get("model_type", ModelType.INTERNLM.name):
         if "num_experts" not in model:
@@ -464,16 +457,27 @@ def args_sanity_check():
     ]:
         gpc.config.parallel.sequence_parallel = True
 
+        if gpc.config.model.get("parallel_output", False) is False:
+            logger.warning("When enable sequence parallel, it recommend to enable parallel_output")
+
     # set default value for weight parallel
     if gpc.config.parallel["weight"].get("overlap", None) is None:
         gpc.config.parallel["weight"]["overlap"] = False
     if gpc.config.parallel["tensor"]["mode"] != TensorParallelMode.isp.name:
         assert gpc.config.parallel["weight"]["size"] <= 1, "weight parallel is only supported with isp"
+
+    if "early_reduce_scatter_release" not in gpc.config.parallel.weight:
+        gpc.config.parallel.weight["early_reduce_scatter_release"] = True
+
     # set default value for expert_weight parallel
     if gpc.config.parallel["expert_weight"].get("overlap", None) is None:
         gpc.config.parallel["expert_weight"]["overlap"] = False
     if gpc.config.parallel["expert"].get("no_tp", None) is None:
         gpc.config.parallel["expert"]["no_tp"] = False
+
+    if "early_reduce_scatter_release" not in gpc.config.parallel.expert_weight:
+        gpc.config.parallel.expert_weight["early_reduce_scatter_release"] = True
+
     # currently only interleaved pipeline scheduler with overlap can guarantee loss accuracy
     if hasattr(gpc.config.model, "num_chunks") and gpc.config.model.num_chunks > 1:
         assert (
@@ -610,6 +614,11 @@ def args_sanity_check():
             assert (
                 gpc.config.data.use_packed_dataset is False
             ), "only unpacked data is supported when using 2D sequence parallel."
+
+    # loss operator type
+    loss_cfg = gpc.config.loss
+    if loss_cfg.get("op_type", None) is None:
+        loss_cfg._add_item("op_type", "py_vocab_parallel")
 
 
 def launch(
