@@ -2,12 +2,12 @@ JOB_NAME = "7b_train"
 model_type = "INTERNLM2"
 DO_ALERT = False
 
-VOCAB_SIZE = 92544
-SEQ_LEN = 128 * 1024
+VOCAB_SIZE = 103168
+SEQ_LEN = 2048
 HIDDEN_SIZE = 4096
 NUM_ATTENTION_HEAD = 32
 NUM_KV_ATTENTION_HEAD = 8
-MLP_RATIO = 3.5
+MLP_RATIO = 8 / 3
 NUM_LAYER = 32
 
 
@@ -48,15 +48,15 @@ ckpt = dict(
     oss_snapshot_freq=int(CHECKPOINT_EVERY / 2),  # snapshot ckpt save frequency.
 )
 
-TRAIN_FOLDER = "/mnt/petrelfs/share_data/llm_data/0715_llama_tokenized_refined_real/train/"
-# TRAIN_FOLDER = None  # "/path/to/dataset"
+# TRAIN_FOLDER = "/mnt/petrelfs/share_data/llm_data/0715_llama_tokenized_refined_real/train/"
+TRAIN_FOLDER = None  # "/path/to/dataset"
 VALID_FOLDER = None  # "/path/to/dataset"
 data = dict(
     seq_len=SEQ_LEN,
     # micro_num means the number of micro_batch contained in one gradient update
-    micro_num=1,
+    micro_num=4,
     # packed_length = micro_bsz * SEQ_LEN
-    micro_bsz=1,
+    micro_bsz=2,
     # defaults to the value of micro_num
     valid_micro_num=4,
     # defaults to 0, means disable evaluate
@@ -76,7 +76,7 @@ data = dict(
     valid_folder=VALID_FOLDER,
     empty_cache_and_diag_interval=200,
     diag_outlier_ratio=1.1,
-    use_packed_dataset=False,
+    # use_packed_dataset=False,
 )
 
 grad_scaler = dict(
@@ -153,7 +153,7 @@ beta2_scheduler = dict(
 
 use_fp32_norm = False
 model = dict(
-    checkpoint=True,  # The proportion of layers for activation aheckpointing, the optional value are True/False/[0-1]
+    checkpoint=False,  # The proportion of layers for activation aheckpointing, the optional value are True/False/[0-1]
     num_attention_heads=NUM_ATTENTION_HEAD,
     num_kv_attention_heads=NUM_KV_ATTENTION_HEAD,
     embed_split_hidden=True,
@@ -223,13 +223,13 @@ sequence_2D (dict):
 """
 parallel = dict(
     zero1=dict(size=-1),
-    tensor=dict(size=64, mode="isp"),
+    tensor=dict(size=2, mode="isp"),
     pipeline=dict(size=1, interleaved_overlap=True),
-    weight=dict(size=1, overlap=True, launch_allgather_before="wo", forward_overlap_per="layer"),
+    weight=dict(size=4, overlap=True, launch_allgather_before="wo", forward_overlap_per="layer"),
     sequence_2D=dict(
-        enable=True,
-        head_size=8,
-        context_size=8,
+        enable=False,
+        head_size=2,
+        context_size=4,
         window_size=1,
         device_placement_strategy=dict(head_first=True, interleaved=False),
     ),
@@ -238,7 +238,6 @@ parallel = dict(
 cudnn_deterministic = False
 cudnn_benchmark = False
 
-# selective_checkpoint = True
 
 monitor = dict(
     # feishu alert configs
