@@ -101,6 +101,11 @@ def args_sanity_check():
         num_layers = gpc.config.model.num_layers
     gpc.config.isp_num_layers = num_layers
 
+    if "cpu_offloading" not in gpc.config:
+        gpc.config._add_item("cpu_offloading", dict(enable=False, num_layers=0))
+    if gpc.config.cpu_offloading.enable is False:
+        assert gpc.config.cpu_offloading.num_layers == 0, "num_layers should be 0 when cpu_offloading is disabled."
+
     if "use_apex_adam" not in gpc.config:
         gpc.config._add_item("use_apex_adam", False)
 

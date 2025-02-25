@@ -1,7 +1,7 @@
 #!/usr/bin/env python
 # -*- encoding: utf-8 -*-
-
 import math
+from contextlib import nullcontext
 from typing import Optional
 
 import torch
@@ -9,6 +9,8 @@ from torch import nn
 
 from internlm.core.context import ParallelMode
 from internlm.core.context import global_context as gpc
+from internlm.core.context.parallel_context import global_context as gpc
+from internlm.core.parallel.comm.cpu_offload import get_cpu_offload_context
 from internlm.model.model_implementations.transformers.base_model import (
     BaseTransformerModel,
 )
@@ -324,6 +326,16 @@ class Internlm1MoE(BaseTransformerModel):
         super().__init__()
 
         checkpoint_layer_num = int(num_layers * checkpoint)
+        self.enable_cpu_offloading = gpc.config.cpu_offloading.enable
+
+        if self.enable_cpu_offloading:
+            (self.offload_context, self.group_prefetch_offload_commit_async) = get_cpu_offload_context(
+                gpc.config.cpu_offloading.enable,
+                gpc.config.cpu_offloading.num_layers,
+                gpc.config.model.num_layers,
+            )
+        else:
+            self.offload_context, self.group_prefetch_offload_commit_async = nullcontext(), None
 
         if first:
             self.embedding = Embedding1D(num_embeddings=vocab_size, embedding_dim=hidden_size)
@@ -342,7 +354,7 @@ class Internlm1MoE(BaseTransformerModel):
                     max_position_embeddings=max_position_embeddings,
                     dtype=dtype,
                     layer_norm_epsilon=layer_norm_epsilon,
-                    checkpoint=lid < checkpoint_layer_num,
+                    checkpoint=gpc.config.cpu_offloading.num_layers <= lid < checkpoint_layer_num,
                     layer_idx=lid + start_layer_idx,  # This parameter is used for caching during generation
                     use_dynamic_ntk_rope=use_dynamic_ntk_rope,
                     residual_in_fp32=residual_in_fp32,
@@ -391,8 +403,16 @@ class Internlm1MoE(BaseTransformerModel):
 
         moe_losses = []
         for _, block in enumerate(self.blocks):
-            hidden_states, mos_loss = block(hidden_states, **kwargs)
-            moe_losses.append(mos_loss)
+            with self.offload_context:
+                hidden_states, mos_loss = block(hidden_states, **kwargs)
+                moe_losses.append(mos_loss)
+
+            if (
+                torch.is_grad_enabled()
+                and self.enable_cpu_offloading
+                and self.group_prefetch_offload_commit_async is not None
+            ):
+                hidden_states = self.group_prefetch_offload_commit_async(hidden_states)
 
         if hasattr(self, "norm"):
             hidden_states = self.norm(hidden_states.float())

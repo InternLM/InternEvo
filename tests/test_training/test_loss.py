@@ -9,16 +9,19 @@ from internlm.accelerator import AcceleratorType, get_accelerator
 from internlm.checkpoint import CheckpointManager
 from internlm.core.context import ParallelMode
 from internlm.core.context import global_context as gpc
-from internlm.core.trainer import Trainer, TrainState, get_scheduler_hooks
+from internlm.core.trainer import (
+    Trainer,
+    TrainState,
+    get_scheduler_hooks,
+    load_new_batch,
+)
 from internlm.data import build_train_loader_with_data_type
-from internlm.initialize import initialize_launcher
+from internlm.initialize import initialize_launcher, initialize_trainer
 from internlm.initialize.initialize_model import (
     initialize_model_and_parallel_communicator,
 )
 from internlm.initialize.initialize_optimizer import initialize_optimizer
-from internlm.initialize import initialize_trainer
 from internlm.model.model_ops.losses import InternLoss
-from internlm.core.trainer import load_new_batch
 from internlm.utils.common import BatchSkipper, launch_time
 from internlm.utils.config import Config
 from internlm.utils.gputest import empty_cache_and_diag
@@ -467,16 +470,16 @@ def test_training_with_isp():
     global CONFIG_FILE_PATH, BASELINE_LOSS_LIST
     CONFIG_FILE_PATH = "./configs/7B_isp_sft.py"
     BASELINE_LOSS_LIST = [
-        12.225811004638672,
-        12.103824615478516,
-        12.223844528198242,
-        11.87704849243164,
-        11.651590347290039,
-        11.629219055175781,
-        10.242591857910156,
-        9.768388748168945,
-        9.330610275268555,
-        5.505439758300781,
+        12.159960746765137,
+        12.22106647491455,
+        12.106496810913086,
+        11.951896667480469,
+        11.644429206848145,
+        11.459924697875977,
+        10.127229690551758,
+        9.795705795288086,
+        9.255647659301758,
+        5.301709175109863,
     ]
 
     # model training

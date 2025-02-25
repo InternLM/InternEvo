@@ -151,10 +151,18 @@ beta2_scheduler = dict(
     cur_iter=-1,
 )
 
+# cpu_offloading = dict(
+#     enable=True,
+#     num_layers=3,
+# )
+# selective_checkpoint = True
+# selective_checkpoint_offload = False
+
 use_fp32_norm = False
 model = dict(
     checkpoint=False,  # The proportion of layers for activation aheckpointing, the optional value are True/False/[0-1]
     num_attention_heads=NUM_ATTENTION_HEAD,
+    num_kv_attention_heads=NUM_KV_ATTENTION_HEAD,
     embed_split_hidden=True,
     vocab_size=VOCAB_SIZE,
     embed_grad_scale=1,
