@@ -152,7 +152,7 @@ def test_warmup(use_flash_atten_case, group_case, micro_bsz_case):
     config = Config(
         dict(
             parallel=dict(
-                zero1=dict(size=1, fsdp=False),
+                zero1=dict(size=1),
                 tensor=dict(size=1, mode="mtp"),
                 pipeline=dict(size=1, interleaved_overlap=True),
                 weight=dict(size=1, overlap=True),

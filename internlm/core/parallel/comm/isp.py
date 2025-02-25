@@ -760,6 +760,7 @@ class ISPCommunicator(WPCommunicator):
         process_group: dist.ProcessGroup = None,
         is_moe: bool = False,
         selective_ckpt_offload: bool = False,
+        early_reduce_scatter_release: bool = True,
         enable_layer_fuse_isp_comm: bool = False,
     ) -> None:
         self.process_group = process_group
@@ -769,6 +770,11 @@ class ISPCommunicator(WPCommunicator):
         self.is_forward = True
         self._reduce_scatter_handlers = {}
         self._forward_prefetch_prerequisites = []
+        self._zero_const_pool = {}
+
+        self._enable_early_reduce_scatter_release = early_reduce_scatter_release
+        self._early_prev_layer_rs_handles = []
+        self._early_curr_layer_rs_handles = []
         self._forward_overlap_per = self._get_forward_overlap_granularity()
         self._launch_before_module = self._get_launch_before_module()
         # As an optimization, do not release weight after forward for the last
@@ -1068,6 +1074,13 @@ class ISPCommunicator(WPCommunicator):
         self._clear_handle(module)
         self._clear_weight(module)
 
+    def _early_reduce_scatter_release_hook(self, *args):  # pylint: disable=W0613
+        for handle in self._early_prev_layer_rs_handles:
+            handle.wait()
+
+        self._early_prev_layer_rs_handles = self._early_curr_layer_rs_handles
+        self._early_curr_layer_rs_handles = []
+
     def _register_sync_parameters_hook(self, model) -> None:
         """
         register forward hooks and backward hooks for isp modules.
@@ -1103,12 +1116,18 @@ class ISPCommunicator(WPCommunicator):
         for module in self._isp_modules:
             module.register_full_backward_hook(self._post_backward_hook_for_module)
 
+        if self._enable_early_reduce_scatter_release:
+            for block_idx in range(self._num_blocks):
+                block = self._index_to_block[block_idx]
+                block.register_full_backward_hook(self._early_reduce_scatter_release_hook)
+
     def _get_constant_zero(self, size: tuple) -> torch.Tensor:
-        return torch.zeros(
-            *size,
-            dtype=self.model_conf.dtype,
-            device=self.model_conf.device,
-        ).contiguous()
+        if size not in self._zero_const_pool:
+            self._zero_const_pool[size] = torch.zeros(
+                *size, dtype=self.model_conf.dtype, device=self.model_conf.device
+            ).contiguous()
+
+        return self._zero_const_pool[size]
 
     def communication_mode(self) -> str:
         return "wp"
@@ -1212,12 +1231,17 @@ class ISPCommunicator(WPCommunicator):
             if self._layer_level_comm_context is not None:
                 result, handle = self._layer_level_comm_context.reduce_scatter(key, tensor, reduce_op, async_op)
             else:
-                self._reduce_scatter_handlers[key] = reduce_scatter_raw(
+                output, handle = reduce_scatter_raw(
                     tensor,
                     self.process_group,
                     op=reduce_op,
                     async_op=async_op,
                 )
+
+                if self._enable_early_reduce_scatter_release:
+                    self._early_curr_layer_rs_handles.append(handle)
+
+                self.reduce_scatter_handlers[key] = (output, handle)
 
                 result, handle = (
                     self._get_constant_zero(
@@ -1272,6 +1296,10 @@ class ISPCommunicatorSchedulerHook(SchedulerHook):
                 and not self._zero_optim.skip_grad_reduce
             ):
                 self._zero_optim.reduce_left_grads_after_backward()
+
+        if self._isp_communicator and self._isp_communicator._enable_early_reduce_scatter_release:
+            self._isp_communicator._early_prev_layer_rs_handles = []
+            self._isp_communicator._early_curr_layer_rs_handles = []
 
     def post_helper_func(self, scheduler, outputs, label) -> None:  # pylint: disable=W0613
         pass

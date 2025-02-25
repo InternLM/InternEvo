@@ -16,9 +16,8 @@ from internlm.initialize import initialize_distributed_env
 from internlm.model.losses import InternLoss
 from internlm.train import (
     get_scheduler_hooks,
-    initialize_model,
+    initialize_model_and_parallel_communicator,
     initialize_optimizer,
-    initialize_parallel_communicator,
     load_new_batch,
 )
 from internlm.utils.common import BatchSkipper, launch_time
@@ -60,7 +59,7 @@ def train(
     enable_sp: bool = False,
     save_ckpt: bool = False,
     load_ckpt: bool = False,
-    model_type: str = "INTERNLM2_PUBLIC",
+    model_type: str = "INTERNLM2",
     optimizer_ver: str = "v1",
     pp_mode: str = "1F1B",
 ):
@@ -91,7 +90,7 @@ def train(
         config.model.checkpoint = True
 
     # update ckpt config
-    if model_type == "INTERNLM2_PUBLIC" and tp_mode != "isp" and interleaved is False:
+    if model_type == "INTERNLM2" and tp_mode != "isp" and interleaved is False:
         config.ckpt.load_ckpt_info = dict(path=INTERNLM2_CKPT_PATH, content=("model",), ckpt_type="internlm2_test")
 
     if save_ckpt:
@@ -167,11 +166,8 @@ def train(
     dist.broadcast_object_list(objs, src=0)
     current_time = objs[0]
 
-    # initialize model
-    model = initialize_model()
-
-    # initialize isp communicator
-    isp_communicator = initialize_parallel_communicator(model)
+    # initialize model and isp_communicator
+    model, isp_communicator = initialize_model_and_parallel_communicator()
 
     # initialize loss function
     criterion = InternLoss(parallel_output=gpc.config.model.parallel_output, label_smoothing=label_smoothing)
@@ -221,7 +217,7 @@ def train(
 
     train_iter = iter(train_dl)
 
-    if model_type == "INTERNLM2_PUBLIC":
+    if model_type == "INTERNLM2":
         data_path = os.path.join(os.environ["share_path"], "quailty_assurance/test_loss/data_batch_4DP")
         data_batch = torch.load(f"{data_path}/{gpc.get_local_rank(ParallelMode.DATA)}_data_batch.pt")
 
@@ -230,7 +226,7 @@ def train(
         empty_cache_and_diag(batch_count, interval=gpc.config.data.empty_cache_and_diag_interval)
         timer("one-batch").start()
 
-        if model_type == "INTERNLM2_PUBLIC":
+        if model_type == "INTERNLM2":
             if batch_count >= 10:
                 batch = data_batch[batch_count - 10]
             else:
@@ -471,16 +467,16 @@ def test_training_with_isp():
     global CONFIG_FILE_PATH, BASELINE_LOSS_LIST
     CONFIG_FILE_PATH = "./configs/7B_isp_sft.py"
     BASELINE_LOSS_LIST = [
-        12.225811004638672,
-        12.103824615478516,
-        12.223844528198242,
-        11.87704849243164,
-        11.651590347290039,
-        11.629219055175781,
-        10.242591857910156,
-        9.768388748168945,
-        9.330610275268555,
-        5.505439758300781,
+        12.159960746765137,
+        12.22106647491455,
+        12.106496810913086,
+        11.951896667480469,
+        11.644429206848145,
+        11.459924697875977,
+        10.127229690551758,
+        9.795705795288086,
+        9.255647659301758,
+        5.301709175109863,
     ]
 
     # model training

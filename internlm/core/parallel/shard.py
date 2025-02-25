@@ -11,6 +11,7 @@ from internlm.core.context import ParallelMode
 from internlm.core.context import global_context as gpc
 from internlm.core.parallel.comm.utils import _gather, _split
 from internlm.utils.logger import get_logger
+from internlm.utils.parallel import is_using_hf
 from internlm.utils.utils import TensorParallelMode
 
 logger = get_logger(__file__)
@@ -33,7 +34,7 @@ def _split_data_for_sequence_parallel(data, label):
         data["indexes"] = _split(data["indexes"], ParallelMode.TENSOR, dim=_indexes_seq_dim)
 
     # NOTICE: For compatibility where the shape of position_ids is [batch, seqlen, ...]
-    if "inject_info" in gpc.config.model and gpc.config.model.inject_info.get("data_helper", False):
+    if ("inject_info" in gpc.config.model and gpc.config.model.inject_info.get("data_helper", False)) or is_using_hf():
         _position_ids_seq_dim = 1
         data["position_ids"] = _split(data["position_ids"], ParallelMode.TENSOR, dim=_position_ids_seq_dim)
 

@@ -47,7 +47,7 @@ class ModelType(Enum):
     """
 
     INTERNLM = 1
-    INTERNLM2_PUBLIC = 2
+    INTERNLM2 = 2
     LLAMA2 = 3
     INTERNLM_MoE = 4
     LLAVA = 5
@@ -56,6 +56,7 @@ class ModelType(Enum):
     GEMMA = 8
     QWEN2MOE = 9
     MIXTRALMOE = 10
+    INTERNLM3 = 11
 
 
 class DataType(Enum):

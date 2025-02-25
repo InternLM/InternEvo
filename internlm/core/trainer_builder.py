@@ -24,11 +24,9 @@ from internlm.train.pipeline import (
     get_scheduler_hooks,
     initialize_llm_profile,
     initialize_optimizer,
-    initialize_parallel_communicator,
     inject_model,
     load_new_batch,
     record_current_batch_training_metrics,
-    set_param_unique_tracking_name,
 )
 from internlm.utils.common import (
     BatchSkipper,
@@ -101,11 +99,8 @@ class TrainerBuilder(Trainer):
         # load config_lines
         config_lines = self._read_config(kwargs["config"])
 
-        # set tracking name for parameters
-        set_param_unique_tracking_name(model)
-
-        # inject model for amp and parallel training
-        model = inject_model(model)
+        # inject model for amp, parallel setting, parameter syncing and others
+        model, isp_communicator = inject_model(model)
 
         # check cuda env
         check_cuda_env()
@@ -115,9 +110,6 @@ class TrainerBuilder(Trainer):
 
         # initialize loss function
         criterion = self._initialize_criterion()
-
-        # initialize isp communicator
-        isp_communicator = initialize_parallel_communicator(model)
 
         # initialize cpu offload manager for selective checkpoint
         initialize_offload_manager(gpc.config.get("selective_checkpoint_offload", False))

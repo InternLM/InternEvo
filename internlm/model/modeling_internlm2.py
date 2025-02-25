@@ -1,17 +1,18 @@
 # Copyright (c) InternLM. All rights reserved.
 import math
 import os
+from contextlib import nullcontext
 from functools import reduce
 from typing import Optional
 
 import torch
-from einops import rearrange
 from torch import nn
 from tqdm import tqdm
 
 from internlm.accelerator import get_accelerator
 from internlm.core.context import ParallelMode
 from internlm.core.context.parallel_context import global_context as gpc
+from internlm.core.parallel.comm.cpu_offload import get_cpu_offload_context
 from internlm.core.parallel.shard import partition_uniform
 from internlm.initialize.initialize_tensor import (
     normal_,
@@ -81,6 +82,7 @@ class InternLM2Decoder(nn.Module):
         rope_base (int): The value of `base` for rotary position embeddings. 10000 by default.
         mlp_layer_fusion (bool): Whether to fuse layers in the mlp module for optimization.
         multiple_of (int): Ensures mlp dimensions are multiples of this value for efficient hardware utilization.
+        enable_qkv_fusion(bool): Whether to fuse Wq,Wk,Wv computation. True by default.
     """
 
     def __init__(
@@ -115,6 +117,7 @@ class InternLM2Decoder(nn.Module):
         rope_base: int = 10000,
         mlp_layer_fusion: bool = False,
         multiple_of: int = 256,
+        enable_qkv_fusion: bool = True,
     ):
         super().__init__()
         self.checkpoint = checkpoint
@@ -150,7 +153,7 @@ class InternLM2Decoder(nn.Module):
             qk_interleaved=qk_interleaved,
             bias=not no_bias,
             rope_base=rope_base,
-            enable_qkv_fusion=True,
+            enable_qkv_fusion=enable_qkv_fusion,
         )
 
         self.dropout1 = nn.Dropout(drop_rate)
@@ -335,6 +338,7 @@ class InternLM2(BaseModel):
         norm_head (bool): Whether to use norm head. False by default.
         mlp_layer_fusion (bool): Whether to fuse layers in the mlp module for optimization.
         multiple_of (int): Ensures mlp dimensions are multiples of this value for efficient hardware utilization.
+        enable_qkv_fusion(bool): Whether to fuse Wq,Wk,Wv computation. True by default.
     """
 
     def __init__(
@@ -378,12 +382,23 @@ class InternLM2(BaseModel):
         norm_head: bool = False,
         mlp_layer_fusion: bool = False,
         multiple_of: int = 256,
+        enable_qkv_fusion: bool = True,
     ):
         super().__init__()
 
         checkpoint_layer_num = int(num_layers * checkpoint)
         self.embed_grad_scale = embed_grad_scale
         self.parallel_output = parallel_output
+        self.enable_cpu_offloading = gpc.config.cpu_offloading.enable
+
+        if self.enable_cpu_offloading:
+            (self.offload_context, self.group_prefetch_offload_commit_async) = get_cpu_offload_context(
+                gpc.config.cpu_offloading.enable,
+                gpc.config.cpu_offloading.num_layers,
+                gpc.config.model.num_layers,
+            )
+        else:
+            self.offload_context, self.group_prefetch_offload_commit_async = nullcontext(), None
 
         if first:
             self.tok_embeddings = Embedding1D(num_embeddings=vocab_size, embedding_dim=hidden_size)
@@ -406,7 +421,7 @@ class InternLM2(BaseModel):
                     max_position_embeddings=max_position_embeddings,
                     dtype=dtype,
                     layer_norm_epsilon=layer_norm_epsilon,
-                    checkpoint=lid < checkpoint_layer_num,
+                    checkpoint=gpc.config.cpu_offloading.num_layers <= lid < checkpoint_layer_num,
                     layer_idx=lid + start_layer_idx,  # This parameter is used for caching during generation
                     use_dynamic_ntk_rope=use_dynamic_ntk_rope,
                     residual_in_fp32=residual_in_fp32,
@@ -427,6 +442,7 @@ class InternLM2(BaseModel):
                     rope_base=rope_base,
                     mlp_layer_fusion=mlp_layer_fusion,
                     multiple_of=multiple_of,
+                    enable_qkv_fusion=enable_qkv_fusion,
                 )
                 for lid in range(num_layers)
             ]
@@ -463,7 +479,15 @@ class InternLM2(BaseModel):
                 )
 
         for _, block in enumerate(self.layers):
-            hidden_states = block(hidden_states, residual=None, **kwargs)
+            with self.offload_context:
+                hidden_states = block(hidden_states, residual=None, **kwargs)
+
+            if (
+                torch.is_grad_enabled()
+                and self.enable_cpu_offloading
+                and self.group_prefetch_offload_commit_async is not None
+            ):
+                hidden_states = self.group_prefetch_offload_commit_async(hidden_states)
 
         if hasattr(self, "norm"):
             hidden_states = self.norm(hidden_states.float())
@@ -476,6 +500,7 @@ class InternLM2(BaseModel):
     def load_hf_weights(folder: str, model: nn.Module) -> None:
         """NOTE: when loading huggingface's llama pretrained weights, you should set `adapt_hf=True` in your config."""
         assert folder is not None, "Please specify the folder of the pretrained model"
+        assert not gpc.config.model["qk_interleaved"], "The qk_interleaved should set True."
         if gpc.is_rank_for_log():
             logger.info(f"Loading pretrained model from {folder}")
 
@@ -507,44 +532,72 @@ class InternLM2(BaseModel):
 
         new_state_dict = {}
 
+        is_internlm3 = gpc.config.model_type == "INTERNLM3"
+
         for idx, i in enumerate(range(model.first_layer, model.last_layer)):
             layer_ids = i
 
             # attn
-            state_dict[f"layers.{i}.attention.wqkv.weight"] = torch.chunk(
-                state_dict.pop(f"model.layers.{layer_ids}.attention.wqkv.weight"),
-                split_size,
-                dim=0,
-            )[local_rank]
+            if is_internlm3:
+                state_dict[f"layers.{i}.attention.wq.weight"] = torch.chunk(
+                    state_dict.pop(f"model.layers.{layer_ids}.self_attn.q_proj.weight"),
+                    split_size,
+                    dim=0,
+                )[local_rank]
+                state_dict[f"layers.{i}.attention.wk.weight"] = torch.chunk(
+                    state_dict.pop(f"model.layers.{layer_ids}.self_attn.k_proj.weight"),
+                    split_size,
+                    dim=0,
+                )[local_rank]
+                state_dict[f"layers.{i}.attention.wv.weight"] = torch.chunk(
+                    state_dict.pop(f"model.layers.{layer_ids}.self_attn.v_proj.weight"),
+                    split_size,
+                    dim=0,
+                )[local_rank]
+            else:
+                state_dict[f"layers.{i}.attention.wqkv.weight"] = torch.chunk(
+                    state_dict.pop(f"model.layers.{layer_ids}.attention.wqkv.weight"),
+                    split_size,
+                    dim=0,
+                )[local_rank]
+            wo_name = "self_attn.o_proj" if is_internlm3 else "attention.wo"
             state_dict[f"layers.{i}.attention.wo.weight"] = torch.chunk(
-                state_dict.pop(f"model.layers.{layer_ids}.attention.wo.weight"),
+                state_dict.pop(f"model.layers.{layer_ids}.{wo_name}.weight"),
                 split_size,
                 dim=row_dim,
             )[local_rank]
 
             # ffn
+            w1_name = "mlp.gate_proj" if is_internlm3 else "feed_forward.w1"
+            w3_name = "mlp.up_proj" if is_internlm3 else "feed_forward.w3"
+            w2_name = "mlp.down_proj" if is_internlm3 else "feed_forward.w2"
+
             state_dict[f"layers.{i}.feed_forward.w1.weight"] = torch.chunk(
-                state_dict.pop(f"model.layers.{layer_ids}.feed_forward.w1.weight"),
+                state_dict.pop(f"model.layers.{layer_ids}.{w1_name}.weight"),
                 split_size,
                 dim=0,
             )[local_rank]
             state_dict[f"layers.{i}.feed_forward.w3.weight"] = torch.chunk(
-                state_dict.pop(f"model.layers.{layer_ids}.feed_forward.w3.weight"),
+                state_dict.pop(f"model.layers.{layer_ids}.{w3_name}.weight"),
                 split_size,
                 dim=0,
             )[local_rank]
             state_dict[f"layers.{i}.feed_forward.w2.weight"] = torch.chunk(
-                state_dict.pop(f"model.layers.{layer_ids}.feed_forward.w2.weight"),
+                state_dict.pop(f"model.layers.{layer_ids}.{w2_name}.weight"),
                 split_size,
                 dim=row_dim,
             )[local_rank]
 
             # attn norm
+            attn_norm_name = "input_layernorm" if is_internlm3 else "attention_norm"
             state_dict[f"layers.{i}.attention_norm.weight"] = state_dict.pop(
-                f"model.layers.{layer_ids}.attention_norm.weight"
+                f"model.layers.{layer_ids}.{attn_norm_name}.weight"
             )
             # ffn norm
-            state_dict[f"layers.{i}.ffn_norm.weight"] = state_dict.pop(f"model.layers.{layer_ids}.ffn_norm.weight")
+            ffn_norm_name = "post_attention_layernorm" if is_internlm3 else "ffn_norm"
+            state_dict[f"layers.{i}.ffn_norm.weight"] = state_dict.pop(
+                f"model.layers.{layer_ids}.{ffn_norm_name}.weight"
+            )
 
             # replace value within decoder layer
             for name in list(state_dict.keys()):
@@ -553,16 +606,18 @@ class InternLM2(BaseModel):
 
         # embedding
         if (gpc.get_local_rank(ParallelMode.PIPELINE) == 0) or (not gpc.is_using_parallel_mode(ParallelMode.PIPELINE)):
+            embedding_name = "embed_tokens" if is_internlm3 else "tok_embeddings"
             new_state_dict["tok_embeddings.weight"] = torch.chunk(
-                state_dict.pop("model.tok_embeddings.weight"),
+                state_dict.pop(f"model.{embedding_name}.weight"),
                 split_size,
                 dim=embed_concat_dim,
             )[local_rank]
 
         # output
         if gpc.is_last_rank(ParallelMode.PIPELINE):
+            output_name = "lm_head" if is_internlm3 else "output"
             new_state_dict["output.weight"] = torch.chunk(
-                state_dict.pop("output.weight"),
+                state_dict.pop(f"{output_name}.weight"),
                 split_size,
                 dim=0,
             )[local_rank]
@@ -583,7 +638,7 @@ class InternLM2(BaseModel):
     def load_internlm2_with_dynamic_parallel_size(folder, model):
         """Load InternLM2 with dynamic parallel size."""
         assert folder is not None, "Please specify the folder of the pretrained model"
-        assert gpc.config.model_type in ["INTERNLM2_PUBLIC"], "dynamic_parallel is only for INTERNLM2_PUBLIC"
+        assert gpc.config.model_type in ["INTERNLM2"], "dynamic_parallel is only for INTERNLM2"
 
         fns = get_fns(folder)
         if gpc.is_rank_for_log():
@@ -637,7 +692,7 @@ class InternLM2(BaseModel):
                         if f".{i-start}." in name:
                             to_name = name.replace(f".{i-start}.", f".{i-model.first_layer}.")
 
-                            if gpc.config.model_type == "INTERNLM2_PUBLIC":
+                            if gpc.config.model_type == "INTERNLM2":
                                 if "norm" in name:
                                     tmp_states[to_name] = [states.pop(name)]
                                 elif any(x in name for x in ("wo", "w2")):
@@ -771,18 +826,6 @@ class InternLM2(BaseModel):
 
     @staticmethod
     def convert_internevo2hf_weights(src: str, tgt: str) -> None:
-        def permute(qkv, num_heads, num_kv_heads, head_dim, adapt_hf=True):
-            if adapt_hf:
-                return qkv
-            q_per_kv = num_heads // num_kv_heads
-            qkv = rearrange(qkv.T, "o (g n i) -> o g n i", n=q_per_kv + 2, i=head_dim)
-            q, k, v = qkv[..., :q_per_kv, :], qkv[..., -2:-1, :], qkv[..., -1:, :]
-            q = torch.cat([q[..., ::2], q[..., 1::2]], dim=-1)
-            k = torch.cat([k[..., ::2], k[..., 1::2]], dim=-1)
-            qkv = torch.cat((q, k, v), dim=2)
-            qkv = rearrange(qkv, "o g n i -> o (g n i)").T
-            return qkv
-
         model_config = gpc.config.model
         tp_mode = gpc.config.parallel.tensor["mode"]
         row_dim = 0 if tp_mode == "isp" else 1
@@ -793,39 +836,55 @@ class InternLM2(BaseModel):
 
         # load states
         states, num_shards = InternLM2.load_sharded_states(src)
+        is_internlm3 = gpc.config.model_type == "INTERNLM3"
 
         # convert state_dict
         state_dict = {}
         embedding_key_list = ["tok_embeddings.word_embeddings.weight", "tok_embeddings.weight", None]
         for layer_i in tqdm(range(model_config["num_layers"])):
             # attn norm, ffn norm
+            attn_norm_name = "input_layernorm" if is_internlm3 else "attention_norm"
+            ffn_norm_name = "post_attention_layernorm" if is_internlm3 else "ffn_norm"
             state_dict.update(
                 {
-                    f"model.layers.{layer_i}.attention_norm.weight": states[0][
+                    f"model.layers.{layer_i}.{attn_norm_name}.weight": states[0][
                         f"layers.{layer_i}.attention_norm.weight"
                     ].clone(),
-                    f"model.layers.{layer_i}.ffn_norm.weight": states[0][f"layers.{layer_i}.ffn_norm.weight"].clone(),
+                    f"model.layers.{layer_i}.{ffn_norm_name}.weight": states[0][
+                        f"layers.{layer_i}.ffn_norm.weight"
+                    ].clone(),
                 }
             )
             # attn
-            state_dict[f"model.layers.{layer_i}.attention.wqkv.weight"] = permute(
-                torch.cat([states[i][f"layers.{layer_i}.attention.wqkv.weight"] for i in range(num_shards)], dim=0),
-                num_heads=model_config["num_attention_heads"],
-                num_kv_heads=model_config["num_kv_attention_heads"],
-                head_dim=model_config["hidden_size"] // model_config["num_attention_heads"],
-                adapt_hf=model_config.get("adapt_hf", True),
+            wq_name = "self_attn.q_proj" if is_internlm3 else "attention.wq"
+            wk_name = "self_attn.k_proj" if is_internlm3 else "attention.wk"
+            wv_name = "self_attn.v_proj" if is_internlm3 else "attention.wv"
+            wo_name = "self_attn.o_proj" if is_internlm3 else "attention.wo"
+
+            state_dict[f"model.layers.{layer_i}.{wq_name}.weight"] = torch.cat(
+                [states[i][f"layers.{layer_i}.attention.wq.weight"] for i in range(num_shards)], dim=0
             )
-            state_dict[f"model.layers.{layer_i}.attention.wo.weight"] = torch.cat(
+            state_dict[f"model.layers.{layer_i}.{wk_name}.weight"] = torch.cat(
+                [states[i][f"layers.{layer_i}.attention.wk.weight"] for i in range(num_shards)], dim=0
+            )
+            state_dict[f"model.layers.{layer_i}.{wv_name}.weight"] = torch.cat(
+                [states[i][f"layers.{layer_i}.attention.wv.weight"] for i in range(num_shards)], dim=0
+            )
+            state_dict[f"model.layers.{layer_i}.{wo_name}.weight"] = torch.cat(
                 [states[i][f"layers.{layer_i}.attention.wo.weight"] for i in range(num_shards)], dim=row_dim
             )
             # ffn
-            state_dict[f"model.layers.{layer_i}.feed_forward.w1.weight"] = torch.cat(
+            w1_name = "mlp.gate_proj" if is_internlm3 else "feed_forward.w1"
+            w2_name = "mlp.down_proj" if is_internlm3 else "feed_forward.w2"
+            w3_name = "mlp.up_proj" if is_internlm3 else "feed_forward.w3"
+
+            state_dict[f"model.layers.{layer_i}.{w1_name}.weight"] = torch.cat(
                 [states[i][f"layers.{layer_i}.feed_forward.w1.weight"] for i in range(num_shards)], dim=0
             )
-            state_dict[f"model.layers.{layer_i}.feed_forward.w2.weight"] = torch.cat(
+            state_dict[f"model.layers.{layer_i}.{w2_name}.weight"] = torch.cat(
                 [states[i][f"layers.{layer_i}.feed_forward.w2.weight"] for i in range(num_shards)], dim=row_dim
             )
-            state_dict[f"model.layers.{layer_i}.feed_forward.w3.weight"] = torch.cat(
+            state_dict[f"model.layers.{layer_i}.{w3_name}.weight"] = torch.cat(
                 [states[i][f"layers.{layer_i}.feed_forward.w3.weight"] for i in range(num_shards)], dim=0
             )
         # embedding, output
@@ -834,13 +893,15 @@ class InternLM2(BaseModel):
                 break
         if embedding_key is None:
             raise KeyError("Cannot find embedding key!")
+        embedding_name = "embed_tokens" if is_internlm3 else "tok_embeddings"
+        output_name = "lm_head" if is_internlm3 else "output"
         state_dict.update(
             {
                 "model.norm.weight": states[0]["norm.weight"],
-                "model.tok_embeddings.weight": torch.cat(
+                f"model.{embedding_name}.weight": torch.cat(
                     [states[i][embedding_key] for i in range(num_shards)], dim=embed_concat_dim
                 ),
-                "output.weight": torch.cat([states[i]["output.weight"] for i in range(num_shards)], dim=0),
+                f"{output_name}.weight": torch.cat([states[i]["output.weight"] for i in range(num_shards)], dim=0),
             },
         )
 

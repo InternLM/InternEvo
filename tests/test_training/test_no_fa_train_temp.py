@@ -12,9 +12,8 @@ from internlm.model.losses import InternLoss
 from internlm.model.metrics import AccPerplex
 from internlm.train import (
     get_scheduler_hooks,
-    initialize_model,
+    initialize_model_and_parallel_communicator,
     initialize_optimizer,
-    initialize_parallel_communicator,
 )
 from internlm.utils.logger import get_logger
 from tests.common_fixture import (
@@ -51,11 +50,8 @@ def train_check(args):
     # set seed
     seed_all(1024)
 
-    # initialize model
-    model = initialize_model()
-
-    # initialize isp communicator
-    isp_communicator = initialize_parallel_communicator(model)
+    # initialize model and isp communicator 
+    model, isp_communicator = initialize_model_and_parallel_communicator()
 
     # initialize loss function
     criterion = InternLoss(parallel_output=True, label_smoothing=gpc.config.loss.label_smoothing)

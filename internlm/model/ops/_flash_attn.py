@@ -50,8 +50,9 @@ class FlashAttnVarlenKVPackedFunc_V263(torch.autograd.Function):
         k, v = kv[:, 0], kv[:, 1]
 
         _ckpt_block_num = int(gpc.config.model.checkpoint * gpc.config.isp_num_layers)
+        _is_ckpt_layer = gpc.config.cpu_offloading.num_layers <= layer_idx < _ckpt_block_num
 
-        if gpc.is_forward is False and gpc.config.selective_checkpoint and layer_idx < _ckpt_block_num:
+        if gpc.is_forward is False and gpc.config.selective_checkpoint and _is_ckpt_layer:
             out, out_padded, softmax_lse, S_dmask, rng_state = get_offload_manager().get_fa_output_with_layer(layer_idx)
         else:
             (
@@ -82,7 +83,7 @@ class FlashAttnVarlenKVPackedFunc_V263(torch.autograd.Function):
             )
 
         # store attn forward output to avoid re-computation of attn when activation checkpoint is enabled
-        if gpc.is_forward and gpc.config.selective_checkpoint and layer_idx < _ckpt_block_num:
+        if gpc.is_forward and gpc.config.selective_checkpoint and _is_ckpt_layer:
             get_offload_manager().insert_fa_output_with_layer(
                 layer_idx=layer_idx, output=(out, out_padded, softmax_lse, S_dmask, rng_state)
             )
@@ -159,8 +160,9 @@ class FlashAttnVarlenKVPackedFunc_V221(torch.autograd.Function):
         k, v = kv[:, 0], kv[:, 1]
 
         _ckpt_block_num = int(gpc.config.model.checkpoint * gpc.config.isp_num_layers)
+        _is_ckpt_layer = gpc.config.cpu_offloading.num_layers <= layer_idx < _ckpt_block_num
 
-        if gpc.is_forward is False and gpc.config.selective_checkpoint and layer_idx < _ckpt_block_num:
+        if gpc.is_forward is False and gpc.config.selective_checkpoint and _is_ckpt_layer:
             out, out_padded, softmax_lse, S_dmask, rng_state = get_offload_manager().get_fa_output_with_layer(layer_idx)
         else:
             out, q, k, v, out_padded, softmax_lse, S_dmask, rng_state = _flash_attn_varlen_forward(
@@ -178,7 +180,7 @@ class FlashAttnVarlenKVPackedFunc_V221(torch.autograd.Function):
             )
 
         # store attn forward output to avoid re-computation of attn when activation checkpoint is enabled
-        if gpc.is_forward and gpc.config.selective_checkpoint and layer_idx < _ckpt_block_num:
+        if gpc.is_forward and gpc.config.selective_checkpoint and _is_ckpt_layer:
             get_offload_manager().insert_fa_output_with_layer(
                 layer_idx=layer_idx, output=(out, out_padded, softmax_lse, S_dmask, rng_state)
             )

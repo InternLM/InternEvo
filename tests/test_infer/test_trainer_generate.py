@@ -13,17 +13,15 @@ from internlm.initialize import initialize_distributed_env  # noqa: E402
 from internlm.model.losses import InternLoss  # noqa: E402
 from internlm.train import (  # noqa: E402
     get_scheduler_hooks,
-    initialize_model,
+    initialize_model_and_parallel_communicator,
     initialize_optimizer,
-    initialize_parallel_communicator,
 )
 
 
 def setup_generator(config, tokenizer):
     initialize_distributed_env(config=config)
 
-    model = initialize_model()
-    isp_communicator = initialize_parallel_communicator(model)
+    model, isp_communicator = initialize_model_and_parallel_communicator()
 
     criterion = InternLoss()
 

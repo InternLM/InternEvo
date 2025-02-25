@@ -4,6 +4,9 @@
 import weakref
 
 import torch
+from torch.distributed.algorithms._checkpoint.checkpoint_wrapper import (
+    checkpoint_wrapper as ptd_checkpoint_wrapper,
+)
 from torch.utils.checkpoint import check_backward_validity, detach_variable
 
 from internlm.accelerator import get_accelerator
@@ -273,3 +276,13 @@ def _checkpoint_without_reentrant(function, activation_offload=False, *args):  #
                     arg = arg.to(device="cpu")
 
     return output
+
+
+def apply_ac_to_transformer_block(module: torch.nn.Module, checkpoint):
+    ac_freq = round(1 / checkpoint)
+    ptd_checkpoint_wrapper.__dict__.setdefault("_count", 0)
+    ptd_checkpoint_wrapper._count += 1
+    if ptd_checkpoint_wrapper._count % ac_freq == 0:
+        return ptd_checkpoint_wrapper(module, preserve_rng_state=False)
+    else:
+        return module

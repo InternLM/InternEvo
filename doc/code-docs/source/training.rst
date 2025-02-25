@@ -27,7 +27,7 @@
 - 初始化模型
 .. code-block:: python
 
-    model = initialize_model()
+    model = initialize_model_and_parallel_communicator()
 
 详细介绍请参考： `模型初始化 <https://internevo.readthedocs.io/zh-cn/latest/initialize.html#internlm-model-init>`_
 

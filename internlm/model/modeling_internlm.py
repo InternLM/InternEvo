@@ -66,6 +66,7 @@ class InternLM1Decoder(nn.Module):
         rope_base (int): The value of `base` for rotary position embeddings. 10000 by default.
         mlp_layer_fusion (bool): Whether to fuse layers in the mlp module for optimization.
         multiple_of (int): Ensures mlp dimensions are multiples of this value for efficient hardware utilization.
+        enable_qkv_fusion(bool): Whether to fuse Wq,Wk,Wv computation. True by default.
     """
 
     def __init__(
@@ -91,6 +92,7 @@ class InternLM1Decoder(nn.Module):
         rope_base: int = 10000,
         mlp_layer_fusion: bool = False,
         multiple_of: int = 256,
+        enable_qkv_fusion: bool = True,
     ):
         super().__init__()
         self.checkpoint = checkpoint
@@ -116,7 +118,7 @@ class InternLM1Decoder(nn.Module):
             device=device,
             dtype=dtype,
             qk_interleaved=qk_interleaved,
-            enable_qkv_fusion=True,
+            enable_qkv_fusion=enable_qkv_fusion,
         )
 
         # Compatible with the name of internlm1 Wqkv linear layer
@@ -261,6 +263,7 @@ class InternLM1(BaseModel):
         rope_base (int): The value of `base` for rotary position embeddings. 10000 by default.
         mlp_layer_fusion (bool): Whether to fuse layers in the mlp module for optimization.
         multiple_of (int): Ensures mlp dimensions are multiples of this value for efficient hardware utilization.
+        enable_qkv_fusion(bool): Whether to fuse Wq,Wk,Wv computation. True by default.
     """
 
     def __init__(
@@ -293,6 +296,7 @@ class InternLM1(BaseModel):
         rope_base: int = 10000,
         mlp_layer_fusion: bool = False,
         multiple_of: int = 256,
+        enable_qkv_fusion: bool = True,
     ):
         super().__init__()
 
@@ -329,6 +333,7 @@ class InternLM1(BaseModel):
                     qk_interleaved=qk_interleaved,
                     mlp_layer_fusion=mlp_layer_fusion,
                     multiple_of=multiple_of,
+                    enable_qkv_fusion=enable_qkv_fusion,
                 )
                 for lid in range(num_layers)
             ]

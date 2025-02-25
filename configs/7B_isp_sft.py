@@ -1,5 +1,5 @@
 JOB_NAME = "7b_train"
-model_type = "INTERNLM2_PUBLIC"
+model_type = "INTERNLM2"
 DO_ALERT = False
 
 VOCAB_SIZE = 103168
@@ -151,10 +151,18 @@ beta2_scheduler = dict(
     cur_iter=-1,
 )
 
+# cpu_offloading = dict(
+#     enable=True,
+#     num_layers=3,
+# )
+# selective_checkpoint = True
+# selective_checkpoint_offload = False
+
 use_fp32_norm = False
 model = dict(
     checkpoint=False,  # The proportion of layers for activation aheckpointing, the optional value are True/False/[0-1]
     num_attention_heads=NUM_ATTENTION_HEAD,
+    num_kv_attention_heads=NUM_KV_ATTENTION_HEAD,
     embed_split_hidden=True,
     vocab_size=VOCAB_SIZE,
     embed_grad_scale=1,
@@ -187,7 +195,6 @@ zero1 parallel (dict):
         * if size == 1, zero is not used, and all dp groups retain the full amount of model parameters.
         * if size > 1 and size <= dp world size, the world size of zero is a subset of dp world size.
         For smaller models, it is usually a better choice to split the parameters within nodes with a setting <= 8.
-    2. fsdp: bool, enable/disable torch's fully sharded data parallel, defaults to False.
 tensor parallel (dict):
     1. size: int, the size of tensor parallel.
     2. mode: str, the tensor parallel mode, should be in ['mtp', 'msp', 'fsp', 'isp'],
@@ -237,6 +244,7 @@ parallel = dict(
 
 cudnn_deterministic = False
 cudnn_benchmark = False
+
 
 monitor = dict(
     # feishu alert configs

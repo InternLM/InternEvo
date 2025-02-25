@@ -4,7 +4,6 @@ import re
 from collections import defaultdict
 
 import torch
-from torch.distributed._shard.api import load_with_process_group
 
 from internlm.accelerator import get_accelerator
 from internlm.core.context import ParallelMode
@@ -13,16 +12,26 @@ from internlm.core.trainer import TrainState
 from internlm.model.moe import MoE
 from internlm.solver.optimizer import HybridZeroOptimizer, HybridZeroOptimizer_v2
 from internlm.utils.common import get_current_device
+from internlm.utils.lazy import LazyObject
 from internlm.utils.logger import get_logger
-from internlm.utils.parallel import is_using_isp
+from internlm.utils.parallel import is_using_fsdp, is_using_hf, is_using_isp
 from internlm.utils.storage_manager import get_fns, llm_load, llm_save
 
-from .utils import (
-    get_model_topology,
-    get_non_moe_state_dict,
-    get_shard_state_dict,
-    load_shard_state_dict,
-)
+from .utils import get_model_topology, get_non_moe_state_dict
+
+try:
+    import torch.distributed.checkpoint as dcp
+    from torch.distributed.checkpoint.state_dict import (
+        StateDictOptions,
+        get_model_state_dict,
+        set_model_state_dict,
+    )
+
+    DCP_SUPPORTED = True
+except (ImportError, ModuleNotFoundError):
+    DCP_SUPPORTED = False
+
+RESUME_HF_FORMAT = True
 
 logger = get_logger(__file__)
 internlm_accelerator = get_accelerator()
@@ -99,6 +108,34 @@ def try_save_moe_checkpoint(folder, model, expert_mp_rank, pp_rank):
             moe_layer_id += 1
 
 
+def load_fsdp_model_checkpoint(folder, model):
+    if DCP_SUPPORTED:
+        assert folder.startswith("local:"), "Currently we only support DCP load and save locally."
+        local_folder = folder[6:]
+
+        if is_using_hf() and RESUME_HF_FORMAT:
+            hf = gpc.config.hf
+            mod = LazyObject(hf.mod, hf.mod_cls)
+            mod = mod.build()
+            state_dict = mod.from_pretrained(
+                pretrained_model_name_or_path=os.path.join(local_folder, "hf"), use_safetensors=True
+            ).state_dict()
+            state_dict = {f"model.{key}": state_dict[key].clone().detach() for key in state_dict}
+            set_model_state_dict(
+                model=model, model_state_dict=state_dict, options=StateDictOptions(full_state_dict=True)
+            )
+        else:
+            state_dict = get_model_state_dict(model=model)
+            state_dict = {key: state_dict[key].clone().detach() for key in state_dict}
+            dcp.load(state_dict=state_dict, checkpoint_id=local_folder)
+            set_model_state_dict(model=model, model_state_dict=state_dict)
+
+        del state_dict
+        internlm_accelerator.empty_cache()
+    else:
+        raise RuntimeError("DCP is not supported in this version of PyTorch.")
+
+
 def load_model_checkpoint(folder, model):
     """
     There should be weights with names similar to the following under the folder.
@@ -109,43 +146,31 @@ def load_model_checkpoint(folder, model):
     - folder
         - model_wp{wp_rank}_pp{pp_rank}.pt
 
-    If fsdp is activated, the saved weight is named:
-    - folder
-        - model_tp{tp_rank}_pp{pp_rank}_zo{zo_rank}.pt
-
     If the tp is inconsistent with the saved one in the future use, the weight needs to be converted before loading.
     """
+
+    if is_using_fsdp():
+        return load_fsdp_model_checkpoint(folder, model)
 
     tp_size = gpc.get_world_size(ParallelMode.TENSOR)
     wp_size = gpc.get_world_size(ParallelMode.WEIGHT)
     pp_size = gpc.get_world_size(ParallelMode.PIPELINE)
-    dp_size = gpc.get_world_size(ParallelMode.DATA)
 
     tp_rank = gpc.get_local_rank(ParallelMode.TENSOR)
     wp_rank = gpc.get_local_rank(ParallelMode.WEIGHT)
     pp_rank = gpc.get_local_rank(ParallelMode.PIPELINE)
-    dp_rank = gpc.get_local_rank(ParallelMode.DATA)
 
     fns = get_fns(folder)
 
-    # avoid ckpt misuse between FSDP and no-FSDP
     _start_with = "model_w" if is_using_isp() else "model_t"
-    test_fn = list([f for f in fns if f.startswith(_start_with) and not f.endswith(".md5")]).pop()
-    assert ("_dp" in test_fn and gpc.config.parallel.zero1.fsdp) or (
-        "_dp" not in test_fn and not gpc.config.parallel.zero1.fsdp
-    ), "FSDP model wants to load no-FSDP ckpts or reverse"
 
-    max_pp, max_wp, max_tp, max_zo = 0, 0, 0, 0
+    max_pp, max_wp, max_tp = 0, 0, 0
     for fn in fns:
         if fn.startswith(_start_with) and not fn.endswith(".md5"):
             segements = os.path.splitext(fn)[0].split("_")
             if is_using_isp():
                 max_pp = max(max_pp, int(segements[-1][2:]))
                 max_wp = max(max_wp, int(segements[-2][2:]))
-            elif gpc.config.parallel.zero1.fsdp:
-                max_zo = max(max_zo, int(segements[-1][2:]))
-                max_pp = max(max_pp, int(segements[-2][2:]))
-                max_tp = max(max_tp, int(segements[-3][2:]))
             else:
                 max_pp = max(max_pp, int(segements[-1][2:]))
                 max_tp = max(max_tp, int(segements[-2][2:]))
@@ -160,23 +185,13 @@ def load_model_checkpoint(folder, model):
         assert (
             tp_size == max_tp + 1
         ), f"The weights are save for {max_tp+1} parallelism, while current has {tp_size} tensor parallelism"
-    if gpc.config.parallel.zero1.fsdp:
-        assert (
-            dp_size == max_zo + 1
-        ), f"The weights are save for {max_zo+1} FSDP shards , while current has {dp_size} FSDP shards"
-
     if is_using_isp():
         should_load_name = f"model_wp{wp_rank}_pp{pp_rank}.pt"
-    elif gpc.config.parallel.zero1.fsdp:
-        should_load_name = f"model_tp{tp_rank}_pp{pp_rank}_dp{dp_rank}.pt"
     else:
         should_load_name = f"model_tp{tp_rank}_pp{pp_rank}.pt"
     fp = os.path.join(folder, should_load_name)
 
-    # for FSDP shards loading, we need to set process group
-    with load_with_process_group(gpc.get_group(ParallelMode.ZERO1)):
-        states = llm_load(fp, map_location=get_current_device())
-
+    states = llm_load(fp, map_location=get_current_device())
     """
     # need convert the gate parameters to float32 (to fit deepspeed style mechanism), it may cause round-off in
     # gate.weight. The conversion will also be done when doing forward. so we can just comment it out. this make
@@ -193,10 +208,7 @@ def load_model_checkpoint(folder, model):
         expert_tp_rank = 0 if gpc.config.parallel.expert.no_tp else tp_rank
         try_load_moe_checkpoint(folder, model, states, expert_tp_rank, pp_rank)
 
-    if gpc.config.parallel.zero1.fsdp:
-        missing_k, unexpected_keys = load_shard_state_dict(model, states, strict=False)
-    else:
-        missing_k, unexpected_keys = model.load_state_dict(states, strict=False)
+    missing_k, unexpected_keys = model.load_state_dict(states, strict=False)
     if len(missing_k) != 0:
         logger.warning(f"Warning: missing keys {missing_k}")
     if len(unexpected_keys) != 0:
@@ -205,6 +217,40 @@ def load_model_checkpoint(folder, model):
     # avoid to cuda oom, Ref: https://discuss.pytorch.org/t/load-state-dict-causes-memory-leak/36189/11
     del states
     internlm_accelerator.empty_cache()
+
+
+def save_fsdp_model_checkpoint(folder, model):
+    def remove_model_prefix(state_dict):
+        new_state_dict = {}
+        for key in state_dict.keys():
+            new_key = key.replace("model.", "", 1)
+            new_state_dict[new_key] = state_dict[key].clone().detach()
+        return new_state_dict
+
+    if DCP_SUPPORTED:
+        assert folder.startswith("local:"), "Currently we only support DCP load and save locally."
+        local_folder = folder[6:]
+
+        if is_using_hf() and RESUME_HF_FORMAT:
+            state_dict = remove_model_prefix(
+                get_model_state_dict(model, options=StateDictOptions(full_state_dict=True, cpu_offload=True))
+            )
+            if state_dict:
+                hf = gpc.config.hf
+                cfg = LazyObject(hf.cfg, hf.cfg_cls)
+                cfg = cfg.build()
+                mod = LazyObject(hf.mod, hf.mod_cls)
+                mod = mod.build()
+                with torch.device("meta"):
+                    mod_to_save = mod(cfg(**hf.cfg_extra_kwargs))
+                mod_to_save.load_state_dict(state_dict, strict=True, assign=True)
+                mod_to_save.save_pretrained(save_directory=os.path.join(local_folder, "hf"), safe_serialization=True)
+        else:
+            dcp.save(get_model_state_dict(model=model), checkpoint_id=local_folder)
+
+        torch.distributed.barrier()
+    else:
+        raise RuntimeError("DCP is not supported in this version of PyTorch.")
 
 
 def save_model_checkpoint(folder, model):
@@ -218,10 +264,6 @@ def save_model_checkpoint(folder, model):
     - folder
         - model_wp{wp_rank}_pp{pp_rank}.pt
 
-    If fsdp is activated, the saved weight is named:
-    - folder
-        - model_tp{tp_rank}_pp{pp_rank}_zo{zo_rank}.pt
-
     If the tp is inconsistent with the saved one in the future use, the weight needs to be converted before loading.
 
     Args:
@@ -229,10 +271,10 @@ def save_model_checkpoint(folder, model):
         model: The model to be saved
     """
 
-    if gpc.config.parallel.zero1.fsdp:
-        states = get_shard_state_dict(model)
-    else:
-        states = model.state_dict()
+    if is_using_fsdp():
+        return save_fsdp_model_checkpoint(folder, model)
+
+    states = model.state_dict()
 
     # get non-expert parameters
     states = get_non_moe_state_dict(states)
@@ -268,21 +310,15 @@ def save_model_checkpoint(folder, model):
         else:
             # for tensor parallel mode with mtp/msp/fsp
             for i in range(tp_size):
-                if gpc.config.parallel.zero1.fsdp:
-                    for j in range(dp_size):
-                        should_save_rank_pair.add((i, j))
-                else:
-                    should_save_rank_pair.add((i, i % dp_size))
+                should_save_rank_pair.add((i, i % dp_size))
 
                 if (tp_rank, dp_rank) in should_save_rank_pair:
-                    f_dp = f"_dp{dp_rank}" if gpc.config.parallel.zero1.fsdp else ""
-                    fn = f"model_tp{tp_rank}_pp{pp_rank}{f_dp}.pt"
+                    fn = f"model_tp{tp_rank}_pp{pp_rank}.pt"
                     fp = os.path.join(folder, fn)
                     llm_save(fp, saved_obj=states)
-                    if not gpc.config.parallel.zero1.fsdp or dp_rank == tp_rank % dp_size:
-                        topo_fn = f"topo_tp{tp_rank}_pp{pp_rank}.json"
-                        topo_fp = os.path.join(folder, topo_fn)
-                        llm_save(topo_fp, saved_obj=topo)
+                    topo_fn = f"topo_tp{tp_rank}_pp{pp_rank}.json"
+                    topo_fp = os.path.join(folder, topo_fn)
+                    llm_save(topo_fp, saved_obj=topo)
 
             # try to save expert parameter to separate files if model have moe layer
             expert_dp_size = gpc.get_world_size(ParallelMode.EXPERT_DATA)
@@ -310,19 +346,25 @@ def load_optimizer_checkpoint(folder, optim):
 
     fns = get_fns(folder)
     max_tp, max_wp, max_pp, max_zero = 0, 0, 0, 0
+    max_fsdp = 0
     for fn in fns:
         if fn.startswith("optimizer_") and not fn.endswith(".md5"):
-            if is_using_isp():
-                _, wp, pp, zero = os.path.splitext(fn)[0].split("_")
-                max_zero = max(max_zero, int(zero[2:]))
-                max_wp = max(max_wp, int(wp[2:]))
-                max_pp = max(max_pp, int(pp[2:]))
+            if isinstance(optim, (HybridZeroOptimizer, HybridZeroOptimizer_v2)):
+                if is_using_isp():
+                    _, wp, pp, zero = os.path.splitext(fn)[0].split("_")
+                    max_zero = max(max_zero, int(zero[2:]))
+                    max_wp = max(max_wp, int(wp[2:]))
+                    max_pp = max(max_pp, int(pp[2:]))
+                else:
+                    _, tp, pp, zero = os.path.splitext(fn)[0].split("_")
+                    max_zero = max(max_zero, int(zero[2:]))
+                    max_tp = max(max_tp, int(tp[2:]))
+                    max_pp = max(max_pp, int(pp[2:]))
             else:
-                _, tp, pp, zero = os.path.splitext(fn)[0].split("_")
-                max_zero = max(max_zero, int(zero[2:]))
-                max_tp = max(max_tp, int(tp[2:]))
-                max_pp = max(max_pp, int(pp[2:]))
+                _, fsdp = os.path.splitext(fn)[0].split("_")
+                max_fsdp = max(max_fsdp, int(fsdp[4:]))
 
+    fsdp_size = gpc.get_world_size(ParallelMode.GLOBAL)
     zero_size = gpc.get_world_size(ParallelMode.ZERO1)
     tp_size = gpc.get_world_size(ParallelMode.TENSOR)
     wp_size = gpc.get_world_size(ParallelMode.WEIGHT)
@@ -343,14 +385,24 @@ def load_optimizer_checkpoint(folder, optim):
         wp_size == max_wp + 1
     ), f"The optimizer states are save for {max_wp+1} parallelism, while current has {wp_size} weight parallelism"
 
+    if not isinstance(optim, (HybridZeroOptimizer, HybridZeroOptimizer_v2)):
+        assert (
+            fsdp_size == max_fsdp + 1
+        ), f"The optimizer states are save for {max_fsdp+1} parallelism, while current has {fsdp_size} fsdp parallelism"
+
+    fsdp_rank = gpc.get_local_rank(ParallelMode.GLOBAL)
     zero_rank = gpc.get_local_rank(ParallelMode.ZERO1)
     tp_rank = gpc.get_local_rank(ParallelMode.TENSOR)
     wp_rank = gpc.get_local_rank(ParallelMode.WEIGHT)
     pp_rank = gpc.get_local_rank(ParallelMode.PIPELINE)
-    if is_using_isp():
-        fp = f"optimizer_wp{wp_rank}_pp{pp_rank}_zo{zero_rank}.pt"
+
+    if isinstance(optim, (HybridZeroOptimizer, HybridZeroOptimizer_v2)):
+        if is_using_isp():
+            fp = f"optimizer_wp{wp_rank}_pp{pp_rank}_zo{zero_rank}.pt"
+        else:
+            fp = f"optimizer_tp{tp_rank}_pp{pp_rank}_zo{zero_rank}.pt"
     else:
-        fp = f"optimizer_tp{tp_rank}_pp{pp_rank}_zo{zero_rank}.pt"
+        fp = f"optimizer_fsdp{fsdp_rank}.pt"
 
     states = llm_load(os.path.join(folder, fp), map_location=get_current_device())
 
@@ -392,6 +444,7 @@ def save_optimizer_checkpoint(optim, state_path):
     """
 
     # TODO sanity check for optimizer type
+    fsdp_rank = gpc.get_local_rank(ParallelMode.GLOBAL)
     zero_rank = gpc.get_local_rank(ParallelMode.ZERO1)
     tp_rank = gpc.get_local_rank(ParallelMode.TENSOR)
     wp_rank = gpc.get_local_rank(ParallelMode.WEIGHT)
@@ -416,6 +469,7 @@ def save_optimizer_checkpoint(optim, state_path):
             fp_meta = os.path.join(state_path, optim.rank_unique_id)
             llm_save(fp_meta, params_per_rank_id_dict)
     else:
+        fp = f"optimizer_fsdp{fsdp_rank}.pt"
         llm_save(os.path.join(state_path, fp), states)
 
 
