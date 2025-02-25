@@ -2,6 +2,8 @@ transformers<4.47.0
 sentencepiece
 datasets
 numpy
+scipy
+decorator
 tqdm
 einops
 boto3

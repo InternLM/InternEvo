@@ -1,4 +1,5 @@
 import os
+import sys
 from typing import List
 
 from setuptools import find_packages, setup
@@ -27,8 +28,13 @@ def get_requires() -> List[str]:
 
 extra_require = {
     "torch": ["torch>=2.1.0"],
-    "torch-npu": ["torch==2.1.0", "torch-npu==2.1.0.post3", "numpy==1.26.4", "scipy", "decorator"],
+    "torch-npu": ["torch==2.1.0", "torch-npu==2.1.0.post3", "numpy==1.26.4"],
 }
+
+
+if sys.platform.startswith("linux"):
+    extra_require["torch"].append("flash-attn>=2.6.3")
+
 
 setup(
     name="InternEvo",
