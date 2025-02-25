@@ -34,14 +34,15 @@ class WrappedHandle:
     Handle precision conversion when async all_reduce or reduce_scatter
     """
 
-    def __init__(self, handle, output):
+    def __init__(self, handle, output, dtype):
         self.handle = handle
         self.output = output
+        self.dtype = dtype
 
     def wait(self):
         self.handle.wait()
-        if gpc.config.reduce_comm_dtype != gpc.config.model.dtype:
-            self.output.data = self.output.to(gpc.config.model.dtype)
+        if gpc.config.reduce_comm_dtype != self.dtype:
+            self.output.data = self.output.to(self.dtype)
         self.output = None
 
 
@@ -55,7 +56,7 @@ def all_reduce_raw(input_: Tensor, process_group: ProcessGroup, async_op: bool =
         if async_op is False:
             input_ = input_.to(gpc.config.model.dtype)
         else:
-            handle = WrappedHandle(handle=handle, output=input_)
+            handle = WrappedHandle(handle=handle, output=input_, dtype=gpc.config.model.dtype)
     return input_, handle
 
 
@@ -285,7 +286,7 @@ def reduce_scatter_raw(
         if async_op is False:
             output = output.to(gpc.config.model.dtype)
         else:
-            handle = WrappedHandle(handle=handle, output=output)
+            handle = WrappedHandle(handle=handle, output=output, dtype=gpc.config.model.dtype)
     return output, handle
 
 

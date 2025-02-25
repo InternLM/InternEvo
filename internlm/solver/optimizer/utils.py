@@ -12,6 +12,7 @@ from torch._utils import _flatten_dense_tensors, _unflatten_dense_tensors
 
 from internlm.core.context import ParallelMode
 from internlm.core.context import global_context as gpc
+from internlm.core.parallel.comm.utils import WrappedHandle
 from internlm.utils.common import get_current_device, get_tensor_norm, move_norm_to_cuda
 from internlm.utils.logger import get_logger
 from internlm.utils.parallel import (
@@ -79,23 +80,6 @@ def split_half_float_double(tensor_list):
 
     buckets = [bucket for bucket in dtype_buckets.values() if bucket]
     return buckets
-
-
-class WrappedHandle:
-    """
-    Handle precision conversion when async all_reduce or reduce_scatter
-    """
-
-    def __init__(self, handle, output, dtype):
-        self.handle = handle
-        self.output = output
-        self.dtype = dtype
-
-    def wait(self):
-        self.handle.wait()
-        if gpc.config.reduce_comm_dtype != self.dtype:
-            self.output.data = self.output.to(self.dtype)
-        self.output = None
 
 
 def reduce_tensor(
