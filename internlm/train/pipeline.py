@@ -589,6 +589,7 @@ def initialize_optimizer(model: Union[nn.Module, nn.ModuleList], isp_communicato
     if (
         zero_cfg.overlap_sync_grad
         and gpc.is_using_parallel_mode(ParallelMode.PIPELINE)
+        and getattr(gpc.config.parallel.pipeline, "batch_p2p_comm", False) is True
         and gpc.is_pipeline_first_stage() is False
     ):
         # When pipeline parallelism is enabled, we prefer to only enable optimizer

@@ -131,9 +131,6 @@ def args_sanity_check():
     if "pipeline" not in gpc.config.parallel:
         gpc.config.parallel._add_item("pipeline", dict(size=1, interleaved_overlap=False, mode="1F1B"))
 
-    if isinstance(gpc.config.parallel.pipeline, dict) and "mode" not in gpc.config.parallel.pipeline:
-        gpc.config.parallel.pipeline._add_item("mode", "1F1B")
-
     if "tensor" not in gpc.config.parallel:
         gpc.config.parallel._add_item("tensor", dict(size=1, mode=TensorParallelMode.mtp.name))
 
@@ -152,8 +149,15 @@ def args_sanity_check():
 
     if isinstance(gpc.config.parallel.pipeline, int):
         pp = gpc.config.parallel.pipeline
+        gpc.config.parallel._add_item("pipeline", dict(size=pp, interleaved_overlap=False))
     else:
         pp = gpc.config.parallel.pipeline.size
+
+    if isinstance(gpc.config.parallel.pipeline, dict) and "mode" not in gpc.config.parallel.pipeline:
+        gpc.config.parallel.pipeline._add_item("mode", "1F1B")
+
+    if "batch_p2p_comm" not in gpc.config.parallel.pipeline:
+        gpc.config.parallel.pipeline["batch_p2p_comm"] = False
 
     if isinstance(gpc.config.parallel.pipeline, dict):
         gpc.config.parallel.pipeline["mode"] = gpc.config.parallel.pipeline["mode"].upper()
