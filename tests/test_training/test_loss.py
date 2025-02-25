@@ -21,7 +21,12 @@ from internlm.train import (
     initialize_parallel_communicator,
     load_new_batch,
 )
-from internlm.utils.common import BatchSkipper, launch_time
+from internlm.utils.common import (
+    BatchSkipper,
+    check_cuda_env,
+    enable_pytorch_expandable_segments,
+    launch_time,
+)
 from internlm.utils.gputest import empty_cache_and_diag
 from internlm.utils.megatron_timers import megatron_timer as timer
 
@@ -33,15 +38,15 @@ LOSS_DEVIATION_LIMIT = 0.02
 # dp_size = 4
 BASELINE_LOSS_LIST = [
     12.362918853759766,
-    12.404379844665527,
-    12.348219871520996,
-    12.194982528686523,
-    11.80469036102295,
-    11.573806762695312,
-    10.045475006103516,
-    9.660882949829102,
-    9.172087669372559,
-    4.799427032470703,
+    12.404375076293945,
+    12.348180770874023,
+    12.1947021484375,
+    11.804483413696289,
+    11.573527336120605,
+    10.04533576965332,
+    9.66073989868164,
+    9.172025680541992,
+    4.798973560333252
 ]
 
 
@@ -71,7 +76,7 @@ def train(
     config.data.total_steps = 50000
     config.data.fixed_random_dataset_seqlen = False
     config.data.micro_num = 4
-    config.data.micro_bsz = 2
+    config.data.micro_bsz = 1
     config.lr_scheduler.total_steps = config.data.total_steps
     config.model_type = model_type
     config.ckpt.load_ckpt_folder = None
@@ -166,6 +171,12 @@ def train(
     objs = [current_time]
     dist.broadcast_object_list(objs, src=0)
     current_time = objs[0]
+
+    # check cuda env
+    check_cuda_env()
+
+    # set torch expandable_segments
+    enable_pytorch_expandable_segments()
 
     # initialize model
     model = initialize_model()
@@ -472,15 +483,15 @@ def test_training_with_isp():
     CONFIG_FILE_PATH = "./configs/7B_isp_sft.py"
     BASELINE_LOSS_LIST = [
         12.225811004638672,
-        12.103824615478516,
-        12.223844528198242,
-        11.87704849243164,
-        11.651590347290039,
-        11.629219055175781,
-        10.242591857910156,
-        9.768388748168945,
-        9.330610275268555,
-        5.505439758300781,
+        12.10380744934082,
+        12.223655700683594,
+        11.877079963684082,
+        11.651113510131836,
+        11.629385948181152,
+        10.242776870727539,
+        9.768218040466309,
+        9.330422401428223,
+        5.505432605743408
     ]
 
     # model training
