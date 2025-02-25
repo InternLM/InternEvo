@@ -1241,7 +1241,7 @@ class ISPCommunicator(WPCommunicator):
                 if self._enable_early_reduce_scatter_release:
                     self._early_curr_layer_rs_handles.append(handle)
 
-                self.reduce_scatter_handlers[key] = (output, handle)
+                self._reduce_scatter_handlers[key] = (output, handle)
 
                 result, handle = (
                     self._get_constant_zero(
