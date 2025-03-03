@@ -555,11 +555,30 @@ class InternLM2(BaseModel):
                     dim=0,
                 )[local_rank]
             else:
-                state_dict[f"layers.{i}.attention.wqkv.weight"] = torch.chunk(
-                    state_dict.pop(f"model.layers.{layer_ids}.attention.wqkv.weight"),
-                    split_size,
-                    dim=0,
-                )[local_rank]
+                key = f"model.layers.{layer_ids}.attention.wqkv.weight"
+                if key in state_dict:
+                    state_dict[f"layers.{i}.attention.wqkv.weight"] = torch.chunk(
+                        state_dict.pop(key),
+                        split_size,
+                        dim=0,
+                    )[local_rank]
+                else:
+                    wq = torch.chunk(
+                        state_dict.pop(f"model.layers.{layer_ids}.attention.wq.weight"),
+                        split_size,
+                        dim=0,
+                    )[local_rank]
+                    wk = torch.chunk(
+                        state_dict.pop(f"model.layers.{layer_ids}.attention.wk.weight"),
+                        split_size,
+                        dim=0,
+                    )[local_rank]
+                    wv = torch.chunk(
+                        state_dict.pop(f"model.layers.{layer_ids}.attention.wv.weight"),
+                        split_size,
+                        dim=0,
+                    )[local_rank]
+                    state_dict[f"layers.{i}.attention.wqkv.weight"] = torch.cat([wq, wk, wv], dim=0)
             wo_name = "self_attn.o_proj" if is_internlm3 else "attention.wo"
             state_dict[f"layers.{i}.attention.wo.weight"] = torch.chunk(
                 state_dict.pop(f"model.layers.{layer_ids}.{wo_name}.weight"),

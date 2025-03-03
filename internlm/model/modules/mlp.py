@@ -6,6 +6,7 @@ from typing import Dict, Optional
 import torch
 from torch import nn
 
+from internlm.core.context import global_context as gpc
 from internlm.model.modules.linear import new_linear
 from internlm.model.modules.utils import Gelu, Silu
 from internlm.utils.logger import get_logger
@@ -86,16 +87,41 @@ class FeedForward(nn.Module):
         if self.mlp_layer_fusion:
             assert bias is False, "Fuesd FeedForward only support bias is False."
 
-            self.fused_w1_w3 = new_linear(
-                "w13", in_features, hidden_features * 2, bias, device=device, dtype=dtype, is_expert=is_expert
-            )
-            self.w2 = new_linear(
-                "w2", hidden_features, out_features, bias, device=device, dtype=dtype, is_expert=is_expert
-            )
+            if gpc.config.parallel["tensor"].get("tp_overlap", False):
+                self.fused_w1_w3 = new_linear(
+                    "w13",
+                    in_features,
+                    hidden_features * 2,
+                    bias,
+                    device=device,
+                    dtype=dtype,
+                    is_expert=is_expert,
+                    tp_comm_buffer_name="fc1",
+                )
+                self.w2 = new_linear(
+                    "w2",
+                    hidden_features,
+                    out_features,
+                    bias,
+                    device=device,
+                    dtype=dtype,
+                    is_expert=is_expert,
+                    tp_comm_buffer_name="fc2",
+                )
+            else:
+                self.fused_w1_w3 = new_linear(
+                    "w13", in_features, hidden_features * 2, bias, device=device, dtype=dtype, is_expert=is_expert
+                )
+                self.w2 = new_linear(
+                    "w2", hidden_features, out_features, bias, device=device, dtype=dtype, is_expert=is_expert
+                )
 
             self._register_load_state_dict_pre_hook(_mlp_pre_load_convert, with_module=True)
             self._register_state_dict_hook(_mlp_save_convert)
         else:
+            assert (
+                gpc.config.parallel["tensor"].get("tp_overlap", False) is False
+            ), "tp overlap currently only support fused mlp."
             self.w1 = new_linear(
                 "w1", in_features, hidden_features, bias, device=device, dtype=dtype, is_expert=is_expert
             )

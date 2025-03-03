@@ -191,7 +191,17 @@ weight parallel (dict):
 """
 parallel = dict(
     zero1=dict(size=-1),
-    tensor=dict(size=1, mode="mtp"),
+    tensor=dict(
+        size=1,
+        mode="mtp",
+        tp_overlap=False,
+        tp_overlap_cfg=dict(
+            tp_comm_overlap_ag=True,
+            tp_comm_overlap_rs=True,
+            tp_comm_bulk_wgrad=True,
+            tp_comm_bulk_dgrad=True,
+        ),
+    ),
     pipeline=dict(size=1, interleaved_overlap=True),
     weight=dict(size=1, overlap=True),
 )
