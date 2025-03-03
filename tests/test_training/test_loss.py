@@ -16,9 +16,8 @@ from internlm.initialize import initialize_distributed_env
 from internlm.model.losses import InternLoss
 from internlm.train import (
     get_scheduler_hooks,
-    initialize_model,
+    initialize_model_and_parallel_communicator,
     initialize_optimizer,
-    initialize_parallel_communicator,
     load_new_batch,
 )
 from internlm.utils.common import BatchSkipper, launch_time
@@ -167,11 +166,8 @@ def train(
     dist.broadcast_object_list(objs, src=0)
     current_time = objs[0]
 
-    # initialize model
-    model = initialize_model()
-
-    # initialize isp communicator
-    isp_communicator = initialize_parallel_communicator(model)
+    # initialize model and isp_communicator
+    model, isp_communicator = initialize_model_and_parallel_communicator()
 
     # initialize loss function
     criterion = InternLoss(parallel_output=gpc.config.model.parallel_output, label_smoothing=label_smoothing)
@@ -471,16 +467,16 @@ def test_training_with_isp():
     global CONFIG_FILE_PATH, BASELINE_LOSS_LIST
     CONFIG_FILE_PATH = "./configs/7B_isp_sft.py"
     BASELINE_LOSS_LIST = [
-        12.225811004638672,
-        12.103824615478516,
-        12.223844528198242,
-        11.87704849243164,
-        11.651590347290039,
-        11.629219055175781,
-        10.242591857910156,
-        9.768388748168945,
-        9.330610275268555,
-        5.505439758300781,
+        12.159960746765137,
+        12.22106647491455,
+        12.106496810913086,
+        11.951896667480469,
+        11.644429206848145,
+        11.459924697875977,
+        10.127229690551758,
+        9.795705795288086,
+        9.255647659301758,
+        5.301709175109863,
     ]
 
     # model training

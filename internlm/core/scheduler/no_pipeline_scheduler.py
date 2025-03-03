@@ -136,7 +136,11 @@ class NonPipelineScheduler(BaseScheduler):
                 # the moe_loss is computed among the "tensor" group if sequence parallel is enabled,
                 # so we need to do allreduce
                 if gpc.config.parallel.sequence_parallel or gpc.config.parallel.expert.no_tp:
+                    if gpc.config.reduce_comm_dtype != gpc.config.model.dtype:
+                        moe_loss = moe_loss.to(gpc.config.reduce_comm_dtype)
                     dist.all_reduce(moe_loss, op=dist.ReduceOp.SUM, group=gpc.get_group(ParallelMode.TENSOR))
+                    if gpc.config.reduce_comm_dtype != gpc.config.model.dtype:
+                        moe_loss = moe_loss.to(gpc.config.model.dtype)
                     moe_loss.div_(gpc.get_world_size(ParallelMode.TENSOR))
                 moe_loss /= scale_loss
                 loss /= scale_loss

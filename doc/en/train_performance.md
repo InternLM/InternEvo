@@ -121,7 +121,7 @@ model = dict(
 )
 
 parallel = dict(
-    zero1=dict(size=8, fsdp=False),
+    zero1=dict(size=8),
     tensor=1,
     pipeline=dict(size=1, interleaved_overlap=True),
     sequence_parallel=False,

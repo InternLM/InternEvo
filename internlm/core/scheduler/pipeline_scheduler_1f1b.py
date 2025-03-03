@@ -320,7 +320,11 @@ class PipelineScheduler(BaseScheduler):
         )
         # the moe_loss is computed among the "tensor" group if sequence parallel is enabled, so we need to do allreduce
         if gpc.config.parallel.sequence_parallel or gpc.config.parallel.expert.no_tp:
+            if gpc.config.reduce_comm_dtype != gpc.config.model.dtype:
+                moe_loss = moe_loss.to(gpc.config.reduce_comm_dtype)
             dist.all_reduce(moe_loss, op=dist.ReduceOp.SUM, group=gpc.get_group(ParallelMode.TENSOR))
+            if gpc.config.reduce_comm_dtype != gpc.config.model.dtype:
+                moe_loss = moe_loss.to(gpc.config.model.dtype)
             moe_loss.div_(gpc.get_world_size(ParallelMode.TENSOR))
         moe_loss /= self.num_microbatches
         accum_moe_loss.add_(moe_loss.detach())
@@ -458,7 +462,11 @@ class PipelineScheduler(BaseScheduler):
         output, label = pack_return_tensors(return_tensors) if len(return_tensors) > 0 else (None, None)
 
         if hasattr(gpc.config.model, "num_experts") and gpc.config.model.num_experts > 1:
+            if gpc.config.reduce_comm_dtype != gpc.config.model.dtype:
+                accum_moe_loss = accum_moe_loss.to(gpc.config.reduce_comm_dtype)
             dist.all_reduce(accum_moe_loss, group=gpc.get_group(ParallelMode.PIPELINE))
+            if gpc.config.reduce_comm_dtype != gpc.config.model.dtype:
+                accum_moe_loss = accum_moe_loss.to(gpc.config.model.dtype)
 
         if accum_loss is not None:
             accum_loss += accum_moe_loss
@@ -662,7 +670,11 @@ class PipelineScheduler(BaseScheduler):
         output, label = pack_return_tensors(return_tensors) if len(return_tensors) > 0 else (None, None)
 
         if hasattr(gpc.config.model, "num_experts") and gpc.config.model.num_experts > 1:
+            if gpc.config.reduce_comm_dtype != gpc.config.model.dtype:
+                accum_moe_loss = accum_moe_loss.to(gpc.config.reduce_comm_dtype)
             dist.all_reduce(accum_moe_loss, group=gpc.get_group(ParallelMode.PIPELINE))
+            if gpc.config.reduce_comm_dtype != gpc.config.model.dtype:
+                accum_moe_loss = accum_moe_loss.to(gpc.config.model.dtype)
 
         if accum_loss is not None:
             accum_loss += accum_moe_loss
@@ -883,7 +895,12 @@ class InterleavedPipelineScheduler(PipelineScheduler):
         )
         # the moe_loss is computed among the "tensor" group if sequence parallel is enabled, so we need to do allreduce
         if gpc.config.parallel.sequence_parallel or gpc.config.parallel.expert.no_tp:
+            if gpc.config.reduce_comm_dtype != gpc.config.model.dtype:
+                moe_loss = moe_loss.to(gpc.config.reduce_comm_dtype)
             dist.all_reduce(moe_loss, op=dist.ReduceOp.AVG, group=gpc.get_group(ParallelMode.TENSOR))
+            if gpc.config.reduce_comm_dtype != gpc.config.model.dtype:
+                moe_loss = moe_loss.to(gpc.config.model.dtype)
+
         moe_loss /= self.num_microbatches
 
         if self._accum_moe_loss is not None:
@@ -1414,7 +1431,11 @@ class InterleavedPipelineScheduler(PipelineScheduler):
             output, label = (None, None)
 
         if hasattr(gpc.config.model, "num_experts") and gpc.config.model.num_experts > 1:
+            if gpc.config.reduce_comm_dtype != gpc.config.model.dtype:
+                self._accum_moe_loss = self._accum_moe_loss.to(gpc.config.reduce_comm_dtype)
             dist.all_reduce(self._accum_moe_loss, group=gpc.get_group(ParallelMode.PIPELINE))
+            if gpc.config.reduce_comm_dtype != gpc.config.model.dtype:
+                self._accum_moe_loss = self._accum_moe_loss.to(gpc.config.model.dtype)
         accum_moe_loss = self._accum_moe_loss
 
         accum_loss = self._accum_loss

@@ -23,6 +23,7 @@ from internlm.solver.optimizer import HybridZeroOptimizer, HybridZeroOptimizer_v
 from internlm.utils.common import get_current_device
 from internlm.utils.logger import get_logger
 from internlm.utils.megatron_timers import megatron_timer as timer
+from internlm.utils.parallel import is_using_fsdp, is_using_hf
 from internlm.utils.storage_manager import (
     get_storage_manager,
     init_storage_manager,
@@ -271,7 +272,7 @@ class CheckpointManager:
         self.storage_manager = get_storage_manager()
         self.snapshot_counter = -1
 
-        if hasattr(model, "model"):
+        if hasattr(model, "model") and not is_using_fsdp():
             model = model.model
 
         self.model = model
@@ -575,6 +576,8 @@ now step_count is {train_state.step_count}",
                     f"tp={gpc.get_local_rank(ParallelMode.TENSOR)},pp={gpc.get_local_rank(ParallelMode.PIPELINE)},"
                     f"dp={gpc.get_local_rank(ParallelMode.DATA)}==========="
                 )
+        elif is_using_fsdp() and is_using_hf() and not self.auto_resume:
+            pass
         else:
             load_path = self.load_ckpt_info["path"]
             load_content = self.load_ckpt_info["content"]

@@ -5,10 +5,9 @@ import torch.distributed
 from flash_attn.flash_attn_interface import _flash_attn_backward, _flash_attn_forward
 
 from internlm.core.context.parallel_context import global_context as gpc
+from internlm.core.parallel.comm import get_offload_manager
 
 from .utils import RingComm, update_out_and_lse
-
-fa_output_mapping = {}
 
 
 def create_buffer(tensor):
@@ -443,9 +442,10 @@ class ZigZagRingFlashAttnFunc(torch.autograd.Function):
         k = k.contiguous()
         v = v.contiguous()
 
-        if gpc.is_forward is False and gpc.config.selective_checkpoint:
-            assert layer_idx in fa_output_mapping
-            out, softmax_lse = fa_output_mapping.pop(layer_idx)
+        _ckpt_block_num = int(gpc.config.model.checkpoint * gpc.config.isp_num_layers)
+
+        if gpc.is_forward is False and gpc.config.selective_checkpoint and layer_idx < _ckpt_block_num:
+            out, softmax_lse = get_offload_manager().get_fa_output_with_layer(layer_idx)
         else:
             out, softmax_lse = zigzag_double_ring_flash_attn_forward(
                 context_group,
@@ -460,8 +460,8 @@ class ZigZagRingFlashAttnFunc(torch.autograd.Function):
             )
 
         # store attn forward output to avoid re-computation of attn when activation checkpoint is enabled
-        if gpc.is_forward and gpc.config.selective_checkpoint:
-            fa_output_mapping[layer_idx] = (out, softmax_lse)
+        if gpc.is_forward and gpc.config.selective_checkpoint and layer_idx < _ckpt_block_num:
+            get_offload_manager().insert_fa_output_with_layer(layer_idx=layer_idx, output=(out, softmax_lse))
 
         # this should be out_padded
         ctx.save_for_backward(q, k, v, out, softmax_lse)

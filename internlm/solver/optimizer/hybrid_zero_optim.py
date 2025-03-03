@@ -449,13 +449,11 @@ class HybridZeroOptimizer(BaseOptimizer):
 
             # wait and accumulate gardient.
             _key = getattr(_param, "isp_reduce_scatter_name")
-            _grad, _comm_handle = self._isp_communicator.reduce_scatter_handlers[_key]
-            _comm_handle.wait()
+            _grad = self._isp_communicator.pop_reduced_grad(_key)
             _param.grad.add_(_grad)
 
             # release cuda memory.
             _grad = None
-            self._isp_communicator.reduce_scatter_handlers[_key] = None
 
         bucket.reset_by_rank(reduce_rank)
 

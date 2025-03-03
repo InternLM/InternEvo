@@ -338,6 +338,7 @@ class GroupedGemmSPFusedDenseFunc(torch.autograd.Function):
             raise NotImplementedError(f"Invalid backend: {backend}")
 
         input_numel = x.numel()
+        ctx.input_numel = input_numel
         if input_numel == 0:
             backend = "bmm"
 
@@ -357,9 +358,11 @@ class GroupedGemmSPFusedDenseFunc(torch.autograd.Function):
             if input_numel == 0:
                 # if inp is empty, reshape to make grad flow.
                 # inp shape: (0, hdim)
-                weight = weight.view(x.shape[-1], -1)
+                output = torch.matmul(x, weight.view(x.shape[-1], -1))
+            else:
+                output = torch.matmul(x, weight)
 
-            output = torch.matmul(x, weight)
+        assert len(output.shape) == len(x.shape)
 
         assert len(output.shape) == len(x.shape)
 
@@ -387,14 +390,20 @@ class GroupedGemmSPFusedDenseFunc(torch.autograd.Function):
             if backend == "gmm":
                 grad_input, grad_weight = gmm_backward_op(x, grad_output, batch_sizes, input_weight=weight)
             else:
-                grad_weight = torch.matmul(x.transpose(-1, -2), grad_output)
+                if ctx.input_numel == 0:
+                    grad_weight = torch.zeros_like(weight)
+                else:
+                    grad_weight = torch.matmul(x.transpose(-1, -2), grad_output)
 
         if ctx.needs_input_grad[0]:
             if backend == "gmm":
                 if grad_input is None:
                     grad_input, _ = gmm_backward_op(grad_output, weight, batch_sizes, is_grad_input=True)
             else:
-                grad_input = torch.matmul(grad_output, weight.transpose(-1, -2))
+                if ctx.input_numel == 0:
+                    grad_input = torch.zeros_like(x)
+                else:
+                    grad_input = torch.matmul(grad_output, weight.transpose(-1, -2))
 
         return grad_input, grad_weight, None, None, None, None, None
 

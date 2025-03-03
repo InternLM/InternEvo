@@ -483,16 +483,6 @@ class ParallelContext(metaclass=SingletonMeta):
 
         assert self.zero1_parallel_size > 0
 
-        # check for fsdp:
-        # if zo_size < dp_size, ckpts saving will introduce redundent storage for model weights
-        # because pytorch "ShardTensor" need to ensure current global rank equals to saved shard's global rank
-        # pytorch vision: 1.13.1+cu117
-        if self.data_parallel_size > self.zero1_parallel_size and self.config.parallel.zero1.get("fsdp", False):
-            logger.warning(
-                f"zo size: {self.zero1_parallel_size} < dp size: {self.data_parallel_size}, "
-                "will introduce redundancy when saving fsdp model ckpts, recommend setting them to same value"
-            )
-
     def _set_parallel_size_from_config(self, config: dict, key: str, attr_name: str):
         if key in config:
             ele = config[key]
@@ -518,7 +508,7 @@ class ParallelContext(metaclass=SingletonMeta):
         if parallel_config is not None:
             # set default value for parallel size
             if "zero1" not in parallel_config:
-                parallel_config._add_item("zero1", dict(size=-1, fsdp=False))
+                parallel_config._add_item("zero1", dict(size=-1))
             if "pipeline" not in parallel_config:
                 parallel_config._add_item("pipeline", dict(size=1, interleaved_overlap=False))
             if "tensor" not in parallel_config:
@@ -657,9 +647,7 @@ class ParallelContext(metaclass=SingletonMeta):
         # process groups for parallelism.
         enable_moe = self.config.model.get("num_experts", 1) > 1
         tp_mode = "mtp" if isinstance(parallel_config.tensor, int) else parallel_config.tensor.get("mode", "mtp")
-        is_fsdp = False if isinstance(parallel_config.zero1, int) else parallel_config.zero1.get("fsdp", False)
-        parallel_strategy = "fsdp" if is_fsdp else tp_mode
-        group_configs = generate_parallel_group_configs(parallel_strategy, parallel_sizes, enable_moe)
+        group_configs = generate_parallel_group_configs(tp_mode, parallel_sizes, enable_moe)
         group_results = create_parallel_process_groups(world_size, rank, group_configs, with_cpu_group=False)
 
         # process group for network test.

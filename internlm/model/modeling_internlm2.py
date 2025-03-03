@@ -1,6 +1,7 @@
 # Copyright (c) InternLM. All rights reserved.
 import math
 import os
+from contextlib import nullcontext
 from functools import reduce
 from typing import Optional
 
@@ -11,6 +12,7 @@ from tqdm import tqdm
 from internlm.accelerator import get_accelerator
 from internlm.core.context import ParallelMode
 from internlm.core.context.parallel_context import global_context as gpc
+from internlm.core.parallel.comm.cpu_offload import get_cpu_offload_context
 from internlm.core.parallel.shard import partition_uniform
 from internlm.initialize.initialize_tensor import (
     normal_,
@@ -387,6 +389,16 @@ class InternLM2(BaseModel):
         checkpoint_layer_num = int(num_layers * checkpoint)
         self.embed_grad_scale = embed_grad_scale
         self.parallel_output = parallel_output
+        self.enable_cpu_offloading = gpc.config.cpu_offloading.enable
+
+        if self.enable_cpu_offloading:
+            (self.offload_context, self.group_prefetch_offload_commit_async) = get_cpu_offload_context(
+                gpc.config.cpu_offloading.enable,
+                gpc.config.cpu_offloading.num_layers,
+                gpc.config.model.num_layers,
+            )
+        else:
+            self.offload_context, self.group_prefetch_offload_commit_async = nullcontext(), None
 
         if first:
             self.tok_embeddings = Embedding1D(num_embeddings=vocab_size, embedding_dim=hidden_size)
@@ -409,7 +421,7 @@ class InternLM2(BaseModel):
                     max_position_embeddings=max_position_embeddings,
                     dtype=dtype,
                     layer_norm_epsilon=layer_norm_epsilon,
-                    checkpoint=lid < checkpoint_layer_num,
+                    checkpoint=gpc.config.cpu_offloading.num_layers <= lid < checkpoint_layer_num,
                     layer_idx=lid + start_layer_idx,  # This parameter is used for caching during generation
                     use_dynamic_ntk_rope=use_dynamic_ntk_rope,
                     residual_in_fp32=residual_in_fp32,
@@ -467,7 +479,15 @@ class InternLM2(BaseModel):
                 )
 
         for _, block in enumerate(self.layers):
-            hidden_states = block(hidden_states, residual=None, **kwargs)
+            with self.offload_context:
+                hidden_states = block(hidden_states, residual=None, **kwargs)
+
+            if (
+                torch.is_grad_enabled()
+                and self.enable_cpu_offloading
+                and self.group_prefetch_offload_commit_async is not None
+            ):
+                hidden_states = self.group_prefetch_offload_commit_async(hidden_states)
 
         if hasattr(self, "norm"):
             hidden_states = self.norm(hidden_states.float())
