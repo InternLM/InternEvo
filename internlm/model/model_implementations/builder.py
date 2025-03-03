@@ -39,8 +39,6 @@ def create_model_builtin(model_type) -> Union[nn.Module, List[nn.Module]]:
 
     # TODO: fix use_flash_attn parameter config
     kwargs.pop("use_flash_attn", False)
-    kwargs.pop("apply_post_layer_norm")
-    kwargs.pop("embed_split_hidden", True)
 
     kwargs["checkpoint"] = float(kwargs.get("checkpoint", False))
     kwargs["device"] = get_current_device()

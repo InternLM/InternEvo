@@ -25,7 +25,6 @@ def load_and_generate(path, model_type="INTERNLM2", tokenizer_path=""):
     model_cfg = os.path.join(path, "model_config.pt")
     model_wt = os.path.join(path, "model_tp0_pp0.pt")
     model_config = torch.load(model_cfg)
-    model_config["apply_post_layer_norm"] = False
     if model_config.get("adapt_hf") is not None:
         model_config.pop("adapt_hf")
     evo_cfg = dict(

@@ -123,14 +123,12 @@
     model = dict(
         checkpoint=False,  # The proportion of layers for activation aheckpointing, the optional value are True/False/[0-1]
         num_attention_heads=NUM_ATTENTION_HEAD,
-        embed_split_hidden=True,
         vocab_size=VOCAB_SIZE,
         embed_grad_scale=1,
         parallel_output=True,
         hidden_size=HIDDEN_SIZE,
         num_layers=NUM_LAYER,
         mlp_ratio=MLP_RATIO,
-        apply_post_layer_norm=False,
         dtype="torch.float16",  # Support: "torch.float16", "torch.half", "torch.bfloat16", "torch.float32", "torch.tf32"
         norm_type="rmsnorm",
         layer_norm_epsilon=1e-5,

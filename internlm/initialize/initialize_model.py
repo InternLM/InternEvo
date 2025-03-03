@@ -29,7 +29,6 @@ from internlm.model.model_ops.modules.linear import (
     ScaleColumnParallelLinear,
 )
 from internlm.model.model_ops.moe import Experts, MoE
-from internlm.model.model_ops.moe.moe import Qwen2MoE
 from internlm.model.model_ops.ops.norm import RMSNorm
 from internlm.utils.parallel import (
     is_replica_expert_data_parallel_parameter,
@@ -100,7 +99,7 @@ def set_parallel_attr_for_param_groups(model: Union[nn.Module, nn.ModuleList]):
             for param in module.parameters():
                 setattr(param, IS_REPLICA_ZERO_PARALLEL, True)
 
-        if isinstance(module, (MoE, Qwen2MoE)):
+        if isinstance(module, MoE):
             for param in module.moe_layer.gate.parameters():
                 setattr(param, IS_REPLICA_ZERO_PARALLEL, True)
             if hasattr(module, "coefficient"):
@@ -139,11 +138,6 @@ def set_parallel_attr_for_param_groups(model: Union[nn.Module, nn.ModuleList]):
                     setattr(param, IS_TENSOR_ZERO_PARALLEL, True)
                 elif gpc.is_initialized(ParallelMode.WEIGHT) and is_using_isp():
                     setattr(param, IS_WEIGHT_ZERO_PARALLEL, True)
-
-        # for vit and vit project
-        if "vision_tower" in name.lower() or "vision_proj" in name.lower():
-            for param in module.parameters():
-                setattr(param, IS_REPLICA_ZERO_PARALLEL, True)
 
     for _chunk in unwrap_naive_amp(model):
         if not is_using_fsdp():

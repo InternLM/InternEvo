@@ -4,10 +4,6 @@
 
 from typing import Callable
 
-from internlm.model.model_implementations.transformers.modeling_baichuan2 import (
-    Baichuan2,
-)
-from internlm.model.model_implementations.transformers.modeling_gemma import Gemma
 from internlm.model.model_implementations.transformers.modeling_internlm import (
     InternLM1,
 )
@@ -15,15 +11,7 @@ from internlm.model.model_implementations.transformers.modeling_internlm2 import
     InternLM2,
 )
 from internlm.model.model_implementations.transformers.modeling_llama import Llama2
-from internlm.model.model_implementations.transformers.modeling_llava import Llava
-from internlm.model.model_implementations.transformers.modeling_mixtral import (
-    MixtralMoE,
-)
 from internlm.model.model_implementations.transformers.modeling_moe import Internlm1MoE
-from internlm.model.model_implementations.transformers.modeling_qwen2 import Qwen2
-from internlm.model.model_implementations.transformers.modeling_qwen2_moe import (
-    Qwen2Moe,
-)
 from internlm.utils.common import SingletonMeta
 from internlm.utils.utils import ModelType
 
@@ -99,9 +87,3 @@ def register_model_initializer() -> None:
     model_initializer.register_module(ModelType.INTERNLM3.name, InternLM2)
     model_initializer.register_module(ModelType.LLAMA2.name, Llama2)
     model_initializer.register_module(ModelType.INTERNLM_MoE.name, Internlm1MoE)
-    model_initializer.register_module(ModelType.LLAVA.name, Llava)
-    model_initializer.register_module(ModelType.QWEN2.name, Qwen2)
-    model_initializer.register_module(ModelType.BAICHUAN2.name, Baichuan2)
-    model_initializer.register_module(ModelType.GEMMA.name, Gemma)
-    model_initializer.register_module(ModelType.QWEN2MOE.name, Qwen2Moe)
-    model_initializer.register_module(ModelType.MIXTRALMOE.name, MixtralMoE)
