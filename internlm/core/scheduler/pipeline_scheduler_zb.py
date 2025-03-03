@@ -351,7 +351,11 @@ class ZeroBubblePipelineScheduler(PipelineScheduler):
         output, label = pack_return_tensors(return_tensors) if len(return_tensors) > 0 else (None, None)
 
         if hasattr(gpc.config.model, "num_experts") and gpc.config.model.num_experts > 1:
+            if gpc.config.reduce_comm_dtype != gpc.config.model.dtype:
+                accum_moe_loss = accum_moe_loss.to(gpc.config.reduce_comm_dtype)
             dist.all_reduce(accum_moe_loss, group=gpc.get_group(ParallelMode.PIPELINE))
+            if gpc.config.reduce_comm_dtype != gpc.config.model.dtype:
+                accum_moe_loss = accum_moe_loss.to(gpc.config.model.dtype)
 
         if accum_loss is not None:
             accum_loss += accum_moe_loss
@@ -901,7 +905,6 @@ class ZeroBubblePipelineVShapeScheduler(InterleavedPipelineScheduler):
             else:
                 next_unit_chunk_id = 1
 
-            # import pdb; pdb.set_trace()
             if unit_step == num_units_stage1 - 1:
                 chunk0_B_need_recv_prev_chunk0_output = False
             else:

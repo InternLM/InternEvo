@@ -8,10 +8,11 @@ from typing import Dict, Optional
 import torch
 import torch.distributed as dist
 from torch import Tensor
-from torch._utils import _flatten_dense_tensors, _unflatten_dense_tensors
+from torch._utils import _unflatten_dense_tensors
 
 from internlm.core.context import ParallelMode
 from internlm.core.context import global_context as gpc
+from internlm.core.parallel.comm.utils import WrappedHandle
 from internlm.utils.common import get_current_device, get_tensor_norm, move_norm_to_cuda
 from internlm.utils.logger import get_logger
 from internlm.utils.parallel import (
@@ -36,14 +37,6 @@ except (ModuleNotFoundError, ImportError):
     APEX_AVAILABLE = False
 
 inf = math.inf
-
-
-def flatten(input_):
-    return _flatten_dense_tensors(input_)
-
-
-def unflatten(flat, tensors):
-    return _unflatten_dense_tensors(flat, tensors)
 
 
 def get_grad_accumulate_object(tensor):
@@ -106,13 +99,12 @@ def reduce_tensor(
     # use the original dtype
     # if dtype is None:
     assert dtype is None
-    dtype = tensor.dtype
+    dtype = gpc.config.reduce_comm_dtype
+    tensor_dtype = tensor.dtype
 
     # cast the data to specified dtype for reduce/all-reduce
-    # if tensor.dtype != dtype:
-    #     tensor_to_reduce = tensor.to(dtype)
-    # else:
-    #     tensor_to_reduce = tensor
+    if tensor_dtype != dtype:
+        tensor = tensor.to(dtype)
 
     # world_size = gpc.get_world_size(parallel_mode)
     # tensor.div_(world_size)
@@ -129,6 +121,11 @@ def reduce_tensor(
         global_rank = ranks_in_group[dst_rank]
         handle = dist.reduce(tensor=tensor, dst=global_rank, group=group, op=op_type, async_op=async_op)
 
+    if tensor_dtype != dtype:
+        if async_op:
+            handle = WrappedHandle(handle=handle, output=tensor, dtype=tensor_dtype)
+        else:
+            tensor = tensor.to(tensor_dtype)
     return handle
 
 
@@ -171,7 +168,7 @@ def sync_param(flat_tensor, tensor_list):
     :type flat_tensor: torch.Tensor
     :type tensor_list: List[torch.Tensor]
     """
-    updated_params = unflatten(flat_tensor, tensor_list)
+    updated_params = _unflatten_dense_tensors(flat_tensor, tensor_list)
 
     # update the tensor data
     for p, q in zip(tensor_list, updated_params):

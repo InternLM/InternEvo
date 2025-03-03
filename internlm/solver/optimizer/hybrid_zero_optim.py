@@ -9,6 +9,7 @@ from typing import List, Optional
 import torch
 import torch.distributed as dist
 from torch.optim import Optimizer
+from torch._utils import _flatten_dense_tensors
 
 from internlm.accelerator import AcceleratorType, get_accelerator
 from internlm.core.context import (
@@ -32,7 +33,6 @@ from internlm.solver.optimizer.store import (
 )
 from internlm.solver.optimizer.utils import (
     DynamicGradScaler,
-    flatten,
     get_grad_accumulate_object,
     has_inf_or_nan,
     reduce_tensor,
@@ -207,7 +207,7 @@ class HybridZeroOptimizer(BaseOptimizer):
                 if rank not in self.param_group_no_params_ranks[group_id]:
                     tensor_list = self._param_store.get_fp16_params_by_rank_group(rank, group_id)
                     with torch.no_grad():
-                        flat_tensor = flatten(tensor_list)
+                        flat_tensor = _flatten_dense_tensors(tensor_list)
                     flat_tensor = flat_tensor.data.to(get_current_device())
                     self._param_store.add_flat_fp16_param_by_rank_group(rank, group_id, flat_tensor)
                     sync_param(flat_tensor=flat_tensor, tensor_list=tensor_list)
@@ -449,13 +449,11 @@ class HybridZeroOptimizer(BaseOptimizer):
 
             # wait and accumulate gardient.
             _key = getattr(_param, "isp_reduce_scatter_name")
-            _grad, _comm_handle = self._isp_communicator.reduce_scatter_handlers[_key]
-            _comm_handle.wait()
+            _grad = self._isp_communicator.pop_reduced_grad(_key)
             _param.grad.add_(_grad)
 
             # release cuda memory.
             _grad = None
-            self._isp_communicator.reduce_scatter_handlers[_key] = None
 
         bucket.reset_by_rank(reduce_rank)
 
@@ -826,7 +824,7 @@ class HybridZeroOptimizer(BaseOptimizer):
             # create flat gradient for the flat fp32 params
             gradients = self._grad_store.get_averaged_gradients_by_group(group_id)
             with torch.no_grad():
-                flat_fp16_avg_grads = flatten(gradients)
+                flat_fp16_avg_grads = _flatten_dense_tensors(gradients)
             self._grad_store.reset_average_gradients_by_group(group_id)
             gradients = None  # release cuda memory
 
