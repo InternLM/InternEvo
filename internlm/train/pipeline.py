@@ -148,17 +148,33 @@ LINEAR2NEWLINEAR_NAME_MAPPING = dict(
 logger = get_logger(__file__)
 internlm_accelerator = get_accelerator()
 
+# For universal checkpoint
+# record offset and complete_size of param in each layer
+map_layer_attr = {}
+map_fqn_local_to_global = {}
+map_fqn_global_to_local = {}
+
 
 def set_param_unique_tracking_name(model):
+    uc_enable = gpc.config.ckpt.universal_ckpt.enable
     for chunk_id, chunk in enumerate(unwrap_naive_amp(model)):
         # Important: only works for llama-class models
         childrens = chunk.named_children()
-        for _, children in childrens:
+        for children_name, children in childrens:
             if isinstance(children, nn.ModuleList):
                 for idx, block in enumerate(children):
                     for name, child in block.named_modules():
+                        if name == "":
+                            continue
+
+                        full_name = f"{chunk_id}.{idx}.{name}"
+                        name_parts = f"{full_name}.weight".split(".", 2)
+                        # global_id for pipeline parallel case
+                        global_id = model.first_layer + idx
+                        local_fqn = f"{children_name}." + ".".join(name_parts[1:])
+                        global_fqn = f"{children_name}.{global_id}." + ".".join(name_parts[2:])
+
                         if isinstance(child, (ParallelLinearWithCommExt)):
-                            full_name = f"{chunk_id}.{idx}.{name}"
                             setattr(
                                 child.weight,
                                 "tracking_name",
@@ -170,19 +186,80 @@ def set_param_unique_tracking_name(model):
                                     "tracking_name",
                                     f"{full_name}.bias",
                                 )
+
+                            if uc_enable:
+                                setattr(
+                                    child.weight,
+                                    "fqn",
+                                    f"{local_fqn}",
+                                )
+                                if child.bias is not None:
+                                    setattr(
+                                        child.bias,
+                                        "fqn",
+                                        f"{local_fqn}",
+                                    )
+
+                                assert hasattr(child, "offset"), f"{child}"
+                                map_fqn_local_to_global[local_fqn] = global_fqn
+                                map_fqn_global_to_local[global_fqn] = local_fqn
+
+                                assert global_fqn not in map_layer_attr, f"{map_layer_attr} exists"
+                                map_layer_attr[global_fqn] = {
+                                    "offset": getattr(child, "offset", [0] * len(child.weight.size())),
+                                    "complete_size": getattr(child, "complete_size", list(child.weight.size())),
+                                }
+
+                        elif isinstance(child, (RMSNorm)) and uc_enable:
+                            map_fqn_local_to_global[local_fqn] = global_fqn
+                            map_fqn_global_to_local[global_fqn] = local_fqn
+                            setattr(
+                                child.weight,
+                                "fqn",
+                                f"{local_fqn}",
+                            )
+                            map_layer_attr[global_fqn] = {
+                                "offset": getattr(child, "offset", [0] * len(child.weight.size())),
+                                "complete_size": getattr(child, "complete_size", list(child.weight.size())),
+                            }
+
             else:
+                full_name = f"{chunk_id}.{children_name}"
+                local_fqn = f"{children_name}.weight"
+                assert getattr(children, "bias", None) is None
                 if isinstance(children, Embedding1D):
                     setattr(
                         children.weight,
                         "tracking_name",
-                        f"{chunk_id}_embedding.weight",
+                        f"{chunk_id}_embeddings.weight",
                     )
+                    assert local_fqn not in map_layer_attr, f"{map_layer_attr} exists"
                 else:
                     setattr(
                         children.weight,
                         "tracking_name",
-                        f"{chunk_id}_head.weight",
+                        f"{full_name}.weight",
                     )
+                    assert local_fqn not in map_layer_attr, f"{map_layer_attr} exists"
+
+                if uc_enable:
+                    setattr(
+                        children.weight,
+                        "fqn",
+                        f"{local_fqn}",
+                    )
+                    if getattr(children, "bias", None) is not None:
+                        if children.bias is not None:
+                            setattr(
+                                children.bias,
+                                "fqn",
+                                f"{local_fqn}",
+                            )
+
+                    map_layer_attr[local_fqn] = {
+                        "offset": getattr(children, "offset", [0] * len(children.weight.size())),
+                        "complete_size": getattr(children, "complete_size", list(children.weight.size())),
+                    }
 
 
 def set_fp32_attr_for_model(model: Union[nn.Module, nn.ModuleList]):

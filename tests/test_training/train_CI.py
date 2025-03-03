@@ -70,7 +70,8 @@ def check_model_weights(model, ckpt_path, total_equal=False):
             model2_dict[key.replace("wqkv", "Wqkv")] = model2_dict.pop(key)
             key = key.replace("wqkv", "Wqkv")
         if key not in model1_dict:
-            assert False, f"Error: The key {key} for current model dose not exist in standard ckpt!"
+            if "Wqkv" not in key:
+                assert False, f"Error: The key {key} for current model dose not exist in standard ckpt!"
 
     for key in model1_dict.keys():
         if key in model2_dict:

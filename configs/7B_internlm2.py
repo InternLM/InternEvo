@@ -38,6 +38,12 @@ ckpt = dict(
     async_upload=True,  # async ckpt upload. (only work for boto3 ckpt)
     async_upload_tmp_folder="/dev/shm/internlm_tmp_ckpt/",  # path for temporarily files during asynchronous upload.
     oss_snapshot_freq=int(CHECKPOINT_EVERY / 2),  # snapshot ckpt save frequency.
+    # INFO: Universal ckpt is not compatible with the original ckpt.
+    # Default is to use async_save and not use broadcast_load
+    # as broadcast_load may cause loading performance degradation.
+    # NOTE: If using aysnc_save, there is a risk of losing the latest ckpt
+    # when there is a sudden training interruption.
+    universal_ckpt=dict(enable=False, aysnc_save=True, broadcast_load=False),
 )
 
 TRAIN_FOLDER = None

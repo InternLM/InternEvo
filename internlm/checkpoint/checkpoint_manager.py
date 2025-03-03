@@ -8,6 +8,7 @@ from typing import Callable, Dict
 import torch
 
 from internlm.accelerator import get_accelerator
+from internlm.checkpoint.universal_checkpoint.api import universal_load, universal_save
 from internlm.core.context import ParallelMode
 from internlm.core.context import global_context as gpc
 from internlm.core.trainer import TrainState
@@ -61,7 +62,7 @@ class CheckpointLoadContent:
     SCHEDULAER = "scheduler"
 
 
-def try_load_internevo_ckpt(ckpt_mm, load_info, train_state: TrainState = None):
+def try_load_internevo_ckpt(ckpt_mm, load_info, train_state: TrainState = None, universal_ckpt=False):
     """Tries to load a checkpoint from the given folder.
 
     Args:
@@ -84,7 +85,19 @@ def try_load_internevo_ckpt(ckpt_mm, load_info, train_state: TrainState = None):
     """
     load_content_str, load_ckpt_folder, load_content = process_load_info(load_info)
 
-    if load_content.need_load(CheckpointLoadContent.MODEL):
+    if universal_ckpt:
+        checkpoint_state = {}
+        if load_content.need_load(CheckpointLoadContent.MODEL):
+            checkpoint_state["model"] = ckpt_mm.model
+        if load_content.need_load(CheckpointLoadContent.OPIMIZER):
+            checkpoint_state["optimizer"] = ckpt_mm.optimizer
+        universal_load(
+            load_ckpt_folder, checkpoint_state, broadcast_checkpoint=gpc.config.ckpt.universal_ckpt.broadcast_load
+        )
+        if gpc.is_rank_for_log():
+            logger.warning("Finsh loading universal model checkpoint and optimizer checkpoint.")
+
+    if not universal_ckpt and load_content.need_load(CheckpointLoadContent.MODEL):
         load_model_checkpoint(folder=load_ckpt_folder, model=ckpt_mm.model)
         load_content_str += f"{CheckpointLoadContent.MODEL}, "
 
@@ -94,12 +107,12 @@ def try_load_internevo_ckpt(ckpt_mm, load_info, train_state: TrainState = None):
             load_context(load_ckpt_folder, train_state)
 
         # load optimizer states.
-        if load_content.need_load(CheckpointLoadContent.OPIMIZER):
+        if not universal_ckpt and load_content.need_load(CheckpointLoadContent.OPIMIZER):
             load_optimizer_checkpoint(load_ckpt_folder, ckpt_mm.optimizer)
             load_content_str += f"{CheckpointLoadContent.OPIMIZER}, "
-        else:
-            if gpc.is_rank_for_log():
-                logger.warning("CheckpointManager has no 'optimizer', skip reload optim checkpoint!")
+
+        if not load_content.need_load(CheckpointLoadContent.OPIMIZER) and gpc.is_rank_for_log():
+            logger.warning("CheckpointManager has no 'optimizer', skip reload optim checkpoint!")
 
         # load lr scheduler states.
         if load_content.need_load(CheckpointLoadContent.SCHEDULAER):
@@ -110,7 +123,7 @@ def try_load_internevo_ckpt(ckpt_mm, load_info, train_state: TrainState = None):
                 if gpc.is_rank_for_log():
                     logger.warning("CheckpointManager has no 'lr_scheduler', skip reload lr_scheduler checkpoint!")
 
-            if not load_content.need_load(CheckpointLoadContent.OPIMIZER):
+            if not universal_ckpt and not load_content.need_load(CheckpointLoadContent.OPIMIZER):
                 if ckpt_mm.lr_scheduler and train_state:
                     gpc.config.only_load_lr = True
                     load_optimizer_checkpoint(load_ckpt_folder, ckpt_mm.optimizer)
@@ -441,6 +454,7 @@ now step_count is {train_state.step_count}",
                 train_state=train_state,
                 model_config=self.model_config,
                 model_config_file=self.model_config_file,
+                universal_ckpt=gpc.config.ckpt.universal_ckpt.enable,
             )
 
             if (
@@ -582,9 +596,15 @@ now step_count is {train_state.step_count}",
             load_path = self.load_ckpt_info["path"]
             load_content = self.load_ckpt_info["content"]
             load_type = self.load_ckpt_info["ckpt_type"]
+            universal_ckpt = gpc.config.ckpt.universal_ckpt.enable
+            kwargs = {}
+
+            if universal_ckpt:
+                assert load_type == "internevo", "Only internevo ckpt support universal ckpt."
+                kwargs = {"universal_ckpt": universal_ckpt}
 
             load_func = CheckpointLoadMethod.get_ckpt_load_type_func(load_type)
-            load_content_str = load_func(self, self.load_ckpt_info, train_state)
+            load_content_str = load_func(self, self.load_ckpt_info, train_state, **kwargs)
 
             # If we only load model weight, we need rewrite zero optim's fp32 buffer.
             if (
@@ -612,6 +632,7 @@ now step_count is {train_state.step_count}",
         train_state: TrainState,
         model_config: Dict = None,
         model_config_file: str = None,
+        universal_ckpt=False,
     ):
         """
         Save checkpoint to the given folder path.
@@ -624,13 +645,20 @@ now step_count is {train_state.step_count}",
         if gpc.is_rank_for_log():
             logger.info(f"Saving checkpoint to `{folder}` at batch count:{train_state.step_count}...")
 
-        timer("save-model").start()
-        save_model_checkpoint(folder=folder, model=model)
-        timer("save-model").stop()
+        if not universal_ckpt:
+            timer("save-model").start()
+            save_model_checkpoint(folder=folder, model=model)
+            timer("save-model").stop()
 
-        timer("save-optimizer").start()
-        save_optimizer_checkpoint(optim=optimizer, state_path=folder)
-        timer("save-optimizer").stop()
+            timer("save-optimizer").start()
+            save_optimizer_checkpoint(optim=optimizer, state_path=folder)
+            timer("save-optimizer").stop()
+        else:
+            universal_save(
+                path=folder,
+                checkpoint_state={"model": model, "optimizer": optimizer},
+                async_checkpoint=gpc.config.ckpt.universal_ckpt.aysnc_save,
+            )
 
         if (
             hasattr(train_state, "data_state_dict")

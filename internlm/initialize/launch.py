@@ -295,6 +295,9 @@ def args_sanity_check():
         # to auto-load latest checkpoint.
         ckpt._add_item("auto_resume", True)
 
+    if "universal_ckpt" not in ckpt:
+        ckpt._add_item("universal_ckpt", dict(enable=False, aysnc_save=False, broadcast_load=False))
+
     if gpc.is_rank_for_log():
         logger.info("+" * 15 + " Ckpt Info " + "+" * 15)  # pylint: disable=W1201
         logger.info(f"is enable save ckpt: {ckpt.enable_save_ckpt}")
