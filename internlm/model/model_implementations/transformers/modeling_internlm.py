@@ -13,7 +13,6 @@ from internlm.accelerator import get_accelerator
 from internlm.core.context import ParallelMode
 from internlm.core.context import global_context as gpc
 from internlm.core.naive_amp import set_output_attr_to_module
-from internlm.core.parallel.shard import partition_uniform
 from internlm.model.model_implementations.transformers.base_model import (
     BaseTransformerModel,
 )
@@ -521,7 +520,6 @@ class InternLM1(BaseTransformerModel):
             )
 
         internlm_accelerator.empty_cache()
-
 
     @staticmethod
     def convert_internevo2hf_weights(src: str, tgt: str) -> None:

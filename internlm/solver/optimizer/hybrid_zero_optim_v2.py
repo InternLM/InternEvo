@@ -5,8 +5,8 @@ from typing import Dict, List
 
 import torch
 import torch.distributed as dist
-from torch.optim import Optimizer
 from torch._utils import _flatten_dense_tensors
+from torch.optim import Optimizer
 
 from internlm.core.context import (
     IS_REPLICA_ZERO_PARALLEL,
@@ -670,7 +670,9 @@ class HybridZeroOptimizer_v2(BaseOptimizer):
 
                 # Update working parameters
                 for working_param, all_splited_param in zip(working_params_list[gather_idx], all_splited_param_list):
-                    working_param.data.copy_(_flatten_dense_tensors(all_splited_param)[: working_param.numel()].view_as(working_param))
+                    working_param.data.copy_(
+                        _flatten_dense_tensors(all_splited_param)[: working_param.numel()].view_as(working_param)
+                    )
 
         for group_id in range(self.num_param_groups):
             self.optim.param_groups[group_id]["params"] = self._master_param_groups_of_current_rank[group_id]

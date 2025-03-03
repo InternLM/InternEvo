@@ -93,7 +93,7 @@ def set_fp32_attr_for_model(model: Union[nn.Module, nn.ModuleList]):
 
 
 def set_parallel_attr_for_param_groups(model: Union[nn.Module, nn.ModuleList]):
-    def _check_module(name, module):
+    def _check_module(module):
         # layer_norm
         if isinstance(module, (RMSNorm, nn.LayerNorm)):
             for param in module.parameters():
@@ -142,8 +142,8 @@ def set_parallel_attr_for_param_groups(model: Union[nn.Module, nn.ModuleList]):
     for _chunk in unwrap_naive_amp(model):
         if not is_using_fsdp():
             # set param parallel attribute
-            for name, module in _chunk.named_modules():
-                _check_module(name, module)
+            for _, module in _chunk.named_modules():
+                _check_module(module)
 
             for name, param in _chunk.named_parameters():
                 assert (

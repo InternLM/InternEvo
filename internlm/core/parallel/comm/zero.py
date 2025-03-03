@@ -159,7 +159,9 @@ class ParamAsyncBcastHandler:
                 for working_param, all_splited_param in zip(
                     self._block_working_params[block_name], all_splited_param_list
                 ):
-                    working_param.data.copy_(_flatten_dense_tensors(all_splited_param)[: working_param.numel()].view_as(working_param))
+                    working_param.data.copy_(
+                        _flatten_dense_tensors(all_splited_param)[: working_param.numel()].view_as(working_param)
+                    )
 
                 self._block_allgather_handles[block_name] = None
                 self._block_gathered_params[block_name] = []

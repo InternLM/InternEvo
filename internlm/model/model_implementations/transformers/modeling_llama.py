@@ -587,63 +587,6 @@ class Llama2(BaseTransformerModel):
         internlm_accelerator.empty_cache()
 
     @staticmethod
-    def load_llama_pretrained_weights(folder: str, model: nn.Module) -> None:
-        """NOTE: when loading huggingface's llama pretrained weights, you should set `adapt_hf=True` in your config."""
-        """NOTE: specified for meta-llama/Llama-2-7b"""
-        assert folder is not None, "Please specify the folder of the pretrained model"
-        if gpc.is_rank_for_log():
-            logger.info(f"Loading pretrained model from {folder}")
-
-        fns = get_fns(folder)
-        model_fns = []
-        for fn in fns:
-            if fn.startswith("model_t") and not fn.endswith("md5"):
-                model_fns.append(os.path.join(folder, fn))
-
-        if len(model_fns) == 0:
-            model_fns = [os.path.join(folder, fn) for fn in fns if fn.endswith(".pth") or fn.endswith(".pt")]
-
-        if len(model_fns) == 0:
-            raise FileNotFoundError(f"No checkpoint file found in {folder}")
-
-        model_fns.sort()
-
-        old_tp = len(model_fns)
-        cur_tp = gpc.get_world_size(ParallelMode.TENSOR)
-        # If the two tp are inconsistent, you need to consider the merge before splitting
-        if old_tp != cur_tp:
-            raise RuntimeError(
-                f"Your current tp is `{cur_tp}`, but the tp in folder:`{folder}` is `{old_tp}`, use `` to convert first"
-            )
-
-        states = llm_load(model_fns[gpc.get_local_rank(ParallelMode.TENSOR)], map_location="cpu")
-
-        current_states = {}
-        for idx, i in enumerate(range(model.first_layer, model.last_layer)):
-            for name in list(states.keys()):
-                if f".{i}." in name:
-                    current_states[name.replace(f".{i}.", f".{idx}.")] = states.pop(name)
-
-        model_state_keys = set(list(model.state_dict().keys()))
-
-        if "tok_embeddings.weight" in model_state_keys:
-            current_states["tok_embeddings.weight"] = states["tok_embeddings.weight"]
-            assert model.first_layer == 0, f"Expect model.NaiveAMPModel to be 0, but got {model.first_layer}"
-        if "output.weight" in model_state_keys:
-            current_states["norm.weight"] = states["norm.weight"]
-            current_states["output.weight"] = states["output.weight"]
-        missing_keys, unexpected_keys = model.load_state_dict(current_states, strict=False)
-
-        if gpc.get_local_rank(ParallelMode.DATA) == 0:
-            pp_rank = 0 if not gpc.is_initialized(ParallelMode.PIPELINE) else gpc.get_local_rank(ParallelMode.PIPELINE)
-            logger.info(
-                f"Missing keys:{missing_keys}, unexpected keys:{unexpected_keys} in "
-                f"tp:{gpc.get_local_rank(ParallelMode.TENSOR)}, pp:{pp_rank}"
-            )
-
-        internlm_accelerator.empty_cache()
-
-    @staticmethod
     def convert_internevo2hf_weights(src: str, tgt: str) -> None:
         model_config = gpc.config.model
         tp_mode = gpc.config.parallel.tensor["mode"]

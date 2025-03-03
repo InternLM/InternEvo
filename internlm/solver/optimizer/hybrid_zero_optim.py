@@ -8,8 +8,8 @@ from typing import List, Optional
 
 import torch
 import torch.distributed as dist
-from torch.optim import Optimizer
 from torch._utils import _flatten_dense_tensors
+from torch.optim import Optimizer
 
 from internlm.accelerator import AcceleratorType, get_accelerator
 from internlm.core.context import (
