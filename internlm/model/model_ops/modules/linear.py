@@ -907,6 +907,8 @@ class GroupedParallelLinearWithCommExt(ParallelLinearWithCommExt):
         self.register_parameter("bias", None)
         torch.nn.init.kaiming_uniform_(self.weight, a=math.sqrt(5))
 
+        self.in_features = in_features
+        self.out_features = out_features
         self.is_grouped_linear = True
         self.backend = backend
 

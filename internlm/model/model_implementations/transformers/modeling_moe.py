@@ -89,6 +89,7 @@ class Internlm1MoEDecoder(nn.Module):
         top_k: int = 1,
         num_shared_experts: int = 0,
         moe_layer_kwargs: dict = None,
+        enable_qkv_fusion: bool = True,
     ):
         super().__init__()
         self.checkpoint = checkpoint
@@ -112,6 +113,7 @@ class Internlm1MoEDecoder(nn.Module):
             device=device,
             dtype=dtype,
             qk_interleaved=qk_interleaved,
+            enable_qkv_fusion=enable_qkv_fusion,
         )
 
         # Compatible with the name of internlm1 Wqkv linear layer
@@ -321,6 +323,7 @@ class Internlm1MoE(BaseTransformerModel):
         top_k: int = 1,
         num_shared_experts: int = 0,
         moe_layer_kwargs: dict = None,
+        enable_qkv_fusion: bool = True,
     ):
         super().__init__()
 
@@ -369,6 +372,7 @@ class Internlm1MoE(BaseTransformerModel):
                     top_k=top_k,
                     num_shared_experts=num_shared_experts,
                     moe_layer_kwargs=moe_layer_kwargs,
+                    enable_qkv_fusion=enable_qkv_fusion,
                 )
                 for lid in range(num_layers)
             ]
