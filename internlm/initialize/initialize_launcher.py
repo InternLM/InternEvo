@@ -17,7 +17,7 @@ from internlm.utils.config import Config
 from internlm.utils.gputest import warmup_process_group
 from internlm.utils.lazy import LazyObject
 from internlm.utils.logger import get_logger
-from internlm.utils.parallel import is_using_hf
+from internlm.utils.parallel import is_using_fsdp, is_using_hf
 from internlm.utils.timeout import llm_timeout
 from internlm.utils.utils import DataType, ModelType, TensorParallelMode
 
@@ -154,6 +154,9 @@ def args_sanity_check():
         if gpc.config.parallel.pipeline["mode"] == "ZBV":
             gpc.v_shape = True
 
+    if "fsdp" not in gpc.config.parallel:
+        gpc.config.parallel._add_item("fsdp", dict(enable=False))
+    
     # processing the data config in gpc
     data = gpc.config.data
 
@@ -641,6 +644,56 @@ def args_sanity_check():
             assert (
                 gpc.config.data.use_packed_dataset is False
             ), "only unpacked data is supported when using 2D sequence parallel."
+
+    # fsdp checks
+    if is_using_fsdp():
+        assert (
+            gpc.config.parallel.pipeline.size == 1
+        ), f"fsdp only compatible with pp size = 1, but get pipeline size = {gpc.config.parallel.pipeline.size}"
+        assert (
+            gpc.config.parallel.tensor.size == 1 or gpc.config.parallel.tensor.get("mode", "mtp") == "isp"
+        ), (
+            f"fsdp only compatible with tp size > 1 in isp mode, but get tp size = "
+            f"{gpc.config.parallel.tensor.size} and tp mode = {gpc.config.parallel.tensor.mode}"
+        )
+        assert (
+            gpc.config.parallel.zero1.size == 1
+        ), f"fsdp only compatible with zero1 size = 1, but get zero1 size = {gpc.config.parallel.zero1.size}"
+        assert (
+            gpc.config.parallel.weight.size == 1
+        ), f"fsdp only compatible with weight size = 1, but get weight size = {gpc.config.parallel.weight.size}"
+        if "expert" in gpc.config.parallel:
+            assert (
+                gpc.config.parallel.expert.size == 1
+            ), f"fsdp only compatible with expert size = 1, but get expert size = {gpc.config.parallel.expert.size}"
+        if "expert_zero1" in gpc.config.parallel:   
+            assert gpc.config.parallel.expert_zero1.size == 1, (
+                f"fsdp only compatible with expert_zero1 size = 1, "
+                f"but get expert_zero1 size = {gpc.config.parallel.expert_zero1.size}"
+            )
+        if "expert_weight" in gpc.config.parallel:
+            assert gpc.config.parallel.expert_weight.size == 1, (
+                f"fsdp only compatible with expert_weight size = 1, "
+                f"but get expert_weight size = {gpc.config.parallel.expert_weight.size}"
+            )
+        assert "mode" in gpc.config.parallel.fsdp, "mode must be specified in fsdp when enabled"
+        fsdp_mode = gpc.config.parallel.fsdp.mode
+        assert "init_method" in gpc.config.parallel.fsdp, "init_method must be specified in fsdp when enabled"
+        fsdp_init_method = gpc.config.parallel.fsdp.init_method
+        if fsdp_mode == "v1":
+            assert (
+                torch.__version__ >= "2.4.0"
+            ), f"requires torch>=2.4.0 when using fsdp v1 but current version is {torch.__version__}"
+        elif fsdp_mode == "v2":
+            assert (
+                torch.__version__ >= "2.5.1"
+            ), f"requires torch>=2.5.1 when using fsdp v2 but current version is {torch.__version__}"
+        else:
+            raise ValueError(f"fsdp mode {fsdp_mode} not supported")
+        assert fsdp_init_method in ["cuda", "cpu", "meta"], f"fsdp init_method {fsdp_init_method} not supported"
+    
+    # fp8 checks
+    
 
     # loss operator type
     loss_cfg = gpc.config.loss

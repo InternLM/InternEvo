@@ -3,6 +3,7 @@
 
 # adopted from https://github.com/hpcaitech/ColossalAI/blob/main/colossalai/engine
 
+from contextlib import nullcontext
 from typing import List, Optional
 
 import torch
@@ -10,10 +11,19 @@ from torch.nn import Module
 from torch.nn.modules.loss import _Loss
 from torch.optim.lr_scheduler import _LRScheduler
 
+from internlm.core.context import global_context as gpc
 from internlm.core.gradient_handler import BaseGradientHandler
 from internlm.solver.optimizer import BaseOptimizer
 from internlm.solver.schedulers import Beta2Scheduler
 from internlm.utils.common import get_batch_size, move_to_device
+
+try:
+    import transformer_engine.pytorch as te
+    from transformer_engine.common.recipe import DelayedScaling, Format
+
+    HAS_TE = True
+except (ModuleNotFoundError, ImportError):
+    HAS_TE = False
 
 
 class Engine:
@@ -77,6 +87,23 @@ class Engine:
 
         # build gradient handler
         self._gradient_handlers = gradient_handlers if gradient_handlers else []
+
+        # FP8 GEMM
+        fp8_cfg = gpc.config.get("fp8", None)
+        self.use_fp8 = HAS_TE and fp8_cfg is not None
+        if self.use_fp8:
+            self.fp8_recipe = DelayedScaling(
+                margin=fp8_cfg.get("margin", 0),  # int, default = 0. Margin for scaling factor computation
+                fp8_format=Format[
+                    fp8_cfg.get("fp8_format", "HYBRID")
+                ],  # {Format.E4M3, Format.HYBRID}, default = Format.HYBRID. FP8 Data format
+                amax_history_len=fp8_cfg.get(
+                    "amax_history_len", 1024
+                ),  # int, default = 1024. Amax history window used for scaling factor computation
+                amax_compute_algo=fp8_cfg.get(
+                    "amax_compute_algo", "max"
+                ),  # {'max', 'most_recent'}, default = "max". Algorithm used for choosing amax
+            )
 
     @property
     def model(self):
@@ -166,7 +193,9 @@ class Engine:
         Returns:
             torch.Tensor: The output of the model.
         """
-        return self.model(*args, **kwargs)
+        with te.fp8_autocast(enabled=self.use_fp8, fp8_recipe=self.fp8_recipe) if self.use_fp8 else nullcontext():
+            output = self.model(*args, **kwargs)
+        return output
 
     def load_batch(self, data_iter, to_gpu=True):
         """

@@ -5,6 +5,11 @@ from typing import Optional
 import torch
 from torch import nn
 from tqdm import tqdm
+from transformers.modeling_utils import (
+    SAFE_WEIGHTS_INDEX_NAME,
+    SAFE_WEIGHTS_NAME,
+    shard_checkpoint,
+)
 
 from internlm.accelerator import get_accelerator
 from internlm.core.context import ParallelMode
@@ -31,11 +36,6 @@ from internlm.model.model_ops.utils import (
 from internlm.solver.activation_checkpoint import activation_checkpoint
 from internlm.utils.logger import get_logger
 from internlm.utils.storage_manager import get_fns, llm_load, llm_save
-from transformers.modeling_utils import (
-    SAFE_WEIGHTS_INDEX_NAME,
-    SAFE_WEIGHTS_NAME,
-    shard_checkpoint,
-)
 
 internlm_accelerator = get_accelerator()
 logger = get_logger(__file__)
