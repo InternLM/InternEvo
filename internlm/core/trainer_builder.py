@@ -23,6 +23,7 @@ from internlm.data.train_state import get_train_state
 from internlm.eval import evaluate_on_val_dls
 from internlm.initialize import initialize_trainer
 from internlm.initialize.initialize_model import (
+    generate_meta_data,
     initialize_model_and_parallel_communicator,
 )
 from internlm.initialize.initialize_optimizer import initialize_optimizer
@@ -122,8 +123,13 @@ class TrainerBuilder(Trainer):
         # initialize optimizer
         optimizer, beta2_scheduler, lr_scheduler = initialize_optimizer(model, isp_communicator)
 
+        # generate ckpt metaData
+        meta_data = generate_meta_data(optimizer)
+
         # initialize checkpoint manager and try resume training
-        self.ckpt_manager = self._initialize_checkpoint_manager(model, optimizer, lr_scheduler, train_dl, config_lines)
+        self.ckpt_manager = self._initialize_checkpoint_manager(
+            model, optimizer, lr_scheduler, train_dl, config_lines, meta_data
+        )
         self.ckpt_manager.try_resume_training(train_state, self.current_time)
 
         # initialize customed llm writer
@@ -178,7 +184,7 @@ class TrainerBuilder(Trainer):
         )
 
     def _initialize_checkpoint_manager(
-        self, model, optimizer, lr_scheduler, train_dl, config_lines
+        self, model, optimizer, lr_scheduler, train_dl, config_lines, meta_data
     ) -> CheckpointManager:
         return CheckpointManager(
             ckpt_config=gpc.config.ckpt,
@@ -189,6 +195,7 @@ class TrainerBuilder(Trainer):
             model_config=gpc.config.model,
             model_config_file="".join(config_lines),
             feishu_address=gpc.config.monitor.alert.feishu_alert_address,
+            meta_data=meta_data,
         )
 
     def _initialize_writer(self, train_state, config_lines) -> Writer:

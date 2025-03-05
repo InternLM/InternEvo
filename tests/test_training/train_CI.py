@@ -60,6 +60,18 @@ from internlm.utils.writer import Writer  # noqa: E402
 logger = get_logger(__file__)
 
 
+def fuse_wqkv(key, state_dict) -> None:  # pylint: disable=W0613
+    prefix = key.rstrip(".Wqkv.weight")
+    wq_name, wk_name, wv_name = (
+        f"{prefix}.wq.weight",
+        f"{prefix}.wk.weight",
+        f"{prefix}.wv.weight",
+    )
+
+    wq, wk, wv = state_dict.pop(wq_name), state_dict.pop(wk_name), state_dict.pop(wv_name)
+    state_dict[key] = torch.cat([wq, wk, wv], dim=0)
+
+
 def check_model_weights(model, ckpt_path, total_equal=False):
     model = model.model
     model1_dict = torch.load(ckpt_path, map_location="cuda")
@@ -71,8 +83,12 @@ def check_model_weights(model, ckpt_path, total_equal=False):
         if "wqkv" in key:
             model2_dict[key.replace("wqkv", "Wqkv")] = model2_dict.pop(key)
             key = key.replace("wqkv", "Wqkv")
+
         if key not in model1_dict:
-            assert False, f"Error: The key {key} for current model dose not exist in standard ckpt!"
+            if "Wqkv" in key:
+                fuse_wqkv(key, model1_dict)
+            else:
+                assert False, f"Error: The key {key} for current model dose not exist in standard ckpt!"
 
     for key in model1_dict.keys():
         if key in model2_dict:

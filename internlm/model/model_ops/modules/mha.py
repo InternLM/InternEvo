@@ -65,22 +65,6 @@ def _qkv_pre_load_convert(module: "GQA", state_dict, prefix: str, *args, **kwarg
         )
 
 
-def _qkv_save_convert(module: "GQA", state_dict, prefix: str, *args, **kwargs) -> Dict:  # pylint: disable=W0613
-    wq_name, wk_name, wv_name, fused_name = (
-        f"{prefix}wq.weight",
-        f"{prefix}wk.weight",
-        f"{prefix}wv.weight",
-        f"{prefix}wqkv.weight",
-    )
-
-    if module.enable_qkv_fusion:
-        state_dict[wq_name], state_dict[wk_name], state_dict[wv_name] = split_fused_wqkv_weight(
-            state_dict.pop(fused_name), *args, **kwargs
-        )
-
-    return state_dict
-
-
 class MHA(nn.Module):
     """
     Multi-head self-attention and cross-attention.
@@ -462,14 +446,14 @@ class GQA(nn.Module):
         if enable_qkv_fusion:
             assert bias is False, "Fuesd wqkv only support bias is False."
             self.wqkv = new_linear("wqkv", embed_dim, q_dim + 2 * self.kv_dim, bias, **factory_kwargs)
-            self._register_load_state_dict_pre_hook(
-                partial(_qkv_pre_load_convert, q_dim=q_dim, kv_dim=self.kv_dim), with_module=True
-            )
-            self._register_state_dict_hook(partial(_qkv_save_convert, q_dim=q_dim, kv_dim=self.kv_dim))
         else:
             self.wq = new_linear("wq", embed_dim, q_dim, bias, **factory_kwargs)
             self.wk = new_linear("wk", embed_dim, self.kv_dim, bias, **factory_kwargs)
             self.wv = new_linear("wv", embed_dim, self.kv_dim, bias, **factory_kwargs)
+
+        self._register_load_state_dict_pre_hook(
+            partial(_qkv_pre_load_convert, q_dim=q_dim, kv_dim=self.kv_dim), with_module=True
+        )
 
         self.inner_attn = SelfAttention(
             causal=causal, softmax_scale=softmax_scale, attention_dropout=dropout, layer_idx=layer_idx

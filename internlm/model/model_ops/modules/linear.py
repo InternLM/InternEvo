@@ -625,6 +625,7 @@ class ParallelLinearWithCommExt(nn.Linear):
 
         world_size = gpc.get_world_size(parallel_mode)
         rank = gpc.get_local_rank(parallel_mode)
+        self.offset = None
 
         if split_mode != "none":
             split_features = out_features if split_mode == "column" else in_features
@@ -639,10 +640,19 @@ class ParallelLinearWithCommExt(nn.Linear):
 
         if split_mode == "column":
             super().__init__(in_features, local_multiple * multiple_of, bias=bias, device=device, dtype=dtype)
+            self.offset = [rank * local_multiple * multiple_of, 0]
+            self.tp_dim = 0
         elif split_mode == "row":
             super().__init__(local_multiple * multiple_of, out_features, bias=bias, device=device, dtype=dtype)
+            self.offset = [0, rank * local_multiple * multiple_of]
+            self.tp_dim = 1
         else:
             super().__init__(in_features, out_features, bias=bias, device=device, dtype=dtype)
+
+        self.complete_size = [out_features, in_features]
+        setattr(self.weight, "offset", self.offset)
+        setattr(self.weight, "complete_size", [out_features, in_features])
+        setattr(self.weight, "tp_dim", self.tp_dim)
 
     def forward(self, input: torch.Tensor, batch_sizes: torch.Tensor = None) -> torch.Tensor:  # pylint: disable=W0622
         _class_name = self.__class__.__name__

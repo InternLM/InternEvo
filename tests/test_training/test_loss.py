@@ -328,6 +328,7 @@ def train(
     initialize_launcher(config=config, launcher=launcher)
     assert hasattr(gpc, "config") and gpc.config is not None
 
+    gpc.config.ckpt.need_metadata = False
     # check parallel config
     assert (
         gpc.get_world_size(ParallelMode.DATA) == dp_size

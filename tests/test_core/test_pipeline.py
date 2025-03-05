@@ -82,6 +82,7 @@ config = Config(
             eta_min=1e-5,
             last_epoch=-1,
         ),
+        ckpt=dict(need_metadata=False),
     )
 )
 

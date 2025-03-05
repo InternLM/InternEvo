@@ -228,6 +228,7 @@ class CheckpointManager:
         model_config=None,
         model_config_file=None,
         feishu_address=None,
+        meta_data=None,
     ) -> None:
         """
         CheckpointManager is used to decide when to store ckpt. If it is an asynchronous
@@ -246,6 +247,7 @@ class CheckpointManager:
         self.save_ckpt_folder = get_config_value(ckpt_config, "save_ckpt_folder", None)
         self.oss_snapshot_freq: int = get_config_value(ckpt_config, "oss_snapshot_freq", 50)
         self.stop_file_path = get_config_value(ckpt_config, "stop_file_path", None)
+        self.meta_data = meta_data
         if self.save_ckpt_folder:
             self.snapshot_ckpt_folder = get_config_value(
                 ckpt_config, "snapshot_ckpt_folder", os.path.join(self.save_ckpt_folder, "snapshot")
@@ -635,6 +637,10 @@ now step_count is {train_state.step_count}",
         timer("save-optimizer").start()
         save_optimizer_checkpoint(optim=optimizer, state_path=folder)
         timer("save-optimizer").stop()
+
+        if gpc.get_global_rank() == 0 and gpc.config.ckpt.need_metadata:
+            assert self.meta_data is not None
+            llm_save(os.path.join(folder, "metadata.pt"), saved_obj=self.meta_data)
 
         if (
             hasattr(train_state, "data_state_dict")

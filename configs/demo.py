@@ -49,6 +49,10 @@ ckpt = dict(
     async_upload=True,  # async ckpt upload. (only work for boto3 ckpt)
     async_upload_tmp_folder="/dev/shm/internlm_tmp_ckpt/",  # path for temporarily files during asynchronous upload.
     oss_snapshot_freq=int(CHECKPOINT_EVERY / 2),  # snapshot ckpt save frequency.
+    # If enable_save_ckpt=True, metadata will be automatically generated.
+    # If generate_meta_data.enable=True, metadata can be independently generated in generate_meta_data.path during initialization.
+    # When only need to generate metadata, please set generate_meta_data to do it.
+    generate_meta_data=dict(enable=False, path='./')
 )
 
 TRAIN_FOLDER = None  # "/path/to/dataset"
