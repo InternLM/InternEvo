@@ -636,8 +636,9 @@ def args_sanity_check():
             gpc.config.parallel.weight.size == 1
         ), f"fsdp only compatible with weight size = 1, but get weight size = {gpc.config.parallel.weight.size}"
         if "expert" in gpc.config.parallel:
-            assert (
-                gpc.config.parallel.expert.size == 1 or gpc.config.parallel.expert.size == -1
+            assert gpc.config.parallel.expert.size in (
+                1,
+                -1,
             ), f"fsdp only compatible with expert size = 1, but get expert size = {gpc.config.parallel.expert.size}"
         if "expert_zero1" in gpc.config.parallel:
             assert gpc.config.parallel.expert_zero1.size == 1, (
