@@ -166,8 +166,8 @@ $ torchrun --nnodes=1 --nproc_per_node=8 train.py --config ./configs/7B_sft.py -
       </td>
       <td>
         <ul>
-          <li><a href="tools/transformers/README-zh-Hans.md">将ckpt转为huggingface格式</a></li>
-          <li><a href="tools/transformers/README-zh-Hans.md">将ckpt从huggingface格式转为InternEvo格式</a></li>
+          <li><a href="huggingface_models/README-zh-Hans.md">将ckpt转为huggingface格式</a></li>
+          <li><a href="huggingface_models/README-zh-Hans.md">将ckpt从huggingface格式转为InternEvo格式</a></li>
           <li><a href="tools/tokenizer.py">原始数据分词器</a></li>
           <li><a href="tools/alpaca_tokenizer.py">Alpaca数据分词器</a></li>
         </ul>

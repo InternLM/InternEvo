@@ -166,8 +166,8 @@ Please refer to the [System Architecture document](./doc/en/structure.md) for ar
       </td>
       <td>
         <ul>
-          <li><a href="tools/transformers/README.md">Convert ckpt to HF</a></li>
-          <li><a href="tools/transformers/README.md">Revert ckpt from HF</a></li>
+          <li><a href="huggingface_models/README.md">Convert ckpt to HF</a></li>
+          <li><a href="huggingface_models/README.md">Revert ckpt from HF</a></li>
           <li><a href="tools/tokenizer.py">Raw Data Tokenizer</a></li>
           <li><a href="tools/alpaca_tokenizer.py">Alpaca data Tokenizer</a></li>
         </ul>

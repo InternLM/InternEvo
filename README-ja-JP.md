@@ -166,8 +166,8 @@ $ torchrun --nnodes=1 --nproc_per_node=8 train.py --config ./configs/7B_sft.py -
       </td>
       <td>
         <ul>
-          <li><a href="tools/transformers/README.md">Convert ckpt to HF</a></li>
-          <li><a href="tools/transformers/README.md">Revert ckpt from HF</a></li>
+          <li><a href="huggingface_models/README.md">Convert ckpt to HF</a></li>
+          <li><a href="huggingface_models/README.md">Revert ckpt from HF</a></li>
           <li><a href="tools/tokenizer.py">Raw Data Tokenizer</a></li>
           <li><a href="tools/alpaca_tokenizer.py">Alpaca data Tokenizer</a></li>
         </ul>
