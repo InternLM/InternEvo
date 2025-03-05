@@ -288,7 +288,7 @@ class HybridZeroOptimizer(BaseOptimizer):
                 if group_id not in self.meta_for_zero[rank_to_go]:
                     self.meta_for_zero[rank_to_go][group_id] = {}
 
-                from internlm.train.pipeline import map_fqn_local_to_global
+                from internlm.initialize.initialize_model import map_fqn_local_to_global
 
                 global_fqn = map_fqn_local_to_global[param.fqn] if param.fqn in map_fqn_local_to_global else param.fqn
                 self.meta_for_zero[rank_to_go][group_id][global_fqn] = {
