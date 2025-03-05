@@ -40,6 +40,15 @@ from transformers.utils import (
     replace_return_docstrings,
 )
 
+from internlm.core.context import ParallelMode
+from internlm.core.context import global_context as gpc
+from internlm.model.model_ops.ops.attention import (
+    isp_flash_attn_func,
+    isp_flash_attn_varlen_func,
+)
+from internlm.model.model_ops.ops.fused_rmsnorm import fused_rms_norm_fn
+from internlm.solver.activation_checkpoint import apply_ac_to_transformer_block
+
 try:
     from transformers.generation.streamers import BaseStreamer
 except:  # noqa # pylint: disable=bare-except
@@ -53,16 +62,23 @@ _CONFIG_FOR_DOC = "InternLM2Config"
 
 flash_attn_func, flash_attn_varlen_func = None, None
 pad_input, index_first_axis, unpad_input = None, None, None
+
+
 def _import_flash_attn():
     global flash_attn_func, flash_attn_varlen_func
     global pad_input, index_first_axis, unpad_input
     try:
-        from flash_attn import flash_attn_func as _flash_attn_func, flash_attn_varlen_func as _flash_attn_varlen_func
-        from flash_attn.bert_padding import pad_input as _pad_input, index_first_axis as _index_first_axis, unpad_input as _unpad_input
+        from flash_attn import flash_attn_func as _flash_attn_func
+        from flash_attn import flash_attn_varlen_func as _flash_attn_varlen_func
+        from flash_attn.bert_padding import index_first_axis as _index_first_axis
+        from flash_attn.bert_padding import pad_input as _pad_input
+        from flash_attn.bert_padding import unpad_input as _unpad_input
+
         flash_attn_func, flash_attn_varlen_func = _flash_attn_func, _flash_attn_varlen_func
         pad_input, index_first_axis, unpad_input = _pad_input, _index_first_axis, _unpad_input
     except ImportError:
         raise ImportError("flash_attn is not installed.")
+
 
 # Copied from transformers.models.llama.modeling_llama._get_unpad_data
 def _get_unpad_data(attention_mask):
@@ -121,11 +137,15 @@ class InternLM2RMSNorm(nn.Module):
         self.variance_epsilon = eps
 
     def forward(self, hidden_states):
-        input_dtype = hidden_states.dtype
-        hidden_states = hidden_states.to(torch.float32)
-        variance = hidden_states.pow(2).mean(-1, keepdim=True)
-        hidden_states = hidden_states * torch.rsqrt(variance + self.variance_epsilon)
-        return self.weight * hidden_states.to(input_dtype)
+        # input_dtype = hidden_states.dtype
+        # hidden_states = hidden_states.to(torch.float32)
+        # variance = hidden_states.pow(2).mean(-1, keepdim=True)
+        # hidden_states = hidden_states * torch.rsqrt(variance + self.variance_epsilon)
+        # return self.weight * hidden_states.to(input_dtype)
+        return fused_rms_norm_fn(hidden_states, self.weight, self.variance_epsilon)
+
+    def reset_parameters(self):
+        torch.nn.init.ones_(self.weight)
 
 
 # Copied from transformers.model.llama.modeling_llama.LlamaRotaryEmbedding with Llama->InternLM2
@@ -162,6 +182,13 @@ class InternLM2RotaryEmbedding(nn.Module):
         return (
             self.cos_cached[:seq_len].to(dtype=x.dtype),
             self.sin_cached[:seq_len].to(dtype=x.dtype),
+        )
+
+    def reset_parameters(self):
+        inv_freq = 1.0 / (self.base ** (torch.arange(0, self.dim, 2).float().to(self.inv_freq.device) / self.dim))
+        self.register_buffer("inv_freq", inv_freq, persistent=False)
+        self._set_cos_sin_cache(
+            seq_len=self.max_position_embeddings, device=self.inv_freq.device, dtype=torch.get_default_dtype()
         )
 
 
@@ -443,6 +470,12 @@ class InternLM2FlashAttention2(InternLM2Attention):
 
         bsz, q_len, _ = hidden_states.size()
 
+        use_packed_dataset = gpc.config.data.get("use_packed_dataset", False)
+        if use_packed_dataset:
+            assert bsz == 1, "hidden_states should be packed into bsz=1 when use_packed_dataset=True"
+            cu_seqlens = gpc.config.data[f"cu_seqlens_data_rank{gpc.get_local_rank(ParallelMode.DATA)}"]
+            max_seqlen = gpc.config.data[f"max_seqlen_data_rank{gpc.get_local_rank(ParallelMode.DATA)}"]
+
         qkv_states = self.wqkv(hidden_states)
 
         qkv_states = rearrange(
@@ -480,9 +513,31 @@ class InternLM2FlashAttention2(InternLM2Attention):
         key_states = key_states.transpose(1, 2)
         value_states = value_states.transpose(1, 2)
 
-        attn_output = self._flash_attention_forward(
-            query_states, key_states, value_states, attention_mask, q_len
-        )
+        # attn_output = self._flash_attention_forward(
+        #     query_states, key_states, value_states, attention_mask, q_len
+        # )
+        if use_packed_dataset:
+            attn_output = isp_flash_attn_varlen_func(
+                query_states,
+                key_states,
+                value_states,
+                cu_seqlens,
+                cu_seqlens,
+                max_seqlen,
+                max_seqlen,
+                causal=False,
+                softmax_scale=None,
+                attention_dropout=0.0,
+            )
+        else:
+            attn_output = isp_flash_attn_func(
+                query_states,
+                key_states,
+                value_states,
+                causal=False,
+                softmax_scale=None,
+                attention_dropout=0.0,
+            )
         attn_output = attn_output.reshape(bsz, q_len, self.hidden_size).contiguous()
         attn_output = self.wo(attn_output)
 
@@ -583,6 +638,7 @@ class InternLM2FlashAttention2(InternLM2Attention):
             (cu_seqlens_q, cu_seqlens_k),
             (max_seqlen_in_batch_q, max_seqlen_in_batch_k),
         )
+
 
 INTERNLM2_ATTENTION_CLASSES = {
     "eager": InternLM2Attention,
@@ -794,6 +850,11 @@ class InternLM2Model(InternLM2PreTrainedModel):
         self.tok_embeddings = nn.Embedding(config.vocab_size, config.hidden_size, self.padding_idx)
 
         self.layers = nn.ModuleList([InternLM2DecoderLayer(config) for _ in range(config.num_hidden_layers)])
+        for layer_id, transformer_block in self.layers.named_children():
+            checkpoint = gpc.config.model.checkpoint
+            if checkpoint > 0:
+                transformer_block = apply_ac_to_transformer_block(transformer_block, checkpoint)
+                self.layers.register_module(layer_id, transformer_block)
         self.norm = InternLM2RMSNorm(config.hidden_size, eps=config.rms_norm_eps)
 
         self.gradient_checkpointing = False

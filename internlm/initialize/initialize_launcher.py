@@ -35,30 +35,12 @@ logger = get_logger(__file__)
 internlm_accelerator = get_accelerator()
 
 
-def dispatch_hf_config_before_launch(model_config) -> None:
-    # dispatch HuggingFace model config into InternEvo model config as much as we know
-    if hasattr(model_config, "vocab_size"):
-        gpc.config.model.vocab_size = gpc.config.VOCAB_SIZE = model_config.vocab_size
-    if hasattr(model_config, "num_hidden_layers"):
-        gpc.config.model.num_layers = gpc.config.NUM_LAYER = model_config.num_hidden_layers
-    if hasattr(model_config, "num_attention_heads"):
-        gpc.config.model.num_attention_heads = gpc.config.NUM_ATTENTION_HEAD = model_config.num_attention_heads
-    if hasattr(model_config, "num_key_value_heads"):
-        gpc.config.model.num_kv_attention_heads = gpc.config.NUM_KV_ATTENTION_HEAD = model_config.num_key_value_heads
-    if hasattr(model_config, "hidden_size"):
-        gpc.config.model.hidden_size = gpc.config.HIDDEN_SIZE = model_config.hidden_size
-    if hasattr(model_config, "intermediate_size"):
-        gpc.config.model.mlp_ratio = gpc.config.MLP_RATIO = model_config.intermediate_size / model_config.hidden_size
-    if hasattr(model_config, "num_experts"):
-        gpc.config.model.num_experts = model_config.num_experts
-
-
-def inject_hf_config_before_launch(hf: dict):
+def dispatch_hf_config_before_launch(hf: dict) -> None:
     # get HuggingFace model config
     cfg = LazyObject(hf.cfg, hf.cfg_cls)
     cfg = cfg.build()
     model_config = cfg(**hf.cfg_extra_kwargs)
-    # inject HuggingFace model config into InternTrain as much as we know
+    # dispatch HuggingFace model config into InternEvo model config as much as we know
     if hasattr(model_config, "vocab_size"):
         gpc.config.model.vocab_size = gpc.config.VOCAB_SIZE = model_config.vocab_size
     if hasattr(model_config, "num_hidden_layers"):
@@ -86,13 +68,6 @@ def args_sanity_check():
     # the default model type is INTERNLM
     if "model_type" not in gpc.config:
         gpc.config._add_item("model_type", ModelType.INTERNLM.name)
-
-    # dispatch HuggingFace model config into InternEvo model config
-    if is_using_hf():
-        cfg = LazyObject(gpc.config.hf.cfg, gpc.config.hf.cfg_cls)
-        cfg = cfg.build()
-        model_config = cfg(**gpc.config.hf.cfg_extra_kwargs)
-        dispatch_hf_config_before_launch(model_config)
 
     if gpc.config.model_type == "InternLM3_M":
         # TODO: need check for isp overlap
@@ -156,7 +131,7 @@ def args_sanity_check():
 
     if "fsdp" not in gpc.config.parallel:
         gpc.config.parallel._add_item("fsdp", dict(enable=False))
-    
+
     # processing the data config in gpc
     data = gpc.config.data
 
@@ -650,9 +625,7 @@ def args_sanity_check():
         assert (
             gpc.config.parallel.pipeline.size == 1
         ), f"fsdp only compatible with pp size = 1, but get pipeline size = {gpc.config.parallel.pipeline.size}"
-        assert (
-            gpc.config.parallel.tensor.size == 1 or gpc.config.parallel.tensor.get("mode", "mtp") == "isp"
-        ), (
+        assert gpc.config.parallel.tensor.size == 1 or gpc.config.parallel.tensor.get("mode", "mtp") == "isp", (
             f"fsdp only compatible with tp size > 1 in isp mode, but get tp size = "
             f"{gpc.config.parallel.tensor.size} and tp mode = {gpc.config.parallel.tensor.mode}"
         )
@@ -664,9 +637,9 @@ def args_sanity_check():
         ), f"fsdp only compatible with weight size = 1, but get weight size = {gpc.config.parallel.weight.size}"
         if "expert" in gpc.config.parallel:
             assert (
-                gpc.config.parallel.expert.size == 1
+                gpc.config.parallel.expert.size == 1 or gpc.config.parallel.expert.size == -1
             ), f"fsdp only compatible with expert size = 1, but get expert size = {gpc.config.parallel.expert.size}"
-        if "expert_zero1" in gpc.config.parallel:   
+        if "expert_zero1" in gpc.config.parallel:
             assert gpc.config.parallel.expert_zero1.size == 1, (
                 f"fsdp only compatible with expert_zero1 size = 1, "
                 f"but get expert_zero1 size = {gpc.config.parallel.expert_zero1.size}"
@@ -691,9 +664,6 @@ def args_sanity_check():
         else:
             raise ValueError(f"fsdp mode {fsdp_mode} not supported")
         assert fsdp_init_method in ["cuda", "cpu", "meta"], f"fsdp init_method {fsdp_init_method} not supported"
-    
-    # fp8 checks
-    
 
     # loss operator type
     loss_cfg = gpc.config.loss
@@ -742,6 +712,10 @@ def launch(
 
     # init default process group
     gpc.init_global_dist(rank, world_size, backend, host, port)
+
+    # dispatch HuggingFace model config into InternEvo
+    if is_using_hf():
+        dispatch_hf_config_before_launch(gpc.config.hf)
 
     # init process groups for different parallel modes from config
     gpc.init_parallel_groups()

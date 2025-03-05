@@ -1188,12 +1188,9 @@ def isp_flash_attn_varlen_func(
     causal=False,
     softmax_scale=None,
     attention_dropout=0.0,
-    return_attn_probs=False,
 ):
-    assert (
-        device_backend == AcceleratorType.GPU and gpu_flash_attn_impl
-    ), "isp_flash_attn_varlen_func currently only support GPU."
-    return _flash_varlen_qkvsplited_func(
+    _, op = _select_attn_op(AttnOpType.VarLenQKVSplited)
+    return op(
         q.flatten(0, 1),
         k.flatten(0, 1),
         v.flatten(0, 1),
@@ -1204,7 +1201,6 @@ def isp_flash_attn_varlen_func(
         dropout_p=attention_dropout,
         softmax_scale=softmax_scale,
         causal=causal,
-        return_attn_probs=return_attn_probs,
     ).unsqueeze(0)
 
 
@@ -1216,17 +1212,13 @@ def isp_flash_attn_func(
     causal=False,
     softmax_scale=None,
     attention_dropout=0.0,
-    return_attn_probs=False,
 ):
-    assert (
-        device_backend == AcceleratorType.GPU and gpu_flash_attn_impl
-    ), "isp_flash_attn_func currently only support GPU."
-    return _flash_fixedlen_qkvsplited_func(
+    _, op = _select_attn_op(AttnOpType.FixedLenQKVSplited)
+    return op(
         q,
         k,
         v,
         dropout_p=attention_dropout,
         softmax_scale=softmax_scale,
         causal=causal,
-        return_attn_probs=return_attn_probs,
     )

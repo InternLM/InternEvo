@@ -48,13 +48,20 @@ def split_params_into_different_groups_for_optimizer(
     elif not isinstance(param_groups, list):
         raise ValueError(f"Unknown param group type of {type(param_groups)}")
 
+    if is_using_fsdp():
+        optimizer_mode = ParallelMode.GLOBAL
+        optimizer_mode_expert = ParallelMode.GLOBAL
+    else:
+        optimizer_mode = ParallelMode.ZERO1
+        optimizer_mode_expert = ParallelMode.EXPERT_DATA
+
     new_groups = {}
     # create new groups for fp32 parameter group
-    new_groups["fp32"] = {"name": "fp32", "params": [], "optimizer_mode": ParallelMode.ZERO1}
+    new_groups["fp32"] = {"name": "fp32", "params": [], "optimizer_mode": optimizer_mode}
 
     if gpc.config.model.get("num_experts", 1) > 1:
         for key in gpc.expert_parallel_group_names:
-            new_groups[key] = {"name": key, "moe": True, "params": [], "optimizer_mode": ParallelMode.EXPERT_DATA}
+            new_groups[key] = {"name": key, "moe": True, "params": [], "optimizer_mode": optimizer_mode_expert}
 
     for pgroup in param_groups:
         # copy attribute from origin group, we assume the input param_groups only
@@ -76,12 +83,12 @@ def split_params_into_different_groups_for_optimizer(
 
         # default param group, which is the first group in the param groups
         pgroup["params"] = origin_params
-        pgroup["optimizer_mode"] = ParallelMode.ZERO1
+        pgroup["optimizer_mode"] = optimizer_mode
 
     # param groups may contain empty groups, such as fp32
     param_groups.extend(new_groups.values())
 
-    return tuple(param_groups)
+    return list(param_groups)
 
 
 def create_param_groups(model, weight_decay):
