@@ -353,4 +353,8 @@ def initialize_model_and_parallel_communicator(model: Optional[Union[nn.Module, 
 
     model = wrap_FSDP_model(model)
 
+    if gpc.is_rank_for_log():
+        logger.info(f"show model: {model}")
+        logger.info(f"model params: {sum(p.numel() for p in model.parameters()) / 1e9:.2f}B")
+
     return model, isp_communicator
