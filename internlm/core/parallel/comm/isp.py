@@ -892,6 +892,7 @@ class ISPCommunicator(WPCommunicator):
                     for name, child in block.named_modules():
                         if is_allgather_launch_module(name, child):
                             self._overlap_states[cid].isp_prefetch_launch_module.append(child)
+                            self._overlap_states[cid].module_to_index[child] = idx
                         if isinstance(child, (ParallelLinearWithCommExt)):
                             if is_moe_param(child.weight) != self.is_moe:
                                 continue
