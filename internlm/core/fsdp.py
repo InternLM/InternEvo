@@ -1,5 +1,4 @@
 import collections
-import functools
 import itertools
 from typing import List, Optional, Set, Union
 
@@ -11,7 +10,7 @@ from torch.distributed.fsdp.fully_sharded_data_parallel import (
     BackwardPrefetch,
     ShardingStrategy,
 )
-from torch.distributed.fsdp.wrap import transformer_auto_wrap_policy
+from torch.distributed.fsdp.wrap import ModuleWrapPolicy
 
 from internlm.accelerator.abstract_accelerator import get_accelerator
 from internlm.core.context import ParallelMode
@@ -170,7 +169,7 @@ def wrap_FSDP_model(model: Union[nn.Module, nn.ModuleList]):
                 module=model,
                 process_group=gpc.get_group(ParallelMode.GLOBAL),
                 sharding_strategy=ShardingStrategy.FULL_SHARD,  # ZeRO2: SHARD_GRAD_OP, ZeRO3: FULL_SHARD
-                auto_wrap_policy=functools.partial(transformer_auto_wrap_policy, transformer_layer_cls=set(wrap_cls)),
+                auto_wrap_policy=ModuleWrapPolicy(wrap_cls),
                 sync_module_states=fsdp_init_method != "cuda",  # sync model paramters
                 forward_prefetch=True,
                 backward_prefetch=BackwardPrefetch.BACKWARD_PRE,

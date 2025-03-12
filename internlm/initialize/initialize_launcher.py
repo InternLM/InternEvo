@@ -579,10 +579,14 @@ def args_sanity_check():
         assert (
             not optim_ckpt.overlap_sync_grad & optim_ckpt.overlap_sync_param
         ), "not support overlap and moe at the same time"
-        assert gpc.config.parallel.zero1.size in (
-            -1,
-            gpc.get_world_size(ParallelMode.DATA),
-        ) or is_using_fsdp(), "moe only support zero1, set zero1=dict(size=-1,...) can fix this"
+        assert (
+            gpc.config.parallel.zero1.size
+            in (
+                -1,
+                gpc.get_world_size(ParallelMode.DATA),
+            )
+            or is_using_fsdp()
+        ), "moe only support zero1, set zero1=dict(size=-1,...) can fix this"
 
         if gpc.config.parallel.tensor.mode != "isp":
             assert gpc.config.parallel.expert_weight.size <= 1, "expert weight parallel is only supported with isp"
@@ -637,11 +641,6 @@ def args_sanity_check():
         assert (
             gpc.config.parallel.weight.size == 1
         ), f"fsdp only compatible with weight size = 1, but get weight size = {gpc.config.parallel.weight.size}"
-        if "expert" in gpc.config.parallel:
-            assert gpc.config.parallel.expert.size in (
-                1,
-                -1,
-            ), f"fsdp only compatible with expert size = (-1, 1), but get expert size = {gpc.config.parallel.expert.size}"
         if "expert_zero1" in gpc.config.parallel:
             assert gpc.config.parallel.expert_zero1.size == 1, (
                 f"fsdp only compatible with expert_zero1 size = 1, "
