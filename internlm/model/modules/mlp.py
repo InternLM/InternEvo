@@ -190,7 +190,7 @@ class GroupedFeedForward(nn.Module):
 
         if self.mlp_layer_fusion:
             self.fused_w1_w3 = new_linear(
-                "grouped_w1",
+                "grouped_w13",
                 in_features,
                 hidden_features * 2,
                 bias,
