@@ -13,6 +13,7 @@ from internlm.core.context import (
     ParallelMode,
 )
 from internlm.core.context import global_context as gpc
+from internlm.model.modules.utils import is_gate_param
 from internlm.utils.utils import TensorParallelMode
 
 
@@ -83,6 +84,35 @@ def is_weight_expert_data_parallel_parameter(p):
 
 def is_replica_expert_data_parallel_parameter(p):
     return hasattr(p, IS_REPLICA_EXPERT_DATA_PARALLEL) and getattr(p, IS_REPLICA_EXPERT_DATA_PARALLEL)
+
+
+def should_reduce_replica_param(p):
+    _reduce = False
+
+    if not is_replica_zero_parallel_parameter(p):
+        return _reduce
+
+    # for replica parameter
+    if gpc.config.parallel["tensor"].get("mode", TensorParallelMode.mtp.name) == TensorParallelMode.mtp.name:
+        _reduce = False
+    elif gpc.config.parallel["tensor"].get("mode", TensorParallelMode.mtp.name) in (
+        TensorParallelMode.msp.name,
+        TensorParallelMode.fsp.name,
+    ):
+        _reduce = gpc.is_using_parallel_mode(ParallelMode.TENSOR)
+    elif gpc.config.parallel["tensor"].get("mode", TensorParallelMode.mtp.name) == TensorParallelMode.isp.name:
+        _reduce = gpc.is_using_parallel_mode(ParallelMode.WEIGHT)
+
+    if not is_gate_param(p):
+        return _reduce
+
+    # for moe gate parameter
+    if gpc.config.parallel["tensor"].get("mode", TensorParallelMode.mtp.name) == TensorParallelMode.mtp.name:
+        _reduce = gpc.is_using_parallel_mode(ParallelMode.TENSOR) and getattr(
+            gpc.config.parallel.expert, "no_tp", False
+        )
+
+    return _reduce
 
 
 def sync_model_param(model):

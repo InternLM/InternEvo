@@ -23,7 +23,7 @@ from internlm.core.context import (
 )
 from internlm.core.context import global_context as gpc
 from internlm.core.parallel.comm import ISPCommunicatorWrapper, ParamAsyncBcastHandler
-from internlm.model.model_ops.modules.utils import is_gate_param, is_moe_param
+from internlm.model.model_ops.modules.utils import is_moe_param
 from internlm.monitor import send_alert_message
 from internlm.solver.optimizer.store import (
     BucketStore,
@@ -44,7 +44,7 @@ from internlm.utils.common import get_current_device
 from internlm.utils.config import Config
 from internlm.utils.logger import get_logger
 from internlm.utils.megatron_timers import megatron_timer as timer
-from internlm.utils.parallel import is_using_isp, is_using_sequence_parallel
+from internlm.utils.parallel import is_using_isp, should_reduce_replica_param
 from internlm.utils.timeout import llm_timeout
 
 from .base_optimizer import BaseOptimizer
@@ -393,11 +393,7 @@ class HybridZeroOptimizer(BaseOptimizer):
                     # the grad of layernorm should be all-reduce across the global process group
                     # here is the first stage all-reduce in tp/wp process group
                     # the second stage all-reduce will be processed in reduce_grad_hook
-                    if (
-                        is_using_sequence_parallel()
-                        and hasattr(param, IS_REPLICA_ZERO_PARALLEL)
-                        and getattr(param, IS_REPLICA_ZERO_PARALLEL) is True
-                    ) or (is_gate_param(param) and gpc.config.parallel.expert.no_tp):
+                    if should_reduce_replica_param(param):
                         accum_grad_obj.register_hook(extra_layernorm_reduce_grad_hook)
 
                     # we should not only register for parameters which have isp_reduce_scatter_name attr.
