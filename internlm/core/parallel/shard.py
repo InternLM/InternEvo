@@ -169,9 +169,9 @@ def get_parallel_strategies_split_mode(linear_name: str) -> str:
         return "column"
     elif linear_name in ("wo", "out_proj", "w2"):
         return "row"
-    elif linear_name in ("grouped_w1", "grouped_w2", "grouped_w3") and tp_mode == "isp":
+    elif linear_name in ("grouped_w1", "grouped_w2", "grouped_w3", "grouped_w13") and tp_mode == "isp":
         return "grouped_wp"
-    elif linear_name in ("grouped_w1", "grouped_w3"):
+    elif linear_name in ("grouped_w1", "grouped_w3", "grouped_w13"):
         return "grouped_column"
     elif linear_name in ("grouped_w2"):
         return "grouped_row"
