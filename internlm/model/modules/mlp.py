@@ -290,15 +290,16 @@ def new_feed_forward(
             backend=backend,
             is_expert=is_expert,
         )
-    return FeedForward(
-        in_features,
-        hidden_features,
-        out_features,
-        bias,
-        device,
-        dtype,
-        multiple_of,
-        mlp_layer_fusion,
-        activation_type,
-        is_expert,
-    )
+    else:
+        return FeedForward(
+            in_features,
+            hidden_features,
+            out_features,
+            bias,
+            device,
+            dtype,
+            multiple_of,
+            mlp_layer_fusion,
+            activation_type,
+            is_expert=is_expert,
+        )
