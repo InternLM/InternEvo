@@ -88,6 +88,7 @@ class MixtralMoEDecoder(nn.Module):
         top_k: int = 1,
         num_shared_experts: int = 0,
         moe_layer_kwargs: dict = None,
+        enable_qkv_fusion: bool = True,
     ):
         super().__init__()
         self.checkpoint = checkpoint
@@ -332,6 +333,7 @@ class MixtralMoE(BaseModel):
         top_k: int = 1,
         num_shared_experts: int = 0,
         moe_layer_kwargs: dict = None,
+        enable_qkv_fusion: bool = True,
     ):
         super().__init__()
 

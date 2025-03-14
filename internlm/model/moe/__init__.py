@@ -1,6 +1,7 @@
 from .dropless_layer import DroplessMoELayer
 from .experts import Experts
 from .gshard_layer import GShardMoELayer
+from .flux_layer import FluxMoELayer
 from .megablocks import (
     MegaBlockdMoE,
     MegaBlockFeedForward,
@@ -18,4 +19,5 @@ __all__ = [
     "MegaBlockFeedForward",
     "MegaBlockGroupedFeedForward",
     "DroplessMoELayer",
+    "FluxMoELayer",
 ]

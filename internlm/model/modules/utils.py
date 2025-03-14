@@ -30,10 +30,6 @@ def Gelu(w1_o, w2_o):
     return F.gelu(w1_o) * w2_o
 
 
-Silu = torch.jit.script(Silu)
-Gelu = torch.jit.script(Gelu)
-
-
 def update_kv_cache(kv, inference_params, layer_idx):
     """kv: (batch_size, seqlen, 2, nheads, head_dim) or (batch_size, 1, 2, nheads, head_dim)"""
     # Pre-allocate memory for key-values for inference.

@@ -9,6 +9,7 @@ from internlm.model.moe.dropless_layer import DroplessMoELayer
 from internlm.model.moe.gshard_layer import GShardMoELayer
 from internlm.model.moe.megablocks.megablock_dmoe import MegaBlockdMoE
 from internlm.model.moe.megablocks.megablock_moe import MegaBlockMoE
+from internlm.model.moe.flux_layer import FluxMoELayer
 from internlm.utils.logger import get_logger
 
 # global llm logger
@@ -24,6 +25,8 @@ def new_moe_layer(moe_type: str, **kwargs):
         return MegaBlockMoE(**kwargs)
     elif moe_type == "MegaBlock-Dropless":
         return MegaBlockdMoE(**kwargs)
+    elif moe_type == "Flux":
+        return FluxMoELayer(**kwargs)
     else:
         raise ValueError(f"Unsupported model type: {moe_type}")
 

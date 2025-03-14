@@ -1,7 +1,7 @@
 JOB_NAME = "7b_moe_train"
 DO_ALERT = False
 
-SEQ_LEN = 2048
+SEQ_LEN = 1024
 HIDDEN_SIZE = 4096
 NUM_ATTENTION_HEAD = 32
 MLP_RATIO = 4 / 3
@@ -170,8 +170,9 @@ model = dict(
     # qk_interleaved = False: q[-1] = [q1,q3,q5,...,q2,q4,q6,...], k[-1] = [k1,k3,k5,...,k2,k4,k6,...]
     qk_interleaved=False,
     num_chunks=1,  # if num_chunks > 1, interleaved pipeline scheduler is used.
-    moe_type="GShard",  # Support: "GShard", "MegaBlock", "MegaBlock-Dropless", "Dropless"
-    num_experts=4,
+    moe_type="Flux",  # Support: "GShard", "MegaBlock", "MegaBlock-Dropless", "Dropless", "Flux"
+    mlp_layer_fusion=True,
+    num_experts=8,
     top_k=2,
 )
 """
@@ -217,10 +218,10 @@ expert weight parallel (dict):
 """
 parallel = dict(
     zero1=dict(size=-1),
-    tensor=dict(size=1, mode="mtp"),
+    tensor=dict(size=8, mode="msp"),
     pipeline=dict(size=1, interleaved_overlap=True),
     weight=dict(size=1, overlap=True, launch_allgather_before="wo", forward_overlap_per="layer"),
-    expert=dict(size=-1, no_tp=False),
+    expert=dict(size=8, no_tp=True),
     expert_weight=dict(size=1, overlap=True, launch_allgather_before="wo", forward_overlap_per="layer"),
 )
 

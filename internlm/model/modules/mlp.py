@@ -8,6 +8,7 @@ from torch import nn
 
 from internlm.model.modules.linear import new_linear
 from internlm.model.modules.utils import Gelu, Silu
+from internlm.core.context import global_context as gpc
 from internlm.utils.logger import get_logger
 from internlm.utils.utils import ActivationType
 

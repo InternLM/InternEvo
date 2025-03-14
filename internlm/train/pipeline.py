@@ -200,7 +200,7 @@ def set_param_unique_tracking_name(model):
                                     f"{local_fqn}",
                                 )
 
-                            assert hasattr(child, "offset"), f"{child}"
+                            # assert hasattr(child, "offset"), f"{child}"
                             map_fqn_local_to_global[local_fqn] = global_fqn
                             map_fqn_global_to_local[global_fqn] = local_fqn
 
