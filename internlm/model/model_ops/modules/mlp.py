@@ -14,8 +14,8 @@ from internlm.utils.utils import ActivationType
 logger = get_logger(__file__)
 
 
-def split_fused_mlp_weight(w1_w3):
-    w1, w3 = torch.split(w1_w3, w1_w3.shape[0] // 2, dim=0)
+def split_fused_mlp_weight(w1_w3, split_dim=0):
+    w1, w3 = torch.split(w1_w3, w1_w3.shape[split_dim] // 2, dim=split_dim)
     return w1, w3
 
 
@@ -37,6 +37,31 @@ def _mlp_save_convert(module: "FeedForward", state_dict, prefix: str, *args, **k
 
     if module.mlp_layer_fusion:
         state_dict[w1_name], state_dict[w3_name] = split_fused_mlp_weight(state_dict.pop(fused_name))
+
+    return state_dict
+
+
+def _grouped_mlp_pre_load_convert(
+    module: "FeedForward", state_dict, prefix: str, *args, **kwargs  # pylint: disable=W0613
+) -> None:
+    w1_name, w3_name, fused_name = f"{prefix}w1.weight", f"{prefix}w3.weight", f"{prefix}fused_w1_w3.weight"
+
+    if module.mlp_layer_fusion and fused_name not in state_dict:
+        w1, w3 = state_dict.pop(w1_name), state_dict.pop(w3_name)
+        # loaded w1,w3: [in, out]; need: [in, out*2]
+        state_dict[fused_name] = torch.cat([w1, w3], dim=1)
+
+    if not module.mlp_layer_fusion and (w1_name not in state_dict or w3_name not in state_dict):
+        state_dict[w1_name], state_dict[w3_name] = split_fused_mlp_weight(state_dict.pop(fused_name), split_dim=1)
+
+
+def _grouped_mlp_save_convert(
+    module: "FeedForward", state_dict, prefix: str, *args, **kwargs  # pylint: disable=W0613
+) -> Dict:  # pylint: disable=W0613
+    w1_name, w3_name, fused_name = f"{prefix}w1.weight", f"{prefix}w3.weight", f"{prefix}fused_w1_w3.weight"
+
+    if module.mlp_layer_fusion:
+        state_dict[w1_name], state_dict[w3_name] = split_fused_mlp_weight(state_dict.pop(fused_name), split_dim=1)
 
     return state_dict
 
@@ -164,7 +189,30 @@ class GroupedFeedForward(nn.Module):
         hidden_features = multiple_of * ((hidden_features + multiple_of - 1) // multiple_of)
 
         if self.mlp_layer_fusion:
-            assert False, "do not support for grouped mlp."
+            self.fused_w1_w3 = new_linear(
+                "grouped_w13",
+                in_features,
+                hidden_features * 2,
+                bias,
+                device=device,
+                dtype=dtype,
+                num_groups=num_groups,
+                backend=backend,
+                is_expert=is_expert,
+            )
+            self.w2 = new_linear(
+                "grouped_w2",
+                hidden_features,
+                out_features,
+                bias,
+                device=device,
+                dtype=dtype,
+                num_groups=num_groups,
+                backend=backend,
+                is_expert=is_expert,
+            )
+            self._register_load_state_dict_pre_hook(_grouped_mlp_pre_load_convert, with_module=True)
+            self._register_state_dict_hook(_grouped_mlp_save_convert)
         else:
             self.w1 = new_linear(
                 "grouped_w1",
@@ -205,7 +253,8 @@ class GroupedFeedForward(nn.Module):
             w1_o = self.w1(x, batch_sizes)
             w3_o = self.w3(x, batch_sizes)
         else:
-            assert False
+            w13_o = self.fused_w1_w3(x, batch_sizes)
+            w1_o, w3_o = torch.split(w13_o, w13_o.shape[-1] // 2, dim=-1)
         out = self.w2(Silu(w1_o, w3_o), batch_sizes)
         return out
 
@@ -241,15 +290,16 @@ def new_feed_forward(
             backend=backend,
             is_expert=is_expert,
         )
-    return FeedForward(
-        in_features,
-        hidden_features,
-        out_features,
-        bias,
-        device,
-        dtype,
-        multiple_of,
-        mlp_layer_fusion,
-        activation_type,
-        is_expert,
-    )
+    else:
+        return FeedForward(
+            in_features,
+            hidden_features,
+            out_features,
+            bias,
+            device,
+            dtype,
+            multiple_of,
+            mlp_layer_fusion,
+            activation_type,
+            is_expert=is_expert,
+        )
