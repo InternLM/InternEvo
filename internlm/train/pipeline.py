@@ -6,6 +6,7 @@ import functools
 import itertools
 import math
 import os
+import re
 import time
 from typing import Callable, Dict, Iterable, List, Optional, Set, Tuple, TypeVar, Union
 
@@ -165,152 +166,149 @@ def set_param_unique_tracking_name(model):
             if isinstance(children, nn.ModuleList):
                 for idx, block in enumerate(children):
                     for name, child in block.named_modules():
-                        if name == "":
+                        if name == "" or not hasattr(child, "weight"):
                             continue
 
-                        full_name = f"{chunk_id}.{idx}.{name}"
-                        name_parts = f"{full_name}.weight".split(".", 2)
-                        # global_id for pipeline parallel case
-                        global_id = model.first_layer + idx
-                        local_fqn = f"{children_name}." + ".".join(name_parts[1:])
-                        global_fqn = f"{children_name}.{global_id}." + ".".join(name_parts[2:])
+                        full_name = f"{chunk_id}.{idx}.{name}"  # noqa: F841  # pylint: disable=W0612
+                        if "wrapped_experts" in name or getattr(child.weight, "is_expert", False):
+                            match = re.search(r"wrapped_experts\.(\d+)", name)
+                            ep_idx = int(match.group(1))
+                            before_idx = name[: match.start(1)]
+                            after_idx = name[match.end(1) :]
 
-                        if isinstance(child, (ParallelLinearWithCommExt)):
-                            setattr(
-                                child.weight,
-                                "tracking_name",
-                                f"{full_name}.weight",
-                            )
-                            if child.bias is not None:
-                                setattr(
-                                    child.bias,
-                                    "tracking_name",
-                                    f"{full_name}.bias",
-                                )
+                            ep_rank = gpc.get_local_rank(ParallelMode.EXPERT)
+                            ep_size = gpc.get_world_size(ParallelMode.EXPERT)
+                            num_experts = gpc.config.model.num_experts
 
+                            global_ep_idx = int(ep_idx + ep_rank * (num_experts // ep_size))
+                            global_name = before_idx + str(global_ep_idx) + after_idx
+
+                            local_fqn = f"{children_name}.{idx}.{global_name}.weight"
+                            global_fqn = f"{children_name}.{model.first_layer + idx}.{global_name}.weight"
+                        else:
+                            local_fqn = f"{children_name}.{idx}.{name}.weight"
+                            global_fqn = f"{children_name}.{model.first_layer + idx}.{name}.weight"
+
+                        setattr(
+                            child.weight,
+                            "fqn",
+                            f"{local_fqn}",
+                        )
+
+                        map_fqn_local_to_global[local_fqn] = global_fqn
+                        map_fqn_global_to_local[global_fqn] = local_fqn
+
+                        assert global_fqn not in map_layer_attr, f"{global_fqn} exists"
+                        map_layer_attr[global_fqn] = {
+                            "offset": getattr(child, "offset", [0] * len(child.weight.size())),
+                            "complete_size": getattr(child, "complete_size", list(child.weight.size())),
+                        }
+
+                        if hasattr(child, "bias") and child.bias is not None:
+                            local_fqn = local_fqn.replace("weight", "bias")
+                            global_fqn = global_fqn.replace("weight", "bias")
                             setattr(
-                                child.weight,
+                                child.bias,
                                 "fqn",
                                 f"{local_fqn}",
                             )
-                            if child.bias is not None:
-                                setattr(
-                                    child.bias,
-                                    "fqn",
-                                    f"{local_fqn}",
-                                )
 
-                            assert hasattr(child, "offset"), f"{child}"
                             map_fqn_local_to_global[local_fqn] = global_fqn
                             map_fqn_global_to_local[global_fqn] = local_fqn
-
-                            assert global_fqn not in map_layer_attr, f"{map_layer_attr} exists"
-                            map_layer_attr[global_fqn] = {
-                                "offset": getattr(child, "offset", [0] * len(child.weight.size())),
-                                "complete_size": getattr(child, "complete_size", list(child.weight.size())),
-                            }
-
-                        elif isinstance(child, (RMSNorm)):
-                            map_fqn_local_to_global[local_fqn] = global_fqn
-                            map_fqn_global_to_local[global_fqn] = local_fqn
-                            setattr(
-                                child.weight,
-                                "fqn",
-                                f"{local_fqn}",
-                            )
-                            map_layer_attr[global_fqn] = {
-                                "offset": getattr(child, "offset", [0] * len(child.weight.size())),
-                                "complete_size": getattr(child, "complete_size", list(child.weight.size())),
-                            }
-
             else:
-                full_name = f"{chunk_id}.{children_name}"
                 local_fqn = f"{children_name}.weight"
                 assert getattr(children, "bias", None) is None
-                if isinstance(children, Embedding1D):
-                    setattr(
-                        children.weight,
-                        "tracking_name",
-                        f"{chunk_id}_embeddings.weight",
-                    )
-                    assert local_fqn not in map_layer_attr, f"{map_layer_attr} exists"
-                else:
-                    setattr(
-                        children.weight,
-                        "tracking_name",
-                        f"{full_name}.weight",
-                    )
-                    assert local_fqn not in map_layer_attr, f"{map_layer_attr} exists"
-
                 setattr(
                     children.weight,
                     "fqn",
                     f"{local_fqn}",
                 )
-                if getattr(children, "bias", None) is not None:
-                    if children.bias is not None:
-                        setattr(
-                            children.bias,
-                            "fqn",
-                            f"{local_fqn}",
-                        )
-
                 map_layer_attr[local_fqn] = {
                     "offset": getattr(children, "offset", [0] * len(children.weight.size())),
                     "complete_size": getattr(children, "complete_size", list(children.weight.size())),
                 }
 
 
+def gather_meta(metadata, parallelmode, moe_no_tp=False):
+    if not moe_no_tp and gpc.get_world_size(parallelmode) > 1:
+        dst = gpc.get_ranks_in_group(parallelmode)[0]
+        if gpc.get_global_rank() == dst:
+            output = [None for _ in range(gpc.get_world_size(parallelmode))]
+        else:
+            output = None
+
+        dist.gather_object(metadata, output, dst=dst, group=gpc.get_group(parallelmode))
+        res = output
+    else:
+        res = [metadata]
+
+    return res
+
+
 def generate_meta_data(optimizer):
     if not gpc.config.ckpt.need_metadata:
-        return
+        return None
 
-    if gpc.get_world_size(ParallelMode.PIPELINE) > 1:
-        assert optimizer.meta_for_zero is not None
-        dst = gpc.get_ranks_in_group(ParallelMode.PIPELINE)[0]
-        if gpc.get_global_rank() == dst:
-            output = [None for _ in range(gpc.get_world_size(ParallelMode.PIPELINE))]
-        else:
-            output = None
-
-        dist.gather_object(optimizer.meta_for_zero, output, dst=dst, group=gpc.get_group(ParallelMode.PIPELINE))
-        pp_gather_output = output
-
-    else:
-        pp_gather_output = [optimizer.meta_for_zero]
-
+    # dense_meta: [tp][pp][zero1]
     tp_parallel = ParallelMode.WEIGHT if is_using_isp() else ParallelMode.TENSOR
-    if gpc.get_world_size(tp_parallel) > 1:
-        dst = gpc.get_ranks_in_group(tp_parallel)[0]
-        if gpc.get_global_rank() == dst:
-            output = [None for _ in range(gpc.get_world_size(tp_parallel))]
-        else:
-            output = None
+    dense_meta = gather_meta(optimizer.meta_for_zero, ParallelMode.ZERO1)
+    dense_meta = gather_meta(dense_meta, ParallelMode.PIPELINE)
+    dense_meta = gather_meta(dense_meta, tp_parallel)
 
-        dist.gather_object(pp_gather_output, output, dst=dst, group=gpc.get_group(tp_parallel))
-        final_output = output
-    else:
-        final_output = [pp_gather_output]
+    # moe_meta: [pp][ep][edp][ewp]
+    moe_meta = None
+    if len(optimizer.moe_group) > 0:
+        tp_mode = "wp" if is_using_isp() else "tp"
+        rank_map = {
+            tp_mode: gpc.get_local_rank(ParallelMode.WEIGHT)
+            if is_using_isp()
+            else gpc.get_local_rank(ParallelMode.TENSOR),
+            "zero1": gpc.get_local_rank(ParallelMode.ZERO1),
+        }
+        moe_meta = {
+            "rank_map": rank_map,
+            "metaData": optimizer.meta_for_moe,
+        }
+
+        tp_parallel = ParallelMode.EXPERT_WEIGHT if is_using_isp() else ParallelMode.TENSOR
+        moe_no_tp = not is_using_isp() and gpc.config.parallel.expert.no_tp
+        moe_meta = gather_meta(moe_meta, tp_parallel, moe_no_tp=moe_no_tp)
+        moe_meta = gather_meta(moe_meta, ParallelMode.EXPERT_DATA)
+        moe_meta = gather_meta(moe_meta, ParallelMode.EXPERT)
+        moe_meta = gather_meta(moe_meta, ParallelMode.PIPELINE)
 
     if gpc.get_global_rank() == 0:
-        assert len(final_output) == gpc.get_world_size(tp_parallel)
-        assert len(final_output[0]) == gpc.get_world_size(ParallelMode.PIPELINE)
-        assert len(final_output[0][0]) == gpc.get_world_size(ParallelMode.ZERO1)
         tp_mode = "wp_size" if is_using_isp() else "tp_size"
+        if is_using_isp():
+            ewp_size = gpc.get_world_size(ParallelMode.EXPERT_WEIGHT)
+        else:
+            if gpc.config.parallel.expert.no_tp:
+                ewp_size = 1
+            else:
+                ewp_size = gpc.get_world_size(ParallelMode.TENSOR)
+
         final_meta = {
             "parallel_setting": {
                 tp_mode: gpc.get_world_size(tp_parallel),
                 "pp_size": gpc.get_world_size(ParallelMode.PIPELINE),
                 "zero1_size": gpc.get_world_size(ParallelMode.ZERO1),
+                "ep_size": gpc.get_world_size(ParallelMode.EXPERT),
+                "edp_size": gpc.get_world_size(ParallelMode.EXPERT_DATA),
+                "ewp_size": ewp_size,
+                "num_layers": gpc.config.model.num_layers,
+                "num_experts": gpc.config.model.num_experts if hasattr(gpc.config.model, "num_experts") else -1,
             },
-            "metaData": final_output,
+            "metaData": dense_meta,
+            "moe_meta": moe_meta,
+            "moe_group": optimizer.moe_group,
         }
 
         if gpc.config.ckpt.generate_meta_data.enable:
-            save_path = os.path.join(gpc.config.ckpt.generate_meta_data.path, "metadata.pt")
+            file_path = gpc.config.ckpt.generate_meta_data.path
+            os.makedirs(file_path, exist_ok=True)
+            save_path = os.path.join(file_path, "metadata.pt")
             torch.save(final_meta, save_path)
-            logger.info(f"Successfully generate metadata.pt in {gpc.config.ckpt.generate_meta_data.path}")
-
+            logger.info(f"Successfully generate metadata.pt in {save_path}")
         return final_meta
     return None
 

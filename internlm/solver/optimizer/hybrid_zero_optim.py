@@ -149,11 +149,16 @@ class HybridZeroOptimizer(BaseOptimizer):
             assert self._param_bcast_sync_handler is not None
 
         self._isp_communicator = isp_communicator
-        self.meta_for_zero = None
+        self.meta_for_zero = {"base_groups": {}}
+        self.meta_for_moe = {"base_groups": {}}
+        self.moe_group = []
         # iterate over the param group in the optimizer
         # partition these param groups for data parallel training
         # and add buffers to parameter store for future access
         for group_id, param_group in enumerate(self.optim.param_groups):
+            if "moe" in param_group and param_group["moe"]:
+                self.moe_group.append(group_id)
+
             group_params = param_group["params"]
 
             # set the dtype for each param group
@@ -166,8 +171,6 @@ class HybridZeroOptimizer(BaseOptimizer):
             self._zero_local_rank.append(gpc.get_local_rank(zero_mode))
             self._zero_world_size.append(gpc.get_world_size(zero_mode))
 
-            if gpc.config.ckpt.need_metadata and self.meta_for_zero is None:
-                self.meta_for_zero = [{} for _ in range(gpc.get_world_size(zero_mode))]
             # TODO _broadcast_parallel_mode is not only used in broadcast, maybe can change its name
             self._broadcast_parallel_mode.append(zero_mode)
 
@@ -232,6 +235,12 @@ class HybridZeroOptimizer(BaseOptimizer):
                 # managed by this data parallel rank
                 param_group["params"] = [fp32_flat_current_rank]
 
+            base_groups = self.optim.state_dict()["param_groups"][group_id]["params"]
+            if group_id in self.moe_group:
+                self.meta_for_moe["base_groups"][group_id] = base_groups
+            else:
+                self.meta_for_zero["base_groups"][group_id] = base_groups
+
             # set reduction state
             for param in self._fp16_param_groups[group_id]:
                 self._param_store.set_param_reduction_state(param, False)
@@ -285,20 +294,39 @@ class HybridZeroOptimizer(BaseOptimizer):
             numel_per_rank[rank_to_go] += param.numel()
 
             if gpc.config.ckpt.need_metadata:
-                if group_id not in self.meta_for_zero[rank_to_go]:
-                    self.meta_for_zero[rank_to_go][group_id] = {}
+                if rank_to_go == self.zero_local_rank[group_id]:
 
-                from internlm.train.pipeline import map_fqn_local_to_global
+                    from internlm.train.pipeline import map_fqn_local_to_global
 
-                global_fqn = map_fqn_local_to_global[param.fqn] if param.fqn in map_fqn_local_to_global else param.fqn
-                self.meta_for_zero[rank_to_go][group_id][global_fqn] = {
-                    "tp_dim": getattr(param, "tp_dim", -1),
-                    "pp": gpc.get_local_rank(ParallelMode.PIPELINE),
-                    "zero1": rank_to_go,
-                    "fqn": param.fqn,
-                    "shape": param.shape,
-                    "group_id": group_id,
-                }
+                    global_fqn = (
+                        map_fqn_local_to_global[param.fqn] if param.fqn in map_fqn_local_to_global else param.fqn
+                    )
+                    if group_id in self.moe_group:
+                        if group_id not in self.meta_for_moe:
+                            self.meta_for_moe[group_id] = {}
+                        tp_mode = ParallelMode.WEIGHT if is_using_isp() else ParallelMode.TENSOR
+                        self.meta_for_moe[group_id][global_fqn] = {
+                            "tp_dim": getattr(param, "tp_dim", -1),
+                            "tp": gpc.get_local_rank(tp_mode),
+                            "pp": gpc.get_local_rank(ParallelMode.PIPELINE),
+                            "ep": gpc.get_local_rank(ParallelMode.EXPERT),
+                            "edp": gpc.get_local_rank(ParallelMode.EXPERT_DATA),
+                            "zero1": rank_to_go,
+                            "fqn": param.fqn,
+                            "shape": param.shape,
+                            "group_id": group_id,
+                        }
+                    else:
+                        if group_id not in self.meta_for_zero:
+                            self.meta_for_zero[group_id] = {}
+                        self.meta_for_zero[group_id][global_fqn] = {
+                            "tp_dim": getattr(param, "tp_dim", -1),
+                            "pp": gpc.get_local_rank(ParallelMode.PIPELINE),
+                            "zero1": rank_to_go,
+                            "fqn": param.fqn,
+                            "shape": param.shape,
+                            "group_id": group_id,
+                        }
 
         # check whether any rank is not assigned to parameters.
         for rank, params in enumerate(params_per_rank):

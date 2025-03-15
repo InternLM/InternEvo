@@ -649,11 +649,18 @@ class ParallelLinearWithCommExt(nn.Linear):
             self.tp_dim = 1
         else:
             super().__init__(in_features, out_features, bias=bias, device=device, dtype=dtype)
+            self.tp_dim = -1
 
         self.complete_size = [out_features, in_features]
         setattr(self.weight, "offset", self.offset)
         setattr(self.weight, "complete_size", [out_features, in_features])
         setattr(self.weight, "tp_dim", self.tp_dim)
+
+        if bias:
+            if self.tp_dim == 0:
+                setattr(self.bias, "tp_dim", 0)
+            else:
+                setattr(self.bias, "tp_dim", -1)
 
     def forward(self, input: torch.Tensor, batch_sizes: torch.Tensor = None) -> torch.Tensor:  # pylint: disable=W0622
         _class_name = self.__class__.__name__
@@ -904,16 +911,24 @@ class GroupedParallelLinearWithCommExt(ParallelLinearWithCommExt):
             self.weight = nn.Parameter(
                 torch.empty(num_groups, in_features, local_multiple * multiple_of, device=device, dtype=dtype)
             )
+            self.tp_dim = 2
+            assert self.weight.shape[self.tp_dim] != out_features
         elif split_mode == "row":
             self.weight = nn.Parameter(
                 torch.empty(num_groups, local_multiple * multiple_of, out_features, device=device, dtype=dtype)
             )
+            self.tp_dim = 1
+            assert self.weight.shape[self.tp_dim] != in_features
         elif split_mode == "weight":
             self.weight = nn.Parameter(
                 torch.empty(local_multiple * multiple_of, out_features, device=device, dtype=dtype)
             )
+            self.tp_dim = 0
         else:  # none
             self.weight = nn.Parameter(torch.empty(num_groups, in_features, out_features, device=device, dtype=dtype))
+            self.tp_dim = -1
+
+        setattr(self.weight, "tp_dim", self.tp_dim)
 
         self.register_parameter("bias", None)
         torch.nn.init.kaiming_uniform_(self.weight, a=math.sqrt(5))

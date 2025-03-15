@@ -160,7 +160,9 @@ class MHA(nn.Module):
         # hoping that model developers will make good use of it when adapting.
         # Is this interface already meeting all reasonable requirements?
         self._register_load_state_dict_pre_hook(pre_load_hook, with_module=True)
-        self._register_state_dict_hook(pre_save_hook)
+        if pre_save_hook is not None:
+            logger.warning("pre_save_hook may destory universal_ckpt")
+            self._register_state_dict_hook(pre_save_hook)
 
     def forward(self, x, inference_params=None, **kwargs):
         if inference_params is None:
@@ -471,7 +473,9 @@ class GQA(nn.Module):
         # hoping that model developers will make good use of it when adapting.
         # Is this interface already meeting all reasonable requirements?
         self._register_load_state_dict_pre_hook(pre_load_hook, with_module=True)
-        self._register_state_dict_hook(pre_save_hook)
+        if pre_save_hook is not None:
+            logger.warning("pre_save_hook may destory universal_ckpt")
+            self._register_state_dict_hook(pre_save_hook)
 
     def forward(self, x, inference_params=None, **kwargs):
         if inference_params is None:
