@@ -762,6 +762,10 @@ def initialize_optimizer(model: Union[nn.Module, nn.ModuleList], isp_communicato
             zero_cfg=zero_cfg,
         )
 
+    if not isinstance(optimizer, HybridZeroOptimizer):
+        gpc.config.ckpt.need_metadata = False
+        assert not gpc.config.ckpt.generate_meta_data.enable, "Only support generate_meta_data with HybridZeroOptimizer"
+
     beta2_scheduler = Beta2Scheduler(optimizer=naive_optimizer, **gpc.config.beta2_scheduler)
 
     lr_scheduler = FineTuneCosineAnnealingWarmupLR(optimizer, **gpc.config.lr_scheduler)
