@@ -50,7 +50,7 @@ def split_params_into_different_groups_for_optimizer(
 
     if is_using_fsdp():
         optimizer_mode = ParallelMode.GLOBAL
-        optimizer_mode_expert = ParallelMode.GLOBAL
+        optimizer_mode_expert = ParallelMode.EXPERT_DATA
     else:
         optimizer_mode = ParallelMode.ZERO1
         optimizer_mode_expert = ParallelMode.EXPERT_DATA

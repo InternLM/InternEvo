@@ -33,8 +33,10 @@ except (ImportError, ModuleNotFoundError):
     FSDP2_SUPPORTED = False
 
 try:
+    import torch.distributed.checkpoint as dcp
     from torch.distributed.checkpoint.state_dict import (
         StateDictOptions,
+        get_model_state_dict,
         set_model_state_dict,
     )
 
@@ -163,8 +165,29 @@ def wrap_FSDP_model(model: Union[nn.Module, nn.ModuleList]):
         )
         fsdp_mode = gpc.config.parallel.fsdp.get("mode", "v1")
         fsdp_init_method = gpc.config.parallel.fsdp.get("init_method", "cuda")
+        if gpc.is_using_parallel_mode(ParallelMode.EXPERT):
+            assert gpc.get_world_size(ParallelMode.EXPERT_DATA) * gpc.get_world_size(ParallelMode.EXPERT) == gpc.get_world_size(ParallelMode.GLOBAL)
 
         if fsdp_mode == "v1":
+            ignored_mod = []
+            if gpc.is_using_parallel_mode(ParallelMode.EXPERT):
+                for layer_id, layer in enumerate(model.model.layers):
+                    if layer_id >= gpc.config.model.first_k_dense_replace:
+                        # Should follow this modeling pattern if EP is enabled.
+                        # Change the expert module name if needed.
+                        # TODO: Make this part hard-coded or config-driven?
+                        layer.feed_forward.moe_layer.experts = FSDP(
+                            layer.feed_forward.moe_layer.experts, 
+                            process_group=gpc.get_group(ParallelMode.EXPERT_DATA),
+                            sharding_strategy=ShardingStrategy.FULL_SHARD, 
+                            sync_module_states=fsdp_init_method != "cuda",  # sync model paramters
+                            forward_prefetch=True,
+                            backward_prefetch=BackwardPrefetch.BACKWARD_PRE,
+                            limit_all_gathers=True,
+                            use_orig_params=True,
+                            device_id=None if fsdp_init_method == "cuda" else get_current_device(),  # needed for sync_module_states
+                        )
+                        ignored_mod.append(layer.feed_forward.moe_layer.experts)
             model = FSDP(
                 module=model,
                 process_group=gpc.get_group(ParallelMode.GLOBAL),
@@ -176,6 +199,7 @@ def wrap_FSDP_model(model: Union[nn.Module, nn.ModuleList]):
                 limit_all_gathers=True,
                 use_orig_params=True,
                 device_id=None if fsdp_init_method == "cuda" else get_current_device(),  # needed for sync_module_states
+                ignored_modules=ignored_mod,
             )
             # For FSDP v1, to get ckpt resuming work normally, we do dummy forward.
             # This hack is needed due to FSDP v1 lazy initialization in model construction.
@@ -196,7 +220,7 @@ def wrap_FSDP_model(model: Union[nn.Module, nn.ModuleList]):
         else:
             raise ValueError(f"Unsupported FSDP mode: {fsdp_mode}")
 
-        if is_using_hf() and not gpc.config.ckpt.get("auto_resume", False):
+        if not gpc.config.ckpt.get("auto_resume", False):
             load_ckpt_info = gpc.config.ckpt.load_ckpt_info
             load_ckpt_path = load_ckpt_info.get("path", None)
             load_ckpt_content = load_ckpt_info.get("content", [])
@@ -205,16 +229,22 @@ def wrap_FSDP_model(model: Union[nn.Module, nn.ModuleList]):
                     "model",
                 ), "If auto_resume=False and checkpoint path is given, only model can be loaded"
                 if DCP_SUPPORTED:
-                    hf = gpc.config.hf
-                    mod = LazyObject(hf.mod, hf.mod_cls)
-                    mod = mod.build()
-                    state_dict = mod.from_pretrained(
-                        pretrained_model_name_or_path=load_ckpt_path, use_safetensors=True
-                    ).state_dict()
-                    state_dict = {f"model.{key}": state_dict[key].clone().detach() for key in state_dict}
-                    set_model_state_dict(
-                        model=model, model_state_dict=state_dict, options=StateDictOptions(full_state_dict=True)
-                    )
+                    if is_using_hf():
+                        hf = gpc.config.hf
+                        mod = LazyObject(hf.mod, hf.mod_cls)
+                        mod = mod.build()
+                        state_dict = mod.from_pretrained(
+                            pretrained_model_name_or_path=load_ckpt_path, use_safetensors=True
+                        ).state_dict()
+                        state_dict = {f"model.{key}": state_dict[key].clone().detach() for key in state_dict}
+                        set_model_state_dict(
+                            model=model, model_state_dict=state_dict, options=StateDictOptions(full_state_dict=True)
+                        )
+                    else:
+                        state_dict = get_model_state_dict(model=model)
+                        state_dict = {key: state_dict[key].clone().detach() for key in state_dict}
+                        dcp.load(state_dict=state_dict, checkpoint_id=load_ckpt_path)
+                        set_model_state_dict(model=model, model_state_dict=state_dict)
                     del state_dict
                     internlm_accelerator.empty_cache()
                 else:

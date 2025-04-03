@@ -582,7 +582,7 @@ now step_count is {train_state.step_count}",
                     f"tp={gpc.get_local_rank(ParallelMode.TENSOR)},pp={gpc.get_local_rank(ParallelMode.PIPELINE)},"
                     f"dp={gpc.get_local_rank(ParallelMode.DATA)}==========="
                 )
-        elif is_using_fsdp() and is_using_hf() and not self.auto_resume:
+        elif is_using_fsdp() and not self.auto_resume:
             pass
         else:
             load_path = self.load_ckpt_info["path"]

@@ -57,6 +57,8 @@ def dispatch_hf_config_before_launch(hf: dict) -> None:
         gpc.config.model.num_experts = model_config.num_experts
     elif hasattr(model_config, "n_routed_experts"):
         gpc.config.model.num_experts = model_config.n_routed_experts
+    if hasattr(model_config, "first_k_dense_replace"):
+        gpc.config.model.first_k_dense_replace = model_config.first_k_dense_replace
 
 
 def args_sanity_check():
@@ -306,8 +308,9 @@ def args_sanity_check():
         logger.info(f"clip_grad_norm: {clip_grad_norm}")
 
     model = gpc.config.model
-    if "enable_qkv_fusion" not in model:
-        model._add_item("enable_qkv_fusion", True)
+    # TODO: should we set default value for enable_qkv_fusion?
+    # if "enable_qkv_fusion" not in model:
+    #     model._add_item("enable_qkv_fusion", True)
 
     if "dtype" not in model:
         logger.warning("dtype is not set, use torch.float16 by defalut!")

@@ -18,6 +18,7 @@ from internlm.model.model_ops.ops.cross_entropy_ops import (
     CrossEntropyApexVocabParallel,
     CrossEntropyLossApex,
     CrossEntropyPython,
+    CrossEntropyLossFlash,
 )
 from internlm.utils.logger import get_logger
 
@@ -86,17 +87,8 @@ def new_cross_entropy(
 
         assert gpc.get_group(ParallelMode.TENSOR) is not None, "The process group should not be None."
 
-        try:
-            from flash_attn.losses.cross_entropy import (
-                CrossEntropyLoss as FlashCrossEntropyLoss,
-            )
-
-            flash_cross_entropy_impl = True
-        except (ModuleNotFoundError, ImportError):
-            flash_cross_entropy_impl = False
-
         assert (
-            gpc.config.model.get("use_flash_attn", False) and flash_cross_entropy_impl
+            gpc.config.model.get("use_flash_attn", False)
         ), "Only flash cross entropy support parallel_output"
 
         assert (
@@ -108,7 +100,7 @@ def new_cross_entropy(
             which may result loss divergency in long sequence."
         )
 
-        return FlashCrossEntropyLoss(
+        return CrossEntropyLossFlash(
             ignore_index=ignore_index,
             reduction=reduction,
             label_smoothing=label_smoothing,

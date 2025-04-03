@@ -16,7 +16,7 @@ from internlm.solver.optimizer.utils import (
     get_norm,
     release_param_grad,
 )
-from internlm.utils.common import get_tensor_norm, move_norm_to_cuda
+from internlm.utils.common import get_current_device, get_tensor_norm, move_norm_to_cuda
 from internlm.utils.config import Config
 from internlm.utils.logger import get_logger
 
@@ -37,6 +37,7 @@ internlm_accelerator = get_accelerator()
 def compute_norm(
     gradients: Iterable[torch.Tensor],
     parameters: Iterable[torch.Tensor],
+    zero_mode,
 ) -> float:
     """Get L2 norm
     Arguments:
@@ -61,7 +62,17 @@ def compute_norm(
     if DTENSOR_SUPPORTED and isinstance(total_norm, DTensor):
         total_norm = total_norm.full_tensor()
 
-    dist.all_reduce(total_norm, op=dist.ReduceOp.SUM, group=gpc.get_group(ParallelMode.GLOBAL))
+    if gpc.is_using_parallel_mode(zero_mode):
+        dist.all_reduce(total_norm, op=dist.ReduceOp.SUM, group=gpc.get_group(zero_mode))
+
+    # Need to allreduce(avg) the norms across different ranks because moe params will not be synced during allreduce
+    # model and zero have been reduced!!!
+    if zero_mode == ParallelMode.EXPERT_DATA:
+        pg = gpc.get_group(ParallelMode.EXPERT)
+        scaled_norm = total_norm * 1.0 / float(gpc.get_world_size(ParallelMode.EXPERT))
+        scaled_norm_tensor = torch.tensor(scaled_norm, device=get_current_device(), dtype=torch.float)
+        dist.all_reduce(scaled_norm_tensor, group=pg)
+        total_norm = scaled_norm_tensor.item()
 
     if torch.is_tensor(total_norm):
         total_norm = total_norm.item()
@@ -112,10 +123,14 @@ class FSDPadaptOptimizer(BaseOptimizer):
         # fp16 share mem space with model.FlatParam, fp32 share mem space with optim.param_group
         self._fp16_param_groups = dict()
         self._fp32_param_tensor_groups = dict()
+        self._broadcast_parallel_mode = []
 
         # init fp16 and fp32 params
         for group_idx, param_group in enumerate(self.optim.param_groups):
             group_params = param_group["params"]
+            
+            zero_mode = param_group["optimizer_mode"]
+            self._broadcast_parallel_mode.append(zero_mode)
 
             # fp16 FlatParam storage
             self._fp16_param_groups[group_idx] = group_params
@@ -142,7 +157,7 @@ class FSDPadaptOptimizer(BaseOptimizer):
         norm_group = 0
         if len(params) <= 0 or len(gradients) <= 0:
             return norm_group
-        norm_group = compute_norm(gradients=gradients, parameters=params)
+        norm_group = compute_norm(gradients=gradients, parameters=params, zero_mode=self._broadcast_parallel_mode[group_id])
 
         return norm_group
 
