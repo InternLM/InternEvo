@@ -342,7 +342,7 @@ class DroplessMoELayer(BaseMoELayer):
             exceed_mask = torch.gather(drop_mask, 1, indices)
             # shape: [num_token, topk]
             final_expert_weights = expert_weights * torch.logical_not(exceed_mask)
-            final_indices = indices.clone().masked_fill_(exceed_mask, torch.iinfo(torch.long).max)
+            final_indices = indices.clone().masked_fill_(exceed_mask, torch.iinfo(torch.int32).max)
 
         tokens_per_expert_before_capacity = topk_mask.sum(dim=0)
 
