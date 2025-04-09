@@ -27,7 +27,7 @@ logger = get_logger(__file__)
 
 try:
     from torch.distributed._composable.fsdp import fully_shard
-
+    from torch.distributed.tensor import DeviceMesh
     FSDP2_SUPPORTED = True
 except (ImportError, ModuleNotFoundError):
     FSDP2_SUPPORTED = False
@@ -209,10 +209,23 @@ def wrap_FSDP_model(model: Union[nn.Module, nn.ModuleList]):
             fsdp_kwargs = {
                 "reshard_after_forward": True,  # ZeRO2: False, ZeRO3: True
             }
-            for module in model.modules():
-                if isinstance(module, wrap_cls):
-                    fully_shard(module, **fsdp_kwargs)
-            fully_shard(model, **fsdp_kwargs)
+            device_mesh = DeviceMesh.from_group(
+                group=[gpc.get_group(ParallelMode.EXPERT), gpc.get_group(ParallelMode.EXPERT_DATA)], 
+                device_type="cuda", 
+                mesh=torch.arange(
+                    gpc.get_world_size(ParallelMode.GLOBAL), 
+                    dtype=torch.int,
+                ).view((gpc.get_world_size(ParallelMode.EXPERT), gpc.get_world_size(ParallelMode.EXPERT_DATA))), 
+                mesh_dim_names=("ep", "edp"),
+            )
+            for layer_id, layer in enumerate(model.model.layers):
+                if gpc.is_using_parallel_mode(ParallelMode.EXPERT) and layer_id >= gpc.config.model.first_k_dense_replace:
+                    # Should follow this modeling pattern if EP is enabled.
+                    # Change the expert module name if needed.
+                    # TODO: Make this part hard-coded or config-driven?
+                    fully_shard(layer.feed_forward.moe_layer.experts, mesh=device_mesh, **fsdp_kwargs)
+                fully_shard(layer, mesh=device_mesh._flatten(), **fsdp_kwargs)
+            fully_shard(model, mesh=device_mesh._flatten(), **fsdp_kwargs)
             if fsdp_init_method == "meta":
                 _materialize_meta_module(model, set(), get_current_device())
             elif fsdp_init_method == "cpu":
