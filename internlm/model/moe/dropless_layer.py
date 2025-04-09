@@ -229,9 +229,7 @@ class DroplessMoELayer(BaseMoELayer):
         if self.token_dispatch_policy == "alltoall":
             self.token_permutation_func = self.token_permutation_by_alltoall
             self.token_unpermutation_func = self.token_unpermutation_by_alltoall
-            self.enable_fused_permute = (
-                GEMM_INSTALLED and enable_fused_permute and not drop_and_pad and capacity_factor is None
-            )
+            self.enable_fused_permute = GEMM_INSTALLED and enable_fused_permute and not drop_and_pad
             self.input_splits = None
             self.output_splits = None
             self.num_global_tokens_per_local_expert_cpu = None
