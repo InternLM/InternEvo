@@ -223,7 +223,7 @@ def wrap_FSDP_model(model: Union[nn.Module, nn.ModuleList]):
                     # Should follow this modeling pattern if EP is enabled.
                     # Change the expert module name if needed.
                     # TODO: Make this part hard-coded or config-driven?
-                    fully_shard(layer.feed_forward.moe_layer.experts, mesh=device_mesh, **fsdp_kwargs)
+                    fully_shard(layer.feed_forward.moe_layer.experts, mesh=device_mesh["edp"], **fsdp_kwargs)
                 fully_shard(layer, mesh=device_mesh._flatten(), **fsdp_kwargs)
             fully_shard(model, mesh=device_mesh._flatten(), **fsdp_kwargs)
             if fsdp_init_method == "meta":

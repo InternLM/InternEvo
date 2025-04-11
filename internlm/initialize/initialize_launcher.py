@@ -659,13 +659,15 @@ def args_sanity_check():
         assert "init_method" in gpc.config.parallel.fsdp, "init_method must be specified in fsdp when enabled"
         fsdp_init_method = gpc.config.parallel.fsdp.init_method
         if fsdp_mode == "v1":
+            fsdp_v1_min_version = "1.13.0"
             assert (
-                torch.__version__ >= "2.4.0"
-            ), f"requires torch>=2.4.0 when using fsdp v1 but current version is {torch.__version__}"
+                torch.__version__ >= fsdp_v1_min_version
+            ), f"requires torch>={fsdp_v1_min_version} when using fsdp v1 but current version is {torch.__version__}"
         elif fsdp_mode == "v2":
+            fsdp_v2_min_version = "2.6.0"
             assert (
-                torch.__version__ >= "2.5.1"
-            ), f"requires torch>=2.5.1 when using fsdp v2 but current version is {torch.__version__}"
+                torch.__version__ >= fsdp_v2_min_version
+            ), f"requires torch>={fsdp_v2_min_version} when using fsdp v2 but current version is {torch.__version__}"
         else:
             raise ValueError(f"fsdp mode {fsdp_mode} not supported")
         assert fsdp_init_method in ["cuda", "cpu", "meta"], f"fsdp init_method {fsdp_init_method} not supported"
