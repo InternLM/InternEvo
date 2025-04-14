@@ -36,13 +36,6 @@ except (ModuleNotFoundError, ImportError):
     logger.warning("The torch implementation for cal_l2norm is slower than apex. Please note this!")
     APEX_AVAILABLE = False
 
-try:
-    from torch.distributed.tensor import DTensor
-
-    DTENSOR_SUPPORTED = True
-except (ModuleNotFoundError, ImportError):
-    DTENSOR_SUPPORTED = False
-
 inf = math.inf
 
 
@@ -184,10 +177,7 @@ def sync_param(flat_tensor, tensor_list):
 
 def multi_tensor_l2norm_torch(tensor_list, per_tensor):
     # Convert tensor_list elements to torch.float32
-    tensor_list = [
-        tensor.full_tensor().float() if DTENSOR_SUPPORTED and isinstance(tensor, DTensor) else tensor.float()
-        for tensor in tensor_list
-    ]
+    tensor_list = [tensor.float() for tensor in tensor_list]
     norms_tensor = torch.stack([torch.norm(tensor, p=2) for tensor in tensor_list])
     l2_norm = torch.norm(norms_tensor, p=2).unsqueeze(0)
 
