@@ -403,7 +403,7 @@ class ParallelContext(metaclass=SingletonMeta):
            use_cpu (bool): whether to set up cpu process group.
         """
         # initialize the default process group
-        init_method = f"tcp://[{host}]:{port}"
+        init_method = f"tcp://{host}:{port}"
         dist.init_process_group(
             rank=rank,
             world_size=world_size,

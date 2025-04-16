@@ -1,6 +1,7 @@
 import gc
 import logging
 import time
+import os
 from functools import partial
 from typing import Dict, List, Optional, Union
 
@@ -11,7 +12,7 @@ from torch.utils.data import DataLoader
 from internlm.checkpoint.checkpoint_manager import CheckpointManager
 from internlm.core.context import global_context as gpc
 from internlm.core.context.process_group_initializer import ParallelMode
-from internlm.core.parallel.comm import initialize_offload_manager
+from internlm.core.parallel.comm.attn_offload import initialize_offload_npu_manager
 from internlm.core.trainer import Trainer
 from internlm.data.streaming.utils import streaming_simple_resume
 from internlm.data.train_state import get_train_state
@@ -112,7 +113,7 @@ class TrainerBuilder(Trainer):
         criterion = self._initialize_criterion()
 
         # initialize cpu offload manager for selective checkpoint
-        initialize_offload_manager(gpc.config.get("selective_checkpoint_offload", False))
+        initialize_offload_npu_manager(gpc.config.get("selective_checkpoint_offload", False))
 
         # initialize train state
         train_state = get_train_state(train_dl)
@@ -257,16 +258,30 @@ class TrainerBuilder(Trainer):
         self.train()
         train_iter = iter(self.train_dl)
 
+        # memory_trace start 
+        # torch.cuda.memory._record_memory_history()
+
         with initialize_llm_profile(profiling=self.profiling, start_time=self.current_time) as prof:
             gc.disable()
             for batch_count in range(self.train_state.batch_count, gpc.config.data.total_steps):
                 if self._process_batch(batch_count, train_iter, prof):
                     break
-
+        
         self.ckpt_manager.wait_async_upload_finish()
 
     def _process_batch(self, batch_count: int, train_iter, prof) -> bool:
         empty_cache_and_diag(batch_count, interval=gpc.config.data.empty_cache_and_diag_interval)
+        
+        # set task_name
+        task_name = gpc.config.TASK_NAME
+
+        if gpc.config.IS_MEMORY_TRACE == True:
+            memory_trace_path = gpc.config.MEMORY_PATH
+
+        # start record memory_trace  
+        # if gpc.config.IS_MEMORY_TRACE == True and ((batch_count + 1) % 10 == 0 or batch_count == 0) and gpc.is_rank_for_log():
+        #     torch.cuda.memory._record_memory_history()
+
         start_time = time.time()
         timer("one-batch").start()
 
@@ -287,6 +302,24 @@ class TrainerBuilder(Trainer):
 
         if self._should_evaluate():
             self._evaluate()
+
+        # snapshot and close memory_trace
+        # if gpc.config.IS_MEMORY_TRACE == True and ((batch_count + 1) % 10 == 0 or batch_count == 0) and gpc.is_rank_for_log():
+
+        #     print(f"batch_count:{batch_count}")
+        #     path = os.path.join("/mnt/petrelfs/lusitian/workspace/InternEvo-fork/memory_trace", memory_trace_path, task_name, f"no{batch_count}.pickle")
+        
+        #     directory = os.path.dirname(path)
+        #     # 检查目录是否存在，如果不存在则创建
+        #     if not os.path.exists(directory):
+        #         print(f"Directory {directory} does not exist. Creating it...")
+        #         os.makedirs(directory, exist_ok=True)  # exist_ok=True 避免路径已存在时报错
+        #     else:
+        #         print(f"Directory {directory} already exists.")
+
+        #     torch.cuda.memory._dump_snapshot(path)
+        #     torch.cuda.memory._record_memory_history(enabled=None)
+
 
         if self.ckpt_manager.try_save_checkpoint(self.train_state):
             return True

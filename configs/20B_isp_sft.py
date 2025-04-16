@@ -1,16 +1,16 @@
-JOB_NAME = "7b_train"
-TASK_NAME = "0409-7B-base-128k-t16w4z4-G16-S50"
-MEMORY_PATH = "910B-7B_128k_16g"
+JOB_NAME = "20b_internlm2_train"
+TASK_NAME = "0312-20B-ckpt-Dweb-64k-t32w4z8-G32-S50"
+# MEMORY_PATH = "20B_64k_32g"
 model_type = "INTERNLM2"
 DO_ALERT = False
 
-VOCAB_SIZE = 103168
-SEQ_LEN = 1*1024
-HIDDEN_SIZE = 4096
-NUM_ATTENTION_HEAD = 32
+VOCAB_SIZE = 92544
+SEQ_LEN = 64*1024
+HIDDEN_SIZE = 6144
+NUM_ATTENTION_HEAD = 48
 NUM_KV_ATTENTION_HEAD = 8
 MLP_RATIO = 8 / 3
-NUM_LAYER = 32
+NUM_LAYER = 48
 
 
 MODEL_ONLY_FOLDER = "local:llm_ckpts/xxxx"
@@ -51,13 +51,13 @@ ckpt = dict(
 )
 
 # TRAIN_FOLDER = "/mnt/petrelfs/share_data/llm_data/0715_llama_tokenized_refined_real/train/"
-TRAIN_FOLDER = None # "/mnt/petrelfs/share_data/caizheng/train_ds/tokenized_data"  # "/path/to/dataset"
-VALID_FOLDER = None # "/mnt/petrelfs/share_data/caizheng/train_ds/tokenized_data" # "/path/to/dataset"
+TRAIN_FOLDER = "/mnt/petrelfs/share_data/caizheng/train_ds/tokenized_data"  # "/path/to/dataset"
+VALID_FOLDER = "/mnt/petrelfs/share_data/caizheng/train_ds/tokenized_data" # "/path/to/dataset"
 data = dict(
-    # type="tokenized",
+    type="tokenized",
     seq_len=SEQ_LEN,
     # micro_num means the number of micro_batch contained in one gradient update
-    micro_num=1,
+    micro_num=4,
     # packed_length = micro_bsz * SEQ_LEN
     micro_bsz=1,
     # defaults to the value of micro_num
@@ -79,7 +79,7 @@ data = dict(
     valid_folder=VALID_FOLDER,
     empty_cache_and_diag_interval=200,
     diag_outlier_ratio=1.1,
-    # use_packed_dataset=False, # NPU ISP下只能使用unpacked dataset
+    # use_packed_dataset=False,
 )
 
 grad_scaler = dict(
@@ -156,11 +156,10 @@ beta2_scheduler = dict(
 
 # cpu_offloading = dict(
 #     enable=True,
-#     num_layers=10,
+#     num_layers=3,
 # )
-
-selective_checkpoint = True
-selective_checkpoint_offload = True
+selective_checkpoint = False
+selective_checkpoint_offload = False
 
 use_fp32_norm = False
 model = dict(
@@ -239,7 +238,7 @@ sequence_2D (dict):
 
 parallel = dict(
     zero1=dict(size=-1),
-    tensor=dict(size=8, mode="isp"),
+    tensor=dict(size=32, mode="isp"),
     pipeline=dict(size=1, interleaved_overlap=True),
     weight=dict(size=4, overlap=True, launch_allgather_before="wo", forward_overlap_per="layer"),
     sequence_2D=dict(

@@ -1,13 +1,15 @@
 JOB_NAME = "7b_internlm2_train"
 model_type = "INTERNLM2"
+# MEMORY_PATH = "20B_16k_32g
 DO_ALERT = False
+TASK_NAME = "0305-20B-ckpt-sc-fa-Dweb-32k-8144-z8-G32-S50"
 
-VOCAB_SIZE = 92544
-SEQ_LEN = 2048
+VOCAB_SIZE = 103168 # 92544
+SEQ_LEN = 2*1024
 HIDDEN_SIZE = 4096
 NUM_ATTENTION_HEAD = 32
 NUM_KV_ATTENTION_HEAD = 8
-MLP_RATIO = 3.5
+MLP_RATIO = 8 / 3 # 3.5
 NUM_LAYER = 32
 
 
@@ -40,9 +42,11 @@ ckpt = dict(
     oss_snapshot_freq=int(CHECKPOINT_EVERY / 2),  # snapshot ckpt save frequency.
 )
 
-TRAIN_FOLDER = None
-VALID_FOLDER = None  # "/path/to/dataset"
+TRAIN_FOLDER = "/mnt/petrelfs/share_data/caizheng/train_ds/tokenized_data"
+VALID_FOLDER = "/mnt/petrelfs/share_data/caizheng/train_ds/tokenized_data"  # "/path/to/dataset"
 data = dict(
+    type="tokenized",
+    # tokenizer_path="/mnt/petrelfs/lusitian/tokenizer/hf-internlm2-tokenizer",
     seq_len=SEQ_LEN,
     # micro_num means the number of micro_batch contained in one gradient update
     micro_num=4,
@@ -53,7 +57,7 @@ data = dict(
     # defaults to 0, means disable evaluate
     valid_every=0,
     pack_sample_into_one=False,
-    total_steps=20000,
+    total_steps=50,
     skip_batches="",
     # rampup_batch_size (str): A string with three space-separated integers representing the
     #       starting batch size, the increment, and the number of steps between
@@ -139,7 +143,7 @@ beta2_scheduler = dict(
 
 use_fp32_norm = False
 model = dict(
-    checkpoint=False,
+    checkpoint=False, # The proportion of layers for activation aheckpointing, the optional value are True/False/[0-1]
     num_chunks=1,
     num_attention_heads=NUM_ATTENTION_HEAD,
     embed_split_hidden=True,
@@ -191,10 +195,10 @@ weight parallel (dict):
     2. overlap: bool, enable/disable all_gather/reduce_scatter communication overlap, defaults to False.
 """
 parallel = dict(
-    zero1=dict(size=-1),
+    zero1=dict(size=8),
     tensor=dict(size=2, mode="isp"),
     pipeline=dict(size=1, interleaved_overlap=True, mode="1f1b"),
-    weight=dict(size=2, overlap=True),
+    weight=dict(size=2, overlap=True, launch_allgather_before="wo", forward_overlap_per="layer"),
 )
 
 cudnn_deterministic = False
@@ -231,3 +235,13 @@ generation = dict(
     repetition_penalty=1,
     length_penalty=1.0,
 )
+
+cpu_offloading = dict(
+     enable=True,
+     num_layers=10,
+     offloading_activations=True,
+ )
+
+
+selective_checkpoint = False
+selective_checkpoint_offload = False

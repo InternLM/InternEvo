@@ -100,6 +100,19 @@ def args_sanity_check():
     if "model_type" not in gpc.config:
         gpc.config._add_item("model_type", ModelType.INTERNLM.name)
 
+    # set task_name 
+    if "TASK_NAME" not in gpc.config:
+        gpc.config._add_item("TASK_NAME", "test_task")
+
+    # set memory_trace_path for torch_memory_viz
+    if "MEMORY_PATH" not in gpc.config:
+        # gpc.config._add_item("MEMORT_PATH", "NONE")
+        gpc.config._add_item("IS_MEMORY_TRACE", False)
+
+    # whether us memory_trace
+    if "IS_MEMORY_TRACE" not in gpc.config:
+        gpc.config._add_item("IS_MEMORY_TRACE", True) 
+
     # inject HuggingFace model config into IntrainTrain
     if is_using_hf():
         inject_hf_config_before_launch(gpc.config.hf)
@@ -440,25 +453,25 @@ def args_sanity_check():
     # for NPU accelerator supports: 1）FA-True + Packed-True 2) FA-False + Packed-False
     # for DIPU accelerator supports: 1）FA-True + Packed-False 2) FA-False + Packed-False
     # for GPU accelerator supports: 1）FA-True + Packed-True 2) FA-False + Packed-False
-    if gpc.config.parallel["tensor"][
-        "mode"
-    ] == TensorParallelMode.isp.name and internlm_accelerator.get_accelerator_backend() in [
-        AcceleratorType.NPU,
-        AcceleratorType.DIPU,
-        AcceleratorType.DITORCH,
-    ]:
-        assert (
-            gpc.config.data.use_packed_dataset is False
-        ), "only unpacked data is supported when tensor parallel mode is isp and accelerator type is NPU or DIPU"
+    # if gpc.config.parallel["tensor"][
+    #     "mode"
+    # ] == TensorParallelMode.isp.name and internlm_accelerator.get_accelerator_backend() in [
+    #     AcceleratorType.NPU,
+    #     AcceleratorType.DIPU,
+    #     AcceleratorType.DITORCH,
+    # ]:
+    #     assert (
+    #         gpc.config.data.use_packed_dataset is False
+    #     ), "only unpacked data is supported when tensor parallel mode is isp and accelerator type is NPU or DIPU"
 
-    if internlm_accelerator.get_accelerator_backend() in [
-        AcceleratorType.NPU,
-        AcceleratorType.DIPU,
-        AcceleratorType.DITORCH,
-    ]:
-        assert (
-            gpc.config.model.use_flash_attn == gpc.config.data.use_packed_dataset
-        ), "use_packed_dataset should be set same value as use_flash_attn"
+    # if internlm_accelerator.get_accelerator_backend() in [
+    #     AcceleratorType.NPU,
+    #     AcceleratorType.DIPU,
+    #     AcceleratorType.DITORCH,
+    # ]:
+    #     assert (
+    #         gpc.config.model.use_flash_attn == gpc.config.data.use_packed_dataset
+    #     ), "use_packed_dataset should be set same value as use_flash_attn"
 
     # adapt to old version's sequence parallel config
     if gpc.config.parallel["tensor"].get("mode", None) in [

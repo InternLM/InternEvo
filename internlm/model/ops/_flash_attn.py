@@ -84,6 +84,7 @@ class FlashAttnVarlenKVPackedFunc_V263(torch.autograd.Function):
 
         # store attn forward output to avoid re-computation of attn when activation checkpoint is enabled
         if gpc.is_forward and gpc.config.selective_checkpoint and _is_ckpt_layer:
+            breakpoint()
             get_offload_manager().insert_fa_output_with_layer(
                 layer_idx=layer_idx, output=(out, out_padded, softmax_lse, S_dmask, rng_state)
             )

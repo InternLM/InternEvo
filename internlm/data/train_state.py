@@ -11,7 +11,7 @@ def get_train_state(dataloader):
         DataType.streaming.name,
         DataType.megatron.name,
         DataType.mocked.name,
-    ]:
+    ]: 
         train_state = TrainState(gpc.config, dataloader.batch_sampler)
     else:
         raise ValueError(f"dataset type {gpc.config.data.type} is not supported")

@@ -9,6 +9,7 @@ This file implements support for the attention operators.
 import math
 from enum import Enum
 from typing import Callable, Tuple
+import pdb
 
 import torch
 from einops import rearrange, repeat
@@ -55,6 +56,14 @@ try:
     is_torch_npu = True
 except (ModuleNotFoundError, ImportError):
     is_torch_npu = False
+
+from internlm.model.ops._flash_attn_npu import npu_fusion_attention as _npu_sc_fa_func
+try:
+    from internlm.model.ops._flash_attn_npu import npu_fusion_attention as _npu_sc_fa_func
+    npu_scfa_impl = True
+except (ModuleNotFoundError, ImportError): 
+    npu_scfa_impl = False
+print(f'---------{npu_scfa_impl}---------------', flush=True)
 
 try:
     from deeplink_ext.internevo_ops import (
@@ -359,6 +368,7 @@ def _npu_varlen_qkvsplited_attn(
     dropout_p=0.0,
     softmax_scale=None,
     causal=False,
+    layer_idx=0,  # pylint: disable=W0613
 ):
     return _flash_float32_compatibility_wrapper(
         (0, 1, 2),
@@ -373,6 +383,7 @@ def _npu_varlen_qkvsplited_attn(
         dropout_p,
         softmax_scale,
         causal,
+        layer_idx=layer_idx,
     )
 
 
@@ -388,6 +399,7 @@ def _npu_varlen_qkvsplited_func(
     softmax_scale=None,
     causal=False,
     use_fixlen=False,
+    layer_idx=0,  # pylint: disable=W0613
 ):
     """Support Huawei Ascend's torch_npu flash attention.
     Tested version:
@@ -409,7 +421,7 @@ def _npu_varlen_qkvsplited_func(
         output = pack_output_after_attn(output, cu_seqlens_q, packed_length)
     else:
         output = _npu_fused_varlen_qkvsplited_attn(
-            q, k, v, dropout_p, softmax_scale, causal, max_seqlen_q, max_seqlen_k, cu_seqlens_q, cu_seqlens_k
+            q, k, v, dropout_p, softmax_scale, causal, max_seqlen_q, max_seqlen_k, cu_seqlens_q, cu_seqlens_k, layer_idx=layer_idx
         )
 
     return output
@@ -462,6 +474,7 @@ def _npu_fused_varlen_qkvsplited_attn(
     cu_seqlens_q=None,
     cu_seqlens_kv=None,
     deterministic=False,
+    layer_idx=0,  # pylint: disable=W0613
 ):
     assert causal is True
     assert q.dtype in (torch.bfloat16, torch.float16)
@@ -481,9 +494,8 @@ def _npu_fused_varlen_qkvsplited_attn(
     attention_mask = torch.triu(torch.ones(max_seqlen_q, max_seqlen_k, device=device), 1).bool()
     cu_seqlens_q = cu_seqlens_q[1:].tolist()
     cu_seqlens_kv = cu_seqlens_kv[1:].tolist()
-
-    return _origin_npu_fixedlen_qkvsplited_func(
-        query=q,
+    
+    return _npu_sc_fa_func(query=q,
         key=k,
         value=v,
         head_num=N,
@@ -491,14 +503,33 @@ def _npu_fused_varlen_qkvsplited_attn(
         pse=None,
         atten_mask=attention_mask,
         scale=softmax_scale,
-        sparse_mode=sparse_mode,
-        pre_tockens=S,  # Used for sparse calculations, representing the left boundary of the slides window
-        next_tockens=0,
         keep_prob=1 - dropout_p,
+        pre_tokens=S,  # Used for sparse calculations, representing the left boundary of the slides window
+        next_tokens=0,
         inner_precise=0 if not deterministic else 2,
-        actual_seq_kvlen=cu_seqlens_kv,
         actual_seq_qlen=cu_seqlens_q,
+        actual_seq_kvlen=cu_seqlens_kv,
+        sparse_mode=sparse_mode,  
+        layer_idx=layer_idx      
     )[0].unsqueeze(dim=0)
+
+    # return _origin_npu_fixedlen_qkvsplited_func(
+    #     query=q,
+    #     key=k,
+    #     value=v,
+    #     head_num=N,
+    #     input_layout="TND",
+    #     pse=None,
+    #     atten_mask=attention_mask,
+    #     scale=softmax_scale,
+    #     sparse_mode=sparse_mode,
+    #     pre_tockens=S,  # Used for sparse calculations, representing the left boundary of the slides window
+    #     next_tockens=0,
+    #     keep_prob=1 - dropout_p,
+    #     inner_precise=0 if not deterministic else 2,
+    #     actual_seq_kvlen=cu_seqlens_kv,
+    #     actual_seq_qlen=cu_seqlens_q,
+    # )[0].unsqueeze(dim=0)
 
 
 def _npu_varlen_qkvpacked_attn(
@@ -539,6 +570,7 @@ def _npu_varlen_kvpacked_attn(
         dropout_p,
         softmax_scale,
         causal,
+        layer_idx
     )
 
 
@@ -1012,7 +1044,7 @@ class SelfAttention(nn.Module):
         causal = self.causal if causal is None else causal
 
         attn_type, op = _select_attn_op(AttnOpType.VarLenKVPacked)
-
+#       breakpoint()
         dropout = self.dropout if attn_type is AttnType.Torch else self.dropout.p
         extra_args = (key_padding_mask,) if attn_type is AttnType.Torch else ()
 

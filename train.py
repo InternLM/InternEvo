@@ -11,7 +11,8 @@ from internlm.initialize import initialize_distributed_env
 from internlm.model.builder import create_model
 from internlm.monitor import internevo_monitor
 from internlm.utils.common import parse_args
-
+import torch
+import torch_npu
 
 @internevo_monitor(feishu_alert=True, clean_run=True)
 def main(args):
@@ -38,6 +39,7 @@ if __name__ == "__main__":
     # Initialize distributed environment
     initialize_distributed_env(config=args.config, launcher=args.launcher, master_port=args.port, seed=args.seed)
     assert hasattr(gpc, "config") and gpc.config is not None
-
+    
     # Run the main function with parsed arguments
     main(args)
+

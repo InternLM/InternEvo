@@ -834,6 +834,10 @@ def record_current_batch_training_metrics(
 
         tflops = get_tflops_func(time_cost)
 
+        tgs_statistic.setdefault("sum_tflops", 0.00)
+        tgs_statistic["sum_tflops"] += tflops
+        tflops_avg = tgs_statistic["sum_tflops"] / tgs_statistic["sum_step"]
+
         tgs_origin = round(
             num_tokens_in_batch
             * gpc.get_world_size(ParallelMode.DATA)
@@ -879,6 +883,20 @@ def record_current_batch_training_metrics(
         infos["fwd_bwd_time"] = fwd_bwd_time
         bwd_time = round(timer("bwd").elapsed(), 2)
         infos["bwd_time"] = bwd_time
+
+        # 累积总时间并计算平均值
+        tgs_statistic.setdefault("sum_fwd_bwd_time", 0.0)
+        tgs_statistic.setdefault("sum_bwd_time", 0.0)
+        tgs_statistic["sum_fwd_bwd_time"] += fwd_bwd_time
+        tgs_statistic["sum_bwd_time"] += bwd_time
+
+        fwd_bwd_avg = tgs_statistic["sum_fwd_bwd_time"] / tgs_statistic["sum_step"]
+        bwd_avg = tgs_statistic["sum_bwd_time"] / tgs_statistic["sum_step"]
+
+        infos["fwd_bwd_avg"] = round(fwd_bwd_avg, 2)
+        infos["bwd_avg"] = round(bwd_avg, 2)
+        infos["tflops_avg"] = round(tflops_avg, 2)
+
 
         for key, value in acc_perplex.items():
             infos[key] = value

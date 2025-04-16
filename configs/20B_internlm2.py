@@ -1,16 +1,14 @@
-JOB_NAME = "7b_train"
-TASK_NAME = "0409-7B-base-128k-t16w4z4-G16-S50"
-MEMORY_PATH = "910B-7B_128k_16g"
+JOB_NAME = "7b_internlm2_train"
 model_type = "INTERNLM2"
 DO_ALERT = False
 
-VOCAB_SIZE = 103168
-SEQ_LEN = 1*1024
-HIDDEN_SIZE = 4096
-NUM_ATTENTION_HEAD = 32
+VOCAB_SIZE = 92544
+SEQ_LEN = 16*1024
+HIDDEN_SIZE = 6144
+NUM_ATTENTION_HEAD = 48
 NUM_KV_ATTENTION_HEAD = 8
 MLP_RATIO = 8 / 3
-NUM_LAYER = 32
+NUM_LAYER = 48
 
 
 MODEL_ONLY_FOLDER = "local:llm_ckpts/xxxx"
@@ -28,14 +26,6 @@ CHECKPOINT_EVERY = 50
 ckpt = dict(
     enable_save_ckpt=False,  # enable ckpt save.
     save_ckpt_folder=SAVE_CKPT_FOLDER,  # Path to save training ckpt.
-    # load_ckpt_folder= dict(path=MODEL_ONLY_FOLDER, content=["model"], ckpt_type="normal"),
-    load_ckpt_folder="local:llm_ckpts/",
-    # 'load_ckpt_info' setting guide:
-    # 1. the 'path' indicate ckpt path,
-    # 2. the 'content‘ means what states will be loaded, support: "model", "sampler", "optimizer", "scheduler", "all"
-    # 3. the ’ckpt_type‘ means the type of checkpoint to be loaded, support: "internevo", "hf", or other custom-defined
-    # load function such as "llama"
-    load_ckpt_info=dict(path=MODEL_ONLY_FOLDER, content=("model",), ckpt_type="internevo"),
     # 'auto_resume' is designed to automatically load the latest checkpoint from 'save_ckpt_folder' when encountering
     # training interruptions/hangs caused by hardware failures, using a scheduling system (such as k8s/slurm)
     # with an automatic restart mechanism upon training reboot.
@@ -43,21 +33,21 @@ ckpt = dict(
     # path specified in `load_ckpt_info` by default.
     # If you want to initialize your model weights from another model, you must set `auto_resume` to False.
     # If you want to train from scratch, please set `auto_resume` to False and 'load_ckpt_info' to None.
-    auto_resume=True,
+    auto_resume=False,
     checkpoint_every=CHECKPOINT_EVERY,
     async_upload=True,  # async ckpt upload. (only work for boto3 ckpt)
     async_upload_tmp_folder="/dev/shm/internlm_tmp_ckpt/",  # path for temporarily files during asynchronous upload.
     oss_snapshot_freq=int(CHECKPOINT_EVERY / 2),  # snapshot ckpt save frequency.
 )
 
-# TRAIN_FOLDER = "/mnt/petrelfs/share_data/llm_data/0715_llama_tokenized_refined_real/train/"
-TRAIN_FOLDER = None # "/mnt/petrelfs/share_data/caizheng/train_ds/tokenized_data"  # "/path/to/dataset"
-VALID_FOLDER = None # "/mnt/petrelfs/share_data/caizheng/train_ds/tokenized_data" # "/path/to/dataset"
+TRAIN_FOLDER = "/mnt/petrelfs/share_data/caizheng/train_ds/tokenized_data"
+VALID_FOLDER = "/mnt/petrelfs/share_data/caizheng/train_ds/tokenized_data"  # "/path/to/dataset"
 data = dict(
-    # type="tokenized",
+    type="tokenized",
+    # tokenizer_path="/mnt/petrelfs/lusitian/tokenizer/hf-internlm2-tokenizer",
     seq_len=SEQ_LEN,
     # micro_num means the number of micro_batch contained in one gradient update
-    micro_num=1,
+    micro_num=4,
     # packed_length = micro_bsz * SEQ_LEN
     micro_bsz=1,
     # defaults to the value of micro_num
@@ -79,7 +69,6 @@ data = dict(
     valid_folder=VALID_FOLDER,
     empty_cache_and_diag_interval=200,
     diag_outlier_ratio=1.1,
-    # use_packed_dataset=False, # NPU ISP下只能使用unpacked dataset
 )
 
 grad_scaler = dict(
@@ -125,11 +114,7 @@ hybrid_zero_optimizer = dict(
 
 #         * op_types that ends with "naive" only support parallel_output=False;
 #         * if in no-GPU env, only "torch_naive" and "py_vocab_parallel" are supported.
-
-loss = dict(
-    label_smoothing=0,
-    op_type="py_vocab_parallel", # flash_vocab_parallel
-)
+loss = dict(label_smoothing=0, op_type="py_vocab_parallel")
 
 adam = dict(
     lr=1e-4,
@@ -154,19 +139,11 @@ beta2_scheduler = dict(
     cur_iter=-1,
 )
 
-# cpu_offloading = dict(
-#     enable=True,
-#     num_layers=10,
-# )
-
-selective_checkpoint = True
-selective_checkpoint_offload = True
-
 use_fp32_norm = False
 model = dict(
-    checkpoint=1,  # The proportion of layers for activation aheckpointing, the optional value are True/False/[0-1]
+    checkpoint=0.5, # The proportion of layers for activation aheckpointing, the optional value are True/False/[0-1]
+    num_chunks=1,
     num_attention_heads=NUM_ATTENTION_HEAD,
-    num_kv_attention_heads=NUM_KV_ATTENTION_HEAD,
     embed_split_hidden=True,
     vocab_size=VOCAB_SIZE,
     embed_grad_scale=1,
@@ -176,11 +153,11 @@ model = dict(
     no_bias=True,
     mlp_ratio=MLP_RATIO,
     apply_post_layer_norm=False,
-    dtype="torch.bfloat16",  # Support: "torch.float16", "torch.half", "torch.bfloat16", "torch.float32", "torch.tf32"
+    dtype="torch.bfloat16",
     norm_type="rmsnorm",
     layer_norm_epsilon=1e-5,
+    num_kv_attention_heads=NUM_KV_ATTENTION_HEAD,
     use_flash_attn=True,
-    num_chunks=1,  # if num_chunks > 1, interleaved pipeline scheduler is used.
     # Whether the odd and even columns of the query and key in the model are normally interleaved.
     # If it's True, the model's odd and even columns are normally ordered; if it's False,
     # it means that the model has prematurely concatenated all odd columns and even columns in front
@@ -210,50 +187,23 @@ pipeline parallel (dict):
     1. size: int, the size of pipeline parallel.
     2. interleaved_overlap: bool, enable/disable communication overlap when using interleaved pipeline scheduler,
         defaults to False.
+    3. mode: str, the pipeline parallel mode, should be in ['1f1b', 'zbh1', 'zbv']. The defalut is 1f1b.
 weight parallel (dict):
     1. size: int, the size of weight parallel.
     2. overlap: bool, enable/disable all_gather/reduce_scatter communication overlap, defaults to False.
-    3. launch_allgather_before: str, before which module to launch the all gather communication to
-        prefetch next layer's weight, should be in ['wqkv', 'attn', 'wo', 'w1'], defaults to 'wo'.
-        Must be used with forward_overlap_per 'layer'.
-    4. forward_overlap_per: str, all gather prefetch granularity, per 'module' or per 'layer', defaults to 'layer'.
-sequence_2D (dict):
-    1. enable: bool, whether enable the 2D sequence parallel or not.
-    2. head_size: int, the parallel degree of head parallelism (DeepSpeed Ulysses).
-                  head_size * context_size should be equal tensor size.
-    3. context_size: int, the parallel degree of context parallelism.
-                  head_size * context_size should be equal tensor size.
-    4. window_size: int, the sliding window size in context parallelism.
-    5. device_placement_strategy: dict,
-        head_first: bool, if `True`, ranks of the same head parallel group are
-                              given high priority for colocation on the same node;
-                              if `False`, ranks of the same context parallel group are
-                              given high priority for colocation on the same node;
-        interleaved: bool, if `head_first` is `False` and `window_size` > 1, this config could
-                           interleaved the ranks in the same window to make full use of NIC as much as possible.
+
+    wdp = world_size / pp / wp
+    zero1 <= wdp
 """
-
-# wdp = world_size // wp // pp  # isp
-# dp = world_size // tp // pp
-# zero1 size is up to wdp 
-
 parallel = dict(
-    zero1=dict(size=-1),
-    tensor=dict(size=8, mode="isp"),
-    pipeline=dict(size=1, interleaved_overlap=True),
+    zero1=dict(size=8),
+    tensor=dict(size=1, mode="isp"),
+    pipeline=dict(size=4, interleaved_overlap=True, mode="1f1b"),
     weight=dict(size=4, overlap=True, launch_allgather_before="wo", forward_overlap_per="layer"),
-    sequence_2D=dict(
-        enable=False,
-        head_size=8,
-        context_size=4,
-        window_size=1,
-        device_placement_strategy=dict(head_first=True, interleaved=False),
-    ),
 )
 
 cudnn_deterministic = False
 cudnn_benchmark = False
-
 
 monitor = dict(
     # feishu alert configs
@@ -272,3 +222,27 @@ monitor = dict(
 # only when set to "fp32" will use fp32 to calc in metrics
 # metric_dtype = "fp32"
 
+generation = dict(
+    ckpt_folder="/path/to/saved/ckpt",
+    output_folder="/path/to/save/generation",
+    batch_size=1,
+    eos_id=[2, 0],
+    bos_id=1,
+    max_length=100,
+    do_sample=True,
+    temperature=1.0,
+    top_k=50,
+    top_p=1.0,
+    repetition_penalty=1,
+    length_penalty=1.0,
+)
+
+# cpu_offloading = dict(
+#      enable=True,
+#      num_layers=10,
+#      offloading_activations=True,
+#  )
+
+
+selective_checkpoint = True
+selective_checkpoint_offload = False

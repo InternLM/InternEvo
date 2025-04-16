@@ -37,7 +37,7 @@ from internlm.utils.utils import (
     params_dispatch_with_condition,
 )
 
-from .attn_offload import get_offload_manager
+from .attn_offload import get_offload_npu_manager
 
 
 # not really useful, only for code hint.
@@ -333,7 +333,8 @@ class ISPCommunicator(WPCommunicator):
             int(gpc.config.model.checkpoint * gpc.config.isp_num_layers) - 1,
         ]
         self.sc_offload = selective_ckpt_offload
-
+        print(f"{self.layers_fa_not_release=}")
+        print(f"{self.sc_offload=}")
         # real overlap state for each chunk.
         self._overlap_states: Dict[int, ISPOverlapState] = {}
 
@@ -427,10 +428,11 @@ class ISPCommunicator(WPCommunicator):
                             self._overlap_states[cid].isp_modules.append(child)
                             self._overlap_states[cid].index_to_isp_modules[idx].append(child)
 
-                            setattr(child, "isp_name", name)
+                            # setattr(child, "isp_name", name)
                             setattr(child, "isp_layer_idx", idx)
 
                             full_name = f"{cid}.{idx}.{name}"
+                            setattr(child, "isp_name", full_name)
                             setattr(
                                 child.weight,
                                 "isp_reduce_scatter_name",
@@ -533,7 +535,7 @@ class ISPCommunicator(WPCommunicator):
                 and block_index not in self.layers_fa_not_release
                 and block_index < self._ckpt_block_num
             ):
-                get_offload_manager().offload_fa_output_with_layer(layer_idx=block_index)
+                get_offload_npu_manager().offload_fa_output_with_layer(layer_idx=block_index)
 
             # load previous layer's attn output from CPU to GPU asynchronizely
             if (
@@ -541,7 +543,7 @@ class ISPCommunicator(WPCommunicator):
                 and gpc.config.selective_checkpoint
                 and (0 <= (block_index - 1) < self._ckpt_block_num)
             ):
-                get_offload_manager().preload_fa_output_with_layer(layer_idx=block_index - 1)
+                get_offload_npu_manager().preload_fa_output_with_layer(layer_idx=block_index - 1)
 
     def _pre_forward_hook_for_module(self, module: nn.Module, *args):  # pylint: disable=W0613
         if module not in self._weight_global_handle:
@@ -709,8 +711,15 @@ class ISPCommunicator(WPCommunicator):
             result = self._bias_global_output[module]
         else:
             assert module is not None, "The module parameter must be specified"
+            # breakpoint()
+        try:
             result = self._weight_global_output[module]
-
+        except KeyError:
+            print(f"{gpc.is_forward=}")
+            print(f"{self._ckpt_block_num=}")
+            print(module.isp_name)
+            exit()
+        
         return result
 
     def grad_hook(
@@ -881,7 +890,6 @@ class _SeqAllToAll(torch.autograd.Function):
                 ]
                 output_list_next = [torch.empty_like(input_list_next[0]) for _ in range(seq_world_size)]
                 handle_next = dist.all_to_all(output_list_next, input_list_next, group=group, async_op=True)
-
             handle_last.wait()
 
             outputs.append(torch.cat(output_list, dim=gather_idx[i]).contiguous())
