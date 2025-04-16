@@ -1,0 +1,1 @@
+torchrun --nnodes=1 --nproc_per_node=8 --node_rank=0 --master_addr="10.201.20.60" --master_port=29500 train.py --config ./configs/7B_isp_sft.py --launcher "torch" --profiling 2>&1 | tee debug.log
