@@ -59,6 +59,8 @@ def dispatch_hf_config_before_launch(hf: dict) -> None:
         gpc.config.model.num_experts = model_config.n_routed_experts
     if hasattr(model_config, "first_k_dense_replace"):
         gpc.config.model.first_k_dense_replace = model_config.first_k_dense_replace
+    if hasattr(model_config, "num_nextn_predict_layers"):
+        gpc.config.model.num_mtp_layers = model_config.num_nextn_predict_layers
 
 
 def args_sanity_check():

@@ -304,8 +304,8 @@ def initialize_model_and_parallel_communicator(model: Optional[Union[nn.Module, 
         register_model_initializer()
         model = create_model()
 
-    # For non-HF cases, set tracking name for parameters
-    if not is_using_hf():
+    # For non-HF or non-FSDP cases, set tracking name for parameters
+    if not is_using_hf() and not is_using_fsdp():
         set_param_unique_tracking_name(model)
 
     # should be set before NaiveAMPModel
