@@ -114,6 +114,9 @@ class TrainerBuilder(Trainer):
         # initialize loss function
         criterion = self._initialize_criterion()
 
+        # initialize mtp loss function
+        mtp_criterions = self._initialize_mtp_criterion()
+
         # initialize cpu offload manager for selective checkpoint
         initialize_offload_manager(gpc.config.get("selective_checkpoint_offload", False))
 
@@ -149,6 +152,7 @@ class TrainerBuilder(Trainer):
             model=model,
             optimizer=optimizer,
             criterion=criterion,
+            mtp_criterions=mtp_criterions,
             lr_scheduler=lr_scheduler,
             beta2_scheduler=beta2_scheduler,
             scheduler_hooks=get_scheduler_hooks(self.metric, optimizer, isp_communicator),
@@ -160,6 +164,20 @@ class TrainerBuilder(Trainer):
         )
 
         super().__init__(engine, scheduler)
+
+    def _initialize_mtp_criterion(self) -> InternLoss:
+        if hasattr(gpc.config.model, "num_mtp_layers") and gpc.config.model.num_mtp_layers > 0:
+            mtp_criterions = []
+            for _ in range(gpc.config.model.num_mtp_layers):
+                mtp_criterion = InternLoss(
+                    parallel_output=gpc.config.model.parallel_output, 
+                    label_smoothing=gpc.config.loss.label_smoothing,
+                    op_type=gpc.config.loss.op_type,
+                )
+                mtp_criterions.append(mtp_criterion)
+        else:
+            mtp_criterions = []
+        return mtp_criterions
 
     def _setup_time_and_logging(self) -> str:
         current_time = launch_time()

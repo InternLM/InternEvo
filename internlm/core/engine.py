@@ -72,6 +72,7 @@ class Engine:
         lr_scheduler: Optional[_LRScheduler] = None,
         beta2_scheduler: Optional[Beta2Scheduler] = None,
         criterion: Optional[_Loss] = None,
+        mtp_criterions: Optional[List[_Loss]] = None,
         gradient_handlers: Optional[List[BaseGradientHandler]] = None,
         clip_grad_norm: float = 0.0,
     ):
@@ -80,6 +81,7 @@ class Engine:
         self._lr_scheduler = lr_scheduler
         self._beta2_scheduler = beta2_scheduler
         self._criterion = criterion
+        self._mtp_criterions = mtp_criterions
         self._clip_grad_norm = clip_grad_norm
 
         # state
@@ -104,6 +106,16 @@ class Engine:
                     "amax_compute_algo", "max"
                 ),  # {'max', 'most_recent'}, default = "max". Algorithm used for choosing amax
             )
+
+    @property
+    def mtp_criterions(self):
+        """Returns the criterion (loss function) attached to the engine."""
+        return self._mtp_criterions
+
+    @mtp_criterions.setter
+    def mtp_criterions(self, mtp_criterions):
+        """Set the criterion (loss function) attached to the engine."""
+        self._mtp_criterions = mtp_criterions
 
     @property
     def model(self):

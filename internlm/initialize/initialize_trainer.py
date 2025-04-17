@@ -36,6 +36,7 @@ def initialize_trainer(
     model: nn.Module,
     optimizer: Optimizer,
     criterion: Optional[_Loss] = None,
+    mtp_criterions: Optional[List[_Loss]] = None,
     lr_scheduler: Optional[_LRScheduler] = None,
     beta2_scheduler: Optional[Beta2Scheduler] = None,
     scheduler_hooks: Optional[List[SchedulerHook]] = None,
@@ -166,6 +167,7 @@ def initialize_trainer(
         lr_scheduler=lr_scheduler,
         beta2_scheduler=beta2_scheduler,
         criterion=criterion,
+        mtp_criterions=mtp_criterions,
         gradient_handlers=gradient_handlers,
         clip_grad_norm=clip_grad_norm,
     )
