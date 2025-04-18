@@ -78,6 +78,13 @@ def create_model_builtin(model_type) -> Union[nn.Module, List[nn.Module]]:
 
     model_buidler = model_initializer.get_module(module_name=model_type)
 
+    if (
+        is_using_fsdp()
+        and hasattr(gpc.config.model, "num_experts")
+        and gpc.config.model.num_experts > 1
+    ):
+        kwargs["ep_group"] = gpc.get_group(ParallelMode.EXPERT)
+
     if not gpc.is_using_parallel_mode(ParallelMode.PIPELINE):
         kwargs["first"] = kwargs["last"] = True
         kwargs["start_layer_idx"] = 0
