@@ -51,16 +51,19 @@ def split_params_into_different_groups_for_optimizer(
     if is_using_fsdp():
         optimizer_mode = ParallelMode.GLOBAL
         optimizer_mode_expert = ParallelMode.EXPERT_DATA
+        expert_group_name = f"moe_ep_size_{gpc.get_world_size(ParallelMode.EXPERT)}"
+        expert_parallel_group_names = [expert_group_name]
     else:
         optimizer_mode = ParallelMode.ZERO1
         optimizer_mode_expert = ParallelMode.EXPERT_DATA
+        expert_parallel_group_names = gpc.expert_parallel_group_names
 
     new_groups = {}
     # create new groups for fp32 parameter group
     new_groups["fp32"] = {"name": "fp32", "params": [], "optimizer_mode": optimizer_mode}
 
     if gpc.config.model.get("num_experts", 1) > 1:
-        for key in gpc.expert_parallel_group_names:
+        for key in expert_parallel_group_names:
             new_groups[key] = {"name": key, "moe": True, "params": [], "optimizer_mode": optimizer_mode_expert}
 
     for pgroup in param_groups:
@@ -75,7 +78,10 @@ def split_params_into_different_groups_for_optimizer(
         for param in pgroup["params"]:
             # moe param means MoE is enabled
             if is_moe_param(param):
-                new_groups[param.group_name]["params"].append(param)
+                if is_using_fsdp():
+                    new_groups[expert_group_name]["params"].append(param)
+                else:
+                    new_groups[param.group_name]["params"].append(param)
             elif param.dtype == torch.float32 and gpc.config.model.dtype != torch.float32:
                 new_groups["fp32"]["params"].append(param)
             else:
