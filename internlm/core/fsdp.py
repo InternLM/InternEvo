@@ -218,12 +218,12 @@ def wrap_FSDP_model(model: Union[nn.Module, nn.ModuleList]):
                     ).view((gpc.get_world_size(ParallelMode.EXPERT), gpc.get_world_size(ParallelMode.EXPERT_DATA))), 
                     mesh_dim_names=("ep", "edp"),
                 )
-            for layer_id, layer in enumerate(model.model.layers):
-                if gpc.is_using_parallel_mode(ParallelMode.EXPERT) and layer_id >= gpc.config.model.first_k_dense_replace:
-                    # Should follow this modeling pattern if EP is enabled.
-                    # Change the expert module name if needed.
-                    # TODO: Make this part hard-coded or config-driven?
-                    fully_shard(layer.feed_forward.moe_layer.experts, mesh=device_mesh["edp"], **fsdp_kwargs)
+                for layer_id, layer in enumerate(model.model.layers):
+                    if layer_id >= gpc.config.model.first_k_dense_replace:
+                        # Should follow this modeling pattern if EP is enabled.
+                        # Change the expert module name if needed.
+                        # TODO: Make this part hard-coded or config-driven?
+                        fully_shard(layer.feed_forward.moe_layer.experts, mesh=device_mesh["edp"], **fsdp_kwargs)
             for module in model.modules():
                 if isinstance(module, wrap_cls):
                     fully_shard(module, **fsdp_kwargs)
