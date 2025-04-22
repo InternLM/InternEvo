@@ -387,7 +387,7 @@ def record_current_batch_training_metrics(
         infos = {
             "tflops": tflops,
             "step": batch_count,
-            "loss": loss.item() - moe_loss.item() if moe_loss is not None else loss.item(),
+            "loss": loss - moe_loss if moe_loss is not None else loss,
             "real_tgs": real_tgs,
             "tgs (tokens/gpu/second)": tgs_origin,
             "tgs/last_tgs_1": last_tgs_1,
@@ -401,7 +401,7 @@ def record_current_batch_training_metrics(
             "grad_norm": grad_norm,
         }
         if moe_loss is not None:
-            infos["moe_loss"] = moe_loss.item()
+            infos["moe_loss"] = moe_loss
 
         infos["micro_num"] = len(batch[1])
         infos["num_consumed_tokens"] = train_state.num_consumed_tokens
@@ -434,5 +434,5 @@ def record_current_batch_training_metrics(
         mm.monitor_loss_spike(
             alert_address=gpc.config.monitor.alert.feishu_alert_address,
             step_count=batch_count,
-            cur_step_loss=loss.item(),
+            cur_step_loss=loss,
         )

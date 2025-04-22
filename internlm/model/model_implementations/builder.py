@@ -82,6 +82,7 @@ def create_model_builtin(model_type) -> Union[nn.Module, List[nn.Module]]:
         is_using_fsdp()
         and hasattr(gpc.config.model, "num_experts")
         and gpc.config.model.num_experts > 1
+        and "ep_group" in kwargs
     ):
         kwargs["ep_group"] = gpc.get_group(ParallelMode.EXPERT)
 
@@ -108,6 +109,13 @@ def create_model_hf(hf: dict) -> nn.Module:
     cfg = cfg.build()
     mod = LazyObject(hf.mod, hf.mod_cls)
     mod = mod.build()
+    if (
+        is_using_fsdp()
+        and hasattr(gpc.config.model, "num_experts")
+        and gpc.config.model.num_experts > 1
+        and hasattr(cfg, "ep_group")
+    ):
+        cfg.ep_group = gpc.get_group(ParallelMode.EXPERT)
 
     assert is_using_fsdp(), "Curently HF models can only train with FSDP."
 

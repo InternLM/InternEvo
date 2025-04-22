@@ -383,8 +383,8 @@ class TrainerBuilder(Trainer):
             engine=self.engine,
             start_time=start_time,
             very_begining_time=self.very_beginning_time,
-            loss=loss,
-            moe_loss=moe_loss,
+            loss=loss.item() if isinstance(loss, torch.Tensor) else loss,
+            moe_loss=moe_loss.item() if isinstance(moe_loss, torch.Tensor) else moe_loss,
             grad_norm=grad_norm_groups,
             metric=self.metric,
         )

@@ -68,11 +68,8 @@ def compute_norm(
     # Need to allreduce(avg) the norms across different ranks because moe params will not be synced during allreduce
     # model and zero have been reduced!!!
     if zero_mode == ParallelMode.EXPERT_DATA:
-        pg = gpc.get_group(ParallelMode.EXPERT)
-        scaled_norm = total_norm * 1.0 / float(gpc.get_world_size(ParallelMode.EXPERT))
-        scaled_norm_tensor = torch.tensor(scaled_norm, device=get_current_device(), dtype=torch.float)
-        dist.all_reduce(scaled_norm_tensor, group=pg)
-        total_norm = scaled_norm_tensor.item()
+        total_norm = total_norm * 1.0 / float(gpc.get_world_size(ParallelMode.EXPERT))
+        dist.all_reduce(total_norm, op=dist.ReduceOp.SUM, group=gpc.get_group(ParallelMode.EXPERT))
 
     if torch.is_tensor(total_norm):
         total_norm = total_norm.item()
