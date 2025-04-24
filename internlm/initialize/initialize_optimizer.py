@@ -15,7 +15,7 @@ from internlm.solver.optimizer import (
 )
 from internlm.solver.optimizer.compatible_adamw import new_compatible_adamw
 from internlm.solver.schedulers import Beta2Scheduler, FineTuneCosineAnnealingWarmupLR
-from internlm.utils.parallel import is_using_fsdp
+from internlm.utils.parallel import is_using_fsdp, is_using_hf
 from internlm.utils.timeout import llm_timeout
 
 
@@ -75,11 +75,17 @@ def split_params_into_different_groups_for_optimizer(
                     group[ori_key] = pgroup[ori_key]
         # assign param
         origin_params = []
-        for param in pgroup["params"]:
+        for named_param in pgroup["params"]:
             # moe param means MoE is enabled
-            if is_moe_param(param):
+            name, param = named_param
+            # NOTICE: param attribute would get lost with PretrainedModel+FSDP
+            # DoHack: we split expert param via name as complementary method
+            if is_moe_param(param) or "wrapped_experts" in name:
                 if is_using_fsdp():
-                    new_groups[expert_group_name]["params"].append(param)
+                    if gpc.is_using_parallel_mode(ParallelMode.EXPERT) or not is_using_hf():
+                        new_groups[expert_group_name]["params"].append(param)
+                    else:
+                        origin_params.append(param)
                 else:
                     new_groups[param.group_name]["params"].append(param)
             elif param.dtype == torch.float32 and gpc.config.model.dtype != torch.float32:
@@ -99,7 +105,7 @@ def split_params_into_different_groups_for_optimizer(
 
 def create_param_groups(model, weight_decay):
     parameters = {
-        "params": [param for param in model.parameters() if param.requires_grad],
+        "params": [(name, param) for name, param in model.named_parameters() if param.requires_grad],
         "name": "default",
         "weight_decay": weight_decay,
     }
