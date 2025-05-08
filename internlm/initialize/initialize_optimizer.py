@@ -80,7 +80,7 @@ def split_params_into_different_groups_for_optimizer(
             name, param = named_param
             # NOTICE: param attribute would get lost with PretrainedModel+FSDP
             # DoHack: we split expert param via name as complementary method
-            if is_moe_param(param) or "wrapped_experts" in name:
+            if is_moe_param(param) or "experts" in name:
                 if is_using_fsdp():
                     if gpc.is_using_parallel_mode(ParallelMode.EXPERT) or not is_using_hf():
                         new_groups[expert_group_name]["params"].append(param)
