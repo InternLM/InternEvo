@@ -1207,11 +1207,39 @@ def _materialize_meta_module(
 
 
 def wrap_FSDP_model(model: Union[nn.Module, nn.ModuleList]):
+    def get_module_class_from_name(module, name):
+        """
+        Gets a class from a module by its name.
+
+        Args:
+            module (`torch.nn.Module`): The module to get the class from.
+            name (`str`): The name of the class.
+        """
+        modules_children = list(module.children())
+        if module.__class__.__name__ == name:
+            return module.__class__
+        elif len(modules_children) == 0:
+            return
+        else:
+            for child_module in modules_children:
+                module_class = get_module_class_from_name(child_module, name)
+                if module_class is not None:
+                    return module_class
+
     if is_using_fsdp():
         assert isinstance(model, nn.Module), "Currently FSDP does not support pipeline parallel."
-        wrap_cls = tuple(
-            LazyObject(warp_cls["mod"], warp_cls["mod_cls"]).build() for warp_cls in gpc.config.get("fsdp_wrap_cls", [])
-        )
+        # wrap_cls = tuple(
+        #     LazyObject(warp_cls["mod"], warp_cls["mod_cls"]).build() for warp_cls in gpc.config.get("fsdp_wrap_cls", [])
+        # )
+
+        transformer_cls_names_to_wrap = gpc.config.hf.transformer_cls_names_to_wrap
+        transformer_cls_to_wrap = []
+        for layer_class in transformer_cls_names_to_wrap:
+            transformer_cls = get_module_class_from_name(model, layer_class)
+            if transformer_cls is None:
+                raise ValueError(f"Could not find the transformer layer class {layer_class} in the model.")
+            transformer_cls_to_wrap.append(transformer_cls)
+
         fsdp_mode = gpc.config.parallel.fsdp.get("mode", "v1")
         fsdp_init_method = gpc.config.parallel.fsdp.get("init_method", "cuda")
 
@@ -1236,14 +1264,17 @@ def wrap_FSDP_model(model: Union[nn.Module, nn.ModuleList]):
             fsdp_kwargs = {
                 "reshard_after_forward": True,  # ZeRO2: False, ZeRO3: True
             }
-            for module in model.modules():
-                if isinstance(module, wrap_cls):
-                    fully_shard(module, **fsdp_kwargs)
+            for wrap_cls in transformer_cls_to_wrap:
+                for module in model.modules():
+                    if isinstance(module, wrap_cls):
+                        fully_shard(module, **fsdp_kwargs)
             fully_shard(model, **fsdp_kwargs)
             if fsdp_init_method == "meta":
                 _materialize_meta_module(model, set(), get_current_device())
             elif fsdp_init_method == "cpu":
                 model.to(get_current_device())
+                if gpc.get_global_rank() == 0:
+                    print(f"wrap_FSDP_model {model=}", flush=True)
         else:
             raise ValueError(f"Unsupported FSDP mode: {fsdp_mode}")
 

@@ -2,13 +2,13 @@ JOB_NAME = "7b_train"
 model_type = "INTERNLM2"
 DO_ALERT = False
 
-VOCAB_SIZE = 103168
-SEQ_LEN = 2048
-HIDDEN_SIZE = 4096
-NUM_ATTENTION_HEAD = 32
+VOCAB_SIZE = 151936
+SEQ_LEN = 4096
+HIDDEN_SIZE = 1024
+NUM_ATTENTION_HEAD = 16
 NUM_KV_ATTENTION_HEAD = 8
 MLP_RATIO = 8 / 3
-NUM_LAYER = 32
+NUM_LAYER = 28
 
 
 MODEL_ONLY_FOLDER = "local:llm_ckpts/xxxx"
@@ -54,13 +54,13 @@ VALID_FOLDER = None  # "/path/to/dataset"
 data = dict(
     seq_len=SEQ_LEN,
     # micro_num means the number of micro_batch contained in one gradient update
-    micro_num=4,
+    micro_num=1,
     # packed_length = micro_bsz * SEQ_LEN
-    micro_bsz=2,
+    micro_bsz=1,
     # defaults to the value of micro_num
     valid_micro_num=4,
     # defaults to 0, means disable evaluate
-    valid_every=50,
+    valid_every=0,
     pack_sample_into_one=False,
     total_steps=50000,
     skip_batches="",
@@ -158,6 +158,14 @@ beta2_scheduler = dict(
 # selective_checkpoint = True
 # selective_checkpoint_offload = False
 
+hf = dict(
+    # model_name_or_path="/mnt/afs/huangting3/.cache/huggingface/hub/models--Qwen--Qwen3-0.6B/snapshots/6130ef31402718485ca4d80a6234f70d9a4cf362"
+    model_name_or_path="/mnt/afs/huangting3/hf/qwen3-32B/models--Qwen--Qwen3-32B/snapshots/30b8421510892303dc5ddd6cd0ac90ca2053478d",
+    gradient_checkpointing=True,
+    gradient_checkpointing_use_reentrant=False,
+    transformer_cls_names_to_wrap=["Qwen3DecoderLayer"],
+)
+
 use_fp32_norm = False
 model = dict(
     checkpoint=False,  # The proportion of layers for activation aheckpointing, the optional value are True/False/[0-1]
@@ -171,6 +179,7 @@ model = dict(
     num_layers=NUM_LAYER,
     no_bias=True,
     mlp_ratio=MLP_RATIO,
+    intermediate_size=3072,
     apply_post_layer_norm=False,
     dtype="torch.bfloat16",  # Support: "torch.float16", "torch.half", "torch.bfloat16", "torch.float32", "torch.tf32"
     norm_type="rmsnorm",
@@ -229,10 +238,11 @@ sequence_2D (dict):
                            interleaved the ranks in the same window to make full use of NIC as much as possible.
 """
 parallel = dict(
+    fsdp=dict(enable=True, mode="v2", init_method="cpu"),
     zero1=dict(size=-1),
-    tensor=dict(size=2, mode="isp"),
+    tensor=dict(size=1, mode="isp"),
     pipeline=dict(size=1, interleaved_overlap=True),
-    weight=dict(size=4, overlap=True, launch_allgather_before="wo", forward_overlap_per="layer"),
+    weight=dict(size=1, overlap=True, launch_allgather_before="wo", forward_overlap_per="layer"),
     sequence_2D=dict(
         enable=False,
         head_size=2,

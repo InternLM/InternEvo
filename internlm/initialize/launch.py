@@ -67,6 +67,7 @@ def get_default_parser():
 
 
 def inject_hf_config_before_launch(hf: dict):
+    return
     # get HuggingFace model config
     cfg = LazyObject(hf.cfg, hf.cfg_cls)
     cfg = cfg.build()

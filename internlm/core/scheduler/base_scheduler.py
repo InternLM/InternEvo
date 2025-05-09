@@ -118,6 +118,8 @@ class BaseScheduler(ABC):
         assert isinstance(
             outputs, (torch.Tensor, list, tuple, dict)
         ), f"Expect output of model is (torch.Tensor, list, tuple), got {type(outputs)}"
+        if isinstance(outputs, dict):
+            outputs = outputs["logits"]
         if isinstance(outputs, torch.Tensor):
             outputs = (outputs,)
         if isinstance(labels, torch.Tensor):

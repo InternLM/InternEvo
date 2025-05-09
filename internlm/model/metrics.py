@@ -140,6 +140,8 @@ class AccPerplex:
         with torch.no_grad():
             if isinstance(logits, (list, tuple)):
                 logits = logits[0]
+            if isinstance(logits, (dict)):
+                logits = logits["logits"]
 
             # logits = logits.detach().clone()
             # labels = labels.detach().clone()
@@ -313,6 +315,9 @@ class LossWithTypeId:
         with torch.no_grad():
             if isinstance(logits, (list, tuple)):
                 logits = logits[0]
+            if isinstance(logits, (dict)):
+                logits = logits["logits"]
+
             logits = logits.contiguous().view(-1, logits.size(-1))
             labels = labels.contiguous().view(-1)
 

@@ -33,7 +33,7 @@ from internlm.utils.storage_manager import get_fns, llm_load, llm_save
 from transformers.modeling_utils import (
     SAFE_WEIGHTS_INDEX_NAME,
     SAFE_WEIGHTS_NAME,
-    shard_checkpoint,
+    # shard_checkpoint,
 )
 
 internlm_accelerator = get_accelerator()

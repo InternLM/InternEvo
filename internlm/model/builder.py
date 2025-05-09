@@ -62,24 +62,38 @@ def create_model_builtin(model_type) -> Union[nn.Module, List[nn.Module]]:
 
 
 def create_model_hf(hf: dict) -> nn.Module:
-    cfg = LazyObject(hf.cfg, hf.cfg_cls)
-    cfg = cfg.build()
-    mod = LazyObject(hf.mod, hf.mod_cls)
-    mod = mod.build()
+    # cfg = LazyObject(hf.cfg, hf.cfg_cls)
+    # cfg = cfg.build()
+    # mod = LazyObject(hf.mod, hf.mod_cls)
+    # mod = mod.build()
 
-    assert is_using_fsdp(), "Curently HF models can only train with FSDP."
+    # assert is_using_fsdp(), "Curently HF models can only train with FSDP."
 
-    fsdp_init_method = gpc.config.parallel.fsdp.get("init_method", "cuda")
-    if fsdp_init_method == "meta":
-        with torch.device("meta"):
-            model = mod(cfg(**hf.cfg_extra_kwargs))
-    elif fsdp_init_method == "cuda":
-        # TODO: does HuggingFace models support directly initialized on cuda?
-        model = mod(cfg(**hf.cfg_extra_kwargs)).to(get_current_device())
-    elif fsdp_init_method == "cpu":
-        model = mod(cfg(**hf.cfg_extra_kwargs))
-    else:
-        raise ValueError(f"Unsupported fsdp init_method: {fsdp_init_method}")
+    # fsdp_init_method = gpc.config.parallel.fsdp.get("init_method", "cuda")
+    # if fsdp_init_method == "meta":
+    #     with torch.device("meta"):
+    #         model = mod(cfg(**hf.cfg_extra_kwargs))
+    # elif fsdp_init_method == "cuda":
+    #     # TODO: does HuggingFace models support directly initialized on cuda?
+    #     model = mod(cfg(**hf.cfg_extra_kwargs)).to(get_current_device())
+    # elif fsdp_init_method == "cpu":
+    #     model = mod(cfg(**hf.cfg_extra_kwargs))
+    # else:
+    #     raise ValueError(f"Unsupported fsdp init_method: {fsdp_init_method}")
+
+    from transformers import AutoModelForCausalLM
+    model = AutoModelForCausalLM.from_pretrained(
+        hf.model_name_or_path,
+        trust_remote_code=True,
+    )
+    # gradient_checkpointing
+    if hf.gradient_checkpointing:
+        model.gradient_checkpointing_enable(
+            gradient_checkpointing_kwargs={"use_reentrant": hf.gradient_checkpointing_use_reentrant}
+        )
+
+    if gpc.get_global_rank() == 0:
+        print(f"create_model_hf {model=}", flush=True)
 
     def traverse(module):
         for name, child in module.named_children():

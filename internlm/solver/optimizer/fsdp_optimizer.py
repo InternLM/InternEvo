@@ -16,7 +16,7 @@ from internlm.solver.optimizer.utils import (
     get_norm,
     release_param_grad,
 )
-from internlm.utils.common import get_tensor_norm, move_norm_to_cuda
+from internlm.utils.common import get_current_device, get_tensor_norm, move_norm_to_cuda
 from internlm.utils.logger import get_logger
 
 try:
@@ -107,6 +107,10 @@ class FSDPadaptOptimizer(BaseOptimizer):
         # clip gradient
         self._clip_grad_norm = zero_cfg.clip_grad_norm
 
+        # padding data for compute norm
+        self.padding_grad = torch.zeros([32], dtype=torch.bfloat16, device=get_current_device())
+        self.padding_tensor = torch.zeros([32], dtype=torch.bfloat16, device=get_current_device())
+
         # fp16 and fp32 params
         # fp16 share mem space with model.FlatParam, fp32 share mem space with optim.param_group
         self._fp16_param_groups = dict()
@@ -134,16 +138,47 @@ class FSDPadaptOptimizer(BaseOptimizer):
         loss = self.loss_scale * loss
         loss.backward(retain_graph=retain_graph)
 
-    def _compute_norm_with_fsdp_flatten(self, group_id):
+    def _compute_norm_with_fsdp_flatten(self, group_id, norm_type=2):
         params = [p for p in self._fp16_param_groups[group_id] if p.untyped_storage().size() != 0]
         gradients = [p.grad for p in params if p.untyped_storage().size() != 0]
 
-        norm_group = 0
+        # norm_group = 0
         if len(params) <= 0 or len(gradients) <= 0:
-            return norm_group
-        norm_group = compute_norm(gradients=gradients, parameters=params)
+            gradients = self.padding_grad
+            params = self.padding_tensor
+        # norm_group = compute_norm(gradients=gradients, parameters=params)
 
-        return norm_group
+        # copy from deepspeed
+        grad_norms = []
+        for g, p in zip(gradients, params):
+            grad_norms.append(g.double().norm(2))
+
+        # Sum across all model parallel GPUs.
+        if len(grad_norms) == 0:
+            # FIX https://github.com/microsoft/DeepSpeed/issues/3564
+            total_norm_cuda = torch.tensor(0, dtype=gradients[0].dtype).to(get_current_device()).double()
+        else:
+            total_norm_cuda = torch.sum(torch.pow(torch.stack(grad_norms), 2))
+
+        from torch.distributed.tensor import DTensor
+
+        if isinstance(total_norm_cuda, DTensor):
+            total_norm_cuda = total_norm_cuda.full_tensor()
+
+        # dist.all_reduce(total_norm_cuda, op=dist.ReduceOp.SUM)
+
+        # print(f"ht debug group_id:{group_id} total_norm_cuda:{total_norm_cuda} after allreduce dp", flush=True)
+
+        total_norm = total_norm_cuda ** (1.0 / norm_type)
+
+        norm_is_inf = total_norm.isinf()
+        norm_is_nan = total_norm.isnan()
+        inf_or_nan = norm_is_nan.logical_or(norm_is_inf)
+
+        err = torch.tensor(-1.0, device=get_current_device(), dtype=torch.float)
+        total_norm = inf_or_nan * err + inf_or_nan.logical_not() * total_norm
+
+        return total_norm
 
     def zero_grad(self):
         for _, param_group in self._fp16_param_groups.items():
@@ -153,14 +188,15 @@ class FSDPadaptOptimizer(BaseOptimizer):
     def step(self):
         # compute norm
         found_inf = False
-        norm_groups = {}
+        # norm_groups = {}
+        norm_groups = []
         for group_idx in range(len(self.param_groups)):
-            group_name = self.param_groups[group_idx]["name"] if "name" in self.param_groups[group_idx] else "default"
-            group_name = f"{group_idx}_{group_name}"
+            # group_name = self.param_groups[group_idx]["name"] if "name" in self.param_groups[group_idx] else "default"
+            # group_name = f"{group_idx}_{group_name}"
             norm_group = self._compute_norm_with_fsdp_flatten(group_idx)
             if norm_group == -1:
                 found_inf = True
-            norm_groups[group_name] = norm_group
+            norm_groups.append(norm_group)
 
         loss_scale = float(self.loss_scale.item())  # backup
         self.grad_scaler.update(found_inf)
@@ -169,12 +205,6 @@ class FSDPadaptOptimizer(BaseOptimizer):
                 logger.warning("Overflow occurs, please check it.")
             self.zero_grad()
             return False, norm_groups
-
-        # get the global norm
-        global_norm_groups = {}
-        if self._clip_grad_norm > 0:
-            for group_name, norm in norm_groups.items():
-                global_norm_groups[group_name] = norm**0.5
 
         # create gradient for fp32 params
         for group_idx in range(len(self.param_groups)):
@@ -189,8 +219,14 @@ class FSDPadaptOptimizer(BaseOptimizer):
             for p, g in zip(nonzero_fp32, grad_fp32):
                 p.grad = g.to(device)
 
+        # get the global norm
+        # global_norm_groups = {}
+        # if self._clip_grad_norm > 0:
+        #     for group_name, norm in norm_groups.items():
+        #         global_norm_groups[group_name] = norm**0.5
         # unscale
-        self._unscale_and_clip_grads(list(global_norm_groups.values()), loss_scale)
+        scaled_global_grad_norm = torch.linalg.norm(torch.stack(norm_groups))
+        self._unscale_and_clip_grads(scaled_global_grad_norm, loss_scale)
 
         self.optim.step()
         self.zero_grad()
@@ -206,9 +242,9 @@ class FSDPadaptOptimizer(BaseOptimizer):
             for p, q in zip(fp16_params, fp32_tensor_params):
                 p.data.copy_(q)
 
-        for group_name, global_norm in global_norm_groups.items():
-            global_norm_groups[group_name] = global_norm / loss_scale
-        return True, global_norm_groups
+        # for group_name, global_norm in global_norm_groups.items():
+        #     global_norm_groups[group_name] = global_norm / loss_scale
+        return True, scaled_global_grad_norm
 
     def clip_grad_norm(self, model, max_norm):
         # will conduct in the step()
@@ -218,22 +254,20 @@ class FSDPadaptOptimizer(BaseOptimizer):
     # utils from hybirdzero #
     #########################
 
-    def _unscale_and_clip_grads(self, total_norm_groups, loss_scale):
+    def _unscale_and_clip_grads(self, total_norm, loss_scale):
         # compute combined scale factor for this group
-        combined_scale_groups = []
+        combined_scale = loss_scale
 
         if self._clip_grad_norm > 0.0:
             # norm is in fact norm*scale
-            for group_id, total_norm in enumerate(total_norm_groups):
-                combined_scale_groups.append(loss_scale)
-                clip = ((total_norm / loss_scale) + 1e-6) / self._clip_grad_norm
-                if clip > 1.0:
-                    combined_scale_groups[group_id] = clip * loss_scale
+            clip = ((total_norm / loss_scale) + 1e-6) / self._clip_grad_norm
+            clip = torch.clamp(clip, min=1.0)
+            combined_scale = clip * loss_scale
 
         for group_id, param in self._fp32_param_tensor_groups.items():
             for p in param:
                 if p.untyped_storage().size() != 0:
-                    p.grad.data.mul_(1.0 / combined_scale_groups[group_id])
+                    p.grad.data.mul_(1.0 / combined_scale)
 
     def state_dict(self):
         states = {}
