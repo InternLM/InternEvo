@@ -39,7 +39,6 @@ internlm_accelerator = get_accelerator()
 custom_bwd = internlm_accelerator.return_custom_bwd()
 custom_fwd = internlm_accelerator.return_custom_fwd()
 
-from test_quant_dequant import per_block_quantize_int8, per_block_dequantize_int8
 
 
 # adpated from https://github.com/Dao-AILab/flash-attention/blob/main/flash_attn/ops/fused_dense.py
