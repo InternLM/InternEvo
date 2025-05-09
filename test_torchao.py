@@ -10,7 +10,7 @@ def stochastic_round(x: torch.Tensor) -> torch.Tensor:
 
 
 def per_row_quantize_int8(x: torch.Tensor, sr=True) -> tuple[torch.Tensor, torch.Tensor]:
-    assert x.dim() == 2
+    assert x.dim() == 2, f"{x.dim()}, {x.shape}"
     row, _ = x.shape
     x_amax = x.abs().float().amax(dim=1).clamp(min=1e-4)
     scale = 127 / x_amax  # int8范围是 [-127,127]（保留0）
@@ -23,7 +23,7 @@ def per_row_quantize_int8(x: torch.Tensor, sr=True) -> tuple[torch.Tensor, torch
 
 
 def per_col_quantize_int8(x: torch.Tensor, sr=True) -> tuple[torch.Tensor, torch.Tensor]:
-    assert x.dim() == 2
+    assert x.dim() == 2, f"{x.dim()}, {x.shape}"
     _, col = x.shape
     x_amax = x.abs().float().amax(dim=0).clamp(min=1e-4)
     scale = 127 / x_amax  # int8范围是 [-127,127]（保留0）
@@ -35,29 +35,29 @@ def per_col_quantize_int8(x: torch.Tensor, sr=True) -> tuple[torch.Tensor, torch
     return x_scaled, x_amax / 127
 
 
+if __name__ == "__main__":
+    torch.manual_seed(1024)
+    x = torch.randn(4096, 4096, dtype=torch.float32, device="cuda")
+    weight = torch.randn(4096, 2048, dtype=torch.float32, device="cuda")
 
-torch.manual_seed(1024)
-x = torch.randn(4096, 4096, dtype=torch.float32, device="cuda")
-weight = torch.randn(4096, 2048, dtype=torch.float32, device="cuda")
+    sr = True
+    x_int8, row_scale = per_row_quantize_int8(x, sr)
+    w_int8, col_scale = per_col_quantize_int8(weight, sr)
 
-sr = True
-x_int8, row_scale = per_row_quantize_int8(x, sr)
-w_int8, col_scale = per_col_quantize_int8(weight, sr)
+    out1 = x @ weight
+    out2 = linear(x, weight.t())
+    out3 = scaled_int8_mm_cuda(x_int8, w_int8, row_scale, col_scale)
+    out4 = scaled_int8_mm(x_int8, w_int8, row_scale, col_scale)
+    assert torch.equal(out1, out2)
+    assert torch.equal(out3, out4)
+    print(out1.dtype, out2.dtype, out3.dtype, out4.dtype)
+    print(out1.device, out2.device, out3.device, out4.device)
+    print(out1.shape, out2.shape, out3.shape, out4.shape)
 
-out1 = x @ weight
-out2 = linear(x, weight.t())
-out3 = scaled_int8_mm_cuda(x_int8, w_int8, row_scale, col_scale)
-out4 = scaled_int8_mm(x_int8, w_int8, row_scale, col_scale)
-assert torch.equal(out1, out2)
-assert torch.equal(out3, out4)
-print(out1.dtype, out2.dtype, out3.dtype, out4.dtype)
-print(out1.device, out2.device, out3.device, out4.device)
-print(out1.shape, out2.shape, out3.shape, out4.shape)
-
-error = (out3 - out1).abs().mean()
-print("fp32 tensor:\n", out1)
-print("int8 tensor:\n", out3)
-print("平均误差:", error.item())
+    error = (out3 - out1).abs().mean()
+    print("fp32 tensor:\n", out1)
+    print("int8 tensor:\n", out3)
+    print("平均误差:", error.item())
 
 
 

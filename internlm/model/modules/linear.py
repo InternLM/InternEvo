@@ -26,6 +26,8 @@ from internlm.model.ops.linear import (
     linear_forward_op,
 )
 from internlm.utils.logger import get_logger
+from test_torchao import per_col_quantize_int8, per_row_quantize_int8
+from torchao.prototype.quantized_training.int8_mm import scaled_int8_mm
 
 if TYPE_CHECKING:
     from internlm.core.parallel.comm.isp import WPCommunicator
@@ -36,6 +38,8 @@ internlm_accelerator = get_accelerator()
 
 custom_bwd = internlm_accelerator.return_custom_bwd()
 custom_fwd = internlm_accelerator.return_custom_fwd()
+
+from test_quant_dequant import per_block_quantize_int8, per_block_dequantize_int8
 
 
 # adpated from https://github.com/Dao-AILab/flash-attention/blob/main/flash_attn/ops/fused_dense.py
@@ -78,8 +82,28 @@ class SPFusedDenseFunc(torch.autograd.Function):
         # https://github.com/pytorch/pytorch/blob/5b51849b48a7dbccd297286cc0110def4706f9e7/aten/src/ATen/native/cuda/Blas.cpp#L174
         if min(batch_dim, n, *weight.shape) > 65535 * 32:
             raise RuntimeError("fused_dense only supports matrix dims <= 2M")
+        
+        if gpc.config.int8_training:
+            dtype = total_x.dtype
+            assert dtype in [torch.bfloat16, torch.float32]
 
-        output = linear_forward_op(total_x, weight, bias)
+            if total_x.dim() == 3:
+                assert total_x.shape[0] == 1
+                total_x = total_x.squeeze(0)
+                sque = 1
+            else:
+                sque = 0
+
+            x_int8, row_scale = per_row_quantize_int8(total_x)
+            w_int8, col_scale = per_col_quantize_int8(weight.t())
+            assert x_int8.dtype == torch.int8
+            output = scaled_int8_mm(x_int8, w_int8, row_scale, col_scale).to(dtype)
+
+            if sque:
+                total_x = total_x.unsqueeze(0)
+                output = output.unsqueeze(0)
+        else:
+            output = linear_forward_op(total_x, weight, bias)
 
         # parallel strategy-specific communication callback 2.
         # see more details in the communicator for different parallel strategies.
