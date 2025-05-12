@@ -26,8 +26,6 @@ from internlm.model.ops.linear import (
     linear_forward_op,
 )
 from internlm.utils.logger import get_logger
-from test_torchao import per_col_quantize_int8, per_row_quantize_int8
-from torchao.prototype.quantized_training.int8_mm import scaled_int8_mm
 
 if TYPE_CHECKING:
     from internlm.core.parallel.comm.isp import WPCommunicator
@@ -93,10 +91,7 @@ class SPFusedDenseFunc(torch.autograd.Function):
             else:
                 sque = 0
 
-            x_int8, row_scale = per_row_quantize_int8(total_x)
-            w_int8, col_scale = per_col_quantize_int8(weight.t())
-            assert x_int8.dtype == torch.int8
-            output = scaled_int8_mm(x_int8, w_int8, row_scale, col_scale).to(dtype)
+            output = linear_forward_op(total_x, weight, bias)
 
             if sque:
                 total_x = total_x.unsqueeze(0)
@@ -143,6 +138,7 @@ class SPFusedDenseFunc(torch.autograd.Function):
             if not ctx.return_residual:
                 grad_input = linear_forward_op(grad_output, weight.t())
             else:
+                assert False
                 grad_input = torch.addmm(
                     grad_input.reshape(batch_dim, grad_input.shape[-1]),
                     grad_output,
@@ -180,6 +176,7 @@ class SPFusedDenseFunc(torch.autograd.Function):
                 grad_weight, grad_bias = linear_backward_op(x, grad_output, ctx.needs_input_grad[2])
 
         else:
+            assert False
             grad_weight = None
             grad_bias = grad_output if ctx.needs_input_grad[2] else None
 
@@ -206,6 +203,7 @@ class WPFusedDenseFunc(torch.autograd.Function):
         communicator: WPCommunicator,
         return_residual=False,
     ):
+        assert False
         ctx.compute_weight_gradient = weight.requires_grad
         ctx.return_residual = return_residual
         ctx.module = module

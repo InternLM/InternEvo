@@ -1,6 +1,10 @@
 import torch
-from torchao.prototype.quantized_training.int8_mm import scaled_int8_mm, scaled_int8_mm_cuda
 from torch.nn.functional import linear
+
+try:
+    from torchao.prototype.quantized_training.int8_mm import scaled_int8_mm, scaled_int8_mm_cuda
+except (ModuleNotFoundError, ImportError):
+    print('torchao not found', flush=True)
 
 def stochastic_round(x: torch.Tensor) -> torch.Tensor:
     floor_x = x.floor()                  # ⬅️ 得到整数部分 ⌊x⌋
@@ -11,7 +15,6 @@ def stochastic_round(x: torch.Tensor) -> torch.Tensor:
 
 def per_row_quantize_int8(x: torch.Tensor, sr=True) -> tuple[torch.Tensor, torch.Tensor]:
     assert x.dim() == 2, f"{x.dim()}, {x.shape}"
-    row, _ = x.shape
     x_amax = x.abs().float().amax(dim=1).clamp(min=1e-4)
     scale = 127 / x_amax  # int8范围是 [-127,127]（保留0）
     if sr:
@@ -24,7 +27,6 @@ def per_row_quantize_int8(x: torch.Tensor, sr=True) -> tuple[torch.Tensor, torch
 
 def per_col_quantize_int8(x: torch.Tensor, sr=True) -> tuple[torch.Tensor, torch.Tensor]:
     assert x.dim() == 2, f"{x.dim()}, {x.shape}"
-    _, col = x.shape
     x_amax = x.abs().float().amax(dim=0).clamp(min=1e-4)
     scale = 127 / x_amax  # int8范围是 [-127,127]（保留0）
     if sr:
@@ -48,7 +50,9 @@ if __name__ == "__main__":
     out2 = linear(x, weight.t())
     out3 = scaled_int8_mm_cuda(x_int8, w_int8, row_scale, col_scale)
     out4 = scaled_int8_mm(x_int8, w_int8, row_scale, col_scale)
+    out5 = torch.matmul(x, weight)
     assert torch.equal(out1, out2)
+    assert torch.equal(out1, out5)
     assert torch.equal(out3, out4)
     print(out1.dtype, out2.dtype, out3.dtype, out4.dtype)
     print(out1.device, out2.device, out3.device, out4.device)
