@@ -44,8 +44,7 @@ try:
 except (ImportError, ModuleNotFoundError):
     DCP_SUPPORTED = False
 
-
-RESUME_DCP_FORMAT = True
+RESUME_HF_FORMAT = False
 
 
 def _get_modules_to_materialize(
@@ -246,8 +245,8 @@ def wrap_FSDP_model(model: Union[nn.Module, nn.ModuleList]):
                 assert load_ckpt_content == (
                     "model",
                 ), "If auto_resume=False and checkpoint path is given, only model can be loaded"
-                if DCP_SUPPORTED and not RESUME_DCP_FORMAT:
-                    if is_using_hf():
+                if DCP_SUPPORTED:
+                    if is_using_hf() and RESUME_HF_FORMAT:
                         hf = gpc.config.hf
                         mod = LazyObject(hf.mod, hf.mod_cls)
                         mod = mod.build()
