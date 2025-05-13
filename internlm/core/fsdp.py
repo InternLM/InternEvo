@@ -45,6 +45,9 @@ except (ImportError, ModuleNotFoundError):
     DCP_SUPPORTED = False
 
 
+RESUME_DCP_FORMAT = True
+
+
 def _get_modules_to_materialize(
     root_module: nn.Module,
     ignored_modules: Set[nn.Module],
@@ -171,13 +174,13 @@ def wrap_FSDP_model(model: Union[nn.Module, nn.ModuleList]):
         if fsdp_mode == "v1":
             ignored_mod = []
             if gpc.is_using_parallel_mode(ParallelMode.EXPERT):
-                for layer_id, layer in enumerate(model.model.layers):
+                for layer_id, layer in enumerate(model.model.model.layers if is_using_hf() else model.model.layers):
                     if layer_id >= gpc.config.model.first_k_dense_replace:
                         # Should follow this modeling pattern if EP is enabled.
                         # Change the expert module name if needed.
                         # TODO: Make this part hard-coded or config-driven?
-                        layer.feed_forward.moe_layer.experts = FSDP(
-                            layer.feed_forward.moe_layer.experts, 
+                        layer.mlp.experts = FSDP(
+                            layer.mlp.experts, 
                             process_group=gpc.get_group(ParallelMode.EXPERT_DATA),
                             sharding_strategy=ShardingStrategy.FULL_SHARD, 
                             sync_module_states=fsdp_init_method != "cuda",  # sync model paramters
@@ -187,7 +190,7 @@ def wrap_FSDP_model(model: Union[nn.Module, nn.ModuleList]):
                             use_orig_params=True,
                             device_id=None if fsdp_init_method == "cuda" else get_current_device(),  # needed for sync_module_states
                         )
-                        ignored_mod.append(layer.feed_forward.moe_layer.experts)
+                        ignored_mod.append(layer.mlp.experts)
             model = FSDP(
                 module=model,
                 process_group=gpc.get_group(ParallelMode.GLOBAL),
@@ -218,12 +221,12 @@ def wrap_FSDP_model(model: Union[nn.Module, nn.ModuleList]):
                     ).view((gpc.get_world_size(ParallelMode.EXPERT), gpc.get_world_size(ParallelMode.EXPERT_DATA))), 
                     mesh_dim_names=("ep", "edp"),
                 )
-                for layer_id, layer in enumerate(model.model.layers):
+                for layer_id, layer in enumerate(model.model.model.layers if is_using_hf() else model.model.layers):
                     if layer_id >= gpc.config.model.first_k_dense_replace:
                         # Should follow this modeling pattern if EP is enabled.
                         # Change the expert module name if needed.
                         # TODO: Make this part hard-coded or config-driven?
-                        fully_shard(layer.feed_forward.moe_layer.experts, mesh=device_mesh["edp"], **fsdp_kwargs)
+                        fully_shard(layer.mlp.experts, mesh=device_mesh["edp"], **fsdp_kwargs)
             for module in model.modules():
                 if isinstance(module, wrap_cls):
                     fully_shard(module, **fsdp_kwargs)
@@ -243,7 +246,7 @@ def wrap_FSDP_model(model: Union[nn.Module, nn.ModuleList]):
                 assert load_ckpt_content == (
                     "model",
                 ), "If auto_resume=False and checkpoint path is given, only model can be loaded"
-                if DCP_SUPPORTED:
+                if DCP_SUPPORTED and not RESUME_DCP_FORMAT:
                     if is_using_hf():
                         hf = gpc.config.hf
                         mod = LazyObject(hf.mod, hf.mod_cls)
