@@ -88,7 +88,7 @@ if __name__ == "__main__":
     error = (out3 - out1).abs().mean()
     print("fp32 tensor:\n", out1)
     print("int8 tensor:\n", out3)
-    print("int8 tensor:\n", out6)
+    print("torch_int_mm token scaled int8 tensor:\n", out6)
     print("tensor scaled int8 tensor:\n", out7)
     print("平均误差:", error.item())
     print("token scaled int8 实现误差:", (out3 - out6).abs().mean())
