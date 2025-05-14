@@ -260,7 +260,7 @@ def wrap_FSDP_model(model: Union[nn.Module, nn.ModuleList]):
                     else:
                         state_dict = get_model_state_dict(model=model)
                         state_dict = {key: state_dict[key].clone().detach() for key in state_dict}
-                        dcp.load(state_dict=state_dict, checkpoint_id=load_ckpt_path)
+                        dcp.load(state_dict=state_dict, storage_reader = dcp.filesystem.FileSystemWriter(load_ckpt_path))
                         set_model_state_dict(model=model, model_state_dict=state_dict)
                     del state_dict
                     internlm_accelerator.empty_cache()
