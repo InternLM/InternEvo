@@ -36,6 +36,27 @@ def per_col_quantize_int8(x: torch.Tensor, sr=True) -> tuple[torch.Tensor, torch
 
     return x_scaled, x_amax / 127
 
+# scale in float32
+def per_tensor_quantize_int8(x: torch.Tensor, sr=True) -> tuple[torch.Tensor, torch.Tensor]:
+    assert x.dim() == 2, f"{x.dim()}, {x.shape}"
+    x_amax = x.abs().float().amax()
+    scale = 127 / x_amax
+    if sr:
+        x_scaled = stochastic_round(x * scale).clamp(-127, 127).to(torch.int8)
+    else:
+        x_scaled = (x * scale).round().clamp(-127, 127).to(torch.int8)
+
+    return x_scaled, x_amax / 127
+
+def per_tensor_scaled_int8_mm(
+    A: torch.Tensor, B: torch.Tensor, a_scale: torch.Tensor, b_scale: torch.Tensor
+) -> torch.Tensor:
+    return torch._int_mm(A, B) * a_scale * b_scale
+
+def per_token_scaled_int8_mm(
+    A: torch.Tensor, B: torch.Tensor, row_scale: torch.Tensor, col_scale: torch.Tensor
+) -> torch.Tensor:
+    return torch._int_mm(A, B) * col_scale.view(-1) * row_scale.view(-1, 1)
 
 if __name__ == "__main__":
     torch.manual_seed(1024)
@@ -45,24 +66,34 @@ if __name__ == "__main__":
     sr = True
     x_int8, row_scale = per_row_quantize_int8(x, sr)
     w_int8, col_scale = per_col_quantize_int8(weight, sr)
+    tensor_scaled_x_int8, a_scale = per_tensor_quantize_int8(x, sr)
+    tensor_scaled_w_int8, b_scale = per_tensor_quantize_int8(weight, sr)
 
     out1 = x @ weight
     out2 = linear(x, weight.t())
     out3 = scaled_int8_mm_cuda(x_int8, w_int8, row_scale, col_scale)
     out4 = scaled_int8_mm(x_int8, w_int8, row_scale, col_scale)
     out5 = torch.matmul(x, weight)
+    out6 = per_token_scaled_int8_mm(x_int8, w_int8, row_scale, col_scale)
+    out7 = per_tensor_scaled_int8_mm(tensor_scaled_x_int8, tensor_scaled_w_int8, a_scale, b_scale)
+
     assert torch.equal(out1, out2)
     assert torch.equal(out1, out5)
     assert torch.equal(out3, out4)
-    print(out1.dtype, out2.dtype, out3.dtype, out4.dtype)
-    print(out1.device, out2.device, out3.device, out4.device)
-    print(out1.shape, out2.shape, out3.shape, out4.shape)
+    # assert torch.equal(out3, out6)
+    print(out1.dtype, out2.dtype, out3.dtype, out4.dtype, out6.dtype)
+    print(out1.device, out2.device, out3.device, out4.device, out6.device)
+    print(out1.shape, out2.shape, out3.shape, out4.shape, out6.shape)
 
     error = (out3 - out1).abs().mean()
     print("fp32 tensor:\n", out1)
     print("int8 tensor:\n", out3)
+    print("int8 tensor:\n", out6)
+    print("tensor scaled int8 tensor:\n", out7)
     print("平均误差:", error.item())
-
+    print("token scaled int8 实现误差:", (out3 - out6).abs().mean())
+    print("tensor scaled 误差:", (out7 - out1).abs().mean())
+    print("tensor scaled int8 误差:", (out3 - out7).abs().mean())
 
 
 
