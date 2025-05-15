@@ -171,13 +171,13 @@ def wrap_FSDP_model(model: Union[nn.Module, nn.ModuleList]):
         if fsdp_mode == "v1":
             ignored_mod = []
             if gpc.is_using_parallel_mode(ParallelMode.EXPERT):
-                for layer_id, layer in enumerate(model.model.layers):
+                for layer_id, layer in enumerate(model.model.model.layers):
                     if layer_id >= gpc.config.model.first_k_dense_replace:
                         # Should follow this modeling pattern if EP is enabled.
                         # Change the expert module name if needed.
                         # TODO: Make this part hard-coded or config-driven?
-                        layer.feed_forward.moe_layer.experts = FSDP(
-                            layer.feed_forward.moe_layer.experts, 
+                        layer.mlp.experts = FSDP(
+                            layer.mlp.experts,
                             process_group=gpc.get_group(ParallelMode.EXPERT_DATA),
                             sharding_strategy=ShardingStrategy.FULL_SHARD, 
                             sync_module_states=fsdp_init_method != "cuda",  # sync model paramters
@@ -187,7 +187,7 @@ def wrap_FSDP_model(model: Union[nn.Module, nn.ModuleList]):
                             use_orig_params=True,
                             device_id=None if fsdp_init_method == "cuda" else get_current_device(),  # needed for sync_module_states
                         )
-                        ignored_mod.append(layer.feed_forward.moe_layer.experts)
+                        ignored_mod.append(layer.mlp.experts)
             model = FSDP(
                 module=model,
                 process_group=gpc.get_group(ParallelMode.GLOBAL),
@@ -209,21 +209,25 @@ def wrap_FSDP_model(model: Union[nn.Module, nn.ModuleList]):
             fsdp_kwargs = {
                 "reshard_after_forward": True,  # ZeRO2: False, ZeRO3: True
             }
+            if gpc.get_global_rank() == 0:
+                print(f"ht debug before fsdp2 {model=}", flush=True)
             if gpc.is_using_parallel_mode(ParallelMode.EXPERT):
                 device_mesh = DeviceMesh.from_group(
-                    group=[gpc.get_group(ParallelMode.EXPERT), gpc.get_group(ParallelMode.EXPERT_DATA)], 
+                    group=[gpc.get_group(ParallelMode.EXPERT_DATA), gpc.get_group(ParallelMode.EXPERT)], 
                     device_type="cuda", 
                     mesh=torch.arange(
                         gpc.get_world_size(ParallelMode.GLOBAL), 
-                    ).view((gpc.get_world_size(ParallelMode.EXPERT), gpc.get_world_size(ParallelMode.EXPERT_DATA))), 
-                    mesh_dim_names=("ep", "edp"),
+                    ).view((gpc.get_world_size(ParallelMode.EXPERT_DATA), gpc.get_world_size(ParallelMode.EXPERT))), 
+                    mesh_dim_names=("edp", "ep"),
                 )
-                for layer_id, layer in enumerate(model.model.layers):
+                if gpc.get_global_rank() == 0:
+                    print(f"ht debug {device_mesh['edp']=} {device_mesh['ep']=}", flush=True)
+                for layer_id, layer in enumerate(model.model.model.layers):
                     if layer_id >= gpc.config.model.first_k_dense_replace:
                         # Should follow this modeling pattern if EP is enabled.
                         # Change the expert module name if needed.
                         # TODO: Make this part hard-coded or config-driven?
-                        fully_shard(layer.feed_forward.moe_layer.experts, mesh=device_mesh["edp"], **fsdp_kwargs)
+                        fully_shard(layer.mlp.experts, mesh=device_mesh["edp"], **fsdp_kwargs)
             for module in model.modules():
                 if isinstance(module, wrap_cls):
                     fully_shard(module, **fsdp_kwargs)
@@ -231,7 +235,9 @@ def wrap_FSDP_model(model: Union[nn.Module, nn.ModuleList]):
             if fsdp_init_method == "meta":
                 _materialize_meta_module(model, set(), get_current_device())
             elif fsdp_init_method == "cpu":
-                model.to(get_current_device())
+                model.to_empty(device=get_current_device())
+            if gpc.get_global_rank() == 0:
+                print(f"ht debug after fsdp2 {model=}", flush=True)
         else:
             raise ValueError(f"Unsupported FSDP mode: {fsdp_mode}")
 
@@ -244,22 +250,24 @@ def wrap_FSDP_model(model: Union[nn.Module, nn.ModuleList]):
                     "model",
                 ), "If auto_resume=False and checkpoint path is given, only model can be loaded"
                 if DCP_SUPPORTED:
-                    if is_using_hf():
-                        hf = gpc.config.hf
-                        mod = LazyObject(hf.mod, hf.mod_cls)
-                        mod = mod.build()
-                        state_dict = mod.from_pretrained(
-                            pretrained_model_name_or_path=load_ckpt_path, use_safetensors=True
-                        ).state_dict()
-                        state_dict = {f"model.{key}": state_dict[key].clone().detach() for key in state_dict}
-                        set_model_state_dict(
-                            model=model, model_state_dict=state_dict, options=StateDictOptions(full_state_dict=True)
-                        )
-                    else:
-                        state_dict = get_model_state_dict(model=model)
-                        state_dict = {key: state_dict[key].clone().detach() for key in state_dict}
-                        dcp.load(state_dict=state_dict, checkpoint_id=load_ckpt_path)
-                        set_model_state_dict(model=model, model_state_dict=state_dict)
+                    # if is_using_hf():
+                    #     hf = gpc.config.hf
+                    #     mod = LazyObject(hf.mod, hf.mod_cls)
+                    #     mod = mod.build()
+                    #     state_dict = mod.from_pretrained(
+                    #         pretrained_model_name_or_path=load_ckpt_path, use_safetensors=True
+                    #     ).state_dict()
+                    #     state_dict = {f"model.{key}": state_dict[key].clone().detach() for key in state_dict}
+                    #     set_model_state_dict(
+                    #         model=model, model_state_dict=state_dict, options=StateDictOptions(full_state_dict=True)
+                    #     )
+                    #     print(f"ht debug after loading hf ckpt", flush=True)
+                    # else:
+                    state_dict = get_model_state_dict(model=model)
+                    state_dict = {key: state_dict[key].clone().detach() for key in state_dict}
+                    dcp.load(state_dict=state_dict, checkpoint_id=load_ckpt_path)
+                    set_model_state_dict(model=model, model_state_dict=state_dict)
+                    print(f"ht debug after loading hf ckpt", flush=True)
                     del state_dict
                     internlm_accelerator.empty_cache()
                 else:
