@@ -36,6 +36,12 @@ def per_col_quantize_int8(x: torch.Tensor, sr=True) -> tuple[torch.Tensor, torch
 
     return x_scaled, x_amax / 127
 
+def per_token_scaled_int8_mm(
+    A: torch.Tensor, B: torch.Tensor, row_scale: torch.Tensor, col_scale: torch.Tensor
+) -> torch.Tensor:
+    return torch._int_mm(A, B) * col_scale.view(-1) * row_scale.view(-1, 1)
+
+
 # scale in float32
 def per_tensor_quantize_int8(x: torch.Tensor, sr=True) -> tuple[torch.Tensor, torch.Tensor]:
     assert x.dim() == 2, f"{x.dim()}, {x.shape}"
@@ -53,10 +59,72 @@ def per_tensor_scaled_int8_mm(
 ) -> torch.Tensor:
     return torch._int_mm(A, B) * a_scale * b_scale
 
-def per_token_scaled_int8_mm(
-    A: torch.Tensor, B: torch.Tensor, row_scale: torch.Tensor, col_scale: torch.Tensor
+
+def per_token_tensor_scaled_int8_mm(
+    A: torch.Tensor, B: torch.Tensor, row_scale: torch.Tensor, b_scale: torch.Tensor
 ) -> torch.Tensor:
-    return torch._int_mm(A, B) * col_scale.view(-1) * row_scale.view(-1, 1)
+    return torch._int_mm(A, B)  * b_scale * row_scale.view(-1, 1)
+
+def per_tensor_token_scaled_int8_mm(
+    A: torch.Tensor, B: torch.Tensor, a_scale: torch.Tensor, col_scale: torch.Tensor
+) -> torch.Tensor:
+    return torch._int_mm(A, B)  * col_scale.view(-1) * a_scale
+
+
+def per_group_row_quantize_int8(x: torch.Tensor, sr=True, group_size: int = 16) -> tuple[torch.Tensor, torch.Tensor]:
+    assert x.dim() == 2, f"{x.dim()}, {x.shape}"
+    num_groups = x.size(1) // group_size
+    x_amax = x.abs().float().reshape(x.size(0), num_groups, group_size).amax(dim=2).clamp(min=1e-4)
+    scale = 127 / x_amax
+    scale = scale.unsqueeze(2).expand(-1, -1, group_size).reshape(x.size(0), x.size(1))
+    if sr:
+        x_scaled = stochastic_round((x * scale)).clamp(-127, 127).to(torch.int8)
+    else:
+        x_scaled = (x * scale).round().clamp(-127, 127).to(torch.int8)
+        
+    return x_scaled, x_amax / 127
+
+
+def per_group_col_quantize_int8(x: torch.Tensor, sr=True, group_size: int = 16) -> tuple[torch.Tensor, torch.Tensor]:
+    assert x.dim() == 2, f"{x.dim()}, {x.shape}"
+    num_groups = x.size(0) // group_size
+    x_amax = x.abs().float().reshape(num_groups, group_size, x.size(1)).amax(dim=1).clamp(min=1e-4)
+    scale = 127 / x_amax
+    scale = scale.unsqueeze(1).expand(-1, group_size, -1).reshape(x.size(0), x.size(1))
+
+    if sr:
+        x_scaled = stochastic_round((x * scale)).clamp(-127, 127).to(torch.int8)
+    else:
+        x_scaled = (x * scale).round().clamp(-127, 127).to(torch.int8)
+        
+    return x_scaled, x_amax / 127
+
+
+def per_group_scaled_int8_mm(
+    A_q: torch.Tensor,
+    B_q: torch.Tensor,
+    a_inv_scale: torch.Tensor,
+    b_inv_scale: torch.Tensor,
+    group_size: int = 16
+) -> torch.Tensor:
+    # A_q: [M, K], B_q: [K, N]
+    M, K = A_q.shape
+    _, N = B_q.shape
+    G = K // group_size
+    # accumulate results
+    out = torch.zeros((M, N), dtype=torch.float32, device=A_q.device)
+    # perform per-group int8 matmul with scaling
+    for g in range(G):
+        i0, i1 = g * group_size, (g + 1) * group_size
+        # partial product
+        part = torch._int_mm(A_q[:, i0:i1], B_q[i0:i1, :])
+        # apply inverse scales per group
+        # a_inv_scale[g] is shape [M], b_inv_scale[g] is shape [N]
+        scales = a_inv_scale[:, g].unsqueeze(1) * b_inv_scale[g, :].unsqueeze(0)
+        out += part.to(torch.float32) * scales
+    return out
+
+
 
 if __name__ == "__main__":
     torch.manual_seed(1024)
@@ -68,6 +136,10 @@ if __name__ == "__main__":
     w_int8, col_scale = per_col_quantize_int8(weight, sr)
     tensor_scaled_x_int8, a_scale = per_tensor_quantize_int8(x, sr)
     tensor_scaled_w_int8, b_scale = per_tensor_quantize_int8(weight, sr)
+    group_scaled_x_int8, group_row_scale = per_group_row_quantize_int8(x, sr)
+    group_scaled_w_int8, group_col_scale = per_group_col_quantize_int8(weight, sr)
+
+    print(group_scaled_x_int8.shape, group_scaled_w_int8.shape, group_row_scale.shape, group_col_scale.shape)
 
     out1 = x @ weight
     out2 = linear(x, weight.t())
@@ -76,6 +148,9 @@ if __name__ == "__main__":
     out5 = torch.matmul(x, weight)
     out6 = per_token_scaled_int8_mm(x_int8, w_int8, row_scale, col_scale)
     out7 = per_tensor_scaled_int8_mm(tensor_scaled_x_int8, tensor_scaled_w_int8, a_scale, b_scale)
+    out8 = per_group_scaled_int8_mm(group_scaled_x_int8, group_scaled_w_int8, group_row_scale, group_col_scale)
+    out9 = per_token_tensor_scaled_int8_mm(x_int8, tensor_scaled_w_int8, row_scale, b_scale)
+    out10 = per_tensor_token_scaled_int8_mm(tensor_scaled_x_int8, w_int8, a_scale, col_scale)
 
     assert torch.equal(out1, out2)
     assert torch.equal(out1, out5)
@@ -90,10 +165,16 @@ if __name__ == "__main__":
     print("int8 tensor:\n", out3)
     print("torch_int_mm token scaled int8 tensor:\n", out6)
     print("tensor scaled int8 tensor:\n", out7)
-    print("平均误差:", error.item())
-    print("token scaled int8 实现误差:", (out3 - out6).abs().mean())
-    print("tensor scaled 误差:", (out7 - out1).abs().mean())
-    print("tensor scaled int8 误差:", (out3 - out7).abs().mean())
+    print("group scaled int8 tensor:\n", out8)
+    print("fp32 torchao token scaled int8 平均误差:", error.item())
+    # print("token scaled int8 实现误差:", (out3 - out6).abs().mean())
+    print("tensor scaled int8 误差:", (out7 - out1).abs().mean())
+    # print("tensor-token scaled int8 误差:", (out3 - out7).abs().mean())
+    print("group scaled int8 误差:", (out8 - out1).abs().mean())
+    # print("group-token scaled int8 误差:", (out8 - out3).abs().mean())
+    print("token tensor scaled int8 误差:", (out9 - out1).abs().mean())
+    print("tensor token scaled int8 误差:", (out10 - out1).abs().mean())
+
 
 
 
