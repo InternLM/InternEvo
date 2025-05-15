@@ -122,6 +122,13 @@ def args_sanity_check():
 
     if "int8_training" not in gpc.config:
         gpc.config._add_item("int8_training", False)
+    
+    if gpc.config.int8_training:
+        if "int8_mode" not in gpc.config:
+            gpc.config._add_item("int8_mode", "channel")
+        
+        if gpc.is_rank_for_log():
+            logger.info(f"Int8 training enable: the mode is {gpc.config.int8_mode}")
 
     # procssing the parallel config in gpc
     if "zero1" not in gpc.config.parallel:
