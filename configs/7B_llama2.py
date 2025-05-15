@@ -4,12 +4,14 @@ DO_ALERT = False
 
 VOCAB_SIZE = 32000
 SEQ_LEN = 2048
-HIDDEN_SIZE = 4096
+HIDDEN_SIZE = 4096 #1024
 NUM_ATTENTION_HEAD = 32
 NUM_KV_ATTENTION_HEAD = 32
 MLP_RATIO = 2.6875
-NUM_LAYER = 32
+NUM_LAYER = 32 #16
 
+int8_training = True
+int8_mode = 'tensor'
 
 MODEL_ONLY_FOLDER = "local:llm_ckpts/xxxx"
 # Ckpt folder format:
@@ -40,7 +42,7 @@ ckpt = dict(
     oss_snapshot_freq=int(CHECKPOINT_EVERY / 2),  # snapshot ckpt save frequency.
 )
 
-TRAIN_FOLDER = None
+TRAIN_FOLDER = "/cpfs01/shared/llm_s/lijiaxing/0715_llama_tokenized_refined_real/train"
 VALID_FOLDER = None  # "/path/to/dataset"
 data = dict(
     seq_len=SEQ_LEN,
@@ -53,7 +55,7 @@ data = dict(
     # defaults to 0, means disable evaluate
     valid_every=0,
     pack_sample_into_one=False,
-    total_steps=20,
+    total_steps=10000,
     skip_batches="",
     # rampup_batch_size (str): A string with three space-separated integers representing the
     #       starting batch size, the increment, and the number of steps between
