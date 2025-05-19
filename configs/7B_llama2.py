@@ -11,7 +11,7 @@ MLP_RATIO = 2.6875
 NUM_LAYER = 32 #16
 
 int8_training = True
-int8_mode = 'tensor'
+int8_mode = 'channel'
 
 MODEL_ONLY_FOLDER = "local:llm_ckpts/xxxx"
 # Ckpt folder format:
@@ -42,9 +42,11 @@ ckpt = dict(
     oss_snapshot_freq=int(CHECKPOINT_EVERY / 2),  # snapshot ckpt save frequency.
 )
 
-TRAIN_FOLDER = "/cpfs01/shared/llm_s/lijiaxing/0715_llama_tokenized_refined_real/train"
+TRAIN_FOLDER = "/cpfs01/shared/llm_s/caizheng/hf-TinyStories/data"
 VALID_FOLDER = None  # "/path/to/dataset"
 data = dict(
+    type="streaming",
+    tokenizer_path="/cpfs01/shared/llm_s/caizheng/tokenizer_llama2",
     seq_len=SEQ_LEN,
     # micro_num means the number of micro_batch contained in one gradient update
     micro_num=4,
@@ -55,7 +57,7 @@ data = dict(
     # defaults to 0, means disable evaluate
     valid_every=0,
     pack_sample_into_one=False,
-    total_steps=10000,
+    total_steps=2000,
     skip_batches="",
     # rampup_batch_size (str): A string with three space-separated integers representing the
     #       starting batch size, the increment, and the number of steps between
