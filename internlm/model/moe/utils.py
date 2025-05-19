@@ -200,3 +200,22 @@ def gather_from_parallel_region_to_moe(input_):
 def reduce_scatter_to_parallel_region_from_moe(input_):
     """Wrapper for autograd function"""
     return _ReduceScatterToSequenceParallelRegionFromMOE.apply(input_)
+
+
+def gather_along_first_dim_expert_parallel(input_):
+    """Gather tensors and concatenate along the first dimension."""
+    group = gpc.get_group(ParallelMode.EXPERT)
+    world_size = torch.distributed.get_world_size(group=group)
+    # Bypass the function if we are using only 1 GPU.
+    if world_size == 1:
+        return input_
+
+    dim_size = list(input_.size())
+    dim_size[0] = dim_size[0] * world_size
+
+    output = torch.empty(dim_size, dtype=input_.dtype, device=get_current_device())
+
+    # torch.distributed._all_gather_base(output, input_.contiguous(), group=group)
+    torch.distributed.all_gather_into_tensor(output, input_.contiguous(), group=group)
+
+    return output

@@ -32,7 +32,7 @@ internlm_accelerator = get_accelerator()
 logger = get_logger(__file__)
 
 
-class Qwen2MoeDecoder(nn.Module):
+class Qwen3MoeDecoder(nn.Module):
     """
     1D Packed Flash Qwen Layer.
 
@@ -143,6 +143,7 @@ class Qwen2MoeDecoder(nn.Module):
             qk_interleaved=qk_interleaved,
             qkv_bias=qkv_bias,
             o_bias=o_bias,
+            use_qk_norm=True,
             rope_type=rope_type,
             rope_base=rope_base,
             rope_scaling_factor=rope_scaling_factor,
@@ -317,7 +318,7 @@ class Qwen2MoeDecoder(nn.Module):
             return hidden_states, gate_logits
 
 
-class Qwen2Moe(BaseModel):
+class Qwen3Moe(BaseModel):
     """
     1D Packed Flash Qwen.
 
@@ -428,7 +429,7 @@ class Qwen2Moe(BaseModel):
 
         self.layers = nn.ModuleList(
             [
-                Qwen2MoeDecoder(
+                Qwen3MoeDecoder(
                     hidden_size=hidden_size,
                     head_dim=head_dim,
                     num_attention_heads=num_attention_heads,

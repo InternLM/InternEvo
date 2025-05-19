@@ -194,7 +194,7 @@ class MoE(MoEBase):
 
 
 class Qwen2MoE(MoEBase):
-    """Initialize an Qwen2MoE layer.
+    """Initialize an Qwen2MoE/Qwen3MoE layer.
 
     Arguments:
         hidden_size (int): the hidden dimension of the model, importantly this is also the input and output dimension.
@@ -264,7 +264,7 @@ class Qwen2MoE(MoEBase):
 
             * exp_counts (int): expert count
         """
-        output, l_aux = self.moe_layer(hidden_states, used_token)
+        output, logits = self.moe_layer(hidden_states, used_token)
         if self.num_shared_experts > 0:
             # Residual MoE
             output_mlp = self.residual_mlp(hidden_states)
@@ -273,4 +273,4 @@ class Qwen2MoE(MoEBase):
             coef = self.coefficient(hidden_states)
             output_mlp = F.sigmoid(coef) * output_mlp
             output = output + output_mlp
-        return output, l_aux, self.moe_layer.exp_counts
+        return output, logits

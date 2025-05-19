@@ -13,6 +13,7 @@ from torch.nn import functional as F
 from internlm.core.context import global_context as gpc
 from internlm.model.modules.embedding import new_rotary_embedding
 from internlm.model.modules.linear import new_linear
+from internlm.model.modules.norm import new_layer_norm
 from internlm.model.modules.utils import update_kv_cache
 from internlm.model.ops.attention import CrossAttention, SelfAttention
 from internlm.utils.logger import get_logger
@@ -712,6 +713,7 @@ class SWA(nn.Module):
         embed_dim: int,
         num_heads: int,
         num_kv_heads: int,
+        head_dim: int = None,
         qkv_bias: bool = True,
         o_bias: bool = False,
         max_position_embeddings: int = 2048,
@@ -729,6 +731,9 @@ class SWA(nn.Module):
         dtype: Optional[torch.dtype] = None,
         use_sliding_window: bool = False,
         sliding_window: int = None,
+        use_qk_norm: bool = False,
+        norm_type: str = "rmsnorm",
+        layer_norm_epsilon: float = 1e-06,
         tp_mode: str = "mtp",
         qk_interleaved: Optional[bool] = True,
         use_logn_attn: bool = False,  # Qwen1
@@ -742,7 +747,10 @@ class SWA(nn.Module):
         self.embed_dim = embed_dim
         self.num_heads = num_heads
 
-        self.head_dim = self.embed_dim // num_heads
+        if head_dim is None:
+            head_dim = self.embed_dim // num_heads
+        self.head_dim = head_dim
+        self.q_dim = self.head_dim * self.num_heads
         self.num_kv_heads = num_kv_heads
         self.kv_dim = self.head_dim * num_kv_heads
         self.causal = causal
@@ -777,7 +785,7 @@ class SWA(nn.Module):
         self.wq = new_linear(
             "wq",
             embed_dim,
-            embed_dim,
+            self.q_dim,
             qkv_bias,
             **factory_kwargs,
         )
@@ -796,6 +804,15 @@ class SWA(nn.Module):
             **factory_kwargs,
         )
 
+        self.use_qk_norm = use_qk_norm
+        if use_qk_norm:
+            self.q_norm = new_layer_norm(
+                norm_type, self.head_dim, eps=layer_norm_epsilon
+            )  # unlike olmo, only on the head dim!
+            self.k_norm = new_layer_norm(
+                norm_type, self.head_dim, eps=layer_norm_epsilon
+            )  # thus post q_norm does not need reshape
+
         self.inner_attn = SelfAttention(causal=causal, softmax_scale=softmax_scale, attention_dropout=dropout)
         self.inner_cross_attn = CrossAttention(causal=causal, softmax_scale=softmax_scale, attention_dropout=dropout)
 
@@ -805,7 +822,7 @@ class SWA(nn.Module):
 
         self.wo = new_linear(
             "wo",
-            embed_dim,
+            self.q_dim,
             embed_dim,
             o_bias,
             **factory_kwargs,
@@ -822,6 +839,10 @@ class SWA(nn.Module):
         q = rearrange(q, "b t (h d) -> b t h d", d=self.head_dim)
         k = rearrange(k, "b t (h d) -> b t h d", d=self.head_dim)
         v = rearrange(v, "b t (h d) -> b t h d", d=self.head_dim)
+
+        if self.use_qk_norm:
+            q = self.q_norm(q)
+            k = self.k_norm(k)
 
         kv_seq_len = k.size(0)
         use_window_circumstance = (

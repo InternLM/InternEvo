@@ -22,6 +22,7 @@ from internlm.utils.logger import get_logger
 from .base_layer import BaseMoELayer
 from .utils import (
     all_to_all,
+    gather_along_first_dim_expert_parallel,
     gather_from_parallel_region_to_moe,
     moe_gather,
     moe_scatter,
@@ -102,23 +103,42 @@ class TopKGate(Module):
         num_experts: int,
         topk: int = 1,
         noisy_gate_policy: Optional[str] = None,
+        scoring_func: str = "softmax",
+        jitter_eps: float = 1e-2,
+        return_logits: bool = False,
     ) -> None:
         super().__init__()
 
         # Deepspeed's mechisms, alway use fp32
         self.wg = torch.nn.Linear(model_dim, num_experts, bias=False)
         self.k = topk
+        self.jitter_eps = jitter_eps
 
         self.noisy_gate_policy = noisy_gate_policy
+        self.return_logits = return_logits
+        self.scoring_func = scoring_func
+        self.reset_parameters()
+
+    def reset_parameters(self) -> None:
+        from torch.nn import init
+
+        init.kaiming_uniform_(self.wg.weight, a=math.sqrt(5))
 
     def forward(self, inputs: torch.Tensor) -> Tuple[Tensor, Tensor, Tensor]:  # type: ignore
         # input jittering
         if self.noisy_gate_policy == "Jitter" and self.training:
-            inputs = multiplicative_jitter(inputs, device=inputs.device)
+            inputs = multiplicative_jitter(inputs, epsilon=self.jitter_eps, device=inputs.device)
         logits = self.wg(inputs)
-        gates = F.softmax(logits, dim=1)
+        if self.scoring_func == "sigmoid":
+            gates = logits.sigmoid()
+        elif self.scoring_func == "softmax":
+            gates = F.softmax(logits, dim=1)
+        else:
+            raise NotImplementedError(f"insupportable scoring function for MoE gating: {self.scoring_func}")
 
-        return gates
+        if self.return_logits:
+            return gates, logits
+        return gates, None
 
 
 def get_capacity(num_tokens: int, num_experts: int, capacity_factor: float, min_capacity=None):
@@ -153,6 +173,11 @@ class DroplessMoELayer(BaseMoELayer):
         token_dispatch_policy: str = "alltoall",
         use_grouped_mlp: bool = True,
         deterministic_mode: bool = False,
+        moe_jitter_eps: float = 1e-2,
+        normalize_expert_weights: bool = True,
+        routed_scaling_factor: float = 1.0,
+        scoring_func: str = "softmax",
+        return_logits: bool = False,
     ) -> None:
         assert noisy_gate_policy is None or noisy_gate_policy in ["None", "Jitter", "RSample"], (
             "Unsupported noisy_gate_policy: " + noisy_gate_policy
@@ -202,6 +227,9 @@ class DroplessMoELayer(BaseMoELayer):
                 num_experts,
                 top_k,
                 noisy_gate_policy,
+                scoring_func,
+                moe_jitter_eps,
+                return_logits,
             ),
             experts,
             ep_group,
@@ -217,6 +245,9 @@ class DroplessMoELayer(BaseMoELayer):
         self.topk = top_k
         self.use_grouped_mlp = use_grouped_mlp
         self.deterministic_mode = deterministic_mode
+        self.normalize_expert_weights = normalize_expert_weights
+        self.routed_scaling_factor = routed_scaling_factor
+        self.return_logits = return_logits
 
         self.drop_and_pad = drop_and_pad
         self.capacity_factor = capacity_factor
@@ -273,9 +304,12 @@ class DroplessMoELayer(BaseMoELayer):
         # group_size = kwargs['group_size'] if 'group_size' in kwargs.keys() else 1
         reshaped_inputs = inputs[0].reshape(-1, d_model)
 
-        gates = self.gate(reshaped_inputs)
+        gates, logits = self.gate(reshaped_inputs)
         expert_weights, indices, tokens_per_expert_before_capacity = self.topk_softmax_with_capacity(gates)
-        self.l_aux = self.load_balancing_loss(tokens_per_expert_before_capacity, gates)
+        if not self.return_logits:
+            self.l_aux = self.load_balancing_loss(tokens_per_expert_before_capacity, gates)
+        else:
+            self.l_aux = None
 
         (dispatched_input, tokens_per_expert) = self.token_permutation_func(
             reshaped_inputs, expert_weights, indices, tokens_per_expert_before_capacity
@@ -293,11 +327,15 @@ class DroplessMoELayer(BaseMoELayer):
         #   so we first use self.l_aux and then reset it.
         l_aux = self.l_aux
         self.l_aux = None
-        return output, l_aux
+        if not self.return_logits:
+            return output, l_aux
+        return output, logits
 
     def topk_softmax_with_capacity(self, gates):
         expert_weights, indices = torch.topk(gates, self.topk, dim=1)
-        expert_weights /= expert_weights.sum(dim=-1, keepdim=True)
+
+        if self.normalize_expert_weights:
+            expert_weights /= expert_weights.sum(dim=-1, keepdim=True)
         # we compute num_local_tokens_per_expert here. If no drop and padding, num_local_tokens_per_expert should be
         # the final value, otherwise we recompute it in self.process(.)
         # histc(.) can be faster the bincount(.), but will cause non-deterministic behavior
@@ -306,6 +344,7 @@ class DroplessMoELayer(BaseMoELayer):
         else:
             num_local_tokens_per_expert = torch.histc(indices, bins=self.num_experts, min=0, max=self.num_experts)
 
+        expert_weights = expert_weights * self.routed_scaling_factor
         # without capacity
         if self.capacity_factor is None:
             # shape: [num_token, topk]
@@ -347,22 +386,6 @@ class DroplessMoELayer(BaseMoELayer):
         tokens_per_expert_before_capacity = topk_mask.sum(dim=0)
 
         return final_expert_weights, final_indices, tokens_per_expert_before_capacity
-
-    def _gather_along_first_dim_expert_parallel(self, input_):
-        """Gather tensors and concatenate along the first dimension."""
-        group = gpc.get_group(ParallelMode.EXPERT)
-        world_size = torch.distributed.get_world_size(group=group)
-        # Bypass the function if we are using only 1 GPU.
-        if world_size == 1:
-            return input_
-
-        dim_size = list(input_.size())
-        dim_size[0] = dim_size[0] * world_size
-
-        output = torch.empty(dim_size, dtype=input_.dtype, device=get_current_device())
-        torch.distributed._all_gather_base(output, input_.contiguous(), group=group)
-
-        return output
 
     def preprocess(self, indices, expert_weight, tokens_per_expert_before_capacity) -> torch.Tensor:
         """
@@ -416,8 +439,9 @@ class DroplessMoELayer(BaseMoELayer):
                 .to(torch.device("cpu"), non_blocking=True)
                 .numpy()
             )
-
-            num_global_tokens_per_expert = self._gather_along_first_dim_expert_parallel(
+            # avoid allgather stuck in some case
+            internlm_accelerator.current_stream().synchronize()
+            num_global_tokens_per_expert = gather_along_first_dim_expert_parallel(
                 num_local_tokens_per_expert
             ).reshape(self.ep_size, self.num_experts)
             num_global_tokens_per_local_expert = num_global_tokens_per_expert[:, self.local_expert_indices]
@@ -739,7 +763,8 @@ class DroplessMoELayer(BaseMoELayer):
         """
 
         num_local_tokens_per_expert = torch.histc(indices, bins=self.num_experts, min=0, max=self.num_experts)
-        self.l_aux = self.load_balancing_loss(num_local_tokens_per_expert, self.gates)
+        if not self.return_logits:
+            self.l_aux = self.load_balancing_loss(num_local_tokens_per_expert, self.gates)
         # Permute the tokens across the expert parallel devices.
         if self.ep_size > 1:
             # local_indices calculation

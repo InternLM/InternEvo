@@ -57,6 +57,7 @@ class ModelType(Enum):
     QWEN2MOE = 9
     MIXTRALMOE = 10
     INTERNLM3 = 11
+    QWEN3MOE = 12
 
 
 class DataType(Enum):
