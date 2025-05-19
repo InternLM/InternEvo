@@ -127,7 +127,7 @@ def load_fsdp_model_checkpoint(folder, model):
         else:
             state_dict = get_model_state_dict(model=model)
             state_dict = {key: state_dict[key].clone().detach() for key in state_dict}
-            dcp.load(state_dict=state_dict, storage_reader = dcp.filesystem.FileSystemWriter(local_folder))
+            dcp.load(state_dict=state_dict, checkpoint_id=local_folder)
             set_model_state_dict(model=model, model_state_dict=state_dict)
 
         del state_dict
@@ -246,7 +246,7 @@ def save_fsdp_model_checkpoint(folder, model):
                 mod_to_save.load_state_dict(state_dict, strict=True, assign=True)
                 mod_to_save.save_pretrained(save_directory=os.path.join(local_folder, "hf"), safe_serialization=True)
         else:
-            dcp.save(get_model_state_dict(model=model), storage_writer=dcp.filesystem.FileSystemWriter(local_folder))
+            dcp.save(get_model_state_dict(model=model), checkpoint_id=local_folder)
 
         torch.distributed.barrier()
     else:
