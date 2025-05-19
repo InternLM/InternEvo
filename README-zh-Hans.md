@@ -99,7 +99,7 @@ data = dict(
 
 slurm环境，双机16卡，启动训练命令如下：
 ```bash
-$ srun -p internllm -N 2 -n 16 --ntasks-per-node=8 --gpus-per-task=1 python train.py --config ./configs/7B_sft.py
+$ srun -p internllm -N 2 -n 16 --ntasks-per-node=8 --gpus-per-task=1 python -m internlm.launcher.launch --config ./configs/7B_sft.py
 ```
 
 torch环境，单机8卡，启动训练命令如下：
@@ -166,8 +166,8 @@ $ torchrun --nnodes=1 --nproc_per_node=8 train.py --config ./configs/7B_sft.py -
       </td>
       <td>
         <ul>
-          <li><a href="tools/transformers/README-zh-Hans.md">将ckpt转为huggingface格式</a></li>
-          <li><a href="tools/transformers/README-zh-Hans.md">将ckpt从huggingface格式转为InternEvo格式</a></li>
+          <li><a href="huggingface_models/README-zh-Hans.md">将ckpt转为huggingface格式</a></li>
+          <li><a href="huggingface_models/README-zh-Hans.md">将ckpt从huggingface格式转为InternEvo格式</a></li>
           <li><a href="tools/tokenizer.py">原始数据分词器</a></li>
           <li><a href="tools/alpaca_tokenizer.py">Alpaca数据分词器</a></li>
         </ul>

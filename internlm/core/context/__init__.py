@@ -5,7 +5,6 @@ from .parallel_context import (
     IS_TENSOR_ZERO_PARALLEL,
     IS_WEIGHT_EXPERT_DATA_PARALLEL,
     IS_WEIGHT_ZERO_PARALLEL,
-    Config,
     ParallelContext,
     global_context,
 )
@@ -19,6 +18,7 @@ from .process_group_initializer import (
     ProcessGroupInitializer,
 )
 from .random import (
+    _SEED_MANAGER,
     add_seed,
     get_current_mode,
     get_seeds,
@@ -30,7 +30,6 @@ from .random import (
 )
 
 __all__ = [
-    "Config",
     "IS_REPLICA_EXPERT_DATA_PARALLEL",
     "IS_TENSOR_ZERO_PARALLEL",
     "IS_REPLICA_ZERO_PARALLEL",
@@ -54,4 +53,5 @@ __all__ = [
     "get_current_mode",
     "set_seed_states",
     "sync_states",
+    "_SEED_MANAGER",
 ]

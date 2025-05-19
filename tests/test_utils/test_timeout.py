@@ -65,14 +65,14 @@ def local_timeout(rank, _):
 
 def gpc_timeout(rank, world_size):
 
-    from internlm.initialize import initialize_distributed_env
+    from internlm.initialize import initialize_launcher
 
     os.environ["RANK"] = str(rank)
     os.environ["LOCAL_RANK"] = str(rank)
     os.environ["WORLD_SIZE"] = str(world_size)
     os.environ["MASTER_ADDR"] = "127.0.0.1"
     os.environ["MASTER_PORT"] = "12377"
-    initialize_distributed_env(config=init_config, launcher="torch", master_port=12377, args_check=False)
+    initialize_launcher(config=init_config, launcher="torch", distributed_port=12377, args_check=False)
 
     try:
         nccl_timeout_func(rank)

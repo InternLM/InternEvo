@@ -8,22 +8,22 @@ from typing import List, Optional
 
 import torch
 import torch.distributed as dist
+from torch._utils import _flatten_dense_tensors
 from torch.optim import Optimizer
 
 from internlm.accelerator import AcceleratorType, get_accelerator
-from internlm.core.context import Config, ParallelMode
-from internlm.core.context import global_context as gpc
-from internlm.core.context.parallel_context import (
+from internlm.core.context import (
     IS_REPLICA_EXPERT_DATA_PARALLEL,
     IS_REPLICA_ZERO_PARALLEL,
     IS_TENSOR_EXPERT_DATA_PARALLEL,
     IS_TENSOR_ZERO_PARALLEL,
     IS_WEIGHT_EXPERT_DATA_PARALLEL,
     IS_WEIGHT_ZERO_PARALLEL,
+    ParallelMode,
 )
-from internlm.core.parallel.comm.isp import ISPCommunicatorWrapper
-from internlm.core.parallel.comm.zero import ParamAsyncBcastHandler
-from internlm.model.modules.utils import is_moe_param
+from internlm.core.context import global_context as gpc
+from internlm.core.parallel.comm import ISPCommunicatorWrapper, ParamAsyncBcastHandler
+from internlm.model.model_ops.modules.utils import is_moe_param
 from internlm.monitor import send_alert_message
 from internlm.solver.optimizer.store import (
     BucketStore,
@@ -33,7 +33,6 @@ from internlm.solver.optimizer.store import (
 )
 from internlm.solver.optimizer.utils import (
     DynamicGradScaler,
-    flatten,
     get_grad_accumulate_object,
     has_inf_or_nan,
     reduce_tensor,
@@ -42,6 +41,7 @@ from internlm.solver.optimizer.utils import (
     sync_param,
 )
 from internlm.utils.common import get_current_device
+from internlm.utils.config import Config
 from internlm.utils.logger import get_logger
 from internlm.utils.megatron_timers import megatron_timer as timer
 from internlm.utils.parallel import is_using_isp, should_reduce_replica_param
@@ -210,7 +210,7 @@ class HybridZeroOptimizer(BaseOptimizer):
                 if rank not in self.param_group_no_params_ranks[group_id]:
                     tensor_list = self._param_store.get_fp16_params_by_rank_group(rank, group_id)
                     with torch.no_grad():
-                        flat_tensor = flatten(tensor_list)
+                        flat_tensor = _flatten_dense_tensors(tensor_list)
                     flat_tensor = flat_tensor.data.to(get_current_device())
                     self._param_store.add_flat_fp16_param_by_rank_group(rank, group_id, flat_tensor)
                     sync_param(flat_tensor=flat_tensor, tensor_list=tensor_list)
@@ -288,7 +288,7 @@ class HybridZeroOptimizer(BaseOptimizer):
                 if group_id not in self.meta_for_zero[rank_to_go]:
                     self.meta_for_zero[rank_to_go][group_id] = {}
 
-                from internlm.train.pipeline import map_fqn_local_to_global
+                from internlm.initialize.initialize_model import map_fqn_local_to_global
 
                 global_fqn = map_fqn_local_to_global[param.fqn] if param.fqn in map_fqn_local_to_global else param.fqn
                 self.meta_for_zero[rank_to_go][group_id][global_fqn] = {
@@ -839,7 +839,7 @@ class HybridZeroOptimizer(BaseOptimizer):
             # create flat gradient for the flat fp32 params
             gradients = self._grad_store.get_averaged_gradients_by_group(group_id)
             with torch.no_grad():
-                flat_fp16_avg_grads = flatten(gradients)
+                flat_fp16_avg_grads = _flatten_dense_tensors(gradients)
             self._grad_store.reset_average_gradients_by_group(group_id)
             gradients = None  # release cuda memory
 

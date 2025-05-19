@@ -14,6 +14,7 @@ class ASCEND_Accelerator(Accelerator):
     """
 
     def __init__(self) -> None:
+        super().__init__()
         self._name_str = "npu"
         self._communication_backend_name = "hccl"
         self.amp = self.get_amp()

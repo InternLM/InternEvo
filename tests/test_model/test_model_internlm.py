@@ -6,25 +6,27 @@ import pytest
 import torch
 from torch import nn
 
-import internlm
 from internlm.accelerator import get_accelerator
 from internlm.core.context import ParallelMode
-from internlm.core.context.parallel_context import Config
-from internlm.core.context.parallel_context import global_context as gpc
-from internlm.core.parallel.comm.tensor import (
+from internlm.core.context import global_context as gpc
+from internlm.core.parallel.comm import (
     HeadTensorParallelCommunicator,
     LinearRole,
     TensorParallelCommunicator,
 )
 from internlm.core.parallel.comm.utils import gather_forward_split_backward
-from internlm.model.modeling_internlm import InternLM1Decoder
-from internlm.model.modules.linear import (
+from internlm.initialize import initialize_launcher
+from internlm.model.model_implementations.transformers.modeling_internlm import (
+    InternLM1Decoder,
+)
+from internlm.model.model_ops.modules.linear import (
     ColumnParallelLinear,
     RowParallelLinear,
     ScaleColumnParallelLinear,
     new_linear,
 )
 from internlm.utils.common import get_current_device
+from internlm.utils.config import Config
 from tests.common_fixture import find_free_port
 
 internlm_accelerator = get_accelerator()
@@ -52,14 +54,12 @@ config = Config(
         model=dict(
             checkpoint=False,
             num_attention_heads=2,
-            embed_split_hidden=True,
             vocab_size=103168,
             embed_grad_scale=1,
             parallel_output=True,
             hidden_size=1024,
             num_layers=2,
             mlp_ratio=1,
-            apply_post_layer_norm=False,
             dtype=torch.bfloat16,
             norm_type="rmsnorm",
             layer_norm_epsilon=1e-5,
@@ -83,8 +83,7 @@ def build_environment(rank, world_size, free_port):
     os.environ["MASTER_ADDR"] = "127.0.0.1"
     os.environ["MASTER_PORT"] = free_port
     internlm_accelerator.empty_cache()
-    # launcher="torch"
-    internlm.launch_from_torch(config=config, seed=1024)
+    initialize_launcher(config=config, launcher="torch", distributed_port=8888, seed=1024, args_check=False, dist_backend="nccl")
 
 
 def seed_all(seed, cuda_deterministic=False):

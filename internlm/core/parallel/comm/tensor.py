@@ -10,7 +10,7 @@ import torch
 from torch import distributed as dist
 
 from internlm.core.context import ParallelMode
-from internlm.core.context.parallel_context import global_context as gpc
+from internlm.core.context import global_context as gpc
 from internlm.core.parallel.comm.utils import (
     DUMMY_HANDLE_CONST,
     AsyncCommHandle,
@@ -23,8 +23,7 @@ from internlm.core.parallel.comm.utils import (
     reduce_scatter_raw,
     split_forward_gather_backward,
 )
-from internlm.model.modules.embedding import Embedding1D
-from internlm.model.moe.moe import MoE
+from internlm.model.model_ops.moe.moe import MoE
 
 # input gather dim
 _GATHER_DIM = 1  # shape: [batch, seqlen, dim] or [1, packlen, dim]
@@ -339,14 +338,21 @@ class EmbeddingTensorParallelCommunicator:
     """
 
     def __init__(self, parallel_mode: ParallelMode) -> None:
+        from internlm.model.model_ops.modules.embedding import Embedding1D
+
+        self.embedding1d_class = Embedding1D
         self._parallel_mode = parallel_mode
 
-    def register_module_hook(self, module: Embedding1D) -> None:
-        assert isinstance(module, Embedding1D), "Embbeding tensor parallel communicator is only support Embedding1D"
+    def register_module_hook(self, module: torch.nn.Module) -> None:
+        assert isinstance(
+            module, self.embedding1d_class
+        ), "Embbeding tensor parallel communicator is only support Embedding1D"
 
         module.register_forward_hook(self.output_hook)
 
-    def output_hook(self, module: Embedding1D, args: Any, output: Tuple[Any]) -> Tuple[Any]:  # pylint: disable=W0613
+    def output_hook(
+        self, module: torch.nn.Module, args: Any, output: Tuple[Any]  # pylint: disable=W0613
+    ) -> Tuple[Any]:
         """
         split output after forward and allgather grad_output before backward.
         """
@@ -366,14 +372,21 @@ class EmbeddingSequenceParallelCommunicator:
     """
 
     def __init__(self, parallel_mode: ParallelMode) -> None:
+        from internlm.model.model_ops.modules.embedding import Embedding1D
+
+        self.embedding1d_class = Embedding1D
         self._parallel_mode = parallel_mode
 
-    def register_module_hook(self, module: Embedding1D) -> None:
-        assert isinstance(module, Embedding1D), "Embbeding sequence parallel communicator is only support Embedding1D"
+    def register_module_hook(self, module: torch.nn.Module) -> None:
+        assert isinstance(
+            module, self.embedding1d_class
+        ), "Embbeding sequence parallel communicator is only support Embedding1D"
 
         module.register_forward_hook(self.output_hook)
 
-    def output_hook(self, module: Embedding1D, args: Any, output: Tuple[Any]) -> Tuple[Any]:  # pylint: disable=W0613
+    def output_hook(
+        self, module: torch.nn.Module, args: Any, output: Tuple[Any]  # pylint: disable=W0613
+    ) -> Tuple[Any]:
         """
         split output after forward and allgather grad_output before backward.
         """

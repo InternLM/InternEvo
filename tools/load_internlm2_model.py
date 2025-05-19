@@ -10,8 +10,10 @@ import torch
 from internlm.apis.inference import SequenceGenerator
 from internlm.core.context import ParallelMode
 from internlm.core.context import global_context as gpc
-from internlm.initialize.launch import initialize_distributed_env
-from internlm.train import initialize_model_and_parallel_communicator
+from internlm.initialize import initialize_launcher
+from internlm.initialize.initialize_model import (
+    initialize_model_and_parallel_communicator,
+)
 from internlm.utils.storage_manager import get_fns, init_storage_manager, llm_load
 from tools.interface import GenerationConfig
 
@@ -180,7 +182,7 @@ def initialize_internlm_model(
     if gpc.is_rank_for_log():
         logger.info(f"model_config: {model_config}.")
 
-    initialize_distributed_env(
+    initialize_launcher(
         config=dict(
             model_type=model_type,
             model=model_config,
@@ -193,7 +195,7 @@ def initialize_internlm_model(
         ),
         launcher="torch" if use_torchrun_starter() else "slurm",
         seed=seed,
-        master_port=23574,
+        distributed_port=23574,
         args_check=False,
     )
     # Directly get the origin model without NativeAMP wrapper.
@@ -284,7 +286,6 @@ if __name__ == "__main__":
             num_chunks=1,
             checkpoint=0.2,
             dtype="torch.bfloat16",
-            embed_split_hidden=True,
             num_layers=32,
             hidden_size=4096,
             vocab_size=92544,
@@ -296,7 +297,6 @@ if __name__ == "__main__":
             use_flash_attn=True,
             norm_type="rmsnorm",
             qk_interleaved=True,
-            apply_post_layer_norm=False,
             no_bias=True,
             layer_norm_epsilon=1e-5,
             rope_base=1000000,

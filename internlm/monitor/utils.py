@@ -6,10 +6,6 @@ def now_time():
     return datetime.now().strftime("%b%d_%H-%M-%S")
 
 
-def set_env_var(key, value):
-    os.environ[str(key)] = str(value)
-
-
 def get_job_id():
     job_id = "none"
     if os.getenv("SLURM_JOB_ID") is not None:

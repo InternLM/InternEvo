@@ -12,10 +12,10 @@ from threading import Thread
 
 from internlm.accelerator.abstract_accelerator import get_accelerator
 from internlm.core.context import global_context as gpc
-from internlm.monitor.alert import send_feishu_msg_with_webhook
-from internlm.utils.common import SingletonMeta
+from internlm.monitor import send_feishu_msg_with_webhook
+from internlm.utils.common import SingletonMeta, set_env_var
 
-from .utils import get_job_key, set_env_var
+from .utils import get_job_key
 
 logger = logging.getLogger(__file__)
 internlm_accelerator = get_accelerator()

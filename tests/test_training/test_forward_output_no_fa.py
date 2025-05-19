@@ -7,21 +7,21 @@ import numpy as np
 import pytest
 import torch
 
-import internlm
 from internlm.accelerator import get_accelerator
 from internlm.core.context import ParallelMode
 from internlm.core.context import global_context as gpc
-from internlm.core.context.parallel_context import Config
 from internlm.core.trainer import Trainer
 from internlm.data import build_train_loader_with_data_type
-from internlm.initialize.launch import args_sanity_check
-from internlm.model.losses import InternLoss
-from internlm.model.metrics import AccPerplex, SchedulerMetricHook
-from internlm.train import (
+from internlm.initialize import initialize_launcher
+from internlm.initialize.initialize_model import (
     initialize_model_and_parallel_communicator,
-    initialize_optimizer,
 )
+from internlm.initialize.initialize_optimizer import initialize_optimizer
+from internlm.initialize import initialize_trainer
+from internlm.model.model_ops.losses import InternLoss
+from internlm.model.model_ops.metrics import AccPerplex, SchedulerMetricHook
 from internlm.utils.common import get_current_device
+from internlm.utils.config import Config
 from internlm.utils.logger import get_logger
 
 logger = get_logger(__file__)
@@ -54,14 +54,12 @@ config = Config(
         model=dict(
             checkpoint=True,
             num_attention_heads=32,
-            embed_split_hidden=True,
             vocab_size=92544,
             embed_grad_scale=1,
             parallel_output=False,
             hidden_size=4096,
             num_layers=32,
             mlp_ratio=8 / 3,
-            apply_post_layer_norm=False,
             dtype="torch.bfloat16",
             norm_type="rmsnorm",
             layer_norm_epsilon=1e-5,
@@ -133,8 +131,7 @@ def build_environment(rank, world_size, free_port, config):
     os.environ["MASTER_ADDR"] = "localhost"
     os.environ["MASTER_PORT"] = str(free_port)
     internlm_accelerator.empty_cache()
-    internlm.launch_from_torch(config=config, seed=1024)
-    args_sanity_check()
+    initialize_launcher(config=config, launcher="torch", distributed_port=8888, seed=1024, args_check=True, dist_backend="nccl")
 
 
 def seed_all(seed, cuda_deterministic=False):
@@ -198,7 +195,7 @@ def train_check_output(args):
         ),
     ]
 
-    engine, scheduler = internlm.initialize_trainer(
+    engine, scheduler = initialize_trainer(
         model=model,
         optimizer=optimizer,
         criterion=criterion,

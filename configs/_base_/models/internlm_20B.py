@@ -12,7 +12,6 @@ model = dict(
     num_chunks=1,  # if num_chunks > 1, interleaved pipeline scheduler is used.
     checkpoint=False,  # The proportion of layers for activation aheckpointing, the optional value are True/False/[0-1]
     dtype="torch.bfloat16",  # Support: "torch.float16", "torch.half", "torch.bfloat16", "torch.float32", "torch.tf32"
-    embed_split_hidden=True,
     num_layers=NUM_LAYER,
     hidden_size=HIDDEN_SIZE,
     vocab_size=VOCAB_SIZE,
@@ -21,7 +20,6 @@ model = dict(
     num_attention_heads=NUM_ATTENTION_HEAD,
     mlp_ratio=MLP_RATIO,
     norm_type="rmsnorm",
-    apply_post_layer_norm=False,
     layer_norm_epsilon=1e-5,
 )
 

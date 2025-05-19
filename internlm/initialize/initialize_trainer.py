@@ -26,8 +26,8 @@ from internlm.core.scheduler import (
 from internlm.core.scheduler.pipeline_scheduler_1f1b import get_tensor_shape
 from internlm.core.trainer import Trainer
 from internlm.data.utils import packed_data_normalizer, unpack_data
-from internlm.solver.optimizer.hybrid_zero_optim import BaseOptimizer
-from internlm.solver.schedulers.beta2_scheduler import Beta2Scheduler
+from internlm.solver.optimizer import BaseOptimizer
+from internlm.solver.schedulers import Beta2Scheduler
 from internlm.utils.common import SchedulerHook, get_current_device
 from internlm.utils.parallel import is_using_isp
 
@@ -36,6 +36,7 @@ def initialize_trainer(
     model: nn.Module,
     optimizer: Optimizer,
     criterion: Optional[_Loss] = None,
+    mtp_criterions: Optional[List[_Loss]] = None,
     lr_scheduler: Optional[_LRScheduler] = None,
     beta2_scheduler: Optional[Beta2Scheduler] = None,
     scheduler_hooks: Optional[List[SchedulerHook]] = None,
@@ -166,6 +167,7 @@ def initialize_trainer(
         lr_scheduler=lr_scheduler,
         beta2_scheduler=beta2_scheduler,
         criterion=criterion,
+        mtp_criterions=mtp_criterions,
         gradient_handlers=gradient_handlers,
         clip_grad_norm=clip_grad_norm,
     )

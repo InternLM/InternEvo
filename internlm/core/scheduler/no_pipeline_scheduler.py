@@ -59,6 +59,44 @@ class NonPipelineScheduler(BaseScheduler):
 
         super().__init__(data_process_func)
 
+    def _call_engine_mtp_criterion(self, engine: Engine, outputs: Any, labels: Any):
+        """Calls the engine's criterion with the given outputs and labels.
+        Args:
+            engine (internlm.core.Engine): InternLM engine for training and inference.
+            outputs (Any): The outputs from the model, can be of type torch.Tensor, list, tuple, or dict.
+            labels (Any): The labels for the outputs, can be of type torch.Tensor, list, tuple, or dict.
+        """
+        assert isinstance(
+            outputs, (torch.Tensor, list, tuple, dict)
+        ), f"Expect output of model is (torch.Tensor, list, tuple), got {type(outputs)}"
+
+        mtp_losses = []
+        for i, (output, label) in enumerate(zip(outputs, labels)):
+            if isinstance(output, torch.Tensor):
+                output = (output,)
+            if isinstance(label, torch.Tensor):
+                label = (label,)
+
+            self._call_hooks("before_criterion", output, label)
+            if isinstance(output, (tuple, list)) and isinstance(label, (tuple, list)):
+                mtp_loss = engine.mtp_criterions[i](*output, *label)
+            elif isinstance(output, (tuple, list)) and isinstance(label, dict):
+                mtp_loss = engine.mtp_criterions[i](*output, **label)
+            elif isinstance(output, dict) and isinstance(label, dict):
+                mtp_loss = engine.mtp_criterions[i](**output, **label)
+            elif isinstance(output, dict) and isinstance(label, (list, tuple)):
+                raise ValueError(f"Expected labels to be a dict when the model outputs are dict, but got {type(label)}")
+            else:
+                raise TypeError(
+                    f"Expected model outputs and labels to be of type torch.Tensor ' \
+                    '(which is auto-converted to tuple), list, tuple, or dict, ' \
+                    'but got {type(output)} (model outputs) and {type(label)} (labels)"
+                )
+            self._call_hooks("after_criterion", mtp_loss)
+            mtp_losses.append(mtp_loss)
+
+        return mtp_losses
+
     def pre_processing(self, engine: Engine):
         """Performs actions before running the schedule.
 
@@ -116,8 +154,10 @@ class NonPipelineScheduler(BaseScheduler):
         with conditional_context(torch.no_grad(), enable=forward_only):
             self._call_hooks("before_forward", data)
             if hasattr(gpc.config.model, "num_experts"):
-                # moe is used
-                output, moe_losses = self._call_engine(engine, data)
+                if hasattr(gpc.config.model, "num_mtp_layers") and gpc.config.model.num_mtp_layers > 0:
+                    output, moe_losses, mtp_outputs = self._call_engine(engine, data)
+                else:
+                    output, moe_losses = self._call_engine(engine, data)
             else:
                 output = self._call_engine(engine, data)
             self._call_hooks("after_forward", output)
@@ -128,6 +168,26 @@ class NonPipelineScheduler(BaseScheduler):
                 self._call_hooks("before_criterion", output, label)
                 loss = self._call_engine_criterion(engine, output, label)
                 self._call_hooks("after_criterion", loss)
+                
+                if hasattr(gpc.config.model, "num_mtp_layers") and gpc.config.model.num_mtp_layers > 0:
+                    mtp_labels = []
+                    for i in range(gpc.config.model.num_mtp_layers):
+                        mtp_labels.append(
+                            torch.cat(
+                                [
+                                    label[:, i + 1 :],
+                                    torch.full((label.size(0), i + 1), -100, dtype=label.dtype, device=label.device),
+                                ],
+                                dim=1,
+                            )
+                        )
+                    mtp_losses = self._call_engine_mtp_criterion(engine, mtp_outputs, mtp_labels)
+                    mtp_loss = sum(mtp_losses) * gpc.config.loss.mtp_loss_coeff
+                    mtp_loss /= scale_loss
+                    loss += mtp_loss
+                else:
+                    mtp_loss = None
+                
                 moe_loss = (
                     sum(moe_losses) * gpc.config.loss.moe_loss_coeff  # pylint: disable=E0606
                     if hasattr(gpc.config.model, "num_experts") and gpc.config.model.num_experts > 1

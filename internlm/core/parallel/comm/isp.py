@@ -29,9 +29,8 @@ from internlm.core.parallel.comm.utils import (
     expandKVPacked,
     reduce_scatter_raw,
 )
-from internlm.model.modules.embedding import Embedding1D
-from internlm.model.modules.linear import ParallelLinearWithCommExt
-from internlm.model.modules.utils import is_moe_param
+from internlm.model.model_ops.modules.linear import ParallelLinearWithCommExt
+from internlm.model.model_ops.modules.utils import is_moe_param
 from internlm.utils.common import SchedulerHook, get_current_device
 from internlm.utils.utils import (
     CuSeqlenType,
@@ -183,14 +182,19 @@ class EmbeddingWeightParallelCommunicator:
     """
 
     def __init__(self, parallel_mode: ParallelMode) -> None:
+        from internlm.model.model_ops.modules.embedding import Embedding1D
+
+        self.embedding1d_cls = Embedding1D
         self.parallel_mode = parallel_mode
         self.gather_dim = 0
 
         self._cur_micro_step = 0
         self._num_micro_step = gpc.config.data.micro_num
 
-    def register_module_hook(self, module: Embedding1D) -> None:
-        assert isinstance(module, Embedding1D), "Embbeding weight parallel communicator is only support Embedding1D"
+    def register_module_hook(self, module: nn.Module) -> None:
+        assert isinstance(
+            module, self.embedding1d_cls
+        ), "Embbeding weight parallel communicator is only support Embedding1D"
 
         module.weight.evo_tensor = None
         self.gather_dim = 0 if module.vocab_parallel else 1
@@ -1501,6 +1505,17 @@ class DistributedAttention(nn.Module):
         Returns:
             * output (Tensor): context output
         """
+        # if the num head of kv is not enough to be splitted by sp
+        # then we could copy the kv head
+        num_head_k = k.shape[2]
+        if self.sp_size > num_head_k:
+            assert self.sp_size % num_head_k == 0, "the num_head_k should be divided by sp size."
+            k = expandKVPacked(k, self.sp_size // num_head_k, 2)
+        num_head_v = v.shape[2]
+        if self.sp_size > num_head_v:
+            assert self.sp_size % num_head_v == 0, "the num_head_v should be divided by sp size."
+            v = expandKVPacked(v, self.sp_size // num_head_v, 2)
+
         # self._scatter_gather_idx["q"] = [1, 0]  # q/k/v shape: [sequence, head, head_dim]
         # q shpae: [1, packlen, n_head, head_dim] or [batch, seqlen, n_head, head_dim]
         # scatter in n_head and gather in seqlen(packlen)
@@ -1559,8 +1574,10 @@ def auto_wrap_func_distributed_attention(attn_impl: Callable) -> Callable[..., C
         if tp_mode != TensorParallelMode.isp.name:
             return attn_impl(*args, **kwargs)
         else:
-            return DistributedAttention(
-                local_attention=attn_impl, sequence_process_group=gpc.get_group(ParallelMode.TENSOR)
-            )(*args, **kwargs)
+            if gpc.config.parallel.sequence_2D.enable is True:
+                spg = gpc.get_group(ParallelMode.HEAD)
+            else:
+                spg = gpc.get_group(ParallelMode.TENSOR)
+            return DistributedAttention(local_attention=attn_impl, sequence_process_group=spg)(*args, **kwargs)
 
     return partial(_attetion_constructor, attn_impl=attn_impl)

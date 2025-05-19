@@ -5,7 +5,6 @@ import torch
 from torch import nn
 from torch.testing import assert_close
 
-import internlm
 from internlm.accelerator import get_accelerator
 from internlm.core.context import ParallelMode
 from internlm.core.context import global_context as gpc
@@ -17,8 +16,9 @@ from internlm.core.scheduler import (
     NonPipelineScheduler,
     PipelineScheduler,
 )
-from internlm.model.metrics import SchedulerMetricHook
-from internlm.train import initialize_optimizer
+from internlm.initialize import initialize_launcher
+from internlm.initialize.initialize_optimizer import initialize_optimizer
+from internlm.model.model_ops.metrics import SchedulerMetricHook
 from internlm.utils.common import get_current_device
 
 internlm_accelerator = get_accelerator()
@@ -155,8 +155,7 @@ def build_environment(rank, world_size, config):
     os.environ["MASTER_ADDR"] = "127.0.0.1"
     os.environ["MASTER_PORT"] = "33333"
     internlm_accelerator.empty_cache()
-    # launcher="torch"
-    internlm.launch_from_torch(config=config, seed=1024)
+    initialize_launcher(config=config, launcher="torch", distributed_port=8888, seed=1024, args_check=False, dist_backend="nccl")
 
 
 def loose_close(a, b, dtype: torch.dtype = torch.float32):

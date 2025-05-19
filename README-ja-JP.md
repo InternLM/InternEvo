@@ -99,7 +99,7 @@ data = dict(
 
 Slurm環境で2ノード16カードを使用する場合、コマンドは以下の通りです：
 ```bash
-$ srun -p internllm -N 2 -n 16 --ntasks-per-node=8 --gpus-per-task=1 python train.py --config ./configs/7B_sft.py
+$ srun -p internllm -N 2 -n 16 --ntasks-per-node=8 --gpus-per-task=1 python -m internlm.launcher.launch --config ./configs/7B_sft.py
 ```
 
 torchを使用し、1ノード8カードで実行する場合、コマンドは以下の通りです：
@@ -166,8 +166,8 @@ $ torchrun --nnodes=1 --nproc_per_node=8 train.py --config ./configs/7B_sft.py -
       </td>
       <td>
         <ul>
-          <li><a href="tools/transformers/README.md">Convert ckpt to HF</a></li>
-          <li><a href="tools/transformers/README.md">Revert ckpt from HF</a></li>
+          <li><a href="huggingface_models/README.md">Convert ckpt to HF</a></li>
+          <li><a href="huggingface_models/README.md">Revert ckpt from HF</a></li>
           <li><a href="tools/tokenizer.py">Raw Data Tokenizer</a></li>
           <li><a href="tools/alpaca_tokenizer.py">Alpaca data Tokenizer</a></li>
         </ul>

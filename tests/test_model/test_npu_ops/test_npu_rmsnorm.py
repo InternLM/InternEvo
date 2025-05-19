@@ -2,8 +2,8 @@ import pytest
 import torch
 
 from internlm.accelerator import AcceleratorType, get_accelerator
-from internlm.model.ops.norm import _RMSNorm as RMSNormTorch
-from internlm.model.ops.norm import _RMSNormNPU as RMSNormNPU
+from internlm.model.model_ops.ops.norm import _RMSNorm as RMSNormTorch
+from internlm.model.model_ops.ops.norm import _RMSNormNPU as RMSNormNPU
 from internlm.utils.common import get_current_device
 
 internlm_accelerator = get_accelerator()

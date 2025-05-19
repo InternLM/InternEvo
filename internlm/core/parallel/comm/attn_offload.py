@@ -1,8 +1,10 @@
 import torch
 
+from internlm.accelerator import AcceleratorType, get_accelerator
 from internlm.utils.common import get_current_device
 
 global_attn_offload = None
+internlm_accelerator = get_accelerator()
 
 
 class AttnOffloadManager:
@@ -117,7 +119,8 @@ class AttnOffloadManager:
 def initialize_offload_manager(enable_cpu_offload: bool = False):
     global global_attn_offload
     if global_attn_offload is None:
-        global_attn_offload = AttnOffloadManager(enable_cpu_offload)
+        if internlm_accelerator.get_accelerator_backend() == AcceleratorType.GPU:
+            global_attn_offload = AttnOffloadManager(enable_cpu_offload)
 
     return global_attn_offload
 

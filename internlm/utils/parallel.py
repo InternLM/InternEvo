@@ -13,7 +13,7 @@ from internlm.core.context import (
     ParallelMode,
 )
 from internlm.core.context import global_context as gpc
-from internlm.model.modules.utils import is_gate_param
+from internlm.model.model_ops.modules.utils import is_gate_param
 from internlm.utils.utils import TensorParallelMode
 
 

@@ -3,23 +3,23 @@ import os
 import pytest
 from sentencepiece import SentencePieceProcessor
 
-import internlm  # noqa: E402
 from internlm.apis.inference import SequenceGenerator, batch_tokenize
 from internlm.checkpoint import CheckpointManager  # noqa: E402
 from internlm.core.context import global_context as gpc  # noqa: E402
-from internlm.core.trainer import TrainState, Trainer  # noqa: E402
+from internlm.core.trainer import Trainer, TrainState  # noqa: E402
 from internlm.data import build_train_loader_with_data_type  # noqa: E402
-from internlm.initialize import initialize_distributed_env  # noqa: E402
-from internlm.model.losses import InternLoss  # noqa: E402
-from internlm.train import (  # noqa: E402
-    get_scheduler_hooks,
+from internlm.initialize import initialize_launcher  # noqa: E402
+from internlm.initialize.initialize_model import (  # noqa: E402
     initialize_model_and_parallel_communicator,
-    initialize_optimizer,
 )
+from internlm.initialize.initialize_optimizer import initialize_optimizer
+from internlm.initialize import initialize_trainer
+from internlm.model.model_ops.losses import InternLoss  # noqa: E402
+from internlm.core.trainer import get_scheduler_hooks  # noqa: E402
 
 
 def setup_generator(config, tokenizer):
-    initialize_distributed_env(config=config)
+    initialize_launcher(config=config)
 
     model, isp_communicator = initialize_model_and_parallel_communicator()
 
@@ -45,7 +45,7 @@ def setup_generator(config, tokenizer):
     ckpt_manager.try_resume_training(train_state)
 
     # initialize trainer
-    engine, scheduler = internlm.initialize_trainer(
+    engine, scheduler = initialize_trainer(
         model=model,
         optimizer=optimizer,
         criterion=criterion,

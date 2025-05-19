@@ -68,10 +68,10 @@ msgstr "Initialize Distributed Training Environment"
 
 #: ../../source/training.rst:23
 msgid ""
-"调用 ``initialize_distributed_env`` 函数，支持通过 slurm 或 torch "
+"调用 ``init_distributed`` 函数，支持通过 slurm 或 torch "
 "方式启动训练脚本，并传入配置文件、端口号、进程随机种子等信息。函数详细说明如下："
 msgstr ""
-"Call the initialize_distributed_env function, which supports launching "
+"Call the init_distributed function, which supports launching "
 "the training script through Slurm or Torch, and pass in information such "
 "as the configuration file, port number, and process random seed. Detailed"
 " description of the function is as follows:"

@@ -6,13 +6,13 @@ import pytest
 import torch
 
 from internlm.core.context import global_context as gpc
-from internlm.core.context.parallel_context import Config
 from internlm.core.naive_amp import NaiveAMPModel
-from internlm.model.builder import create_model
-from internlm.model.registry import register_model_initializer
-from internlm.solver.optimizer.hybrid_zero_optim import HybridZeroOptimizer
-from internlm.train.utils import create_param_groups
+from internlm.model.model_implementations.builder import create_model
+from internlm.model.model_implementations.registry import register_model_initializer
+from internlm.solver.optimizer import HybridZeroOptimizer
+from internlm.initialize.initialize_optimizer import create_param_groups
 from internlm.utils.common import SingletonMeta
+from internlm.utils.config import Config
 
 OSS_NAME = os.environ.get("OSS_BUCKET_NAME", None)
 OSS_IP = os.environ.get("OSS_IP", None)
@@ -67,14 +67,12 @@ init_config = Config(
         model=dict(
             checkpoint=False,
             num_attention_heads=2,
-            embed_split_hidden=True,
             vocab_size=103168,
             embed_grad_scale=1,
             parallel_output=True,
             hidden_size=1024,
             num_layers=2,
             mlp_ratio=1,
-            apply_post_layer_norm=False,
             dtype=torch.bfloat16,
             norm_type="rmsnorm",
             layer_norm_epsilon=1e-5,
@@ -154,21 +152,21 @@ def reset_singletons():
 
 
 def reset_seed():
-    from internlm.core.context.random import _SEED_MANAGER
+    from internlm.core.context import _SEED_MANAGER
 
     _SEED_MANAGER.reset()
 
 
 @pytest.fixture(scope="module")
 def init_dist_and_model(rank=0, world_size=1):
-    from internlm.initialize import initialize_distributed_env
+    from internlm.initialize import initialize_launcher
 
     os.environ["RANK"] = str(rank)
     os.environ["LOCAL_RANK"] = str(rank)
     os.environ["WORLD_SIZE"] = str(world_size)
     os.environ["MASTER_ADDR"] = "127.0.0.1"
     os.environ["MASTER_PORT"] = "12377"
-    initialize_distributed_env(config=init_config, launcher="torch", master_port=12377, args_check=False)
+    initialize_launcher(config=init_config, launcher="torch", distributed_port=12377, args_check=False)
 
     # setup
     print("set up", flush=True)

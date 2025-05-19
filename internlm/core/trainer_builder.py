@@ -9,26 +9,28 @@ import torch.distributed as dist
 from torch.utils.data import DataLoader
 
 from internlm.checkpoint.checkpoint_manager import CheckpointManager
+from internlm.core.context import ParallelMode
 from internlm.core.context import global_context as gpc
-from internlm.core.context.process_group_initializer import ParallelMode
 from internlm.core.parallel.comm import initialize_offload_manager
-from internlm.core.trainer import Trainer
-from internlm.data.streaming.utils import streaming_simple_resume
-from internlm.data.train_state import get_train_state
-from internlm.eval.evaluation import evaluate_on_val_dls
-from internlm.initialize.initialize_trainer import initialize_trainer
-from internlm.model.losses.ce_loss import InternLoss
-from internlm.model.metrics import AccPerplex
-from internlm.monitor.monitor import send_alert_message
-from internlm.train.pipeline import (
-    generate_meta_data,
+from internlm.core.trainer import (
+    Trainer,
     get_scheduler_hooks,
-    initialize_llm_profile,
-    initialize_optimizer,
-    inject_model,
     load_new_batch,
     record_current_batch_training_metrics,
 )
+from internlm.data.streaming.utils import streaming_simple_resume
+from internlm.data.train_state import get_train_state
+from internlm.eval import evaluate_on_val_dls
+from internlm.initialize import initialize_trainer
+from internlm.initialize.initialize_model import (
+    generate_meta_data,
+    initialize_model_and_parallel_communicator,
+)
+from internlm.initialize.initialize_optimizer import initialize_optimizer
+from internlm.initialize.initialize_profiler import initialize_llm_profile
+from internlm.model.model_ops.losses.ce_loss import InternLoss
+from internlm.model.model_ops.metrics import AccPerplex
+from internlm.monitor import send_alert_message
 from internlm.utils.common import (
     BatchSkipper,
     check_cuda_env,
@@ -100,8 +102,8 @@ class TrainerBuilder(Trainer):
         # load config_lines
         config_lines = self._read_config(kwargs["config"])
 
-        # inject model for amp, parallel setting, parameter syncing and others
-        model, isp_communicator = inject_model(model)
+        # initialize model and communicators
+        model, isp_communicator = initialize_model_and_parallel_communicator(model)
 
         # check cuda env
         check_cuda_env()
@@ -111,6 +113,9 @@ class TrainerBuilder(Trainer):
 
         # initialize loss function
         criterion = self._initialize_criterion()
+
+        # initialize mtp loss function
+        mtp_criterions = self._initialize_mtp_criterion()
 
         # initialize cpu offload manager for selective checkpoint
         initialize_offload_manager(gpc.config.get("selective_checkpoint_offload", False))
@@ -147,6 +152,7 @@ class TrainerBuilder(Trainer):
             model=model,
             optimizer=optimizer,
             criterion=criterion,
+            mtp_criterions=mtp_criterions,
             lr_scheduler=lr_scheduler,
             beta2_scheduler=beta2_scheduler,
             scheduler_hooks=get_scheduler_hooks(self.metric, optimizer, isp_communicator),
@@ -158,6 +164,20 @@ class TrainerBuilder(Trainer):
         )
 
         super().__init__(engine, scheduler)
+
+    def _initialize_mtp_criterion(self) -> InternLoss:
+        if hasattr(gpc.config.model, "num_mtp_layers") and gpc.config.model.num_mtp_layers > 0:
+            mtp_criterions = []
+            for _ in range(gpc.config.model.num_mtp_layers):
+                mtp_criterion = InternLoss(
+                    parallel_output=gpc.config.model.parallel_output, 
+                    label_smoothing=gpc.config.loss.label_smoothing,
+                    op_type=gpc.config.loss.op_type,
+                )
+                mtp_criterions.append(mtp_criterion)
+        else:
+            mtp_criterions = []
+        return mtp_criterions
 
     def _setup_time_and_logging(self) -> str:
         current_time = launch_time()
@@ -363,8 +383,8 @@ class TrainerBuilder(Trainer):
             engine=self.engine,
             start_time=start_time,
             very_begining_time=self.very_beginning_time,
-            loss=loss,
-            moe_loss=moe_loss,
+            loss=loss.item() if isinstance(loss, torch.Tensor) else loss,
+            moe_loss=moe_loss.item() if isinstance(moe_loss, torch.Tensor) else moe_loss,
             grad_norm=grad_norm_groups,
             metric=self.metric,
         )

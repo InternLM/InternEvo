@@ -99,7 +99,7 @@ Training can be started on slurm or torch distributed environment.
 
 On slurm, using 2 nodes and 16 cards, the command is as follows:
 ```bash
-$ srun -p internllm -N 2 -n 16 --ntasks-per-node=8 --gpus-per-task=1 python train.py --config ./configs/7B_sft.py
+$ srun -p internllm -N 2 -n 16 --ntasks-per-node=8 --gpus-per-task=1 python -m internlm.launcher.launch --config ./configs/7B_sft.py
 ```
 
 On torch, using 1 node and 8 cards, the command is as follows:
@@ -166,8 +166,8 @@ Please refer to the [System Architecture document](./doc/en/structure.md) for ar
       </td>
       <td>
         <ul>
-          <li><a href="tools/transformers/README.md">Convert ckpt to HF</a></li>
-          <li><a href="tools/transformers/README.md">Revert ckpt from HF</a></li>
+          <li><a href="huggingface_models/README.md">Convert ckpt to HF</a></li>
+          <li><a href="huggingface_models/README.md">Revert ckpt from HF</a></li>
           <li><a href="tools/tokenizer.py">Raw Data Tokenizer</a></li>
           <li><a href="tools/alpaca_tokenizer.py">Alpaca data Tokenizer</a></li>
         </ul>

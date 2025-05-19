@@ -18,10 +18,12 @@ from internlm.accelerator import get_accelerator
 from internlm.apis.inference import SequenceGenerator
 from internlm.core.context import global_context as gpc
 from internlm.data import build_generation_loader_with_data_type
-from internlm.initialize import initialize_distributed_env
+from internlm.initialize import initialize_launcher
+from internlm.initialize.initialize_model import (
+    initialize_model_and_parallel_communicator,
+)
 from internlm.monitor import initialize_monitor_manager
-from internlm.monitor.monitor import monitor_manager as mm
-from internlm.train import initialize_model_and_parallel_communicator
+from internlm.monitor import monitor_manager as mm
 from internlm.utils.common import (
     enable_pytorch_expandable_segments,
     launch_time,
@@ -219,7 +221,7 @@ if __name__ == "__main__":
     hostname = socket.gethostname()
 
     # initialize distributed environment
-    initialize_distributed_env(config=args.config, launcher=args.launcher, master_port=args.port, seed=args.seed)
+    initialize_launcher(config=args.config, launcher=args.launcher, distributed_port=args.port, seed=args.seed)
     assert hasattr(gpc, "config") and gpc.config is not None
     assert "generation" in gpc.config, f"Please set `generation` config in `{args.config}` file"
     assert (

@@ -11,16 +11,14 @@ from internlm.accelerator import get_accelerator
 from internlm.core.context import ParallelMode
 from internlm.core.context import global_context as gpc
 from internlm.core.trainer import TrainState
-from internlm.initialize.launch import get_config_value
-from internlm.initialize.legacy.launch import (
-    auto_resume_sanity_check,
-    ckpt_info_sanity_check,
+from internlm.model.model_implementations.registry import model_initializer
+from internlm.model.model_implementations.transformers.base_model import (
+    BaseTransformerModel,
 )
-from internlm.model.base_model import BaseModel
-from internlm.model.registry import model_initializer
 from internlm.monitor import send_alert_message
 from internlm.solver.optimizer import HybridZeroOptimizer, HybridZeroOptimizer_v2
 from internlm.utils.common import get_current_device
+from internlm.utils.config import get_config_value
 from internlm.utils.logger import get_logger
 from internlm.utils.megatron_timers import megatron_timer as timer
 from internlm.utils.parallel import is_using_fsdp, is_using_hf
@@ -289,7 +287,7 @@ class CheckpointManager:
             k: partial(try_load_internlm_ckpt_func, func=v) for k, v in LOAD_FUNC_DICT.items()
         }
         # Register huggingface ckpt load type
-        if isinstance(model, BaseModel):
+        if isinstance(model, BaseTransformerModel):
             self.defalut_load_type_func.update(
                 {
                     "hf": partial(
@@ -311,14 +309,10 @@ class CheckpointManager:
                 f.write("0")
 
         self.load_ckpt_info = get_config_value(ckpt_config, "load_ckpt_info", None)
-        if self.load_ckpt_info is None:  # (legacy): Try Compatible with old interfaces
-            self.load_ckpt_info = ckpt_info_sanity_check(ckpt_config)
 
         # Auto-reload latest checkpoint, it will overwrite the setting of 'load_ckpt_info'.
-        self.auto_resume = get_config_value(ckpt_config, "auto_resume", None)
-        if self.auto_resume is None:  # (legacy): Try Compatible with old interfaces
-            self.auto_resume = auto_resume_sanity_check(ckpt_config)
-        if self.auto_resume:
+        self.auto_resume = get_config_value(ckpt_config, "auto_resume", False)
+        if self.auto_resume and self.save_ckpt_folder and self.has_available_ckpt(self.save_ckpt_folder):
             self.load_ckpt_info = self.query_lastest_ckpt()
 
         if self.stop_file_path is None and gpc.is_rank_for_log():
@@ -393,6 +387,16 @@ now step_count is {train_state.step_count}",
 
         return now_break, now_save_ckpt, save_type
 
+    def has_available_ckpt(self, folder) -> bool:
+        """Check if there is an available ckpt in the folder."""
+        folder = folder.split(":")[-1]
+        for _, _, files in os.walk(folder, followlinks=True):
+            for fn in files:
+                fn = fn.strip("/")
+                if fn.endswith(".step"):
+                    return True
+        return False
+
     def is_now_to_save_ckpt(self, train_state, force=False) -> (bool, CheckpointSaveType, bool):
         save_ckpts, save_type, now_break = False, CheckpointSaveType.NORMAL_CHECKPOINT, False
         if force:
@@ -446,7 +450,7 @@ now step_count is {train_state.step_count}",
             )
 
             if (
-                isinstance(self.model, BaseModel)
+                isinstance(self.model, BaseTransformerModel)
                 and self.enable_internevo2hf_ckpt
                 and save_type == CheckpointSaveType.NORMAL_CHECKPOINT
                 and gpc.is_rank_for_log()
@@ -578,7 +582,7 @@ now step_count is {train_state.step_count}",
                     f"tp={gpc.get_local_rank(ParallelMode.TENSOR)},pp={gpc.get_local_rank(ParallelMode.PIPELINE)},"
                     f"dp={gpc.get_local_rank(ParallelMode.DATA)}==========="
                 )
-        elif is_using_fsdp() and is_using_hf() and not self.auto_resume:
+        elif is_using_fsdp() and not self.auto_resume:
             pass
         else:
             load_path = self.load_ckpt_info["path"]

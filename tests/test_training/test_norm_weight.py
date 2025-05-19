@@ -5,19 +5,19 @@ import os
 import pytest
 import torch
 
-import internlm
 from internlm.accelerator import get_accelerator
 from internlm.core.context import ParallelMode
 from internlm.core.context import global_context as gpc
 from internlm.core.trainer import Trainer
 from internlm.data import build_train_loader_with_data_type
-from internlm.model.losses import InternLoss
-from internlm.model.metrics import AccPerplex
-from internlm.train import (
-    get_scheduler_hooks,
+from internlm.initialize.initialize_model import (
     initialize_model_and_parallel_communicator,
-    initialize_optimizer,
 )
+from internlm.initialize.initialize_optimizer import initialize_optimizer
+from internlm.initialize import initialize_trainer
+from internlm.model.model_ops.losses import InternLoss
+from internlm.model.model_ops.metrics import AccPerplex
+from internlm.core.trainer import get_scheduler_hooks
 from internlm.utils.common import get_current_device
 from internlm.utils.logger import get_logger
 from tests.common_fixture import (
@@ -87,7 +87,7 @@ def train_check_norm_weight(args):
         dataset_types=dataset_types,
     )
 
-    engine, scheduler = internlm.initialize_trainer(
+    engine, scheduler = initialize_trainer(
         model=model,
         optimizer=optimizer,
         criterion=criterion,

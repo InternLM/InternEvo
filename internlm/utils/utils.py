@@ -50,13 +50,7 @@ class ModelType(Enum):
     INTERNLM2 = 2
     LLAMA2 = 3
     INTERNLM_MoE = 4
-    LLAVA = 5
-    QWEN2 = 6
-    BAICHUAN2 = 7
-    GEMMA = 8
-    QWEN2MOE = 9
-    MIXTRALMOE = 10
-    INTERNLM3 = 11
+    INTERNLM3 = 5
 
 
 class DataType(Enum):

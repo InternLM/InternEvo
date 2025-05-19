@@ -9,12 +9,13 @@ from torch import nn
 from torch.nn.parallel import DistributedDataParallel as DDP
 from torch.testing import assert_close
 
-import internlm
 from internlm.accelerator import get_accelerator
-from internlm.core.context.parallel_context import Config, ParallelMode
-from internlm.core.parallel.comm.zero import ParamAsyncBcastHandler
+from internlm.core.context import ParallelMode
+from internlm.core.parallel.comm import ParamAsyncBcastHandler
+from internlm.initialize import initialize_launcher
 from internlm.solver.optimizer import HybridZeroOptimizer
 from internlm.utils.common import get_current_device
+from internlm.utils.config import Config
 
 internlm_accelerator = get_accelerator()
 
@@ -95,8 +96,7 @@ def build_environment(rank, world_size):
     os.environ["MASTER_ADDR"] = "127.0.0.1"
     os.environ["MASTER_PORT"] = "12345"
     internlm_accelerator.empty_cache()
-    # launcher="torch"
-    internlm.launch_from_torch(config=config, seed=1024)
+    initialize_launcher(config=config, launcher="torch", distributed_port=8888, seed=1024, args_check=False, dist_backend="nccl")
 
 
 def loose_close(a, b, dtype: torch.dtype = torch.float32):

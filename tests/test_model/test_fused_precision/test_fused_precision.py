@@ -6,9 +6,11 @@ import torch
 from torch import nn
 
 from internlm.core.naive_amp import NaiveAMPModel, set_fp32_attr_to_module
-from internlm.model.modeling_internlm import InternLM1Decoder
-from internlm.train.pipeline import initialize_parallel_communicator
-from internlm.train.utils import create_param_groups
+from internlm.initialize.initialize_communicator import initialize_parallel_communicator
+from internlm.model.model_implementations.transformers.modeling_internlm import (
+    InternLM1Decoder,
+)
+from internlm.initialize.initialize_optimizer import create_param_groups
 from internlm.utils.common import get_current_device
 from tests.common_fixture import find_free_port
 from tests.test_model.test_model_internlm import build_environment, seed_all

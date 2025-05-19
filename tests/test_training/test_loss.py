@@ -1,28 +1,36 @@
 import math
 import os
+from functools import reduce
 
 import pytest
 import torch
 import torch.distributed as dist
 
-import internlm
 from internlm.accelerator import AcceleratorType, get_accelerator
 from internlm.checkpoint import CheckpointManager
-from internlm.core.context import Config, ParallelMode
+from internlm.checkpoint.load_funcs import LOAD_FUNC_DICT
+from internlm.core.context import ParallelMode
 from internlm.core.context import global_context as gpc
-from internlm.core.trainer import Trainer, TrainState
-from internlm.data import build_train_loader_with_data_type
-from internlm.initialize import initialize_distributed_env
-from internlm.model.losses import InternLoss
-from internlm.train import (
+from internlm.core.parallel.shard import partition_uniform
+from internlm.core.trainer import (
+    Trainer,
+    TrainState,
     get_scheduler_hooks,
-    initialize_model_and_parallel_communicator,
-    initialize_optimizer,
     load_new_batch,
 )
+from internlm.data import build_train_loader_with_data_type
+from internlm.initialize import initialize_launcher, initialize_trainer
+from internlm.initialize.initialize_model import (
+    initialize_model_and_parallel_communicator,
+)
+from internlm.initialize.initialize_optimizer import initialize_optimizer
+from internlm.model.model_ops.losses import InternLoss
+from internlm.model.model_ops.utils import get_parallel_size_from_file
 from internlm.utils.common import BatchSkipper, launch_time
+from internlm.utils.config import Config
 from internlm.utils.gputest import empty_cache_and_diag
 from internlm.utils.megatron_timers import megatron_timer as timer
+from internlm.utils.storage_manager import get_fns, llm_load
 
 CONFIG_FILE_PATH = os.getenv("CONFIG_FILE_PATH", "./configs/7B_internlm2.py")
 INTERNLM2_CKPT_PATH = os.path.join(os.environ["share_path"], "quailty_assurance/test_loss_pri/model_ckpt")
@@ -43,9 +51,197 @@ BASELINE_LOSS_LIST = [
     4.799427032470703,
 ]
 
-
 cur_loss_list = []
 internlm_accelerator = get_accelerator()
+
+
+def load_internlm2_with_dynamic_parallel_size(folder, model):
+    """Load InternLM2 with dynamic parallel size."""
+    assert folder is not None, "Please specify the folder of the pretrained model"
+    assert gpc.config.model_type in ["INTERNLM2"], "dynamic_parallel is only for INTERNLM2"
+
+    fns = get_fns(folder)
+    model_fns, old_tp, old_pp = get_parallel_size_from_file(fns)  # pylint: disable=W0612
+
+    tp = gpc.get_world_size(ParallelMode.TENSOR)
+    tp_rank = gpc.get_local_rank(ParallelMode.TENSOR)
+    assert old_tp % tp == 0 or tp % old_tp == 0, (
+        f"Expected TP size in loaded checkpoint to be fit with TP size in current config, but got {old_tp} in "
+        f"checkpoint and {tp} in current config"
+    )
+
+    correspond_tps = []
+
+    if old_tp <= tp:
+        correspond_tps.append(tp_rank // (tp // old_tp))
+        ratio = tp // old_tp
+        rank = tp_rank % ratio
+    else:
+        for i in range(old_tp // tp):
+            correspond_tps.append(tp_rank * (old_tp // tp) + i)
+        rank = 0
+        ratio = 1
+
+    current_states = {}
+
+    pp = gpc.get_world_size(ParallelMode.PIPELINE)  # noqa: F841 # pylint: disable=W0612
+
+    assert gpc.config.model.num_chunks == 1, "May cause future collisions, ignore this if necessary"
+
+    old_pp_partition = partition_uniform(gpc.config.model.num_layers, old_pp, 1)
+
+    for idx, parts in enumerate(old_pp_partition):
+        start, end = parts[0]
+        if model.last_layer <= start or model.first_layer >= end:
+            continue
+        tmp_states = {}
+
+        for correspond_tp in correspond_tps:
+            model_name = f"model_tp{correspond_tp}_pp{idx}.pt"
+            states = llm_load(os.path.join(folder, model_name), map_location="cpu")
+            states = {k.replace("model.", ""): v for k, v in states.items()}
+            for i in range(start, end):
+                if i >= model.last_layer:
+                    break
+                if i < model.first_layer:
+                    continue
+
+                for name in list(states.keys()):
+                    if f".{i-start}." in name:
+                        to_name = name.replace(f".{i-start}.", f".{i-model.first_layer}.")
+
+                        if gpc.config.model_type == "INTERNLM2":
+                            if "norm" in name:
+                                tmp_states[to_name] = [states.pop(name)]
+                            elif any(x in name for x in ("wo", "w2")):
+                                tmp_states[to_name] = tmp_states.get(to_name, [])
+                                tmp_states[to_name].append(states.pop(name).chunk(ratio, dim=1)[rank])
+                            elif any(x in name for x in ("w1", "w3")):
+                                tmp_states[to_name] = tmp_states.get(to_name, [])
+                                tmp_states[to_name].append(states.pop(name).chunk(ratio, dim=0)[rank])
+                            elif any(x in name for x in ("wqkv",)):
+                                tmp_states[to_name] = tmp_states.get(to_name, [])
+                                if tp > gpc.config.model.num_kv_attention_heads:
+                                    assert old_tp <= gpc.config.model.num_kv_attention_heads, (
+                                        f"`old_tp ({old_tp}) => tp ({tp})` is not supported. "
+                                        "At least one of `tp` and `old_tp` should be less than or "
+                                        "equal to `num_kv_attention_heads`"
+                                    )
+                                    # Suitable for cases where the num_kv_attention_head is small,
+                                    # but you want to have a large TP Size
+                                    q_per_kv = (
+                                        gpc.config.model.num_attention_heads // gpc.config.model.num_kv_attention_heads
+                                    )
+                                    head_dim = gpc.config.model.hidden_size // gpc.config.model.num_attention_heads
+                                    index = torch.concat(
+                                        (
+                                            torch.arange(q_per_kv).chunk(ratio, dim=0)[tp_rank % ratio],
+                                            torch.tensor([q_per_kv, q_per_kv + 1]),
+                                        )
+                                    )
+                                    index = index + (q_per_kv + 2) * (tp_rank // ratio)
+                                    index = index % (
+                                        (q_per_kv + 2) * (gpc.config.model.num_kv_attention_heads / old_tp)
+                                    )
+                                    index = index * head_dim
+                                    index = index.repeat_interleave(head_dim) + torch.arange(head_dim).repeat(
+                                        index.shape[0]
+                                    )
+                                    tmp_states[to_name].append(
+                                        torch.index_select(states.pop(name), 0, index.to(torch.int32))
+                                    )
+                                else:
+                                    tmp_states[to_name].append(states.pop(name).chunk(ratio, dim=0)[rank])
+                            else:
+                                raise KeyError(f"Unknown key {name}.")
+
+                        else:
+                            assert False, "unsupported model type"
+
+            if "tok_embeddings.weight" in states and model.first_layer == 0:
+                tmp_states["tok_embeddings.weight"] = tmp_states.get("tok_embeddings.weight", [])
+                tmp_states["tok_embeddings.weight"].append(states["tok_embeddings.weight"].chunk(ratio, dim=1)[rank])
+            if "output.weight" in states and model.last_layer == gpc.config.model.num_layers:
+                tmp_states["norm.weight"] = [states["norm.weight"]]
+                tmp_states["output.weight"] = tmp_states.get("output.weight", [])
+                tmp_states["output.weight"].append(states["output.weight"].chunk(ratio, dim=0)[rank])
+
+            states = {}
+
+        for name in list(tmp_states.keys()):
+            data = tmp_states.pop(name)
+            if len(data) == 1:
+                current_states[name] = data[0]
+            else:
+                current_states[name] = torch.concat(
+                    data, dim=1 if name == "tok_embeddings.weight" or any(x in name for x in ("wo", "w2")) else 0
+                )
+                # Merge copied kv heads
+                if "wqkv" in name and old_tp > gpc.config.model.num_kv_attention_heads:
+                    assert (
+                        tp <= gpc.config.model.num_kv_attention_heads
+                    ), "new_tp should be less than or equal to num_kv_attention_heads"
+                    head_dim = gpc.config.model.hidden_size // gpc.config.model.num_attention_heads
+                    q_per_kv = gpc.config.model.num_attention_heads // gpc.config.model.num_kv_attention_heads
+                    copied_times = old_tp // gpc.config.model.num_kv_attention_heads
+                    cur_q_per_kv = q_per_kv // copied_times
+
+                    # pylint: disable=all
+                    def duplicate_kv_index(i):
+                        if i % (cur_q_per_kv + 2) >= cur_q_per_kv:
+                            return i
+                        else:
+                            return -100
+
+                    def unique_kv_index(i):
+                        if i // (cur_q_per_kv + 2) == copied_times - 1 or i % (cur_q_per_kv + 2) < cur_q_per_kv:
+                            return i
+                        else:
+                            return -100
+
+                    # pylint: enable=all
+
+                    # Verify
+                    duplicate_index = [duplicate_kv_index(i) for i in range((cur_q_per_kv + 2) * copied_times)]
+                    duplicate_index = [i for i in duplicate_index if i != -100]
+                    duplicate_index = _duplicate_index = torch.tensor(duplicate_index)
+                    for i in range(gpc.config.model.num_kv_attention_heads // tp - 1):
+                        duplicate_index = torch.concat(
+                            (duplicate_index, _duplicate_index + duplicate_index.max() + 1), dim=0
+                        )
+                    duplicate_kv = []
+                    for index in duplicate_index.reshape(-1, copied_times * 2).chunk(copied_times, dim=-1):
+                        index = index.reshape(-1) * head_dim
+                        index = index.repeat_interleave(head_dim) + torch.arange(head_dim).repeat(index.shape[0])
+                        duplicate_kv.append(torch.index_select(current_states[name], 0, index))
+                    assert reduce(
+                        lambda x, y: x and y,
+                        [torch.allclose(duplicate_kv[0], x, atol=1e-5) for x in duplicate_kv[1:]],
+                    ), "Copied kv heads are not equal after training!"
+
+                    # Merge
+                    unique_index = [unique_kv_index(i) for i in range((cur_q_per_kv + 2) * copied_times)]
+                    unique_index = [i for i in unique_index if i != -100]
+                    unique_index = _unique_index = torch.tensor(unique_index)
+                    for i in range(gpc.config.model.num_kv_attention_heads // tp - 1):
+                        unique_index = torch.concat((unique_index, _unique_index + unique_index.max() + 1), dim=0)
+                    unique_index = unique_index * head_dim
+                    unique_index = unique_index.repeat_interleave(head_dim) + torch.arange(head_dim).repeat(
+                        unique_index.shape[0]
+                    )
+                    current_states[name] = torch.index_select(current_states[name], 0, unique_index)
+    missing_keys, unexpected_keys = model.load_state_dict(current_states, strict=False)
+
+    if gpc.get_local_rank(ParallelMode.DATA) == 0:
+        pp_rank = 0 if not gpc.is_initialized(ParallelMode.PIPELINE) else gpc.get_local_rank(ParallelMode.PIPELINE)
+        print(
+            f"Missing keys:{missing_keys}, unexpected keys:{unexpected_keys} in "
+            f"tp:{gpc.get_local_rank(ParallelMode.TENSOR)}, pp:{pp_rank}",
+            flush=True,
+        )
+
+
+LOAD_FUNC_DICT["internlm2_test"] = load_internlm2_with_dynamic_parallel_size
 
 
 def train(
@@ -129,7 +325,7 @@ def train(
         config.model.parallel_output = False
         config.model.checkpoint = True
 
-    initialize_distributed_env(config=config, launcher=launcher)
+    initialize_launcher(config=config, launcher=launcher)
     assert hasattr(gpc, "config") and gpc.config is not None
 
     gpc.config.ckpt.need_metadata = False
@@ -201,7 +397,7 @@ def train(
     metric = None
 
     # initialize trainer
-    engine, scheduler = internlm.initialize_trainer(
+    engine, scheduler = initialize_trainer(
         model=model,
         optimizer=optimizer,
         criterion=criterion,

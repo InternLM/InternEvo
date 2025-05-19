@@ -8,10 +8,10 @@ import torch
 from datasets.distributed import split_dataset_by_node
 from PIL import Image
 from torch.utils.data import Dataset
+from transformers import AutoTokenizer
 
 from internlm.core.context import ParallelMode
 from internlm.core.context import global_context as gpc
-from transformers import AutoTokenizer
 
 
 class StreamingDataset(Dataset):

@@ -1,8 +1,10 @@
 """
 Universal accelerator interface implementation, inspired by DeepSpeed.
 """
+import abc
 import enum
 import os
+from abc import ABC
 
 
 class AcceleratorType(enum.Enum):
@@ -17,57 +19,72 @@ class AcceleratorType(enum.Enum):
 internlm_accelerator = None
 
 
-class Accelerator:
+class Accelerator(ABC):
     """
     Abstract base class for accelerator
     """
 
     def __init__(self) -> None:
-        pass
+        self._name_str = None
+        self._communication_backend_name = None
 
+    @abc.abstractmethod
     def get_backend_name(self):
         """
         Return the name of the accelerator.
         """
         raise NotImplementedError
 
+    @abc.abstractmethod
     def get_accelerator_backend(self):
         """
-        Return the name of the backend.
+        Return the name of the accelerator backend.
         """
         raise NotImplementedError
 
-    # Device APIs
+    @abc.abstractmethod
+    def communication_backend_name(self):
+        """
+        Return the name of the communication backend.
+        """
+        raise NotImplementedError
+
+    @abc.abstractmethod
     def device_name(self, device_index=None):
         """
         Return the name of the device.
         """
         raise NotImplementedError
 
+    @abc.abstractmethod
     def set_device(self, device_index):
         """
         Bind the current process to a device.
         """
         raise NotImplementedError
 
+    @abc.abstractmethod
     def get_device_id(self):
         """
         Return the current device index.
         """
         raise NotImplementedError
 
+    @abc.abstractmethod
     def current_device_name(self):
         """
         Return the name of the current device.
         """
         raise NotImplementedError
 
+    @abc.abstractmethod
     def device_count(self):
         """
         Return the number of devices on the machine.
         """
         raise NotImplementedError
 
+    @abc.abstractmethod
     def synchronize(self, device_index=None):
         """
         Synchronize the current process.

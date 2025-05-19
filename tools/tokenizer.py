@@ -7,7 +7,7 @@ import numpy as np
 
 current_dir = os.path.dirname(os.path.abspath(__file__))
 model_path = os.path.join(current_dir, "tokenizer_internlm.model")
-sys.path.append(os.path.join(current_dir, "../transformers"))
+sys.path.append(os.path.join(current_dir, "../huggingface_models"))
 from internlm_model import InternLMTokenizer  # noqa: E402 # pylint: disable=C0413
 
 tokenizer = InternLMTokenizer(vocab_file=model_path, add_bos_token=True, add_eos_token=True)

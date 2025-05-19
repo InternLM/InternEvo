@@ -6,21 +6,18 @@ import torch
 
 from internlm.core.context import ParallelMode
 from internlm.core.context import global_context as gpc
-
-# from internlm.core.context import ParallelMode
-from internlm.core.context.parallel_context import Config
 from internlm.core.trainer import TrainState
 from internlm.data import (
     build_train_loader_with_data_type,
     build_valid_loader_with_data_type,
 )
-from internlm.eval.evaluation import (
-    switch_evaluation_mode,
-    switch_evaluation_pipeline_scheduler,
-)
-from internlm.train import load_new_batch
+from internlm.eval import switch_evaluation_mode, switch_evaluation_pipeline_scheduler
+from internlm.core.trainer import load_new_batch
 
-# from internlm.core.context.parallel_context import global_context as gpc
+# from internlm.core.context import ParallelMode
+from internlm.utils.config import Config
+
+# from internlm.core.context import global_context as gpc
 from tests.test_core.utils import build_environment, init_model_and_optim
 
 micro_bszs = [1, 2]
