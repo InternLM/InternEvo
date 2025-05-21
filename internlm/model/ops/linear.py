@@ -68,8 +68,12 @@ def _select_int8_ops(mode):
         # return per_row_quantize_int8, per_col_quantize_int8, scaled_int8_mm
     elif mode == "tensor":
         return per_tensor_quantize_int8, per_tensor_quantize_int8, per_tensor_scaled_int8_mm
-    elif mode == "group":
+    elif mode == "tile":
         return per_group_row_quantize_int8, per_group_col_quantize_int8, per_group_scaled_int8_mm
+    elif mode == "tile_block":
+        return per_group_row_quantize_int8, per_block_quantize_int8, per_rowgroup_block_scaled_int8_mm
+    elif mode == "block":
+        return per_block_quantize_int8, per_block_quantize_int8, per_block_scaled_int8_mm
     elif mode == "channel_tensor":
         return per_row_quantize_int8, per_tensor_quantize_int8, per_token_tensor_scaled_int8_mm
     elif mode == "tensor_channel":
