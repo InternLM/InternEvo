@@ -90,6 +90,7 @@ from internlm.solver.schedulers.beta2_scheduler import Beta2Scheduler
 from internlm.solver.schedulers.lr_scheduler import FineTuneCosineAnnealingWarmupLR
 from internlm.train.utils import create_param_groups, map_param_block, timeout_input
 from internlm.utils.common import DummyProfile, SchedulerHook, get_current_device
+from internlm.utils.dump_wag import register_dump_hooks
 from internlm.utils.lazy import LazyObject
 from internlm.utils.logger import get_logger
 from internlm.utils.megatron_timers import megatron_timer as timer
@@ -451,6 +452,7 @@ def inject_model(model):
     # For non-HF cases, set tracking name for parameters
     if not is_using_hf():
         set_param_unique_tracking_name(model)
+        register_dump_hooks(model)
 
     # For non-fsdp cases, set model inject helper
     if not is_using_fsdp():

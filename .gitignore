@@ -147,3 +147,4 @@ llm_ckpts
 events.*
 memory_trace
 RUN*/
+llm_profiling/
