@@ -37,6 +37,7 @@ from internlm.utils.common import (
     get_megatron_flops,
     launch_time,
 )
+from internlm.utils.dump_wag import save_profiling
 from internlm.utils.gputest import empty_cache_and_diag
 from internlm.utils.logger import get_logger
 from internlm.utils.megatron_timers import megatron_timer as timer
@@ -276,6 +277,7 @@ class TrainerBuilder(Trainer):
         empty_cache_and_diag(batch_count, interval=gpc.config.data.empty_cache_and_diag_interval)
         start_time = time.time()
         timer("one-batch").start()
+        gpc.config.batch_count = batch_count
 
         batch, train_iter = self._load_and_prepare_batch(batch_count, train_iter)
         if self.batch_skipper(batch_count):
@@ -290,6 +292,7 @@ class TrainerBuilder(Trainer):
 
         success_update, grad_norm_groups = self._update_parameters()
         self._record_metrics(batch_count, batch, start_time, loss, moe_loss, success_update, grad_norm_groups)
+        save_profiling()
         timer("one-batch").stop()
 
         if self._should_evaluate():
