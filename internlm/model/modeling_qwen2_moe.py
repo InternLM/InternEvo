@@ -1,6 +1,6 @@
 # Copyright (c) InternLM. All rights reserved.
 import math
-from typing import Optional, List
+from typing import List, Optional
 
 import torch
 from torch import nn
@@ -27,6 +27,7 @@ from internlm.model.utils import (
 )
 from internlm.solver.activation_checkpoint import activation_checkpoint
 from internlm.utils.logger import get_logger
+from internlm.utils.parallel import is_using_sequence_parallel
 
 internlm_accelerator = get_accelerator()
 logger = get_logger(__file__)
@@ -172,6 +173,7 @@ class Qwen2MoeDecoder(nn.Module):
         else:
             # replace mlp by MoE module. The expert in MoE is a FeedForward module.
             # mlp_cls = get_mlp_cls(self.tp_mode)
+            assert gpc.config.model.moe_type == "Dropless", "Only Dropless MoE is supported in Qwen MoE!"
             self.feed_forward = Qwen2MoE(
                 hidden_size,
                 int(hidden_size * mlp_ratio),
@@ -555,7 +557,9 @@ class Qwen2Moe(BaseModel):
             hidden_states = self.output(hidden_states)
 
         if len(layer_gate_logits) > 0:
-            l_aux = self.load_balancing_loss_func(layer_gate_logits, use_attn_mask=True, cu_seqlens=kwargs.get("cu_seqlens", None), input_ids=input_ids)
+            l_aux = self.load_balancing_loss_func(
+                layer_gate_logits, use_attn_mask=True, cu_seqlens=kwargs.get("cu_seqlens", None), input_ids=input_ids
+            )
         else:
             l_aux = torch.tensor(0.0, device=hidden_states.device, dtype=hidden_states.dtype)
 
@@ -564,7 +568,9 @@ class Qwen2Moe(BaseModel):
 
         return hidden_states, [l_aux]
 
-    def load_balancing_loss_func(self, gate_logits: List[torch.Tensor], use_attn_mask: bool = False, cu_seqlens = None, input_ids = None):
+    def load_balancing_loss_func(
+        self, gate_logits: List[torch.Tensor], use_attn_mask: bool = False, cu_seqlens=None, input_ids=None
+    ):
         compute_device = gate_logits[0].device
         concatenated_gate_logits = torch.cat([layer_gate.to(compute_device) for layer_gate in gate_logits], dim=0)
 
@@ -588,11 +594,13 @@ class Qwen2Moe(BaseModel):
             # Compute the average probability of routing to these experts
             router_prob_per_expert = torch.mean(routing_weights, dim=0)
         else:
-            seqlens = gpc.config.data.seq_len // gpc.get_world_size(ParallelMode.TENSOR)
+            if is_using_sequence_parallel() or gpc.config.parallel.expert.no_tp:
+                seqlens = gpc.config.data.seq_len // gpc.get_world_size(ParallelMode.TENSOR)
+                cu_seqlens = self.split_cuseqlens(cu_seqlens, gpc.config.data.seq_len)
+            else:
+                seqlens = gpc.config.data.seq_len
             micro_bsz = gpc.config.data.micro_bsz
             num_hidden_layers = len(gate_logits)
-
-            cu_seqlens = self.split_cuseqlens(cu_seqlens, gpc.config.data.seq_len)
 
             # get attention mask
             attention_mask = torch.ones((1, micro_bsz * seqlens), dtype=torch.int8, device=compute_device)
@@ -640,11 +648,13 @@ class Qwen2Moe(BaseModel):
         boundaries = [0 + i * step for i in range(n + 1)]
         lo, hi = boundaries[local_rank], boundaries[local_rank + 1]
         mid = cu_seqlens[(cu_seqlens > lo) & (cu_seqlens < hi)]
-        seg = torch.cat([
+        seg = torch.cat(
+            [
                 torch.tensor([lo], dtype=cu_seqlens.dtype, device=cu_seqlens.device),
                 mid,
                 torch.tensor([hi], dtype=cu_seqlens.dtype, device=cu_seqlens.device),
-            ])
+            ]
+        )
         seg = seg - lo
 
         return seg

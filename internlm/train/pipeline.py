@@ -74,8 +74,7 @@ from internlm.model.modules.linear import (
     new_linear,
 )
 from internlm.model.modules.norm import new_layer_norm
-from internlm.model.moe import Experts, MoE
-from internlm.model.moe.moe import Qwen2MoE
+from internlm.model.moe import Experts, MoEBase
 from internlm.model.ops.norm import RMSNorm
 from internlm.model.registry import register_model_initializer
 from internlm.monitor import set_env_var
@@ -336,7 +335,7 @@ def set_parallel_attr_for_param_groups(model: Union[nn.Module, nn.ModuleList]):
             for param in module.parameters():
                 setattr(param, IS_REPLICA_ZERO_PARALLEL, True)
 
-        if isinstance(module, (MoE, Qwen2MoE)):
+        if isinstance(module, (MoEBase)):
             for param in module.moe_layer.gate.parameters():
                 setattr(param, IS_REPLICA_ZERO_PARALLEL, True)
             if hasattr(module, "coefficient"):
@@ -611,7 +610,7 @@ def initialize_parallel_communicator(model: Union[nn.Module, nn.ModuleList]):
                 _row_communicator = TensorParallelCommunicator(
                     process_group=gpc.get_group(ParallelMode.EXPERT_TENSOR), role=LinearRole.ROW
                 )
-                for moe in _submodule_filter(model, MoE):
+                for moe in _submodule_filter(model, MoEBase):
                     # 1. the linear in MoE degrades as no tp communication pattern
                     for column_linear in _submodule_filter(moe, ColumnParallelLinear):
                         column_linear.register_communicator(_column_communicator)
@@ -663,7 +662,7 @@ def initialize_parallel_communicator(model: Union[nn.Module, nn.ModuleList]):
                 _row_communicator = TensorParallelCommunicator(
                     process_group=gpc.get_group(ParallelMode.EXPERT_TENSOR), role=LinearRole.ROW
                 )
-                for moe in _submodule_filter(model, MoE):
+                for moe in _submodule_filter(model, MoEBase):
                     # 1. the linear in MoE degrades as no tp communication pattern
                     for column_linear in _submodule_filter(moe, ColumnParallelLinear):
                         column_linear.register_communicator(_column_communicator)

@@ -7,10 +7,12 @@ from .megablocks import (
     MegaBlockGroupedFeedForward,
     MegaBlockMoE,
 )
-from .moe import MoE
+from .moe import MoE, MoEBase, Qwen2MoE
 
 __all__ = [
     "MoE",
+    "MoEBase",
+    "Qwen2MoE",
     "Experts",
     "GShardMoELayer",
     "MegaBlockdMoE",

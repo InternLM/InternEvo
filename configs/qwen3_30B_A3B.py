@@ -170,11 +170,11 @@ model = dict(
     top_k=8,
     moe_layer_kwargs=dict(
         capacity_factor=None,
-        return_logits=True,
+        aux_loss_by_layer=False,
         normalize_expert_weights=True,
         scoring_func="softmax",
         routed_scaling_factor=1.0,
-    )
+    ),
 )
 """
 zero1 parallel (dict):

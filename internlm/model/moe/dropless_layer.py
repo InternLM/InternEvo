@@ -16,7 +16,6 @@ from internlm.accelerator import AcceleratorType, get_accelerator
 from internlm.core.context import ParallelMode
 from internlm.core.context import global_context as gpc
 from internlm.model.modules.mlp import new_feed_forward
-from internlm.utils.common import get_current_device
 from internlm.utils.logger import get_logger
 
 from .base_layer import BaseMoELayer
@@ -105,7 +104,7 @@ class TopKGate(Module):
         noisy_gate_policy: Optional[str] = None,
         scoring_func: str = "softmax",
         jitter_eps: float = 1e-2,
-        return_logits: bool = False,
+        aux_loss_by_layer: bool = True,
     ) -> None:
         super().__init__()
 
@@ -115,7 +114,7 @@ class TopKGate(Module):
         self.jitter_eps = jitter_eps
 
         self.noisy_gate_policy = noisy_gate_policy
-        self.return_logits = return_logits
+        self.aux_loss_by_layer = aux_loss_by_layer
         self.scoring_func = scoring_func
         self.reset_parameters()
 
@@ -136,7 +135,7 @@ class TopKGate(Module):
         else:
             raise NotImplementedError(f"insupportable scoring function for MoE gating: {self.scoring_func}")
 
-        if self.return_logits:
+        if not self.aux_loss_by_layer:
             return gates, logits
         return gates, None
 
@@ -177,7 +176,7 @@ class DroplessMoELayer(BaseMoELayer):
         normalize_expert_weights: bool = True,
         routed_scaling_factor: float = 1.0,
         scoring_func: str = "softmax",
-        return_logits: bool = False,
+        aux_loss_by_layer: bool = True,
     ) -> None:
         assert noisy_gate_policy is None or noisy_gate_policy in ["None", "Jitter", "RSample"], (
             "Unsupported noisy_gate_policy: " + noisy_gate_policy
@@ -229,7 +228,7 @@ class DroplessMoELayer(BaseMoELayer):
                 noisy_gate_policy,
                 scoring_func,
                 moe_jitter_eps,
-                return_logits,
+                aux_loss_by_layer,
             ),
             experts,
             ep_group,
@@ -247,7 +246,7 @@ class DroplessMoELayer(BaseMoELayer):
         self.deterministic_mode = deterministic_mode
         self.normalize_expert_weights = normalize_expert_weights
         self.routed_scaling_factor = routed_scaling_factor
-        self.return_logits = return_logits
+        self.aux_loss_by_layer = aux_loss_by_layer
 
         self.drop_and_pad = drop_and_pad
         self.capacity_factor = capacity_factor
@@ -306,7 +305,7 @@ class DroplessMoELayer(BaseMoELayer):
 
         gates, logits = self.gate(reshaped_inputs)
         expert_weights, indices, tokens_per_expert_before_capacity = self.topk_softmax_with_capacity(gates)
-        if not self.return_logits:
+        if self.aux_loss_by_layer:
             self.l_aux = self.load_balancing_loss(tokens_per_expert_before_capacity, gates)
         else:
             self.l_aux = None
@@ -327,7 +326,7 @@ class DroplessMoELayer(BaseMoELayer):
         #   so we first use self.l_aux and then reset it.
         l_aux = self.l_aux
         self.l_aux = None
-        if not self.return_logits:
+        if self.aux_loss_by_layer:
             return output, l_aux
         return output, logits
 
@@ -441,9 +440,9 @@ class DroplessMoELayer(BaseMoELayer):
             )
             # avoid allgather stuck in some case
             internlm_accelerator.current_stream().synchronize()
-            num_global_tokens_per_expert = gather_along_first_dim_expert_parallel(
-                num_local_tokens_per_expert
-            ).reshape(self.ep_size, self.num_experts)
+            num_global_tokens_per_expert = gather_along_first_dim_expert_parallel(num_local_tokens_per_expert).reshape(
+                self.ep_size, self.num_experts
+            )
             num_global_tokens_per_local_expert = num_global_tokens_per_expert[:, self.local_expert_indices]
 
             # NOTE:another impl for num_global_tokens_per_local_expert calc, seems spent same time
@@ -763,7 +762,7 @@ class DroplessMoELayer(BaseMoELayer):
         """
 
         num_local_tokens_per_expert = torch.histc(indices, bins=self.num_experts, min=0, max=self.num_experts)
-        if not self.return_logits:
+        if self.aux_loss_by_layer:
             self.l_aux = self.load_balancing_loss(num_local_tokens_per_expert, self.gates)
         # Permute the tokens across the expert parallel devices.
         if self.ep_size > 1:
