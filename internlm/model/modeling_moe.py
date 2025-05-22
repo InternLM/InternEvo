@@ -22,7 +22,6 @@ from internlm.model.utils import (
     convert_attn_args_to_kwargs,
     convert_attn_kwargs_to_args,
     internlm1_mha_pre_load_convert,
-    internlm1_mha_save_convert,
 )
 from internlm.solver.activation_checkpoint import activation_checkpoint
 from internlm.utils.logger import get_logger
@@ -112,7 +111,7 @@ class Internlm1MoEDecoder(nn.Module):
         )
 
         # Compatible with the name of internlm1 Wqkv linear layer
-        self.mixer.register_checkpoint_compatibility_hooks(internlm1_mha_pre_load_convert, internlm1_mha_save_convert)
+        self.mixer.register_checkpoint_compatibility_hooks(internlm1_mha_pre_load_convert)
 
         self.dropout1 = nn.Dropout(drop_rate)
         self.dropout2 = nn.Dropout(drop_rate)

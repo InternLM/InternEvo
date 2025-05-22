@@ -22,7 +22,7 @@ class BaseMoELayer(Base):
     ) -> None:
         super().__init__()
         # for elastic expert paralle, experts may have multiple groups
-        expert_group_name = f"moe_ep_size_{ep_size}"
+        expert_group_name = "moe_ep_group"
         if expert_group_name not in gpc.expert_parallel_group_names:
             gpc.expert_parallel_group_names.append(expert_group_name)
         self.gate = gate
