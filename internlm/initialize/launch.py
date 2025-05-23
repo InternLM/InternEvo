@@ -127,6 +127,12 @@ def args_sanity_check():
         if "int8_mode" not in gpc.config:
             gpc.config._add_item("int8_mode", "channel")
         
+        if "int8_pad" not in gpc.config:
+            if gpc.config.int8_mode == "tile_block":
+                gpc.config._add_item("int8_pad", True)
+            else:
+                gpc.config._add_item("int8_pad", False)
+            
         if gpc.is_rank_for_log():
             logger.info(f"Int8 training enable: the mode is {gpc.config.int8_mode}")
 

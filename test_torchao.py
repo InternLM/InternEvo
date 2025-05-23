@@ -1,5 +1,6 @@
 import torch
 from torch.nn.functional import linear
+from internlm.core.context import global_context as gpc
 
 try:
     from torchao.prototype.quantized_training.int8_mm import scaled_int8_mm, scaled_int8_mm_cuda
@@ -71,8 +72,29 @@ def per_tensor_token_scaled_int8_mm(
     return torch._int_mm(A, B)  * col_scale.view(-1) * a_scale
 
 
+def ceil_div(a, b):
+    return (a + b - 1) // b
+
+
+def pad_for_128x128_if_needed(x: torch.Tensor):
+    assert x.dim() == 2
+
+    if x.shape[0] % 128 == 0 and x.shape[1] % 128 == 0:
+        return x
+
+    m, n = x.shape
+    x_padded = torch.zeros(
+        (ceil_div(m, 128) * 128, ceil_div(n, 128) * 128), dtype=x.dtype, device=x.device
+    )
+    x_padded[:m, :n] = x
+    return x_padded
+
+
 def per_group_row_quantize_int8(x: torch.Tensor, sr=True, group_size: int = 128) -> tuple[torch.Tensor, torch.Tensor]:
     assert x.dim() == 2, f"{x.dim()}, {x.shape}"
+    if gpc.config.int8_pad:
+        x = pad_for_128x128_if_needed(x)
+    assert x.size(1) % group_size == 0, f"{x.shape}"
     num_groups = x.size(1) // group_size
     x_amax = x.abs().float().reshape(x.size(0), num_groups, group_size).amax(dim=2).clamp(min=1e-4)
     scale = 127 / x_amax
@@ -101,6 +123,9 @@ def per_group_col_quantize_int8(x: torch.Tensor, sr=True, group_size: int = 128)
 
 def per_block_quantize_int8(x: torch.Tensor, sr: bool = True, row_group_size: int = 128, col_group_size: int = 128) -> tuple[torch.Tensor, torch.Tensor]:
     assert x.dim() == 2, f"{x.dim()}, {x.shape}"
+    if gpc.config.int8_pad:
+        x = pad_for_128x128_if_needed(x)
+    assert x.size(0) % row_group_size == 0 and x.size(1) % col_group_size == 0, f"{x.shape}"
     M, K = x.shape
     num_row_groups = M // row_group_size
     num_col_groups = K // col_group_size
