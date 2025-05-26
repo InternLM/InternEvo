@@ -48,6 +48,19 @@ internlm_accelerator = get_accelerator()
 logger = get_logger(__file__)
 
 
+def quick_quantile(x: torch.Tensor, q: float):
+    """
+    Calculate the quantile of a tensor.
+    """
+    if x is None:
+        return None
+
+    n = x.numel()
+    k = int(q * n)
+    x_q, _ = torch.kthvalue(x, k)
+    return x_q
+
+
 def get_statistics(x: torch.Tensor):
     """
     Get the statistics of the tensor.
@@ -65,15 +78,15 @@ def get_statistics(x: torch.Tensor):
         "max": x_float.max().item(),
         "abs_mean": x_float.abs().mean().item(),
         "abs_max": x_float.abs().max().item(),
-        # "p01": torch.quantile(x_float, 0.01).item(),
-        # "p05": torch.quantile(x_float, 0.05).item(),
-        # "p10": torch.quantile(x_float, 0.10).item(),
-        # "p25": torch.quantile(x_float, 0.25).item(),
-        # "p50": torch.quantile(x_float, 0.50).item(), # median
-        # "p75": torch.quantile(x_float, 0.75).item(),
-        # "p90": torch.quantile(x_float, 0.90).item(),
-        # "p95": torch.quantile(x_float, 0.95).item(),
-        # "p99": torch.quantile(x_float, 0.99).item(),
+        "p01": quick_quantile(x_float, 0.01).item(),
+        "p05": quick_quantile(x_float, 0.05).item(),
+        "p10": quick_quantile(x_float, 0.10).item(),
+        "p25": quick_quantile(x_float, 0.25).item(),
+        "p50": quick_quantile(x_float, 0.50).item(),  # median
+        "p75": quick_quantile(x_float, 0.75).item(),
+        "p90": quick_quantile(x_float, 0.90).item(),
+        "p95": quick_quantile(x_float, 0.95).item(),
+        "p99": quick_quantile(x_float, 0.99).item(),
         "l2_norm": torch.linalg.norm(x_float).item(),
         "numel": x.numel(),
         "shape": list(x.shape),
@@ -100,7 +113,7 @@ def dump_activation_and_weight(model: nn.Module, args, output: torch.Tensor):  #
 
     cur_step = gpc.config.batch_count
     dump_cfg = gpc.config.dump_profiling
-    step_internval = dump_cfg.get("step_interval", 1)
+    step_internval = dump_cfg.get("step_internval", 1)
     if is_using_isp():
         should_profiling = (
             gpc.get_local_rank(ParallelMode.WEIGHT_DATA) == 0 and cur_step % step_internval == 0
@@ -157,7 +170,7 @@ def dump_gradient(
 
     cur_step = gpc.config.batch_count
     dump_cfg = gpc.config.dump_profiling
-    step_internval = dump_cfg.get("step_interval", 1)
+    step_internval = dump_cfg.get("step_internval", 1)
     if is_using_isp():
         should_profiling = (
             gpc.get_local_rank(ParallelMode.WEIGHT_DATA) == 0 and cur_step % step_internval == 0
