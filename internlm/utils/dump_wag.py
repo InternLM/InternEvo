@@ -71,26 +71,45 @@ def get_statistics(x: torch.Tensor):
     data_type = x.dtype
     x_float = x.flatten().float()  # Convert to float for calculations to avoid overflow/underflow with some dtypes
 
-    return {
+    base_stats = {
         "mean": x_float.mean().item(),
         "std": x_float.std().item(),
         "min": x_float.min().item(),
         "max": x_float.max().item(),
         "abs_mean": x_float.abs().mean().item(),
         "abs_max": x_float.abs().max().item(),
-        "p01": quick_quantile(x_float, 0.01).item(),
-        "p05": quick_quantile(x_float, 0.05).item(),
-        "p10": quick_quantile(x_float, 0.10).item(),
-        "p25": quick_quantile(x_float, 0.25).item(),
-        "p50": quick_quantile(x_float, 0.50).item(),  # median
-        "p75": quick_quantile(x_float, 0.75).item(),
-        "p90": quick_quantile(x_float, 0.90).item(),
-        "p95": quick_quantile(x_float, 0.95).item(),
-        "p99": quick_quantile(x_float, 0.99).item(),
-        "l2_norm": torch.linalg.norm(x_float).item(),
+    }
+
+    shape_stats = {
         "numel": x.numel(),
         "shape": list(x.shape),
         "dtype": str(data_type),
+    }
+
+    quantile_stats = {
+        "p01": quick_quantile(x_float, 0.01).item(),
+        "p05": quick_quantile(x_float, 0.05).item(),
+        # "p10": quick_quantile(x_float, 0.10).item(),
+        # "p25": quick_quantile(x_float, 0.25).item(),
+        "p50": quick_quantile(x_float, 0.50).item(),  # median
+        # "p75": quick_quantile(x_float, 0.75).item(),
+        # "p90": quick_quantile(x_float, 0.90).item(),
+        "p95": quick_quantile(x_float, 0.95).item(),
+        "p99": quick_quantile(x_float, 0.99).item(),
+    }
+
+    enhanced_stats = {
+        "l2_norm": x_float.norm(p=2).item(),
+        "outlier_ratio": ((x_float < quantile_stats["p01"]) | (x_float > quantile_stats["p99"])).float().mean().item(),
+        "nan_inf_ratio": (torch.isnan(x_float) | torch.isinf(x_float)).float().mean().item(),
+        "zero_ratio": (x_float == 0).float().mean().item(),
+    }
+
+    return {
+        **base_stats,
+        **quantile_stats,
+        **enhanced_stats,
+        **shape_stats,
     }
 
 
