@@ -9,7 +9,7 @@ from internlm.accelerator import get_accelerator
 from internlm.core.context import ParallelMode
 from internlm.core.context import global_context as gpc
 from internlm.core.trainer import TrainState
-from internlm.model.moe import MoE
+from internlm.model.moe.moe import MoEBase
 from internlm.solver.optimizer import HybridZeroOptimizer, HybridZeroOptimizer_v2
 from internlm.utils.common import get_current_device
 from internlm.utils.lazy import LazyObject
@@ -47,7 +47,7 @@ def try_load_moe_checkpoint(folder, model, state_dict, expert_mp_rank, pp_rank):
 
     # Iterate over all modules in the model to find MoE layers
     for _, module in model.named_modules():
-        if isinstance(module, MoE):
+        if isinstance(module, MoEBase):
             num_local_wrapped_experts = len(module.moe_layer.experts.wrapped_experts)
             expp_rank = gpc.get_local_rank(ParallelMode.EXPERT)
             # loop all local_experts
@@ -71,7 +71,7 @@ def try_save_moe_checkpoint(folder, model, expert_mp_rank, pp_rank):
     moe_layer_id = pp_rank * pipeline_stage_size
     mode = "wp" if is_using_isp() else "tp"
     for n_module, module in model.named_modules():
-        if isinstance(module, MoE):
+        if isinstance(module, MoEBase):
             num_local_wrapped_experts = len(module.moe_layer.experts.wrapped_experts)
             expp_rank = gpc.get_local_rank(ParallelMode.EXPERT)
 
