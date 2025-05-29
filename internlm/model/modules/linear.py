@@ -38,7 +38,6 @@ custom_bwd = internlm_accelerator.return_custom_bwd()
 custom_fwd = internlm_accelerator.return_custom_fwd()
 
 
-
 # adpated from https://github.com/Dao-AILab/flash-attention/blob/main/flash_attn/ops/fused_dense.py
 class SPFusedDenseFunc(torch.autograd.Function):
     "FusedDenseFunc for tensor parallel in flash-attn implementation."
@@ -56,6 +55,7 @@ class SPFusedDenseFunc(torch.autograd.Function):
         ctx.compute_weight_gradient = weight.requires_grad
         ctx.return_residual = return_residual
         ctx.communicator = communicator
+        ctx.weight_name = getattr(weight, "global_name", None)
 
         if torch.is_autocast_enabled():
             x = x.to(dtype=torch.get_autocast_gpu_dtype())
@@ -79,7 +79,7 @@ class SPFusedDenseFunc(torch.autograd.Function):
         # https://github.com/pytorch/pytorch/blob/5b51849b48a7dbccd297286cc0110def4706f9e7/aten/src/ATen/native/cuda/Blas.cpp#L174
         if min(batch_dim, n, *weight.shape) > 65535 * 32:
             raise RuntimeError("fused_dense only supports matrix dims <= 2M")
-        
+
         if gpc.config.int8_training:
             dtype = total_x.dtype
             assert dtype in [torch.bfloat16, torch.float32]
@@ -91,6 +91,9 @@ class SPFusedDenseFunc(torch.autograd.Function):
             else:
                 sque = 0
 
+            if getattr(weight, "global_name", None) is not None:
+                weight_name = weight.global_name
+                setattr(total_x, "global_name", weight_name.replace(".weight", ".input"))
             output = linear_forward_op(total_x, weight, bias)
 
             if sque:
@@ -112,6 +115,7 @@ class SPFusedDenseFunc(torch.autograd.Function):
     @custom_bwd
     def backward(ctx, grad_output, *args):
         communicator: TPCommunicator = ctx.communicator
+        weight_name = ctx.weight_name
 
         # parallel strategy-specific communication callback 3.
         # see more details in the communicator for different parallel strategies.
@@ -135,6 +139,8 @@ class SPFusedDenseFunc(torch.autograd.Function):
         grad_output = grad_output.reshape(batch_dim, grad_output.shape[-1])
 
         if ctx.needs_input_grad[0]:
+            if weight_name is not None:
+                setattr(grad_output, "global_name", weight_name.replace(".weight", ".grad_output"))
             if not ctx.return_residual:
                 grad_input = linear_forward_op(grad_output, weight.t())
             else:
@@ -203,7 +209,6 @@ class WPFusedDenseFunc(torch.autograd.Function):
         communicator: WPCommunicator,
         return_residual=False,
     ):
-        assert False
         ctx.compute_weight_gradient = weight.requires_grad
         ctx.return_residual = return_residual
         ctx.module = module

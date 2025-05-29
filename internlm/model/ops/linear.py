@@ -13,14 +13,27 @@ from torch.nn.functional import linear as _torch_linear_forward_op
 
 from internlm.accelerator import AcceleratorType, get_accelerator
 from internlm.core.context import global_context as gpc
-
-from test_torchao import per_col_quantize_int8, per_row_quantize_int8, per_tensor_quantize_int8, per_tensor_scaled_int8_mm, per_token_tensor_scaled_int8_mm, per_rowgroup_block_scaled_int8_mm, per_group_row_quantize_int8, per_block_quantize_int8
-from triton_kernel import quantize_rowwise, quantize_columnwise_and_transpose
+from internlm.utils.dump_wag import dump_quantize_wrapper
+from test_torchao import (
+    per_block_quantize_int8,
+    per_block_scaled_int8_mm,
+    per_col_quantize_int8,
+    per_group_col_quantize_int8,
+    per_group_row_quantize_int8,
+    per_group_scaled_int8_mm,
+    per_row_quantize_int8,
+    per_rowgroup_block_scaled_int8_mm,
+    per_tensor_quantize_int8,
+    per_tensor_scaled_int8_mm,
+    per_tensor_token_scaled_int8_mm,
+    per_token_tensor_scaled_int8_mm,
+)
+from triton_kernel import quantize_columnwise_and_transpose, quantize_rowwise
 
 try:
     from torchao.prototype.quantized_training.int8_mm import scaled_int8_mm
 except (ModuleNotFoundError, ImportError):
-    print('torchao not found', flush=True)
+    print("torchao not found", flush=True)
 
 try:
     from fused_dense_lib import linear_bias_wgrad as _flash_linear_backward_op
@@ -54,7 +67,7 @@ def _select_ops_binding(dtype: torch.dtype, is_cuda: bool = True) -> None:
 
     if use_flash_attn and is_gpu_backend and flash_attn_eligible:
         if not gpc.config.int8_training:
-            return _torch_linear_forward_op, _linear_bias_wgrad_torch #_flash_linear_backward_op
+            return _torch_linear_forward_op, _linear_bias_wgrad_torch  # _flash_linear_backward_op
         else:
             return _int8_forward_op, _int8_backward_op
     else:
@@ -63,7 +76,7 @@ def _select_ops_binding(dtype: torch.dtype, is_cuda: bool = True) -> None:
 
 
 def _select_int8_ops(mode):
-    assert mode == "tile_block"
+    # assert mode == "tile_block"
     if mode == "channel":
         # return quantize_rowwise, quantize_columnwise_and_transpose, scaled_int8_mm
         return per_row_quantize_int8, per_col_quantize_int8, scaled_int8_mm
@@ -81,12 +94,17 @@ def _select_int8_ops(mode):
         return per_tensor_quantize_int8, per_col_quantize_int8, per_tensor_token_scaled_int8_mm
     else:
         assert False
-    
 
-def _quantize_int8(A, B, mode="channel", sr=True):
+
+@dump_quantize_wrapper
+def _quantize_int8(A, B, mode="channel", sr=True, trans_b=True):
     quantize_A, quantize_B, _ = _select_int8_ops(mode)
+
     A_int8, A_scale = quantize_A(A, sr=sr)
-    B_int8, B_scale = quantize_B(B, sr=sr)
+    if trans_b:
+        B_int8, B_scale = quantize_B(B.t(), sr=sr)
+    else:
+        B_int8, B_scale = quantize_B(B, sr=sr)
     return A_int8, B_int8, A_scale, B_scale
 
 
@@ -96,7 +114,7 @@ def _int8_forward_op(_input, weight, bias):
     mode = gpc.config.int8_mode
     _, _, int8_mm = _select_int8_ops(mode)
     # for triton, add contiguous
-    _input_int8, weight_t_int8, input_scale, weight_t_scale = _quantize_int8(_input, weight.t(), mode=mode)
+    _input_int8, weight_t_int8, input_scale, weight_t_scale = _quantize_int8(_input, weight, mode=mode)
     assert _input_int8.dtype == torch.int8 and weight_t_int8.dtype == torch.int8
     output = int8_mm(_input_int8, weight_t_int8, input_scale, weight_t_scale).to(dtype)
 
@@ -108,7 +126,7 @@ def _int8_forward_op(_input, weight, bias):
     assert bias is None
     if bias is not None:
         output += bias
-    
+
     return output
 
 
@@ -117,10 +135,12 @@ def _int8_backward_op(_input: torch.Tensor, grad_output: torch.Tensor, has_d_bia
     dtype = _input.dtype
     mode = gpc.config.int8_mode
     _, _, int8_mm = _select_int8_ops(mode)
-    grad_output_t_int8, _input_int8, grad_output_t_scale, input_scale = _quantize_int8(grad_output.t(), _input, mode=mode)
+    grad_output_t_int8, _input_int8, grad_output_t_scale, input_scale = _quantize_int8(
+        grad_output.t(), _input, mode=mode, trans_b=False
+    )
     assert _input_int8.dtype == torch.int8 and grad_output_t_int8.dtype == torch.int8
     grad_weight = int8_mm(grad_output_t_int8, _input_int8, grad_output_t_scale, input_scale).to(dtype)
-    
+
     if gpc.config.int8_pad:
         m, _ = grad_output.t().shape
         _, n = _input.shape
