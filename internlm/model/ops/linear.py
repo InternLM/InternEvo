@@ -27,6 +27,7 @@ from test_torchao import (
     per_tensor_scaled_int8_mm,
     per_tensor_token_scaled_int8_mm,
     per_token_tensor_scaled_int8_mm,
+    clamp_outliers,
 )
 from triton_kernel import quantize_columnwise_and_transpose, quantize_rowwise
 
@@ -114,9 +115,17 @@ def _int8_forward_op(_input, weight, bias):
     mode = gpc.config.int8_mode
     _, _, int8_mm = _select_int8_ops(mode)
     # for triton, add contiguous
+    if gpc.config.clamp_outlier:
+        input_name = getattr(_input, "global_name", None)
+        _input, _input_outliers = clamp_outliers(_input)
+        if input_name is not None:
+            setattr(_input, "global_name", input_name)
     _input_int8, weight_t_int8, input_scale, weight_t_scale = _quantize_int8(_input, weight, mode=mode)
     assert _input_int8.dtype == torch.int8 and weight_t_int8.dtype == torch.int8
     output = int8_mm(_input_int8, weight_t_int8, input_scale, weight_t_scale).to(dtype)
+    if gpc.config.clamp_outlier:
+        outlier_output = _torch_linear_forward_op(_input_outliers, weight)
+        output += outlier_output
 
     if gpc.config.int8_pad:
         m, _ = _input.shape
@@ -135,11 +144,20 @@ def _int8_backward_op(_input: torch.Tensor, grad_output: torch.Tensor, has_d_bia
     dtype = _input.dtype
     mode = gpc.config.int8_mode
     _, _, int8_mm = _select_int8_ops(mode)
+    if gpc.config.clamp_outlier:
+        input_name = getattr(_input, "global_name", None)
+        _input, _input_outliers = clamp_outliers(_input)
+        if input_name is not None:
+            setattr(_input, "global_name", input_name)
     grad_output_t_int8, _input_int8, grad_output_t_scale, input_scale = _quantize_int8(
         grad_output.t(), _input, mode=mode, trans_b=False
     )
     assert _input_int8.dtype == torch.int8 and grad_output_t_int8.dtype == torch.int8
     grad_weight = int8_mm(grad_output_t_int8, _input_int8, grad_output_t_scale, input_scale).to(dtype)
+
+    if gpc.config.clamp_outlier:
+        outlier_output = torch.matmul(grad_output.t(), _input_outliers)
+        grad_weight += outlier_output
 
     if gpc.config.int8_pad:
         m, _ = grad_output.t().shape
