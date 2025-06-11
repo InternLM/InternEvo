@@ -132,7 +132,8 @@ def args_sanity_check():
                 gpc.config._add_item("int8_pad", True)
             else:
                 gpc.config._add_item("int8_pad", False)
-            
+        if "clamp_outlier" not in gpc.config:
+            gpc.config._add_item("clamp_outlier", False)
         if gpc.is_rank_for_log():
             logger.info(f"Int8 training enable: the mode is {gpc.config.int8_mode}")
 

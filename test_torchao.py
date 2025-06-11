@@ -13,6 +13,49 @@ def stochastic_round(x: torch.Tensor) -> torch.Tensor:
     rand = torch.rand_like(x)           # ⬅️ [0, 1) 均匀分布
     return torch.where(rand < frac_x, floor_x + 1, floor_x)
 
+def quick_quantiles(x: torch.Tensor, qs: list):
+    """
+    Calculate multiple quantiles of a tensor using one sorting step.
+    """
+    if x is None or len(qs) == 0:
+        return {}
+
+    # Ensure the tensor is flattened for consistent quantile calculation
+    n = x.numel()
+    x_flat = x.flatten()
+
+    # Sort the tensor once
+    sorted_x, _ = torch.sort(x_flat)
+
+    # Calculate the indices for each quantile
+    indices = [int(q * n) for q in qs]
+
+    # Extract the quantiles using the pre-sorted tensor
+    # quantiles = {q: sorted_x[i].item() for q, i in zip(qs, indices)}
+    quantiles = torch.tensor([sorted_x[i] for i in indices])
+
+    return quantiles
+
+def clamp_outliers(x: torch.Tensor, p: float = 0.99) -> tuple[torch.Tensor, torch.Tensor]:
+    """
+    筛选出分位数为p的outlier值和剔除过outlier的原tensor
+    Args:
+        x: 输入tensor
+        p: 分位数, 将最大和最小的 p*numel个outlier值clamp, p = (0, 1)
+    Returns:
+        x_clean: 剔除过outlier的原tensor, outlier位置置0
+        outliers: outlier值
+    """
+    # low_val = quick_quantile(x, 1 - p)
+    # high_val = quick_quantile(x, p)
+    quantiles = quick_quantiles(x, [1 - p, p]).tolist()
+    outlier_mask = (x < quantiles[0]) | (x > quantiles[1])
+
+    outliers = torch.where(outlier_mask, x, torch.zeros_like(x))
+    x_clean = x.masked_fill(outlier_mask, 0)
+
+    return x_clean, outliers
+
 
 def per_row_quantize_int8(x: torch.Tensor, sr=True) -> tuple[torch.Tensor, torch.Tensor]:
     assert x.dim() == 2, f"{x.dim()}, {x.shape}"
@@ -72,75 +115,110 @@ def per_tensor_token_scaled_int8_mm(
     return torch._int_mm(A, B)  * col_scale.view(-1) * a_scale
 
 
-def ceil_div(a, b):
-    return (a + b - 1) // b
+# def ceil_div(a, b):
+#     return (a + b - 1) // b
 
 
-def pad_for_128x128_if_needed(x: torch.Tensor):
-    assert x.dim() == 2
+# def pad_for_128x128_if_needed(x: torch.Tensor):
+#     assert x.dim() == 2
 
-    if x.shape[0] % 128 == 0 and x.shape[1] % 128 == 0:
-        return x
+#     if x.shape[0] % 128 == 0 and x.shape[1] % 128 == 0:
+#         return x
 
-    m, n = x.shape
-    x_padded = torch.zeros(
-        (ceil_div(m, 128) * 128, ceil_div(n, 128) * 128), dtype=x.dtype, device=x.device
-    )
-    x_padded[:m, :n] = x
-    return x_padded
+#     m, n = x.shape
+#     x_padded = torch.zeros(
+#         (ceil_div(m, 128) * 128, ceil_div(n, 128) * 128), dtype=x.dtype, device=x.device
+#     )
+#     x_padded[:m, :n] = x
+#     return x_padded
+
+
+def padding_to_group_size(x: torch.Tensor, group_size: int, dim: int = -1, value: float = 0.0) -> tuple[torch.Tensor, int]:
+    size = x.size(dim)
+    remainder = size % group_size
+    if remainder == 0:
+        return x, 0
+    pad_size = group_size - remainder
+    pad_shape = list(x.shape)
+    pad_shape[dim] = pad_size
+    pad_tensor = torch.full(pad_shape, value, dtype=x.dtype, device=x.device)
+    x_padded = torch.cat([x, pad_tensor], dim=dim)
+    return x_padded, pad_size
 
 
 def per_group_row_quantize_int8(x: torch.Tensor, sr=True, group_size: int = 128) -> tuple[torch.Tensor, torch.Tensor]:
-    assert x.dim() == 2, f"{x.dim()}, {x.shape}"
+    assert x.dim() == 2
+    M, K = x.shape
     if gpc.config.int8_pad:
-        x = pad_for_128x128_if_needed(x)
-    assert x.size(1) % group_size == 0, f"{x.shape}"
-    num_groups = x.size(1) // group_size
-    x_amax = x.abs().float().reshape(x.size(0), num_groups, group_size).amax(dim=2).clamp(min=1e-4)
-    scale = 127 / x_amax
-    scale = scale.unsqueeze(2).expand(-1, -1, group_size).reshape(x.size(0), x.size(1))
-    if sr:
-        x_scaled = stochastic_round((x * scale)).clamp(-127, 127).to(torch.int8)
+        x_padded, pad_K = padding_to_group_size(x, group_size, dim=1)
     else:
-        x_scaled = (x * scale).round().clamp(-127, 127).to(torch.int8)
-        
+        x_padded = x
+    K_pad = x_padded.shape[1]
+    assert x_padded.size(1) % group_size == 0, f"{x.shape}"
+
+    num_groups = K_pad // group_size
+
+    x_amax = x_padded.abs().float().reshape(M, num_groups, group_size).amax(dim=2).clamp(min=1e-4)
+    scale = 127 / x_amax
+    scale = scale.unsqueeze(2).expand(-1, -1, group_size).reshape(M, K_pad)
+
+    if sr:
+        x_scaled = stochastic_round((x_padded * scale)).clamp(-127, 127).to(torch.int8)
+    else:
+        x_scaled = (x_padded * scale).round().clamp(-127, 127).to(torch.int8)
+
     return x_scaled, x_amax / 127
 
 
 def per_group_col_quantize_int8(x: torch.Tensor, sr=True, group_size: int = 128) -> tuple[torch.Tensor, torch.Tensor]:
-    assert x.dim() == 2, f"{x.dim()}, {x.shape}"
-    num_groups = x.size(0) // group_size
-    x_amax = x.abs().float().reshape(num_groups, group_size, x.size(1)).amax(dim=1).clamp(min=1e-4)
+    assert x.dim() == 2
+    M, K = x.shape
+    if gpc.config.int8_pad:
+        x_padded, pad_M = padding_to_group_size(x, group_size, dim=0)
+    else:
+        x_padded = x
+    M_pad = x_padded.shape[0]
+    num_groups = M_pad // group_size
+
+    x_amax = x_padded.abs().float().reshape(num_groups, group_size, K).amax(dim=1).clamp(min=1e-4)
     scale = 127 / x_amax
-    scale = scale.unsqueeze(1).expand(-1, group_size, -1).reshape(x.size(0), x.size(1))
+    scale = scale.unsqueeze(1).expand(-1, group_size, -1).reshape(M_pad, K)
 
     if sr:
-        x_scaled = stochastic_round((x * scale)).clamp(-127, 127).to(torch.int8)
+        x_scaled = stochastic_round((x_padded * scale)).clamp(-127, 127).to(torch.int8)
     else:
-        x_scaled = (x * scale).round().clamp(-127, 127).to(torch.int8)
-        
+        x_scaled = (x_padded * scale).round().clamp(-127, 127).to(torch.int8)
+    
     return x_scaled, x_amax / 127
 
-def per_block_quantize_int8(x: torch.Tensor, sr: bool = True, row_group_size: int = 128, col_group_size: int = 128) -> tuple[torch.Tensor, torch.Tensor]:
-    assert x.dim() == 2, f"{x.dim()}, {x.shape}"
-    if gpc.config.int8_pad:
-        x = pad_for_128x128_if_needed(x)
-    assert x.size(0) % row_group_size == 0 and x.size(1) % col_group_size == 0, f"{x.shape}"
-    M, K = x.shape
-    num_row_groups = M // row_group_size
-    num_col_groups = K // col_group_size
 
-    x_blocks = x.float().reshape(num_row_groups, row_group_size, num_col_groups, col_group_size)
-    block_amax = x_blocks.abs().amax(dim=(1, 3)).clamp(min=1e-4)  # shape: [num_row_groups, num_col_groups]
-    scale = 127.0 / block_amax  # shape: [num_row_groups, num_col_groups]
-    scale_expanded = scale.unsqueeze(1).unsqueeze(3).expand(-1, row_group_size, -1, col_group_size).reshape(M, K)
+def per_block_quantize_int8(x: torch.Tensor, sr: bool = True, row_group_size: int = 128, col_group_size: int = 128) -> tuple[torch.Tensor, torch.Tensor]:
+    assert x.dim() == 2
+    M, K = x.shape
+    if gpc.config.int8_pad:
+        x_padded, pad_K = padding_to_group_size(x, row_group_size, dim=1)
+        x_padded, pad_M = padding_to_group_size(x_padded, col_group_size, dim=0)
+    else:
+        x_padded = x
+
+    assert x_padded.size(0) % row_group_size == 0 and x_padded.size(1) % col_group_size == 0, f"{x.shape}"
+    M_pad, K_pad = x_padded.shape
+
+    num_row_groups = M_pad // row_group_size
+    num_col_groups = K_pad // col_group_size
+
+    x_blocks = x_padded.float().reshape(num_row_groups, row_group_size, num_col_groups, col_group_size)
+    block_amax = x_blocks.abs().amax(dim=(1, 3)).clamp(min=1e-4)
+    scale = 127.0 / block_amax
+
+    scale_expanded = scale.unsqueeze(1).unsqueeze(3).expand(-1, row_group_size, -1, col_group_size).reshape(M_pad, K_pad)
 
     if sr:
-        x_q = stochastic_round(x * scale_expanded).clamp(-127, 127).to(torch.int8)
+        x_q = stochastic_round(x_padded * scale_expanded).clamp(-127, 127).to(torch.int8)
     else:
-        x_q = (x * scale_expanded).round().clamp(-127, 127).to(torch.int8)
+        x_q = (x_padded * scale_expanded).round().clamp(-127, 127).to(torch.int8)
 
-    inv_scale = block_amax / 127.0 
+    inv_scale = block_amax / 127.0
     return x_q, inv_scale
 
 
@@ -179,11 +257,10 @@ def per_rowgroup_block_scaled_int8_mm(
     group_size: int = 128
 ) -> torch.Tensor:
     M, K = A_q.shape
-    _, N = B_q.shape
+    _, N = B_q.shape    
     out = torch.zeros((M, N), dtype=torch.float32, device=A_q.device)
 
     num_k_groups = K // group_size
-    num_b_row_groups = K // row_group_size
     num_b_col_groups = N // col_group_size
 
     for g in range(num_k_groups):
@@ -215,7 +292,6 @@ def per_block_scaled_int8_mm(
 ) -> torch.Tensor:
     M, K = A_q.shape
     _, N = B_q.shape
-    assert K % col_group_size == 0 and M % row_group_size == 0 and N % col_group_size == 0
 
     out = torch.zeros((M, N), dtype=torch.float32, device=A_q.device)
 
@@ -224,11 +300,17 @@ def per_block_scaled_int8_mm(
     num_k_blocks = K // col_group_size
 
     for r in range(num_row_blocks):
+        i0 = r * row_group_size
+        i1 = i0 + row_group_size, M
         for c in range(num_col_blocks):
+            j0 = c * col_group_size
+            j1 = j0 + col_group_size
             out_block = torch.zeros((row_group_size, col_group_size), dtype=torch.float32, device=A_q.device)
             for k in range(num_k_blocks):
-                A_block = A_q[r*row_group_size:(r+1)*row_group_size, k*col_group_size:(k+1)*col_group_size]
-                B_block = B_q[k*col_group_size:(k+1)*col_group_size, c*col_group_size:(c+1)*col_group_size]
+                k0 = k * col_group_size
+                k1 = k0 + col_group_size
+                A_block = A_q[i0:i1, k0:k1]
+                B_block = B_q[k0:k1, j0:j1]
                 # int8 matmul
                 partial = torch._int_mm(A_block, B_block)  # [row_group_size, col_group_size]
                 a_scale = A_inv_scales[r, k]
@@ -236,7 +318,7 @@ def per_block_scaled_int8_mm(
                 scale = a_scale * b_scale
                 out_block += partial.float() * scale
 
-            out[r*row_group_size:(r+1)*row_group_size, c*col_group_size:(c+1)*col_group_size] = out_block
+            out[i0:i1, j0:j1] = out_block
     return out
 
 
@@ -292,8 +374,62 @@ if __name__ == "__main__":
     print("rowgroup block scaled int8 误差:", (out11 - out1).abs().mean())
     print("block scaled int8 误差:", (out12 - out1).abs().mean())
 
+    ## 测试padding
+    x = torch.randn(4096, 6656, dtype=torch.float32, device="cuda")
+    weight = torch.randn(6656, 8000, dtype=torch.float32, device="cuda")
+    out1 = x @ weight
+    group_scaled_x_int8, group_row_scale = per_group_row_quantize_int8(x, sr)
+    group_scaled_w_int8, group_col_scale = per_group_col_quantize_int8(weight, sr)
+    block_scaled_x_int8, block_x_scale = per_block_quantize_int8(x, sr)
+    block_scaled_w_int8, block_w_scale = per_block_quantize_int8(weight, sr)
+    out2 = per_group_scaled_int8_mm(group_scaled_x_int8, group_scaled_w_int8, group_row_scale, group_col_scale)
+    out3 = per_rowgroup_block_scaled_int8_mm(group_scaled_x_int8, block_scaled_w_int8, group_row_scale, block_w_scale)
+    # out4 = per_block_scaled_int8_mm(block_scaled_x_int8, block_scaled_w_int8, block_x_scale, block_w_scale)
+    print('padding tests:')
+    
+    print("group scaled int8 误差:", (out2 - out1).abs().mean())
+    print("rowgroup block scaled int8 误差:", (out3 - out1).abs().mean())
+    # print("block scaled int8 误差:", (out4 - out1).abs().mean())
 
 
+    ## 测试outlier
+    print('outlier tests:')
+    x = torch.randn(4096, 4096, dtype=torch.float32, device="cuda")
+    weight = torch.randn(4096, 2048, dtype=torch.float32, device="cuda")
+    x_clean, outliers = clamp_outliers(x)
+
+    print('outliers:', outliers)
+    print('non-zero outliers:', outliers.nonzero().shape)
+    out1 = x @ weight
+    
+    x_bf16 = x.to(torch.bfloat16)
+    weight_bf16 = weight.to(torch.bfloat16)
+    out_bf16 = x_bf16 @ weight_bf16
+    print('bf16 误差:\n', (out_bf16 - out1).abs().mean())
+    
+    x_int8, row_scale = per_row_quantize_int8(x, sr)
+    w_int8, col_scale = per_col_quantize_int8(weight, sr)
+    x_int8_clean, row_scale_clean = per_row_quantize_int8(x_clean, sr)
+
+    out2 = per_token_scaled_int8_mm(x_int8, w_int8, row_scale, col_scale)
+    print('token scaled int8 误差:', (out2 - out1).abs().mean())
+
+    out3_clean = per_token_scaled_int8_mm(x_int8_clean, w_int8, row_scale_clean, col_scale)
+    outlier_res = outliers @ weight
+    out3 = out3_clean + outlier_res
+    print('token scaled int8 no outlier 误差:', (out3 - out1).abs().mean())
+
+    tensor_scaled_x_int8, a_scale = per_tensor_quantize_int8(x, sr)
+    tensor_scaled_w_int8, b_scale = per_tensor_quantize_int8(weight, sr)
+    tensor_scaled_x_int8_clean, a_scale_clean = per_tensor_quantize_int8(x_clean, sr)
+
+    out4 = per_tensor_scaled_int8_mm(tensor_scaled_x_int8, tensor_scaled_w_int8, a_scale, b_scale)
+    print('tensor scaled int8 误差:', (out4 - out1).abs().mean())
+    
+    out5_clean = per_tensor_scaled_int8_mm(tensor_scaled_x_int8_clean, tensor_scaled_w_int8, a_scale_clean, b_scale)
+    outlier_res = outliers @ weight
+    out5 = out3_clean + outlier_res
+    print('tensor scaled int8 no outlier 误差:', (out5 - out1).abs().mean())
 # torch.manual_seed(1024)
 # x = torch.randn(4096, 4096, dtype=torch.float32, device="cuda")
 # weight = torch.randn(4096, 2048, dtype=torch.float32, device="cuda")
