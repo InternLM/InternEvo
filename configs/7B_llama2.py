@@ -12,6 +12,7 @@ NUM_LAYER = 32 #16
 
 int8_training = True
 int8_mode = 'channel'
+need_save_weight = False
 
 MODEL_ONLY_FOLDER = "local:llm_ckpts/xxxx"
 # Ckpt folder format:

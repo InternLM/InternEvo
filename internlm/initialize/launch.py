@@ -137,6 +137,12 @@ def args_sanity_check():
         if gpc.is_rank_for_log():
             logger.info(f"Int8 training enable: the mode is {gpc.config.int8_mode}")
 
+    if "need_save_weight" not in gpc.config:
+        gpc.config._add_item("need_save_weight", False)
+    elif gpc.config.need_save_weight:
+        if not gpc.config.int8_mode in ["tensor", "channel_tensor"]:
+            assert False
+
     # procssing the parallel config in gpc
     if "zero1" not in gpc.config.parallel:
         gpc.config.parallel._add_item("zero1", dict(size=-1))

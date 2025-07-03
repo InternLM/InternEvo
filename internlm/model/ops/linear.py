@@ -7,6 +7,7 @@ This file implements support for the linear layer operators.
 """
 
 from typing import Optional, Tuple
+from functools import partial
 
 import torch
 from torch.nn.functional import linear as _torch_linear_forward_op
@@ -29,7 +30,7 @@ from test_torchao import (
     per_token_tensor_scaled_int8_mm,
     clamp_outliers,
 )
-from triton_kernel import quantize_columnwise_and_transpose, quantize_rowwise
+from triton_kernel import quantize_columnwise_and_transpose, quantize_rowwise, int8_quantize_op
 
 try:
     from torchao.prototype.quantized_training.int8_mm import scaled_int8_mm
@@ -77,9 +78,10 @@ def _select_ops_binding(dtype: torch.dtype, is_cuda: bool = True) -> None:
 
 
 def _select_int8_ops(mode):
-    # assert mode == "tile_block"
+    # assert mode == "channel"
     if mode == "channel":
         # return quantize_rowwise, quantize_columnwise_and_transpose, scaled_int8_mm
+        # return partial(int8_quantize_op, mode="token"), partial(int8_quantize_op, mode="channel"), scaled_int8_mm
         return per_row_quantize_int8, per_col_quantize_int8, scaled_int8_mm
     elif mode == "tensor":
         return per_tensor_quantize_int8, per_tensor_quantize_int8, per_tensor_scaled_int8_mm
@@ -98,10 +100,14 @@ def _select_int8_ops(mode):
 
 
 @dump_quantize_wrapper
-def _quantize_int8(A, B, mode="channel", sr=True, trans_b=True):
+def _quantize_int8(A, B, mode="channel", sr=False, trans_b=True):
     quantize_A, quantize_B, _ = _select_int8_ops(mode)
 
     A_int8, A_scale = quantize_A(A, sr=sr)
+
+    if B is None:
+        return A_int8, None, A_scale, None
+
     if trans_b:
         B_int8, B_scale = quantize_B(B.t(), sr=sr)
     else:
@@ -110,33 +116,48 @@ def _quantize_int8(A, B, mode="channel", sr=True, trans_b=True):
 
 
 def _int8_forward_op(_input, weight, bias):
-    assert _input.dtype == weight.dtype
     dtype = _input.dtype
     mode = gpc.config.int8_mode
     _, _, int8_mm = _select_int8_ops(mode)
-    # for triton, add contiguous
     if gpc.config.clamp_outlier:
         input_name = getattr(_input, "global_name", None)
         _input, _input_outliers = clamp_outliers(_input)
         if input_name is not None:
             setattr(_input, "global_name", input_name)
-    _input_int8, weight_t_int8, input_scale, weight_t_scale = _quantize_int8(_input, weight, mode=mode)
-    assert _input_int8.dtype == torch.int8 and weight_t_int8.dtype == torch.int8
-    output = int8_mm(_input_int8, weight_t_int8, input_scale, weight_t_scale).to(dtype)
-    if gpc.config.clamp_outlier:
-        outlier_output = _torch_linear_forward_op(_input_outliers, weight)
-        output += outlier_output
 
-    if gpc.config.int8_pad:
-        m, _ = _input.shape
-        _, n = weight.t().shape
-        output = output[:m, :n]
+    if isinstance(weight, tuple):
+        # for need_save_weight, grad_input computing, only per-tensor weight
+        assert mode in ["tensor", "channel_tensor"]
+        weight_t_int8, weight_t_scale = weight
+        _input_int8, _, input_scale, _ = _quantize_int8(_input, None, mode=mode)
+        assert _input_int8.dtype == torch.int8 and weight_t_int8.dtype == torch.int8
+        output = int8_mm(_input_int8, weight_t_int8.t(), input_scale, weight_t_scale).to(dtype)
+        assert bias is None
+        int8_weight_comb = None
+    else:
+        assert _input.dtype == weight.dtype
+        _input_int8, weight_t_int8, input_scale, weight_t_scale = _quantize_int8(_input, weight, mode=mode)
+        assert _input_int8.dtype == torch.int8 and weight_t_int8.dtype == torch.int8
+        output = int8_mm(_input_int8, weight_t_int8, input_scale, weight_t_scale).to(dtype)
+        if gpc.config.clamp_outlier:
+            outlier_output = _torch_linear_forward_op(_input_outliers, weight)
+            output += outlier_output
 
-    assert bias is None
-    if bias is not None:
-        output += bias
+        if gpc.config.int8_pad:
+            m, _ = _input.shape
+            _, n = weight.t().shape
+            output = output[:m, :n]
 
-    return output
+        assert bias is None
+        if bias is not None:
+            output += bias
+        
+        if not gpc.config.need_save_weight:
+            int8_weight_comb = None
+        else:
+            int8_weight_comb = (weight_t_int8, weight_t_scale)
+
+    return output, int8_weight_comb
 
 
 def _int8_backward_op(_input: torch.Tensor, grad_output: torch.Tensor, has_d_bias: bool):

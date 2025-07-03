@@ -94,20 +94,25 @@ class SPFusedDenseFunc(torch.autograd.Function):
             if getattr(weight, "global_name", None) is not None:
                 weight_name = weight.global_name
                 setattr(total_x, "global_name", weight_name.replace(".weight", ".input"))
-            output = linear_forward_op(total_x, weight, bias)
+            output, int8_weight_comb = linear_forward_op(total_x, weight, bias)
 
             if sque:
                 total_x = total_x.unsqueeze(0)
                 output = output.unsqueeze(0)
         else:
-            output = linear_forward_op(total_x, weight, bias)
+            output, _ = linear_forward_op(total_x, weight, bias)
+            int8_weight_comb = None
 
         # parallel strategy-specific communication callback 2.
         # see more details in the communicator for different parallel strategies.
         output, _ = communicator.output_hook(output, async_op=False)
 
         saved_x = None if ctx.compute_weight_gradient is False else total_x if communicator.save_total_input() else x
-        ctx.save_for_backward(saved_x, weight, bias)
+
+        if int8_weight_comb is not None:
+            ctx.save_for_backward(saved_x, int8_weight_comb[0], bias, int8_weight_comb[1])
+        else:
+            ctx.save_for_backward(saved_x, weight, bias, None)
 
         return output if not return_residual else (output, x)
 
@@ -127,7 +132,10 @@ class SPFusedDenseFunc(torch.autograd.Function):
             grad_input = grad_input.contiguous()
 
         # print(f"ctx rank: {gpc.get_global_rank()}, {len(ctx.saved_tensors)}", flush=True)
-        x, weight, bias = ctx.saved_tensors
+        x, weight, bias, weight_scale = ctx.saved_tensors
+
+        if not gpc.config.need_save_weight:
+            assert weight.dtype != torch.int8
 
         # parallel strategy-specific communication callback 1-2.
         # see more details in the communicator for different parallel strategies.
@@ -142,7 +150,11 @@ class SPFusedDenseFunc(torch.autograd.Function):
             if weight_name is not None:
                 setattr(grad_output, "global_name", weight_name.replace(".weight", ".grad_output"))
             if not ctx.return_residual:
-                grad_input = linear_forward_op(grad_output, weight.t())
+                if weight_scale is not None:
+                    assert gpc.config.need_save_weight and weight.dtype == torch.int8
+                    grad_input, _ = linear_forward_op(grad_output, (weight, weight_scale))
+                else:
+                    grad_input, _ = linear_forward_op(grad_output, weight.t())
             else:
                 assert False
                 grad_input = torch.addmm(
