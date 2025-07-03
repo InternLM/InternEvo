@@ -3,7 +3,7 @@ Usage:
     python tools/convert_ckpt_parallel.py \
     <origin_ckpt_path> <target_ckpt_path> \
     --origin_meta_path <origin_meta_path> --target_meta_path <target_meta_path> \
-    --copy_file <True/False> --convert_optimizer <True/False>
+    --copy_file  --convert_optimizer
 
     When meta_path is not specified, it will automatically search and load meta in the ckpt path.
     Default to convert optimizer state and copy files.
@@ -31,8 +31,8 @@ def parse_args():
     args.add_argument("target_ckpt_path", type=str, default=None)
     args.add_argument("--origin_meta_path", type=str, default=None)
     args.add_argument("--target_meta_path", type=str, default=None)
-    args.add_argument("--copy_file", type=bool, default=True, help="enable/disable copy other file.")
-    args.add_argument("--convert_optimizer", type=bool, default=True, help="enable/disable optimizer converting.")
+    args.add_argument("--copy_file", default=False, action="store_true", help="enable copy other file.")
+    args.add_argument("--convert_optimizer", default=False, action="store_true", help="enable optimizer converting.")
     return args.parse_args()
 
 
