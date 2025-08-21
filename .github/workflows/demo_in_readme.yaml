@@ -63,6 +63,8 @@ jobs:
         export GITHUB_WORKSPACE=$GITHUB_WORKSPACE
         export SLURM_PARTITION=$SLURM_PARTITION
         source activate ${evo_env_torch21_flash2}
+        export TORCH_NCCL_AVOID_RECORD_STREAMS=1
+        export CUDA_DEVICE_MAX_CONNECTIONS=1
         sh ./ci_scripts/train/slurm_train.sh ${GITHUB_RUN_ID}-${GITHUB_JOB}
         EOF
 
@@ -75,6 +77,8 @@ jobs:
         export SLURM_PARTITION=$SLURM_PARTITION
         source activate ${evo_env_torch21_flash2}
         export PYTHONPATH=$PWD:$PYTHONPATH
+        export TORCH_NCCL_AVOID_RECORD_STREAMS=1
+        export CUDA_DEVICE_MAX_CONNECTIONS=1
         sh ./ci_scripts/train/load_ckpt.sh 7B_load_preset_ckpt ${GITHUB_RUN_ID}-${GITHUB_JOB}
         EOF
 
@@ -86,6 +90,8 @@ jobs:
         export SLURM_PARTITION=$SLURM_PARTITION
         source activate ${evo_env_torch21_flash2}
         export PYTHONPATH=$PWD:$PYTHONPATH
+        export TORCH_NCCL_AVOID_RECORD_STREAMS=1
+        export CUDA_DEVICE_MAX_CONNECTIONS=1
         sh ./ci_scripts/train/load_ckpt.sh 7B_load_new_ckpt ${GITHUB_RUN_ID}-${GITHUB_JOB}
         rm -rf $GITHUB_WORKSPACE/llm_ckpts
         EOF
@@ -97,6 +103,8 @@ jobs:
         export GITHUB_WORKSPACE=$GITHUB_WORKSPACE
         export SLURM_PARTITION=$SLURM_PARTITION
         source activate ${evo_env_torch21_flash2}
+        export TORCH_NCCL_AVOID_RECORD_STREAMS=1
+        export CUDA_DEVICE_MAX_CONNECTIONS=1
         sh ./ci_scripts/train/torchrun.sh ${GITHUB_RUN_ID}-${GITHUB_JOB}
         rm -rf $GITHUB_WORKSPACE/llm_ckpts
         EOF

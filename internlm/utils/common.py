@@ -249,11 +249,6 @@ def enable_pytorch_expandable_segments():
         logger.warning("To support the 'expandable_segments' configuration, please upgrade torch to version 2.1.0.")
 
 
-def check_cuda_env():
-    if os.getenv("CUDA_DEVICE_MAX_CONNECTIONS") is None:
-        logger.warning("Env var CUDA_DEVICE_MAX_CONNECTIONS has not be set, please note this!")
-
-
 class DummyProfile:
     """
     Dummy Profile.

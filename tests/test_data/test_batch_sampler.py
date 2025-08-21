@@ -45,6 +45,7 @@ def do_warmup(args):
     rank, worldsize, init_config, should_sccuess, answer = args
     build_environment(rank, worldsize, init_config)
     gpc.config.model.num_chunks = 1 if gpc.get_world_size(ParallelMode.PIPELINE) == 1 else 2
+    gpc.config.model.vocab_size = 92544
     engine, scheduler = init_model_and_optim(
         8,
         gpc.config.model.num_chunks,

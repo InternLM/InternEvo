@@ -1,5 +1,6 @@
 import gc
 import logging
+import os
 import time
 from functools import partial
 from typing import Dict, List, Optional, Union
@@ -8,6 +9,7 @@ import torch
 import torch.distributed as dist
 from torch.utils.data import DataLoader
 
+from internlm.accelerator import AcceleratorType, get_accelerator
 from internlm.checkpoint.checkpoint_manager import CheckpointManager
 from internlm.core.context import global_context as gpc
 from internlm.core.context.process_group_initializer import ParallelMode
@@ -31,7 +33,6 @@ from internlm.train.pipeline import (
 )
 from internlm.utils.common import (
     BatchSkipper,
-    check_cuda_env,
     enable_pytorch_expandable_segments,
     get_current_device,
     get_megatron_flops,
@@ -47,6 +48,32 @@ from internlm.utils.writer import Writer
 
 # global llm logger
 logger = logging.getLogger(__file__)
+internlm_accelerator = get_accelerator()
+
+
+def check_cuda_env():
+    if internlm_accelerator.get_accelerator_backend() == AcceleratorType.GPU:
+        wp_fwd_per = gpc.config.parallel.weight.get("forward_overlap_per", "layer")
+        ewp_fwd_per = gpc.config.parallel.expert_weight.get("forward_overlap_per", "layer")
+        wp_size = gpc.config.parallel.weight.get("size", 1)
+        ewp_size = gpc.config.parallel.expert_weight.get("size", 1)
+        open_max_conns = (wp_size == 1 or wp_fwd_per != "layer") and (ewp_size == 1 or ewp_fwd_per != "layer")
+        if open_max_conns:
+            max_connections = os.getenv("CUDA_DEVICE_MAX_CONNECTIONS")
+            assert (
+                max_connections is not None
+            ), "Env var CUDA_DEVICE_MAX_CONNECTIONS has not been set, please set it to 1!"
+            assert (
+                max_connections == "1"
+            ), "Env var CUDA_DEVICE_MAX_CONNECTIONS is set to {}, it should be set to 1!".format(max_connections)
+
+        avoid_record_streams = os.getenv("TORCH_NCCL_AVOID_RECORD_STREAMS")
+        assert (
+            avoid_record_streams is not None
+        ), "Env var TORCH_NCCL_AVOID_RECORD_STREAMS has not been set, please set it to 1!"
+        assert (
+            avoid_record_streams == "1"
+        ), "Env var TORCH_NCCL_AVOID_RECORD_STREAMS is set to {}, it should be set to 1!".format(avoid_record_streams)
 
 
 class TrainerBuilder(Trainer):
