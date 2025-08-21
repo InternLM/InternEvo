@@ -471,7 +471,7 @@ def inject_model(model):
     else:
         model = NaiveAMPModel(
             model=model,
-            output_to_fp32=gpc.is_no_pp_or_last_stage(),
+            output_to_fp32=gpc.is_no_pp_or_last_stage() and gpc.config.get("use_fp32_logits", True),
             dtype=gpc.config.model.get("dtype", torch.half),
             sync_buffer=False,
         )

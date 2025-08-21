@@ -67,6 +67,12 @@ def new_cross_entropy(
     except KeyError:
         raise KeyError(f"op_type only support: {cross_entropy_op_name_map.keys()}")
 
+    if not gpc.config.get("use_fp32_logits", True):
+        assert op_type in [
+            CrossEntropyOpType.flash_vocab_parallel,
+            CrossEntropyOpType.apex_naive,
+        ], "use_fp32_logits=False only support 'flash_vocab_parallel' or 'apex_naive' loss function"
+
     if internlm_accelerator.get_accelerator_backend() is not AcceleratorType.GPU:
         assert op_type in [
             CrossEntropyOpType.torch_naive,
