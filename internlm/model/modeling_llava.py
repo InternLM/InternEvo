@@ -15,6 +15,7 @@ from internlm.model.modules.embedding import Embedding1D
 from internlm.model.modules.linear import new_linear
 from internlm.model.modules.norm import new_layer_norm
 from internlm.utils.logger import get_logger
+from internlm.utils.common import get_current_device
 
 logger = get_logger(__file__)
 
@@ -192,7 +193,7 @@ class Llava(BaseModel):
         if hasattr(self, "vit") and hasattr(self, "vision_proj") and hasattr(self, "tok_embeddings"):
             # vit
             if len(images) == 1 and len(images[0]) == 0:  # make sure grad in Qformer for update
-                images = [torch.rand(1, 3, self.vit.image_size, self.vit.image_size).cuda().to(self.dtype)]
+                images = [torch.rand(1, 3, self.vit.image_size, self.vit.image_size).to(self.device).to(self.dtype)]
                 pure_text = True
 
             for image in images:
@@ -201,7 +202,7 @@ class Llava(BaseModel):
                     x = []
                 else:
                     assert not isinstance(image, list), image
-                    x = image.to(torch.cuda.current_device()).to(self.dtype)
+                    x = image.to(get_current_device()).to(self.dtype)
                     x = self.vit(x)
                     x = self.vision_proj(x)
                 xs.append(x)
