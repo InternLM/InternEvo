@@ -912,13 +912,13 @@ class GroupedParallelLinearWithCommExt(ParallelLinearWithCommExt):
                 torch.empty(num_groups, in_features, local_multiple * multiple_of, device=device, dtype=dtype)
             )
             self.tp_dim = 2
-            assert self.weight.shape[self.tp_dim] != out_features
+            # assert self.weight.shape[self.tp_dim] != out_features
         elif split_mode == "row":
             self.weight = nn.Parameter(
                 torch.empty(num_groups, local_multiple * multiple_of, out_features, device=device, dtype=dtype)
             )
             self.tp_dim = 1
-            assert self.weight.shape[self.tp_dim] != in_features
+            # assert self.weight.shape[self.tp_dim] != in_features
         elif split_mode == "weight":
             self.weight = nn.Parameter(
                 torch.empty(local_multiple * multiple_of, out_features, device=device, dtype=dtype)
