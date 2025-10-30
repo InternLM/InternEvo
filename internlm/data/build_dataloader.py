@@ -84,6 +84,7 @@ def get_tokenized_train_loader_items(data_cfg):
             min_length=data_cfg.get("min_length", 0),
             min_length_dict=data_cfg.get("min_length_dict", None),
             pack_sample_into_one=data_cfg.get("pack_sample_into_one", False),
+            bucket_size=data_cfg.get("bucket_size", 0)
         )
 
     train_sampler = StaticBatchSampler(

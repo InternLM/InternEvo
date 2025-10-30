@@ -16,7 +16,7 @@ from tqdm import tqdm
 
 from internlm.accelerator import get_accelerator
 from internlm.core.context import global_context as gpc
-from internlm.data.tokenized.single_dataset import JsonlDataset
+from internlm.data.tokenized.single_dataset import JsonlDataset, JsonlDatasetWithBucketGroup
 from internlm.data.utils import get_dataset_type_id, get_dataset_type_ids_map
 from internlm.utils.logger import get_logger
 
@@ -487,6 +487,7 @@ def get_packed_dataset_without_short_length(
     min_length=50,
     min_length_dict=None,
     pack_sample_into_one=False,
+    bucket_size: int = 0, # set to >0 to enable bucket group
 ):
     """
     Given a folder, combine all the .bin files into a single large dataset.
@@ -511,15 +512,16 @@ def get_packed_dataset_without_short_length(
     assert os.path.exists(folder), f"{folder} does not exist."
     datasets = []
     delete_samples = 0
-
+    
+    # a map for subdir_name: {"dir1": type_id, "dir2": type_id, ...}
     DATASET_TYPE_IDS_MAP = get_dataset_type_ids_map(folder)
 
     if gpc.get_global_rank() == 0:
-        triples = [list(os.walk(folder, followlinks=True))]
+        triples = [list(os.walk(folder, followlinks=True))] # list of (root, dirs, files) -> [(root, dirs, files), ...]
     else:
         triples = [None]
-    dist.broadcast_object_list(triples, src=0)
-    triples = triples[0]
+    dist.broadcast_object_list(triples, src=0) # broadcast to all ranks
+    triples = triples[0] # get the first (root, dirs, files)
 
     for root, dirs, files in triples:
         dirs.sort()  # Let the folder need to be returned in a fixed order
@@ -540,14 +542,13 @@ def get_packed_dataset_without_short_length(
                     assert (
                         len(catch_ml_keys) < 2
                     ), f"The file name `{fp}` matched the following resample keys:{catch_ml_keys}"
-
+                
+                # search dataset type id from DATASET_TYPE_IDS_MAP by matching the subname in the path
+                # Usage example: if the path is /data/pile-arxiv/file.bin, and DATASET_TYPE_IDS_MAP = {"pile-arxiv": 1, "pile-books": 2}
+                # then the dataset type id is 1
+                # it uses for fixed type_ids for different datasets when packing samples
                 ds_type_id = get_dataset_type_id(DATASET_TYPE_IDS_MAP, path=fp)
-                ds = JsonlDataset(
-                    fp,
-                    ds_type_id,
-                    min_length=min_length_num,
-                    pack_sample_into_one=pack_sample_into_one,
-                )
+                ds = JsonlDataset(fp, ds_type_id, min_length=min_length_num)
 
                 if hasattr(ds, "old_length"):
                     delete_samples += ds.old_length - len(ds)
@@ -555,16 +556,58 @@ def get_packed_dataset_without_short_length(
                     if gpc.is_rank_for_log():
                         logger.info(f"None of the data in `{fp}` is longer than {min_length}")
                     continue
+                # Not set BucketGroup
+                if not bucket_size or bucket_size <= 0:
+                    print(f"---------------- Processing {fp} without bucket group.---------------")
+                    if pack_sample_into_one:
+                        ds_packed = PackedDatasetWithoutCuSeqlen(
+                            ds, max_length_per_sample, packed_length
+                        )
+                    else:
+                        ds_packed = PackedDatasetWithCut(
+                            ds, max_length_per_sample, packed_length
+                        )
+                    num_token_in_folder += len(ds_packed) * packed_length
+                    datasets.append(ds_packed)
+                    continue
+                print(f"---------------- Processing {fp} with bucket group.---------------")
+                # Set BucketGroup
+                lengths = np.asarray(getattr(ds, "lengths")) # get lengths in token of all samples
+                if lengths.size == 0:
+                    continue
+                lengths_capped = np.minimum(lengths, max_length_per_sample)
 
-                if pack_sample_into_one:
-                    ds = PackedDatasetWithoutCuSeqlen(ds, max_length_per_sample, packed_length)
-                else:
-                    ds = PackedDatasetWithCut(ds, max_length_per_sample, packed_length)
+                # bucket id： (0, bucket] -> 0, (bucket, 2*bucket] -> 1, ...
+                # -1 sets a size of (n, m]
+                bucket_ids = (np.maximum(lengths_capped, 1) - 1) // bucket_size
+                uniq_buckets = np.unique(bucket_ids)
 
-                num_token_in_folder += len(ds) * packed_length
-                datasets.append(ds)
+                for b in uniq_buckets:
+                    # select samples whose id==b in dataset to the same bucket
+                    idxs = np.nonzero(bucket_ids == b)[0]
+                    if idxs.size == 0:
+                        continue
+                    # construct sub-dataset for samples in the same bucket
+                    b_low = int(b * bucket_size) + 1
+                    b_high = int((b + 1) * bucket_size)
+                    name_suffix = f"{b_low}-{b_high}"
+                    sub_ds = JsonlDatasetWithBucketGroup(ds, idxs, name_suffix=name_suffix)
 
-    dataset = ConcatDataset(datasets=datasets)
+                    # 在该 bucket 内进行打包，保证单个 pack 内样本长度位于同一范围
+                    if pack_sample_into_one:
+                        sub_packed = PackedDatasetWithoutCuSeqlen(
+                            sub_ds, max_length_per_sample, packed_length
+                        )
+                    else:
+                        sub_packed = PackedDatasetWithCut(
+                            sub_ds, max_length_per_sample, packed_length
+                        )
+
+                    if len(sub_packed) > 0:
+                        datasets.append(sub_packed)
+                        num_token_in_folder += len(sub_packed) * packed_length
+
+    dataset = ConcatDataset(datasets=datasets) # concatenate all datasets if the .bin files are multiple
     if gpc.is_rank_for_log():
         logger.info(
             f"Find `{len(datasets)}` datasets, \

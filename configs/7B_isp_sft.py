@@ -9,6 +9,7 @@ NUM_ATTENTION_HEAD = 32
 NUM_KV_ATTENTION_HEAD = 8
 MLP_RATIO = 8 / 3
 NUM_LAYER = 32
+BUCKET_SIZE = 512  
 
 
 MODEL_ONLY_FOLDER = "local:llm_ckpts/xxxx"
@@ -49,10 +50,11 @@ ckpt = dict(
 )
 
 # TRAIN_FOLDER = "/mnt/petrelfs/share_data/llm_data/0715_llama_tokenized_refined_real/train/"
-TRAIN_FOLDER = None  # "/path/to/dataset"
+TRAIN_FOLDER = '/data/wikipedia/en_test/train_test_dataset'  # "/path/to/dataset"
 VALID_FOLDER = None  # "/path/to/dataset"
 data = dict(
     seq_len=SEQ_LEN,
+    bucket_size=BUCKET_SIZE,
     # micro_num means the number of micro_batch contained in one gradient update
     micro_num=4,
     # packed_length = micro_bsz * SEQ_LEN
@@ -60,9 +62,9 @@ data = dict(
     # defaults to the value of micro_num
     valid_micro_num=4,
     # defaults to 0, means disable evaluate
-    valid_every=50,
+    valid_every=0,
     pack_sample_into_one=False,
-    total_steps=50000,
+    total_steps=50,
     skip_batches="",
     # rampup_batch_size (str): A string with three space-separated integers representing the
     #       starting batch size, the increment, and the number of steps between
@@ -246,18 +248,18 @@ cudnn_deterministic = False
 cudnn_benchmark = False
 
 
-monitor = dict(
-    # feishu alert configs
-    alert=dict(
-        enable_feishu_alert=DO_ALERT,
-        feishu_alert_address=None,  # feishu webhook to send alert message
-        light_monitor_address=None,  # light_monitor address to send heartbeat
-        alert_file_path=f"llm_alter/{JOB_NAME}_alert.log",
-    ),
-    tensorboard=dict(
-        queue_max_length=10,
-    ),
-)
+# monitor = dict(
+#     # feishu alert configs
+#     alert=dict(
+#         enable_feishu_alert=DO_ALERT,
+#         feishu_alert_address=None,  # feishu webhook to send alert message
+#         light_monitor_address=None,  # light_monitor address to send heartbeat
+#         alert_file_path=f"llm_alter/{JOB_NAME}_alert.log",
+#     ),
+#     tensorboard=dict(
+#         queue_max_length=10,
+#     ),
+# )
 
 # metric_dtype can be "fp32" or other string
 # only when set to "fp32" will use fp32 to calc in metrics

@@ -1,0 +1,608 @@
+/root/miniconda3/envs/internevo/lib/python3.10/site-packages/torch/cuda/__init__.py:51: FutureWarning: The pynvml package is deprecated. Please install nvidia-ml-py instead. If you did not install pynvml directly, please report this to the maintainers of the package that installed pynvml for you.
+  import pynvml  # type: ignore[import]
+[2025-10-29 23:45:15,044] torch.distributed.run: [WARNING] 
+[2025-10-29 23:45:15,044] torch.distributed.run: [WARNING] *****************************************
+[2025-10-29 23:45:15,044] torch.distributed.run: [WARNING] Setting OMP_NUM_THREADS environment variable for each process to be 1 in default, to avoid your system being overloaded, please further tune the variable for optimal performance in your application as needed. 
+[2025-10-29 23:45:15,044] torch.distributed.run: [WARNING] *****************************************
+/root/miniconda3/envs/internevo/lib/python3.10/site-packages/torch/cuda/__init__.py:51: FutureWarning: The pynvml package is deprecated. Please install nvidia-ml-py instead. If you did not install pynvml directly, please report this to the maintainers of the package that installed pynvml for you.
+  import pynvml  # type: ignore[import]
+/root/miniconda3/envs/internevo/lib/python3.10/site-packages/torch/cuda/__init__.py:51: FutureWarning: The pynvml package is deprecated. Please install nvidia-ml-py instead. If you did not install pynvml directly, please report this to the maintainers of the package that installed pynvml for you.
+  import pynvml  # type: ignore[import]
+/root/miniconda3/envs/internevo/lib/python3.10/site-packages/torch/cuda/__init__.py:51: FutureWarning: The pynvml package is deprecated. Please install nvidia-ml-py instead. If you did not install pynvml directly, please report this to the maintainers of the package that installed pynvml for you.
+  import pynvml  # type: ignore[import]
+/root/miniconda3/envs/internevo/lib/python3.10/site-packages/torch/cuda/__init__.py:51: FutureWarning: The pynvml package is deprecated. Please install nvidia-ml-py instead. If you did not install pynvml directly, please report this to the maintainers of the package that installed pynvml for you.
+  import pynvml  # type: ignore[import]
+/root/miniconda3/envs/internevo/lib/python3.10/site-packages/torch/cuda/__init__.py:51: FutureWarning: The pynvml package is deprecated. Please install nvidia-ml-py instead. If you did not install pynvml directly, please report this to the maintainers of the package that installed pynvml for you.
+  import pynvml  # type: ignore[import]
+/root/miniconda3/envs/internevo/lib/python3.10/site-packages/torch/cuda/__init__.py:51: FutureWarning: The pynvml package is deprecated. Please install nvidia-ml-py instead. If you did not install pynvml directly, please report this to the maintainers of the package that installed pynvml for you.
+  import pynvml  # type: ignore[import]
+/root/miniconda3/envs/internevo/lib/python3.10/site-packages/torch/cuda/__init__.py:51: FutureWarning: The pynvml package is deprecated. Please install nvidia-ml-py instead. If you did not install pynvml directly, please report this to the maintainers of the package that installed pynvml for you.
+  import pynvml  # type: ignore[import]
+/root/miniconda3/envs/internevo/lib/python3.10/site-packages/torch/cuda/__init__.py:51: FutureWarning: The pynvml package is deprecated. Please install nvidia-ml-py instead. If you did not install pynvml directly, please report this to the maintainers of the package that installed pynvml for you.
+  import pynvml  # type: ignore[import]
+2025-10-29 23:45:16,063	WARNING utils.py:36 in <module> -- The torch implementation for cal_l2norm is slower than apex. Please note this!
+2025-10-29 23:45:16,064	WARNING utils.py:36 in <module> -- The torch implementation for cal_l2norm is slower than apex. Please note this!
+2025-10-29 23:45:16,094	WARNING utils.py:36 in <module> -- The torch implementation for cal_l2norm is slower than apex. Please note this!
+2025-10-29 23:45:16,095	WARNING utils.py:36 in <module> -- The torch implementation for cal_l2norm is slower than apex. Please note this!
+2025-10-29 23:45:16,126	WARNING utils.py:36 in <module> -- The torch implementation for cal_l2norm is slower than apex. Please note this!
+2025-10-29 23:45:16,128	WARNING utils.py:36 in <module> -- The torch implementation for cal_l2norm is slower than apex. Please note this!
+2025-10-29 23:45:16,146	WARNING utils.py:36 in <module> -- The torch implementation for cal_l2norm is slower than apex. Please note this!
+2025-10-29 23:45:16,147	WARNING utils.py:36 in <module> -- The torch implementation for cal_l2norm is slower than apex. Please note this!
+/root/miniconda3/envs/internevo/lib/python3.10/site-packages/torch/utils/cpp_extension.py:28: UserWarning: pkg_resources is deprecated as an API. See https://setuptools.pypa.io/en/latest/pkg_resources.html. The pkg_resources package is slated for removal as early as 2025-11-30. Refrain from using this package or pin to Setuptools<81.
+  from pkg_resources import packaging  # type: ignore[attr-defined]
+/root/miniconda3/envs/internevo/lib/python3.10/site-packages/torch/utils/cpp_extension.py:28: UserWarning: pkg_resources is deprecated as an API. See https://setuptools.pypa.io/en/latest/pkg_resources.html. The pkg_resources package is slated for removal as early as 2025-11-30. Refrain from using this package or pin to Setuptools<81.
+  from pkg_resources import packaging  # type: ignore[attr-defined]
+/root/miniconda3/envs/internevo/lib/python3.10/site-packages/torch/utils/cpp_extension.py:28: UserWarning: pkg_resources is deprecated as an API. See https://setuptools.pypa.io/en/latest/pkg_resources.html. The pkg_resources package is slated for removal as early as 2025-11-30. Refrain from using this package or pin to Setuptools<81.
+  from pkg_resources import packaging  # type: ignore[attr-defined]
+/root/miniconda3/envs/internevo/lib/python3.10/site-packages/torch/utils/cpp_extension.py:28: UserWarning: pkg_resources is deprecated as an API. See https://setuptools.pypa.io/en/latest/pkg_resources.html. The pkg_resources package is slated for removal as early as 2025-11-30. Refrain from using this package or pin to Setuptools<81.
+  from pkg_resources import packaging  # type: ignore[attr-defined]
+/root/miniconda3/envs/internevo/lib/python3.10/site-packages/torch/utils/cpp_extension.py:28: UserWarning: pkg_resources is deprecated as an API. See https://setuptools.pypa.io/en/latest/pkg_resources.html. The pkg_resources package is slated for removal as early as 2025-11-30. Refrain from using this package or pin to Setuptools<81.
+  from pkg_resources import packaging  # type: ignore[attr-defined]
+/root/miniconda3/envs/internevo/lib/python3.10/site-packages/torch/utils/cpp_extension.py:28: UserWarning: pkg_resources is deprecated as an API. See https://setuptools.pypa.io/en/latest/pkg_resources.html. The pkg_resources package is slated for removal as early as 2025-11-30. Refrain from using this package or pin to Setuptools<81.
+  from pkg_resources import packaging  # type: ignore[attr-defined]
+/root/miniconda3/envs/internevo/lib/python3.10/site-packages/torch/utils/cpp_extension.py:28: UserWarning: pkg_resources is deprecated as an API. See https://setuptools.pypa.io/en/latest/pkg_resources.html. The pkg_resources package is slated for removal as early as 2025-11-30. Refrain from using this package or pin to Setuptools<81.
+  from pkg_resources import packaging  # type: ignore[attr-defined]
+/root/miniconda3/envs/internevo/lib/python3.10/site-packages/torch/utils/cpp_extension.py:28: UserWarning: pkg_resources is deprecated as an API. See https://setuptools.pypa.io/en/latest/pkg_resources.html. The pkg_resources package is slated for removal as early as 2025-11-30. Refrain from using this package or pin to Setuptools<81.
+  from pkg_resources import packaging  # type: ignore[attr-defined]
+2025-10-29 23:45:18,081	WARNING norm.py:20 in <module> -- The torch implementation for MixFusedRMSNorm is slower than apex. Please note this!
+2025-10-29 23:45:18,097	WARNING norm.py:20 in <module> -- The torch implementation for MixFusedRMSNorm is slower than apex. Please note this!
+2025-10-29 23:45:18,110	WARNING norm.py:20 in <module> -- The torch implementation for MixFusedRMSNorm is slower than apex. Please note this!
+2025-10-29 23:45:18,115	WARNING norm.py:20 in <module> -- The torch implementation for MixFusedRMSNorm is slower than apex. Please note this!
+2025-10-29 23:45:18,119	WARNING norm.py:20 in <module> -- The torch implementation for MixFusedRMSNorm is slower than apex. Please note this!
+2025-10-29 23:45:18,129	WARNING norm.py:20 in <module> -- The torch implementation for MixFusedRMSNorm is slower than apex. Please note this!
+2025-10-29 23:45:18,131	WARNING norm.py:20 in <module> -- The torch implementation for MixFusedRMSNorm is slower than apex. Please note this!
+2025-10-29 23:45:18,132	WARNING norm.py:20 in <module> -- The torch implementation for MixFusedRMSNorm is slower than apex. Please note this!
+2025-10-29 23:45:18,320	WARNING metrics.py:66 in _get_scatter_sum_impl -- Use cuda_scatter. Please note this!
+2025-10-29 23:45:18,345	WARNING metrics.py:66 in _get_scatter_sum_impl -- Use cuda_scatter. Please note this!
+2025-10-29 23:45:18,355	WARNING metrics.py:66 in _get_scatter_sum_impl -- Use cuda_scatter. Please note this!
+2025-10-29 23:45:18,368	WARNING metrics.py:66 in _get_scatter_sum_impl -- Use cuda_scatter. Please note this!
+2025-10-29 23:45:18,401	WARNING metrics.py:66 in _get_scatter_sum_impl -- Use cuda_scatter. Please note this!
+2025-10-29 23:45:18,403	INFO launch.py:850 in try_bind_numa -- Try bind numa failed! Package import error, if numa is not installed, please implement: pip install --upgrade py-libnuma, Ref: https://pypi.org/project/py-libnuma/
+2025-10-29 23:45:18,411	WARNING metrics.py:66 in _get_scatter_sum_impl -- Use cuda_scatter. Please note this!
+2025-10-29 23:45:18,414	WARNING metrics.py:66 in _get_scatter_sum_impl -- Use cuda_scatter. Please note this!
+2025-10-29 23:45:18,421	WARNING metrics.py:66 in _get_scatter_sum_impl -- Use cuda_scatter. Please note this!
+2025-10-29 23:45:18,734	INFO parallel_context.py:718 in set_device -- process rank 2 is bound to host:gpu-lg-cmc-h-h200-0694.host.h.pjlab.org.cn device: 2
+2025-10-29 23:45:18,734	INFO parallel_context.py:718 in set_device -- process rank 3 is bound to host:gpu-lg-cmc-h-h200-0694.host.h.pjlab.org.cn device: 3
+2025-10-29 23:45:18,735	INFO parallel_context.py:718 in set_device -- process rank 4 is bound to host:gpu-lg-cmc-h-h200-0694.host.h.pjlab.org.cn device: 4
+2025-10-29 23:45:18,743	INFO parallel_context.py:765 in set_seed -- initialized seed on rank 2, numpy: 1024, python random: 1024, ParallelMode.DATA: 1024, ParallelMode.WEIGHT_DATA: 1024, ParallelMode.DUMMY: 1024, ParallelMode.TENSOR: 1024, ParallelMode.WEIGHT: 1026,the default parallel seed is ParallelMode.DATA.
+2025-10-29 23:45:18,763	INFO parallel_context.py:765 in set_seed -- initialized seed on rank 3, numpy: 1024, python random: 1024, ParallelMode.DATA: 1024, ParallelMode.WEIGHT_DATA: 1024, ParallelMode.DUMMY: 1024, ParallelMode.TENSOR: 1025, ParallelMode.WEIGHT: 1027,the default parallel seed is ParallelMode.DATA.
+2025-10-29 23:45:18,763	INFO parallel_context.py:765 in set_seed -- initialized seed on rank 4, numpy: 1024, python random: 1024, ParallelMode.DATA: 1024, ParallelMode.WEIGHT_DATA: 1024, ParallelMode.DUMMY: 1024, ParallelMode.TENSOR: 1024, ParallelMode.WEIGHT: 1024,the default parallel seed is ParallelMode.DATA.
+2025-10-29 23:45:18,866	INFO parallel_context.py:718 in set_device -- process rank 5 is bound to host:gpu-lg-cmc-h-h200-0694.host.h.pjlab.org.cn device: 5
+2025-10-29 23:45:18,871	INFO parallel_context.py:718 in set_device -- process rank 7 is bound to host:gpu-lg-cmc-h-h200-0694.host.h.pjlab.org.cn device: 7
+2025-10-29 23:45:18,874	INFO parallel_context.py:718 in set_device -- process rank 0 is bound to host:gpu-lg-cmc-h-h200-0694.host.h.pjlab.org.cn device: 0
+2025-10-29 23:45:18,877	INFO parallel_context.py:718 in set_device -- process rank 1 is bound to host:gpu-lg-cmc-h-h200-0694.host.h.pjlab.org.cn device: 1
+2025-10-29 23:45:18,880	INFO parallel_context.py:765 in set_seed -- initialized seed on rank 7, numpy: 1024, python random: 1024, ParallelMode.DATA: 1024, ParallelMode.WEIGHT_DATA: 1024, ParallelMode.DUMMY: 1024, ParallelMode.TENSOR: 1025, ParallelMode.WEIGHT: 1027,the default parallel seed is ParallelMode.DATA.
+2025-10-29 23:45:18,903	INFO parallel_context.py:765 in set_seed -- initialized seed on rank 1, numpy: 1024, python random: 1024, ParallelMode.DATA: 1024, ParallelMode.WEIGHT_DATA: 1024, ParallelMode.DUMMY: 1024, ParallelMode.TENSOR: 1025, ParallelMode.WEIGHT: 1025,the default parallel seed is ParallelMode.DATA.
+2025-10-29 23:45:18,905	INFO parallel_context.py:765 in set_seed -- initialized seed on rank 0, numpy: 1024, python random: 1024, ParallelMode.DATA: 1024, ParallelMode.WEIGHT_DATA: 1024, ParallelMode.DUMMY: 1024, ParallelMode.TENSOR: 1024, ParallelMode.WEIGHT: 1024,the default parallel seed is ParallelMode.DATA.
+2025-10-29 23:45:18,917	INFO parallel_context.py:765 in set_seed -- initialized seed on rank 5, numpy: 1024, python random: 1024, ParallelMode.DATA: 1024, ParallelMode.WEIGHT_DATA: 1024, ParallelMode.DUMMY: 1024, ParallelMode.TENSOR: 1025, ParallelMode.WEIGHT: 1025,the default parallel seed is ParallelMode.DATA.
+2025-10-29 23:45:18,942	INFO parallel_context.py:718 in set_device -- process rank 6 is bound to host:gpu-lg-cmc-h-h200-0694.host.h.pjlab.org.cn device: 6
+2025-10-29 23:45:18,950	INFO parallel_context.py:765 in set_seed -- initialized seed on rank 6, numpy: 1024, python random: 1024, ParallelMode.DATA: 1024, ParallelMode.WEIGHT_DATA: 1024, ParallelMode.DUMMY: 1024, ParallelMode.TENSOR: 1024, ParallelMode.WEIGHT: 1026,the default parallel seed is ParallelMode.DATA.
+2025-10-29 23:45:21,588	INFO launch.py:717 in launch -- Distributed environment is initialized, data parallel size: 4, pipeline parallel size: 1, tensor parallel size: 2, weight parallel size: 4
+2025-10-29 23:45:21,588	INFO launch.py:188 in args_sanity_check -- gradient_accumulation size will be setted to 4.
+2025-10-29 23:45:21,588	INFO launch.py:236 in args_sanity_check -- +++++++++++++++ Data Info +++++++++++++++
+2025-10-29 23:45:21,588	INFO launch.py:237 in args_sanity_check -- seq_len: 2048
+2025-10-29 23:45:21,588	INFO launch.py:238 in args_sanity_check -- micro_num: 4
+2025-10-29 23:45:21,588	INFO launch.py:239 in args_sanity_check -- micro_bsz: 2
+2025-10-29 23:45:21,588	INFO launch.py:240 in args_sanity_check -- packed_length: 4096
+2025-10-29 23:45:21,588	INFO launch.py:241 in args_sanity_check -- pack_sample_into_one: False
+2025-10-29 23:45:21,588	INFO launch.py:242 in args_sanity_check -- min_length: 50
+2025-10-29 23:45:21,588	INFO launch.py:243 in args_sanity_check -- valid_micro_num: 4
+2025-10-29 23:45:21,588	INFO launch.py:244 in args_sanity_check -- valid_every: 0
+2025-10-29 23:45:21,588	INFO launch.py:245 in args_sanity_check -- rampup_batch_size: 
+2025-10-29 23:45:21,588	INFO launch.py:307 in args_sanity_check -- +++++++++++++++ Ckpt Info +++++++++++++++
+2025-10-29 23:45:21,588	INFO launch.py:308 in args_sanity_check -- is enable save ckpt: False
+2025-10-29 23:45:21,588	INFO launch.py:309 in args_sanity_check -- save_ckpt_folder: None
+2025-10-29 23:45:21,588	INFO launch.py:310 in args_sanity_check -- checkpoint_every: inf
+2025-10-29 23:45:21,588	INFO launch.py:325 in args_sanity_check -- tensorboard_folder: None
+2025-10-29 23:45:21,588	INFO launch.py:326 in args_sanity_check -- resume_tb_folder: None
+2025-10-29 23:45:21,588	INFO launch.py:334 in args_sanity_check -- +++++++++++++++ Other Info +++++++++++++++
+2025-10-29 23:45:21,588	INFO launch.py:335 in args_sanity_check -- cudnn.benchmark: False
+2025-10-29 23:45:21,588	INFO launch.py:336 in args_sanity_check -- cudnn.deterministic: False
+2025-10-29 23:45:21,588	INFO launch.py:337 in args_sanity_check -- clip_grad_norm: 1.0
+2025-10-29 23:45:21,588	INFO launch.py:377 in args_sanity_check -- +++++++++++++++ Model Info +++++++++++++++
+2025-10-29 23:45:21,588	INFO launch.py:378 in args_sanity_check -- Model: {'checkpoint': 0, 'num_attention_heads': 32, 'num_kv_attention_heads': 8, 'embed_split_hidden': True, 'vocab_size': 103168, 'embed_grad_scale': 1, 'parallel_output': True, 'hidden_size': 4096, 'num_layers': 32, 'no_bias': True, 'mlp_ratio': 2.6666666666666665, 'apply_post_layer_norm': False, 'dtype': torch.bfloat16, 'norm_type': 'rmsnorm', 'layer_norm_epsilon': 1e-05, 'use_flash_attn': True, 'num_chunks': 1, 'qk_interleaved': False, 'enable_qkv_fusion': True}
+2025-10-29 23:45:21,588	INFO launch.py:380 in args_sanity_check -- +++++++++++++++ grad_scaler Info +++++++++++++++
+2025-10-29 23:45:21,588	INFO launch.py:381 in args_sanity_check -- grad_scaler: {'fp16': {'initial_scale': 65536, 'min_scale': 1, 'growth_interval': 1000}, 'growth_factor': 2, 'backoff_factor': 0.5, 'max_scale': 16777216, 'hysteresis': 2}
+2025-10-29 23:45:21,588	INFO launch.py:383 in args_sanity_check -- +++++++++++++++ hybrid_zero_optimizer Info +++++++++++++++
+2025-10-29 23:45:21,588	INFO launch.py:384 in args_sanity_check -- hybrid_zero_optimizer: {'overlap_sync_grad': True, 'overlap_sync_param': False, 'reduce_bucket_size': 536870912, 'clip_grad_norm': 1.0}
+2025-10-29 23:45:21,588	INFO launch.py:386 in args_sanity_check -- +++++++++++++++ adam Info +++++++++++++++
+2025-10-29 23:45:21,588	INFO launch.py:387 in args_sanity_check -- adam: {'lr': 0.0001, 'adam_beta1': 0.9, 'adam_beta2': 0.95, 'adam_beta2_c': 0, 'adam_eps': 1e-08, 'weight_decay': 0.01}
+2025-10-29 23:45:21,588	INFO launch.py:389 in args_sanity_check -- +++++++++++++++ beta2_scheduler Info +++++++++++++++
+2025-10-29 23:45:21,588	INFO launch.py:390 in args_sanity_check -- beta2_scheduler: {'init_beta2': 0.95, 'c': 0, 'cur_iter': -1}
+2025-10-29 23:45:21,588	INFO launch.py:582 in args_sanity_check -- overlap_sync_grad:True, overlap_sync_param:False
+2025-10-29 23:45:22,327	INFO packed_dataset.py:529 in get_packed_dataset_without_short_length -- Reading /data/wikipedia/en_test/train_test_dataset...
+0it [00:00, ?it/s]                  2025-10-29 23:45:22,329	INFO packed_dataset.py:529 in get_packed_dataset_without_short_length -- Reading /data/wikipedia/en_test/train_test_dataset/wiki_train_test...
+  0%|          | 0/2 [00:00<?, ?it/s]---------------- Processing /data/wikipedia/en_test/train_test_dataset/wiki_train_test/output_1w.bin without bucket group.---------------
+                                     2025-10-29 23:45:22,334	INFO packed_dataset.py:612 in get_packed_dataset_without_short_length -- Find `1` datasets,             5256 samples,             delete `129` because of short length
+---------------- Processing /data/wikipedia/en_test/train_test_dataset/wiki_train_test/output_1w.bin without bucket group.---------------
+---------------- Processing /data/wikipedia/en_test/train_test_dataset/wiki_train_test/output_1w.bin without bucket group.---------------
+---------------- Processing /data/wikipedia/en_test/train_test_dataset/wiki_train_test/output_1w.bin without bucket group.---------------
+---------------- Processing /data/wikipedia/en_test/train_test_dataset/wiki_train_test/output_1w.bin without bucket group.---------------
+---------------- Processing /data/wikipedia/en_test/train_test_dataset/wiki_train_test/output_1w.bin without bucket group.---------------
+---------------- Processing /data/wikipedia/en_test/train_test_dataset/wiki_train_test/output_1w.bin without bucket group.---------------
+---------------- Processing /data/wikipedia/en_test/train_test_dataset/wiki_train_test/output_1w.bin without bucket group.---------------
+2025-10-29 23:45:22,395	INFO build_dataloader.py:314 in build_valid_loader_with_data_type -- load validation dataset val with valid batch size 8 and samples 62.
+2025-10-29 23:45:22,834	WARNING common.py:254 in check_cuda_env -- Env var CUDA_DEVICE_MAX_CONNECTIONS has not be set, please note this!
+2025-10-29 23:45:22,834	WARNING common.py:254 in check_cuda_env -- Env var CUDA_DEVICE_MAX_CONNECTIONS has not be set, please note this!
+2025-10-29 23:45:22,834	WARNING common.py:254 in check_cuda_env -- Env var CUDA_DEVICE_MAX_CONNECTIONS has not be set, please note this!
+2025-10-29 23:45:22,834	WARNING common.py:254 in check_cuda_env -- Env var CUDA_DEVICE_MAX_CONNECTIONS has not be set, please note this!
+2025-10-29 23:45:22,850	WARNING common.py:254 in check_cuda_env -- Env var CUDA_DEVICE_MAX_CONNECTIONS has not be set, please note this!
+2025-10-29 23:45:22,850	WARNING common.py:254 in check_cuda_env -- Env var CUDA_DEVICE_MAX_CONNECTIONS has not be set, please note this!
+2025-10-29 23:45:22,850	WARNING common.py:254 in check_cuda_env -- Env var CUDA_DEVICE_MAX_CONNECTIONS has not be set, please note this!
+2025-10-29 23:45:22,851	WARNING common.py:254 in check_cuda_env -- Env var CUDA_DEVICE_MAX_CONNECTIONS has not be set, please note this!
+2025-10-29 23:45:23,531	WARNING cross_entropy.py:106 in new_cross_entropy -- You are using flash_attn cross_entropy operators,             which may result loss divergency in long sequence.
+2025-10-29 23:45:23,531	WARNING cross_entropy.py:106 in new_cross_entropy -- You are using flash_attn cross_entropy operators,             which may result loss divergency in long sequence.
+2025-10-29 23:45:23,531	WARNING cross_entropy.py:106 in new_cross_entropy -- You are using flash_attn cross_entropy operators,             which may result loss divergency in long sequence.
+2025-10-29 23:45:23,531	WARNING cross_entropy.py:106 in new_cross_entropy -- You are using flash_attn cross_entropy operators,             which may result loss divergency in long sequence.
+2025-10-29 23:45:23,531	WARNING cross_entropy.py:106 in new_cross_entropy -- You are using flash_attn cross_entropy operators,             which may result loss divergency in long sequence.
+2025-10-29 23:45:23,532	WARNING cross_entropy.py:106 in new_cross_entropy -- You are using flash_attn cross_entropy operators,             which may result loss divergency in long sequence.
+2025-10-29 23:45:23,534	WARNING compatible_adamw.py:52 in new_compatible_adamw -- Use fused AdamW to avoid nan grad norm when model size is larger and use_fp32_norm=True, Please note this!
+2025-10-29 23:45:23,535	WARNING cross_entropy.py:106 in new_cross_entropy -- You are using flash_attn cross_entropy operators,             which may result loss divergency in long sequence.
+2025-10-29 23:45:23,535	WARNING utils.py:496 in _sanity_checks -- Detect you use torch.bfloat16, but max_scale: 16777216.0 != 1.0
+2025-10-29 23:45:23,536	WARNING utils.py:508 in _sanity_checks -- Detect you use torch.bfloat16, but growth_factor: 2 != 1.0
+2025-10-29 23:45:23,536	WARNING utils.py:510 in _sanity_checks -- Detect you use torch.bfloat16, but backoff_factor: 0.5 != 1.0
+2025-10-29 23:45:23,537	INFO hybrid_zero_optim.py:309 in _partition_param_list -- Number of elements on ranks: [814616576, 814612480], rank:0
+2025-10-29 23:45:23,552	WARNING cross_entropy.py:106 in new_cross_entropy -- You are using flash_attn cross_entropy operators,             which may result loss divergency in long sequence.
+2025-10-29 23:45:27,647	INFO hybrid_zero_optim.py:309 in _partition_param_list -- Number of elements on ranks: [0, 0], rank:0
+2025-10-29 23:45:27,652	INFO checkpoint_manager.py:569 in query_lastest_ckpt -- Found latest ckpt None, step: -1...
+2025-10-29 23:45:27,652	WARNING checkpoint_manager.py:325 in __init__ -- no set stop_file_path, quit_signal_handler is disable
+2025-10-29 23:45:27,701	INFO checkpoint_manager.py:576 in try_resume_training -- ===========New Run 10-29-23.45.22 on host:gpu-lg-cmc-h-h200-0694.host.h.pjlab.org.cn,rank=0,tp=0,pp=0,dp=0===========
+2025-10-29 23:45:27,701	INFO writer.py:60 in init_tb_writer -- Login tensorboard logs to: RUN/7b_train/10-29-23.45.22/tensorboards
+2025-10-29 23:45:27,705	WARNING cross_entropy.py:106 in new_cross_entropy -- You are using flash_attn cross_entropy operators,             which may result loss divergency in long sequence.
+2025-10-29 23:45:27,706	WARNING cross_entropy.py:106 in new_cross_entropy -- You are using flash_attn cross_entropy operators,             which may result loss divergency in long sequence.
+2025-10-29 23:45:27,707	WARNING cross_entropy.py:106 in new_cross_entropy -- You are using flash_attn cross_entropy operators,             which may result loss divergency in long sequence.
+2025-10-29 23:45:27,707	WARNING cross_entropy.py:106 in new_cross_entropy -- You are using flash_attn cross_entropy operators,             which may result loss divergency in long sequence.
+2025-10-29 23:45:27,708	WARNING cross_entropy.py:106 in new_cross_entropy -- You are using flash_attn cross_entropy operators,             which may result loss divergency in long sequence.
+2025-10-29 23:45:27,709	WARNING cross_entropy.py:106 in new_cross_entropy -- You are using flash_attn cross_entropy operators,             which may result loss divergency in long sequence.
+2025-10-29 23:45:27,709	WARNING cross_entropy.py:106 in new_cross_entropy -- You are using flash_attn cross_entropy operators,             which may result loss divergency in long sequence.
+2025-10-29 23:45:27,710	WARNING cross_entropy.py:106 in new_cross_entropy -- You are using flash_attn cross_entropy operators,             which may result loss divergency in long sequence.
+2025-10-29 23:45:28,157	INFO gputest.py:145 in cuda_memory_analyze -- Rank:1-tp1-pp0-dp0: Step 0: Allocated 6.0694 GB, Max_Allocated 6.0694 GB, Reserved 9.5645 GB, Max_Reserved 9.5645 GB 
+2025-10-29 23:45:28,159	INFO gputest.py:145 in cuda_memory_analyze -- Rank:0-tp0-pp0-dp0: Step 0: Allocated 6.0694 GB, Max_Allocated 6.0694 GB, Reserved 9.5645 GB, Max_Reserved 9.5645 GB 
+Raise exception from gpu-lg-cmc-h-h200-0694.host.h.pjlab.org.cn with rank id: 0
+Traceback (most recent call last):
+  File "/mnt/shared-storage-user/ailab-sys/lusitian/workspace/InternEvo/internlm/monitor/monitor.py", line 40, in execute_with_exception_handling
+    return func(*args, **kwargs)
+  File "/mnt/shared-storage-user/ailab-sys/lusitian/workspace/InternEvo/train.py", line 32, in main
+    trainer.fit()
+  File "/mnt/shared-storage-user/ailab-sys/lusitian/workspace/InternEvo/internlm/core/trainer_builder.py", line 270, in fit
+    if self._process_batch(batch_count, train_iter, prof):
+  File "/mnt/shared-storage-user/ailab-sys/lusitian/workspace/InternEvo/internlm/core/trainer_builder.py", line 288, in _process_batch
+    loss, moe_loss = self._forward_backward(batch)
+  File "/mnt/shared-storage-user/ailab-sys/lusitian/workspace/InternEvo/internlm/core/trainer_builder.py", line 319, in _forward_backward
+    _, _, loss = self.execute_schedule(batch, forward_only=False, return_loss=True, return_output_label=False)
+  File "/mnt/shared-storage-user/ailab-sys/lusitian/workspace/InternEvo/internlm/core/trainer.py", line 208, in execute_schedule
+    return self._schedule.forward_backward_step(self._engine, data_iter, **kwargs)
+  File "/mnt/shared-storage-user/ailab-sys/lusitian/workspace/InternEvo/internlm/utils/timeout.py", line 102, in wrapper
+    result = func(*args, **kwargs)
+  File "/mnt/shared-storage-user/ailab-sys/lusitian/workspace/InternEvo/internlm/core/scheduler/no_pipeline_scheduler.py", line 221, in forward_backward_step
+    _output, _loss, _moe_loss = self._train_one_batch(
+  File "/mnt/shared-storage-user/ailab-sys/lusitian/workspace/InternEvo/internlm/core/scheduler/no_pipeline_scheduler.py", line 125, in _train_one_batch
+    self._call_hooks("post_helper_func", output, label)
+  File "/mnt/shared-storage-user/ailab-sys/lusitian/workspace/InternEvo/internlm/core/scheduler/no_pipeline_scheduler.py", line 72, in _call_hooks
+    getattr(hook, func_name)(self, *args, **kwargs)
+  File "/mnt/shared-storage-user/ailab-sys/lusitian/workspace/InternEvo/internlm/model/metrics.py", line 423, in post_helper_func
+    self._post_func(outputs, label)
+  File "/mnt/shared-storage-user/ailab-sys/lusitian/workspace/InternEvo/internlm/model/metrics.py", line 128, in __call__
+    return self.update(logits, labels, type_ids=self.type_ids)
+  File "/mnt/shared-storage-user/ailab-sys/lusitian/workspace/InternEvo/internlm/model/metrics.py", line 138, in update
+    self.loss_with_type_id.update(logits, labels, type_ids)
+  File "/mnt/shared-storage-user/ailab-sys/lusitian/workspace/InternEvo/internlm/model/metrics.py", line 319, in update
+    loss_list = self.loss_fn(logits, labels)
+  File "/root/miniconda3/envs/internevo/lib/python3.10/site-packages/torch/nn/modules/module.py", line 1518, in _wrapped_call_impl
+    return self._call_impl(*args, **kwargs)
+  File "/root/miniconda3/envs/internevo/lib/python3.10/site-packages/torch/nn/modules/module.py", line 1527, in _call_impl
+    return forward_call(*args, **kwargs)
+  File "/root/miniconda3/envs/internevo/lib/python3.10/site-packages/flash_attn/losses/cross_entropy.py", line 57, in forward
+    loss, z_loss = cross_entropy_loss(
+  File "/root/miniconda3/envs/internevo/lib/python3.10/site-packages/flash_attn/ops/triton/cross_entropy.py", line 309, in cross_entropy_loss
+    return CrossEntropyLoss.apply(
+  File "/root/miniconda3/envs/internevo/lib/python3.10/site-packages/torch/autograd/function.py", line 539, in apply
+    return super().apply(*args, **kwargs)  # type: ignore[misc]
+  File "/root/miniconda3/envs/internevo/lib/python3.10/site-packages/flash_attn/ops/triton/cross_entropy.py", line 184, in forward
+    cross_entropy_fwd_kernel[(n_rows, n_splits)](
+  File "/root/miniconda3/envs/internevo/lib/python3.10/site-packages/triton/runtime/autotuner.py", line 232, in run
+    return self.fn.run(*args, **kwargs)
+  File "<string>", line 63, in cross_entropy_fwd_kernel
+  File "/root/miniconda3/envs/internevo/lib/python3.10/site-packages/triton/compiler/compiler.py", line 425, in compile
+    so_path = make_stub(name, signature, constants)
+  File "/root/miniconda3/envs/internevo/lib/python3.10/site-packages/triton/compiler/make_launcher.py", line 39, in make_stub
+    so = _build(name, src_path, tmpdir)
+  File "/root/miniconda3/envs/internevo/lib/python3.10/site-packages/triton/common/build.py", line 61, in _build
+    cuda_lib_dirs = libcuda_dirs()
+  File "/root/miniconda3/envs/internevo/lib/python3.10/site-packages/triton/common/build.py", line 30, in libcuda_dirs
+    assert any(os.path.exists(os.path.join(path, 'libcuda.so')) for path in dirs), msg
+AssertionError: libcuda.so cannot found!
+
+
+Raise exception from gpu-lg-cmc-h-h200-0694.host.h.pjlab.org.cn with rank id: 1
+Traceback (most recent call last):
+  File "/mnt/shared-storage-user/ailab-sys/lusitian/workspace/InternEvo/internlm/monitor/monitor.py", line 40, in execute_with_exception_handling
+    return func(*args, **kwargs)
+  File "/mnt/shared-storage-user/ailab-sys/lusitian/workspace/InternEvo/train.py", line 32, in main
+    trainer.fit()
+  File "/mnt/shared-storage-user/ailab-sys/lusitian/workspace/InternEvo/internlm/core/trainer_builder.py", line 270, in fit
+    if self._process_batch(batch_count, train_iter, prof):
+  File "/mnt/shared-storage-user/ailab-sys/lusitian/workspace/InternEvo/internlm/core/trainer_builder.py", line 288, in _process_batch
+    loss, moe_loss = self._forward_backward(batch)
+  File "/mnt/shared-storage-user/ailab-sys/lusitian/workspace/InternEvo/internlm/core/trainer_builder.py", line 319, in _forward_backward
+    _, _, loss = self.execute_schedule(batch, forward_only=False, return_loss=True, return_output_label=False)
+  File "/mnt/shared-storage-user/ailab-sys/lusitian/workspace/InternEvo/internlm/core/trainer.py", line 208, in execute_schedule
+    return self._schedule.forward_backward_step(self._engine, data_iter, **kwargs)
+  File "/mnt/shared-storage-user/ailab-sys/lusitian/workspace/InternEvo/internlm/utils/timeout.py", line 102, in wrapper
+    result = func(*args, **kwargs)
+  File "/mnt/shared-storage-user/ailab-sys/lusitian/workspace/InternEvo/internlm/core/scheduler/no_pipeline_scheduler.py", line 221, in forward_backward_step
+    _output, _loss, _moe_loss = self._train_one_batch(
+  File "/mnt/shared-storage-user/ailab-sys/lusitian/workspace/InternEvo/internlm/core/scheduler/no_pipeline_scheduler.py", line 125, in _train_one_batch
+    self._call_hooks("post_helper_func", output, label)
+  File "/mnt/shared-storage-user/ailab-sys/lusitian/workspace/InternEvo/internlm/core/scheduler/no_pipeline_scheduler.py", line 72, in _call_hooks
+    getattr(hook, func_name)(self, *args, **kwargs)
+  File "/mnt/shared-storage-user/ailab-sys/lusitian/workspace/InternEvo/internlm/model/metrics.py", line 423, in post_helper_func
+    self._post_func(outputs, label)
+  File "/mnt/shared-storage-user/ailab-sys/lusitian/workspace/InternEvo/internlm/model/metrics.py", line 128, in __call__
+    return self.update(logits, labels, type_ids=self.type_ids)
+  File "/mnt/shared-storage-user/ailab-sys/lusitian/workspace/InternEvo/internlm/model/metrics.py", line 138, in update
+    self.loss_with_type_id.update(logits, labels, type_ids)
+  File "/mnt/shared-storage-user/ailab-sys/lusitian/workspace/InternEvo/internlm/model/metrics.py", line 319, in update
+    loss_list = self.loss_fn(logits, labels)
+  File "/root/miniconda3/envs/internevo/lib/python3.10/site-packages/torch/nn/modules/module.py", line 1518, in _wrapped_call_impl
+    return self._call_impl(*args, **kwargs)
+  File "/root/miniconda3/envs/internevo/lib/python3.10/site-packages/torch/nn/modules/module.py", line 1527, in _call_impl
+    return forward_call(*args, **kwargs)
+  File "/root/miniconda3/envs/internevo/lib/python3.10/site-packages/flash_attn/losses/cross_entropy.py", line 57, in forward
+    loss, z_loss = cross_entropy_loss(
+  File "/root/miniconda3/envs/internevo/lib/python3.10/site-packages/flash_attn/ops/triton/cross_entropy.py", line 309, in cross_entropy_loss
+    return CrossEntropyLoss.apply(
+  File "/root/miniconda3/envs/internevo/lib/python3.10/site-packages/torch/autograd/function.py", line 539, in apply
+    return super().apply(*args, **kwargs)  # type: ignore[misc]
+  File "/root/miniconda3/envs/internevo/lib/python3.10/site-packages/flash_attn/ops/triton/cross_entropy.py", line 184, in forward
+    cross_entropy_fwd_kernel[(n_rows, n_splits)](
+  File "/root/miniconda3/envs/internevo/lib/python3.10/site-packages/triton/runtime/autotuner.py", line 232, in run
+    return self.fn.run(*args, **kwargs)
+  File "<string>", line 63, in cross_entropy_fwd_kernel
+  File "/root/miniconda3/envs/internevo/lib/python3.10/site-packages/triton/compiler/compiler.py", line 425, in compile
+    so_path = make_stub(name, signature, constants)
+  File "/root/miniconda3/envs/internevo/lib/python3.10/site-packages/triton/compiler/make_launcher.py", line 39, in make_stub
+    so = _build(name, src_path, tmpdir)
+  File "/root/miniconda3/envs/internevo/lib/python3.10/site-packages/triton/common/build.py", line 61, in _build
+    cuda_lib_dirs = libcuda_dirs()
+  File "/root/miniconda3/envs/internevo/lib/python3.10/site-packages/triton/common/build.py", line 30, in libcuda_dirs
+    assert any(os.path.exists(os.path.join(path, 'libcuda.so')) for path in dirs), msg
+AssertionError: libcuda.so cannot found!
+
+
+Raise exception from gpu-lg-cmc-h-h200-0694.host.h.pjlab.org.cn with rank id: 3
+Traceback (most recent call last):
+  File "/mnt/shared-storage-user/ailab-sys/lusitian/workspace/InternEvo/internlm/monitor/monitor.py", line 40, in execute_with_exception_handling
+    return func(*args, **kwargs)
+  File "/mnt/shared-storage-user/ailab-sys/lusitian/workspace/InternEvo/train.py", line 32, in main
+    trainer.fit()
+  File "/mnt/shared-storage-user/ailab-sys/lusitian/workspace/InternEvo/internlm/core/trainer_builder.py", line 270, in fit
+    if self._process_batch(batch_count, train_iter, prof):
+  File "/mnt/shared-storage-user/ailab-sys/lusitian/workspace/InternEvo/internlm/core/trainer_builder.py", line 288, in _process_batch
+    loss, moe_loss = self._forward_backward(batch)
+  File "/mnt/shared-storage-user/ailab-sys/lusitian/workspace/InternEvo/internlm/core/trainer_builder.py", line 319, in _forward_backward
+    _, _, loss = self.execute_schedule(batch, forward_only=False, return_loss=True, return_output_label=False)
+  File "/mnt/shared-storage-user/ailab-sys/lusitian/workspace/InternEvo/internlm/core/trainer.py", line 208, in execute_schedule
+    return self._schedule.forward_backward_step(self._engine, data_iter, **kwargs)
+  File "/mnt/shared-storage-user/ailab-sys/lusitian/workspace/InternEvo/internlm/utils/timeout.py", line 102, in wrapper
+    result = func(*args, **kwargs)
+  File "/mnt/shared-storage-user/ailab-sys/lusitian/workspace/InternEvo/internlm/core/scheduler/no_pipeline_scheduler.py", line 221, in forward_backward_step
+    _output, _loss, _moe_loss = self._train_one_batch(
+  File "/mnt/shared-storage-user/ailab-sys/lusitian/workspace/InternEvo/internlm/core/scheduler/no_pipeline_scheduler.py", line 125, in _train_one_batch
+    self._call_hooks("post_helper_func", output, label)
+  File "/mnt/shared-storage-user/ailab-sys/lusitian/workspace/InternEvo/internlm/core/scheduler/no_pipeline_scheduler.py", line 72, in _call_hooks
+    getattr(hook, func_name)(self, *args, **kwargs)
+  File "/mnt/shared-storage-user/ailab-sys/lusitian/workspace/InternEvo/internlm/model/metrics.py", line 423, in post_helper_func
+    self._post_func(outputs, label)
+  File "/mnt/shared-storage-user/ailab-sys/lusitian/workspace/InternEvo/internlm/model/metrics.py", line 128, in __call__
+    return self.update(logits, labels, type_ids=self.type_ids)
+  File "/mnt/shared-storage-user/ailab-sys/lusitian/workspace/InternEvo/internlm/model/metrics.py", line 138, in update
+    self.loss_with_type_id.update(logits, labels, type_ids)
+  File "/mnt/shared-storage-user/ailab-sys/lusitian/workspace/InternEvo/internlm/model/metrics.py", line 319, in update
+    loss_list = self.loss_fn(logits, labels)
+  File "/root/miniconda3/envs/internevo/lib/python3.10/site-packages/torch/nn/modules/module.py", line 1518, in _wrapped_call_impl
+    return self._call_impl(*args, **kwargs)
+  File "/root/miniconda3/envs/internevo/lib/python3.10/site-packages/torch/nn/modules/module.py", line 1527, in _call_impl
+    return forward_call(*args, **kwargs)
+  File "/root/miniconda3/envs/internevo/lib/python3.10/site-packages/flash_attn/losses/cross_entropy.py", line 57, in forward
+    loss, z_loss = cross_entropy_loss(
+  File "/root/miniconda3/envs/internevo/lib/python3.10/site-packages/flash_attn/ops/triton/cross_entropy.py", line 309, in cross_entropy_loss
+    return CrossEntropyLoss.apply(
+  File "/root/miniconda3/envs/internevo/lib/python3.10/site-packages/torch/autograd/function.py", line 539, in apply
+    return super().apply(*args, **kwargs)  # type: ignore[misc]
+  File "/root/miniconda3/envs/internevo/lib/python3.10/site-packages/flash_attn/ops/triton/cross_entropy.py", line 184, in forward
+    cross_entropy_fwd_kernel[(n_rows, n_splits)](
+  File "/root/miniconda3/envs/internevo/lib/python3.10/site-packages/triton/runtime/autotuner.py", line 232, in run
+    return self.fn.run(*args, **kwargs)
+  File "<string>", line 63, in cross_entropy_fwd_kernel
+  File "/root/miniconda3/envs/internevo/lib/python3.10/site-packages/triton/compiler/compiler.py", line 425, in compile
+    so_path = make_stub(name, signature, constants)
+  File "/root/miniconda3/envs/internevo/lib/python3.10/site-packages/triton/compiler/make_launcher.py", line 39, in make_stub
+    so = _build(name, src_path, tmpdir)
+  File "/root/miniconda3/envs/internevo/lib/python3.10/site-packages/triton/common/build.py", line 61, in _build
+    cuda_lib_dirs = libcuda_dirs()
+  File "/root/miniconda3/envs/internevo/lib/python3.10/site-packages/triton/common/build.py", line 30, in libcuda_dirs
+    assert any(os.path.exists(os.path.join(path, 'libcuda.so')) for path in dirs), msg
+AssertionError: libcuda.so cannot found!
+
+
+Raise exception from gpu-lg-cmc-h-h200-0694.host.h.pjlab.org.cn with rank id: 2
+Traceback (most recent call last):
+  File "/mnt/shared-storage-user/ailab-sys/lusitian/workspace/InternEvo/internlm/monitor/monitor.py", line 40, in execute_with_exception_handling
+    return func(*args, **kwargs)
+  File "/mnt/shared-storage-user/ailab-sys/lusitian/workspace/InternEvo/train.py", line 32, in main
+    trainer.fit()
+  File "/mnt/shared-storage-user/ailab-sys/lusitian/workspace/InternEvo/internlm/core/trainer_builder.py", line 270, in fit
+    if self._process_batch(batch_count, train_iter, prof):
+  File "/mnt/shared-storage-user/ailab-sys/lusitian/workspace/InternEvo/internlm/core/trainer_builder.py", line 288, in _process_batch
+    loss, moe_loss = self._forward_backward(batch)
+  File "/mnt/shared-storage-user/ailab-sys/lusitian/workspace/InternEvo/internlm/core/trainer_builder.py", line 319, in _forward_backward
+    _, _, loss = self.execute_schedule(batch, forward_only=False, return_loss=True, return_output_label=False)
+  File "/mnt/shared-storage-user/ailab-sys/lusitian/workspace/InternEvo/internlm/core/trainer.py", line 208, in execute_schedule
+    return self._schedule.forward_backward_step(self._engine, data_iter, **kwargs)
+  File "/mnt/shared-storage-user/ailab-sys/lusitian/workspace/InternEvo/internlm/utils/timeout.py", line 102, in wrapper
+    result = func(*args, **kwargs)
+  File "/mnt/shared-storage-user/ailab-sys/lusitian/workspace/InternEvo/internlm/core/scheduler/no_pipeline_scheduler.py", line 221, in forward_backward_step
+    _output, _loss, _moe_loss = self._train_one_batch(
+  File "/mnt/shared-storage-user/ailab-sys/lusitian/workspace/InternEvo/internlm/core/scheduler/no_pipeline_scheduler.py", line 125, in _train_one_batch
+    self._call_hooks("post_helper_func", output, label)
+  File "/mnt/shared-storage-user/ailab-sys/lusitian/workspace/InternEvo/internlm/core/scheduler/no_pipeline_scheduler.py", line 72, in _call_hooks
+    getattr(hook, func_name)(self, *args, **kwargs)
+  File "/mnt/shared-storage-user/ailab-sys/lusitian/workspace/InternEvo/internlm/model/metrics.py", line 423, in post_helper_func
+    self._post_func(outputs, label)
+  File "/mnt/shared-storage-user/ailab-sys/lusitian/workspace/InternEvo/internlm/model/metrics.py", line 128, in __call__
+    return self.update(logits, labels, type_ids=self.type_ids)
+  File "/mnt/shared-storage-user/ailab-sys/lusitian/workspace/InternEvo/internlm/model/metrics.py", line 138, in update
+    self.loss_with_type_id.update(logits, labels, type_ids)
+  File "/mnt/shared-storage-user/ailab-sys/lusitian/workspace/InternEvo/internlm/model/metrics.py", line 319, in update
+    loss_list = self.loss_fn(logits, labels)
+  File "/root/miniconda3/envs/internevo/lib/python3.10/site-packages/torch/nn/modules/module.py", line 1518, in _wrapped_call_impl
+    return self._call_impl(*args, **kwargs)
+  File "/root/miniconda3/envs/internevo/lib/python3.10/site-packages/torch/nn/modules/module.py", line 1527, in _call_impl
+    return forward_call(*args, **kwargs)
+  File "/root/miniconda3/envs/internevo/lib/python3.10/site-packages/flash_attn/losses/cross_entropy.py", line 57, in forward
+    loss, z_loss = cross_entropy_loss(
+  File "/root/miniconda3/envs/internevo/lib/python3.10/site-packages/flash_attn/ops/triton/cross_entropy.py", line 309, in cross_entropy_loss
+    return CrossEntropyLoss.apply(
+  File "/root/miniconda3/envs/internevo/lib/python3.10/site-packages/torch/autograd/function.py", line 539, in apply
+    return super().apply(*args, **kwargs)  # type: ignore[misc]
+  File "/root/miniconda3/envs/internevo/lib/python3.10/site-packages/flash_attn/ops/triton/cross_entropy.py", line 184, in forward
+    cross_entropy_fwd_kernel[(n_rows, n_splits)](
+  File "/root/miniconda3/envs/internevo/lib/python3.10/site-packages/triton/runtime/autotuner.py", line 232, in run
+    return self.fn.run(*args, **kwargs)
+  File "<string>", line 63, in cross_entropy_fwd_kernel
+  File "/root/miniconda3/envs/internevo/lib/python3.10/site-packages/triton/compiler/compiler.py", line 425, in compile
+    so_path = make_stub(name, signature, constants)
+  File "/root/miniconda3/envs/internevo/lib/python3.10/site-packages/triton/compiler/make_launcher.py", line 39, in make_stub
+    so = _build(name, src_path, tmpdir)
+  File "/root/miniconda3/envs/internevo/lib/python3.10/site-packages/triton/common/build.py", line 61, in _build
+    cuda_lib_dirs = libcuda_dirs()
+  File "/root/miniconda3/envs/internevo/lib/python3.10/site-packages/triton/common/build.py", line 30, in libcuda_dirs
+    assert any(os.path.exists(os.path.join(path, 'libcuda.so')) for path in dirs), msg
+AssertionError: libcuda.so cannot found!
+
+
+Raise exception from gpu-lg-cmc-h-h200-0694.host.h.pjlab.org.cn with rank id: 4
+Traceback (most recent call last):
+  File "/mnt/shared-storage-user/ailab-sys/lusitian/workspace/InternEvo/internlm/monitor/monitor.py", line 40, in execute_with_exception_handling
+    return func(*args, **kwargs)
+  File "/mnt/shared-storage-user/ailab-sys/lusitian/workspace/InternEvo/train.py", line 32, in main
+    trainer.fit()
+  File "/mnt/shared-storage-user/ailab-sys/lusitian/workspace/InternEvo/internlm/core/trainer_builder.py", line 270, in fit
+    if self._process_batch(batch_count, train_iter, prof):
+  File "/mnt/shared-storage-user/ailab-sys/lusitian/workspace/InternEvo/internlm/core/trainer_builder.py", line 288, in _process_batch
+    loss, moe_loss = self._forward_backward(batch)
+  File "/mnt/shared-storage-user/ailab-sys/lusitian/workspace/InternEvo/internlm/core/trainer_builder.py", line 319, in _forward_backward
+    _, _, loss = self.execute_schedule(batch, forward_only=False, return_loss=True, return_output_label=False)
+  File "/mnt/shared-storage-user/ailab-sys/lusitian/workspace/InternEvo/internlm/core/trainer.py", line 208, in execute_schedule
+    return self._schedule.forward_backward_step(self._engine, data_iter, **kwargs)
+  File "/mnt/shared-storage-user/ailab-sys/lusitian/workspace/InternEvo/internlm/utils/timeout.py", line 102, in wrapper
+    result = func(*args, **kwargs)
+  File "/mnt/shared-storage-user/ailab-sys/lusitian/workspace/InternEvo/internlm/core/scheduler/no_pipeline_scheduler.py", line 221, in forward_backward_step
+    _output, _loss, _moe_loss = self._train_one_batch(
+  File "/mnt/shared-storage-user/ailab-sys/lusitian/workspace/InternEvo/internlm/core/scheduler/no_pipeline_scheduler.py", line 125, in _train_one_batch
+    self._call_hooks("post_helper_func", output, label)
+  File "/mnt/shared-storage-user/ailab-sys/lusitian/workspace/InternEvo/internlm/core/scheduler/no_pipeline_scheduler.py", line 72, in _call_hooks
+    getattr(hook, func_name)(self, *args, **kwargs)
+  File "/mnt/shared-storage-user/ailab-sys/lusitian/workspace/InternEvo/internlm/model/metrics.py", line 423, in post_helper_func
+    self._post_func(outputs, label)
+  File "/mnt/shared-storage-user/ailab-sys/lusitian/workspace/InternEvo/internlm/model/metrics.py", line 128, in __call__
+    return self.update(logits, labels, type_ids=self.type_ids)
+  File "/mnt/shared-storage-user/ailab-sys/lusitian/workspace/InternEvo/internlm/model/metrics.py", line 138, in update
+    self.loss_with_type_id.update(logits, labels, type_ids)
+  File "/mnt/shared-storage-user/ailab-sys/lusitian/workspace/InternEvo/internlm/model/metrics.py", line 319, in update
+    loss_list = self.loss_fn(logits, labels)
+  File "/root/miniconda3/envs/internevo/lib/python3.10/site-packages/torch/nn/modules/module.py", line 1518, in _wrapped_call_impl
+    return self._call_impl(*args, **kwargs)
+  File "/root/miniconda3/envs/internevo/lib/python3.10/site-packages/torch/nn/modules/module.py", line 1527, in _call_impl
+    return forward_call(*args, **kwargs)
+  File "/root/miniconda3/envs/internevo/lib/python3.10/site-packages/flash_attn/losses/cross_entropy.py", line 57, in forward
+    loss, z_loss = cross_entropy_loss(
+  File "/root/miniconda3/envs/internevo/lib/python3.10/site-packages/flash_attn/ops/triton/cross_entropy.py", line 309, in cross_entropy_loss
+    return CrossEntropyLoss.apply(
+  File "/root/miniconda3/envs/internevo/lib/python3.10/site-packages/torch/autograd/function.py", line 539, in apply
+    return super().apply(*args, **kwargs)  # type: ignore[misc]
+  File "/root/miniconda3/envs/internevo/lib/python3.10/site-packages/flash_attn/ops/triton/cross_entropy.py", line 184, in forward
+    cross_entropy_fwd_kernel[(n_rows, n_splits)](
+  File "/root/miniconda3/envs/internevo/lib/python3.10/site-packages/triton/runtime/autotuner.py", line 232, in run
+    return self.fn.run(*args, **kwargs)
+  File "<string>", line 63, in cross_entropy_fwd_kernel
+  File "/root/miniconda3/envs/internevo/lib/python3.10/site-packages/triton/compiler/compiler.py", line 425, in compile
+    so_path = make_stub(name, signature, constants)
+  File "/root/miniconda3/envs/internevo/lib/python3.10/site-packages/triton/compiler/make_launcher.py", line 39, in make_stub
+    so = _build(name, src_path, tmpdir)
+  File "/root/miniconda3/envs/internevo/lib/python3.10/site-packages/triton/common/build.py", line 61, in _build
+    cuda_lib_dirs = libcuda_dirs()
+  File "/root/miniconda3/envs/internevo/lib/python3.10/site-packages/triton/common/build.py", line 30, in libcuda_dirs
+    assert any(os.path.exists(os.path.join(path, 'libcuda.so')) for path in dirs), msg
+AssertionError: libcuda.so cannot found!
+
+
+Raise exception from gpu-lg-cmc-h-h200-0694.host.h.pjlab.org.cn with rank id: 5
+Traceback (most recent call last):
+  File "/mnt/shared-storage-user/ailab-sys/lusitian/workspace/InternEvo/internlm/monitor/monitor.py", line 40, in execute_with_exception_handling
+    return func(*args, **kwargs)
+  File "/mnt/shared-storage-user/ailab-sys/lusitian/workspace/InternEvo/train.py", line 32, in main
+    trainer.fit()
+  File "/mnt/shared-storage-user/ailab-sys/lusitian/workspace/InternEvo/internlm/core/trainer_builder.py", line 270, in fit
+    if self._process_batch(batch_count, train_iter, prof):
+  File "/mnt/shared-storage-user/ailab-sys/lusitian/workspace/InternEvo/internlm/core/trainer_builder.py", line 288, in _process_batch
+    loss, moe_loss = self._forward_backward(batch)
+  File "/mnt/shared-storage-user/ailab-sys/lusitian/workspace/InternEvo/internlm/core/trainer_builder.py", line 319, in _forward_backward
+    _, _, loss = self.execute_schedule(batch, forward_only=False, return_loss=True, return_output_label=False)
+  File "/mnt/shared-storage-user/ailab-sys/lusitian/workspace/InternEvo/internlm/core/trainer.py", line 208, in execute_schedule
+    return self._schedule.forward_backward_step(self._engine, data_iter, **kwargs)
+  File "/mnt/shared-storage-user/ailab-sys/lusitian/workspace/InternEvo/internlm/utils/timeout.py", line 102, in wrapper
+    result = func(*args, **kwargs)
+  File "/mnt/shared-storage-user/ailab-sys/lusitian/workspace/InternEvo/internlm/core/scheduler/no_pipeline_scheduler.py", line 221, in forward_backward_step
+    _output, _loss, _moe_loss = self._train_one_batch(
+  File "/mnt/shared-storage-user/ailab-sys/lusitian/workspace/InternEvo/internlm/core/scheduler/no_pipeline_scheduler.py", line 125, in _train_one_batch
+    self._call_hooks("post_helper_func", output, label)
+  File "/mnt/shared-storage-user/ailab-sys/lusitian/workspace/InternEvo/internlm/core/scheduler/no_pipeline_scheduler.py", line 72, in _call_hooks
+    getattr(hook, func_name)(self, *args, **kwargs)
+  File "/mnt/shared-storage-user/ailab-sys/lusitian/workspace/InternEvo/internlm/model/metrics.py", line 423, in post_helper_func
+    self._post_func(outputs, label)
+  File "/mnt/shared-storage-user/ailab-sys/lusitian/workspace/InternEvo/internlm/model/metrics.py", line 128, in __call__
+    return self.update(logits, labels, type_ids=self.type_ids)
+  File "/mnt/shared-storage-user/ailab-sys/lusitian/workspace/InternEvo/internlm/model/metrics.py", line 138, in update
+    self.loss_with_type_id.update(logits, labels, type_ids)
+  File "/mnt/shared-storage-user/ailab-sys/lusitian/workspace/InternEvo/internlm/model/metrics.py", line 319, in update
+    loss_list = self.loss_fn(logits, labels)
+  File "/root/miniconda3/envs/internevo/lib/python3.10/site-packages/torch/nn/modules/module.py", line 1518, in _wrapped_call_impl
+    return self._call_impl(*args, **kwargs)
+  File "/root/miniconda3/envs/internevo/lib/python3.10/site-packages/torch/nn/modules/module.py", line 1527, in _call_impl
+    return forward_call(*args, **kwargs)
+  File "/root/miniconda3/envs/internevo/lib/python3.10/site-packages/flash_attn/losses/cross_entropy.py", line 57, in forward
+    loss, z_loss = cross_entropy_loss(
+  File "/root/miniconda3/envs/internevo/lib/python3.10/site-packages/flash_attn/ops/triton/cross_entropy.py", line 309, in cross_entropy_loss
+    return CrossEntropyLoss.apply(
+  File "/root/miniconda3/envs/internevo/lib/python3.10/site-packages/torch/autograd/function.py", line 539, in apply
+    return super().apply(*args, **kwargs)  # type: ignore[misc]
+  File "/root/miniconda3/envs/internevo/lib/python3.10/site-packages/flash_attn/ops/triton/cross_entropy.py", line 184, in forward
+    cross_entropy_fwd_kernel[(n_rows, n_splits)](
+  File "/root/miniconda3/envs/internevo/lib/python3.10/site-packages/triton/runtime/autotuner.py", line 232, in run
+    return self.fn.run(*args, **kwargs)
+  File "<string>", line 63, in cross_entropy_fwd_kernel
+  File "/root/miniconda3/envs/internevo/lib/python3.10/site-packages/triton/compiler/compiler.py", line 425, in compile
+    so_path = make_stub(name, signature, constants)
+  File "/root/miniconda3/envs/internevo/lib/python3.10/site-packages/triton/compiler/make_launcher.py", line 39, in make_stub
+    so = _build(name, src_path, tmpdir)
+  File "/root/miniconda3/envs/internevo/lib/python3.10/site-packages/triton/common/build.py", line 61, in _build
+    cuda_lib_dirs = libcuda_dirs()
+  File "/root/miniconda3/envs/internevo/lib/python3.10/site-packages/triton/common/build.py", line 30, in libcuda_dirs
+    assert any(os.path.exists(os.path.join(path, 'libcuda.so')) for path in dirs), msg
+AssertionError: libcuda.so cannot found!
+
+
+Raise exception from gpu-lg-cmc-h-h200-0694.host.h.pjlab.org.cn with rank id: 6
+Traceback (most recent call last):
+  File "/mnt/shared-storage-user/ailab-sys/lusitian/workspace/InternEvo/internlm/monitor/monitor.py", line 40, in execute_with_exception_handling
+    return func(*args, **kwargs)
+  File "/mnt/shared-storage-user/ailab-sys/lusitian/workspace/InternEvo/train.py", line 32, in main
+    trainer.fit()
+  File "/mnt/shared-storage-user/ailab-sys/lusitian/workspace/InternEvo/internlm/core/trainer_builder.py", line 270, in fit
+    if self._process_batch(batch_count, train_iter, prof):
+  File "/mnt/shared-storage-user/ailab-sys/lusitian/workspace/InternEvo/internlm/core/trainer_builder.py", line 288, in _process_batch
+    loss, moe_loss = self._forward_backward(batch)
+  File "/mnt/shared-storage-user/ailab-sys/lusitian/workspace/InternEvo/internlm/core/trainer_builder.py", line 319, in _forward_backward
+    _, _, loss = self.execute_schedule(batch, forward_only=False, return_loss=True, return_output_label=False)
+  File "/mnt/shared-storage-user/ailab-sys/lusitian/workspace/InternEvo/internlm/core/trainer.py", line 208, in execute_schedule
+    return self._schedule.forward_backward_step(self._engine, data_iter, **kwargs)
+  File "/mnt/shared-storage-user/ailab-sys/lusitian/workspace/InternEvo/internlm/utils/timeout.py", line 102, in wrapper
+    result = func(*args, **kwargs)
+  File "/mnt/shared-storage-user/ailab-sys/lusitian/workspace/InternEvo/internlm/core/scheduler/no_pipeline_scheduler.py", line 221, in forward_backward_step
+    _output, _loss, _moe_loss = self._train_one_batch(
+  File "/mnt/shared-storage-user/ailab-sys/lusitian/workspace/InternEvo/internlm/core/scheduler/no_pipeline_scheduler.py", line 125, in _train_one_batch
+    self._call_hooks("post_helper_func", output, label)
+  File "/mnt/shared-storage-user/ailab-sys/lusitian/workspace/InternEvo/internlm/core/scheduler/no_pipeline_scheduler.py", line 72, in _call_hooks
+    getattr(hook, func_name)(self, *args, **kwargs)
+  File "/mnt/shared-storage-user/ailab-sys/lusitian/workspace/InternEvo/internlm/model/metrics.py", line 423, in post_helper_func
+    self._post_func(outputs, label)
+  File "/mnt/shared-storage-user/ailab-sys/lusitian/workspace/InternEvo/internlm/model/metrics.py", line 128, in __call__
+    return self.update(logits, labels, type_ids=self.type_ids)
+  File "/mnt/shared-storage-user/ailab-sys/lusitian/workspace/InternEvo/internlm/model/metrics.py", line 138, in update
+    self.loss_with_type_id.update(logits, labels, type_ids)
+  File "/mnt/shared-storage-user/ailab-sys/lusitian/workspace/InternEvo/internlm/model/metrics.py", line 319, in update
+    loss_list = self.loss_fn(logits, labels)
+  File "/root/miniconda3/envs/internevo/lib/python3.10/site-packages/torch/nn/modules/module.py", line 1518, in _wrapped_call_impl
+    return self._call_impl(*args, **kwargs)
+  File "/root/miniconda3/envs/internevo/lib/python3.10/site-packages/torch/nn/modules/module.py", line 1527, in _call_impl
+    return forward_call(*args, **kwargs)
+  File "/root/miniconda3/envs/internevo/lib/python3.10/site-packages/flash_attn/losses/cross_entropy.py", line 57, in forward
+    loss, z_loss = cross_entropy_loss(
+  File "/root/miniconda3/envs/internevo/lib/python3.10/site-packages/flash_attn/ops/triton/cross_entropy.py", line 309, in cross_entropy_loss
+    return CrossEntropyLoss.apply(
+  File "/root/miniconda3/envs/internevo/lib/python3.10/site-packages/torch/autograd/function.py", line 539, in apply
+    return super().apply(*args, **kwargs)  # type: ignore[misc]
+  File "/root/miniconda3/envs/internevo/lib/python3.10/site-packages/flash_attn/ops/triton/cross_entropy.py", line 184, in forward
+    cross_entropy_fwd_kernel[(n_rows, n_splits)](
+  File "/root/miniconda3/envs/internevo/lib/python3.10/site-packages/triton/runtime/autotuner.py", line 232, in run
+    return self.fn.run(*args, **kwargs)
+  File "<string>", line 63, in cross_entropy_fwd_kernel
+  File "/root/miniconda3/envs/internevo/lib/python3.10/site-packages/triton/compiler/compiler.py", line 425, in compile
+    so_path = make_stub(name, signature, constants)
+  File "/root/miniconda3/envs/internevo/lib/python3.10/site-packages/triton/compiler/make_launcher.py", line 39, in make_stub
+    so = _build(name, src_path, tmpdir)
+  File "/root/miniconda3/envs/internevo/lib/python3.10/site-packages/triton/common/build.py", line 61, in _build
+    cuda_lib_dirs = libcuda_dirs()
+  File "/root/miniconda3/envs/internevo/lib/python3.10/site-packages/triton/common/build.py", line 30, in libcuda_dirs
+    assert any(os.path.exists(os.path.join(path, 'libcuda.so')) for path in dirs), msg
+AssertionError: libcuda.so cannot found!
+
+
+Raise exception from gpu-lg-cmc-h-h200-0694.host.h.pjlab.org.cn with rank id: 7
+Traceback (most recent call last):
+  File "/mnt/shared-storage-user/ailab-sys/lusitian/workspace/InternEvo/internlm/monitor/monitor.py", line 40, in execute_with_exception_handling
+    return func(*args, **kwargs)
+  File "/mnt/shared-storage-user/ailab-sys/lusitian/workspace/InternEvo/train.py", line 32, in main
+    trainer.fit()
+  File "/mnt/shared-storage-user/ailab-sys/lusitian/workspace/InternEvo/internlm/core/trainer_builder.py", line 270, in fit
+    if self._process_batch(batch_count, train_iter, prof):
+  File "/mnt/shared-storage-user/ailab-sys/lusitian/workspace/InternEvo/internlm/core/trainer_builder.py", line 288, in _process_batch
+    loss, moe_loss = self._forward_backward(batch)
+  File "/mnt/shared-storage-user/ailab-sys/lusitian/workspace/InternEvo/internlm/core/trainer_builder.py", line 319, in _forward_backward
+    _, _, loss = self.execute_schedule(batch, forward_only=False, return_loss=True, return_output_label=False)
+  File "/mnt/shared-storage-user/ailab-sys/lusitian/workspace/InternEvo/internlm/core/trainer.py", line 208, in execute_schedule
+    return self._schedule.forward_backward_step(self._engine, data_iter, **kwargs)
+  File "/mnt/shared-storage-user/ailab-sys/lusitian/workspace/InternEvo/internlm/utils/timeout.py", line 102, in wrapper
+    result = func(*args, **kwargs)
+  File "/mnt/shared-storage-user/ailab-sys/lusitian/workspace/InternEvo/internlm/core/scheduler/no_pipeline_scheduler.py", line 221, in forward_backward_step
+    _output, _loss, _moe_loss = self._train_one_batch(
+  File "/mnt/shared-storage-user/ailab-sys/lusitian/workspace/InternEvo/internlm/core/scheduler/no_pipeline_scheduler.py", line 125, in _train_one_batch
+    self._call_hooks("post_helper_func", output, label)
+  File "/mnt/shared-storage-user/ailab-sys/lusitian/workspace/InternEvo/internlm/core/scheduler/no_pipeline_scheduler.py", line 72, in _call_hooks
+    getattr(hook, func_name)(self, *args, **kwargs)
+  File "/mnt/shared-storage-user/ailab-sys/lusitian/workspace/InternEvo/internlm/model/metrics.py", line 423, in post_helper_func
+    self._post_func(outputs, label)
+  File "/mnt/shared-storage-user/ailab-sys/lusitian/workspace/InternEvo/internlm/model/metrics.py", line 128, in __call__
+    return self.update(logits, labels, type_ids=self.type_ids)
+  File "/mnt/shared-storage-user/ailab-sys/lusitian/workspace/InternEvo/internlm/model/metrics.py", line 138, in update
+    self.loss_with_type_id.update(logits, labels, type_ids)
+  File "/mnt/shared-storage-user/ailab-sys/lusitian/workspace/InternEvo/internlm/model/metrics.py", line 319, in update
+    loss_list = self.loss_fn(logits, labels)
+  File "/root/miniconda3/envs/internevo/lib/python3.10/site-packages/torch/nn/modules/module.py", line 1518, in _wrapped_call_impl
+    return self._call_impl(*args, **kwargs)
+  File "/root/miniconda3/envs/internevo/lib/python3.10/site-packages/torch/nn/modules/module.py", line 1527, in _call_impl
+    return forward_call(*args, **kwargs)
+  File "/root/miniconda3/envs/internevo/lib/python3.10/site-packages/flash_attn/losses/cross_entropy.py", line 57, in forward
+    loss, z_loss = cross_entropy_loss(
+  File "/root/miniconda3/envs/internevo/lib/python3.10/site-packages/flash_attn/ops/triton/cross_entropy.py", line 309, in cross_entropy_loss
+    return CrossEntropyLoss.apply(
+  File "/root/miniconda3/envs/internevo/lib/python3.10/site-packages/torch/autograd/function.py", line 539, in apply
+    return super().apply(*args, **kwargs)  # type: ignore[misc]
+  File "/root/miniconda3/envs/internevo/lib/python3.10/site-packages/flash_attn/ops/triton/cross_entropy.py", line 184, in forward
+    cross_entropy_fwd_kernel[(n_rows, n_splits)](
+  File "/root/miniconda3/envs/internevo/lib/python3.10/site-packages/triton/runtime/autotuner.py", line 232, in run
+    return self.fn.run(*args, **kwargs)
+  File "<string>", line 63, in cross_entropy_fwd_kernel
+  File "/root/miniconda3/envs/internevo/lib/python3.10/site-packages/triton/compiler/compiler.py", line 425, in compile
+    so_path = make_stub(name, signature, constants)
+  File "/root/miniconda3/envs/internevo/lib/python3.10/site-packages/triton/compiler/make_launcher.py", line 39, in make_stub
+    so = _build(name, src_path, tmpdir)
+  File "/root/miniconda3/envs/internevo/lib/python3.10/site-packages/triton/common/build.py", line 61, in _build
+    cuda_lib_dirs = libcuda_dirs()
+  File "/root/miniconda3/envs/internevo/lib/python3.10/site-packages/triton/common/build.py", line 30, in libcuda_dirs
+    assert any(os.path.exists(os.path.join(path, 'libcuda.so')) for path in dirs), msg
+AssertionError: libcuda.so cannot found!
+
+

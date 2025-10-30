@@ -128,9 +128,9 @@ class JsonlDataset(torch.utils.data.Dataset):
             print(f"Cannot load file {self.meta}...")
             raise e
         self.offsets = meta[:, 0]
-        self.lengths = meta[:, -1]
+        self.lengths = meta[:, 1]
 
-        if min_length > 0:
+        if min_length > 0: # filter short samples
             mask = self.lengths >= min_length
             self.old_lengths = self.lengths.copy()
             self.old_length = len(self.offsets)
@@ -197,3 +197,36 @@ class JsonlDataset(torch.utils.data.Dataset):
         # Virtual length of the dataset depends on the epoch number if the number of documents
         # is not perfectly divisible by the data_subshard_count
         return len(self.offsets)
+
+class JsonlDatasetWithBucketGroup(torch.utils.data.Dataset):
+    """
+    一个对 JsonlDataset 的子集视图，用于按长度 bucket 划分后的子集打包。
+    保留 lengths/offsets 等关键属性，保证后续 PackedDataset 缓存与访问不出错。
+    """
+    def __init__(self, base_ds: JsonlDataset, indices: np.ndarray, name_suffix: str = ""):
+        self.base_ds = base_ds
+        self.index_map = np.asarray(indices, dtype=np.int64)
+
+        # 关键属性透传/裁剪
+        if hasattr(base_ds, "lengths"):
+            self.lengths = np.asarray(base_ds.lengths, dtype=np.int64)[self.index_map]
+        if hasattr(base_ds, "offsets"):
+            self.offsets = np.asarray(base_ds.offsets, dtype=np.int64)[self.index_map]
+
+        # 关闭复用 base 的 pack 缓存，避免冲突（必要属性尽量保留）
+        self.found_cache = False
+        self.local_rank = getattr(base_ds, "local_rank", 1)
+
+        # 用于 shm 缓存命名隔离
+        base_name = base_ds.get_dataset_name() if hasattr(base_ds, "get_dataset_name") else "subset"
+        subsuffix = f"-{name_suffix}" if name_suffix else ""
+        self._dataset_name = f"{base_name}-bucket{subsuffix}"
+
+    def __len__(self):
+        return len(self.index_map)
+
+    def __getitem__(self, idx: int):
+        return self.base_ds[int(self.index_map[idx])]
+
+    def get_dataset_name(self):
+        return self._dataset_name

@@ -1,0 +1,15 @@
+{
+  "auto_map": {
+    "AutoTokenizer": [
+      "/mnt/shared-storage-user/ailab-sys/lusitian/workspace/InternEvo/tokenizer/Internlm2--tokenization_internlm2.InternLM2Tokenizer",
+      "/mnt/shared-storage-user/ailab-sys/lusitian/workspace/InternEvo/tokenizer/Internlm2--tokenization_internlm2_fast.InternLM2TokenizerFast"
+    ]
+  },
+  "bos_token": "<s>",
+  "clean_up_tokenization_spaces": false,
+  "eos_token": "</s>",
+  "model_max_length": 1000000000000000019884624838656,
+  "pad_token": "</s>",
+  "tokenizer_class": "InternLM2Tokenizer",
+  "unk_token": "<unk>"
+}

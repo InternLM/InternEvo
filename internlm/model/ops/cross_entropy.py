@@ -93,7 +93,7 @@ def new_cross_entropy(
 
             flash_cross_entropy_impl = True
         except (ModuleNotFoundError, ImportError):
-            flash_cross_entropy_impl = False
+             flash_cross_entropy_impl = False
 
         assert (
             gpc.config.model.get("use_flash_attn", False) and flash_cross_entropy_impl
