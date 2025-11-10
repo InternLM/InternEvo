@@ -8,6 +8,9 @@ from typing import Callable, List, Optional, Tuple, Union
 
 import torch
 import torch.distributed as dist
+import time
+import os 
+import json
 
 from internlm.core.context import ParallelMode
 from internlm.core.context import global_context as gpc
@@ -202,7 +205,9 @@ class PipelineScheduler(BaseScheduler):
     def load_batch(self, engine, data_iter):
         # Pipeline schedule just puts data in memory,
         batch_data, actual_batch_size = engine.load_batch(data_iter, to_gpu=False)
-
+        batch_seqlist = []
+        # import pdb
+        # pdb.set_trace()
         # Even if 'use_flash_attn' is False, the data seen when the 'load_batch' is called is still packed,
         # because internlm's current train dataset is packed, even using dummy data.
         # The unpack operation is performed in load_micro_batch().
@@ -210,7 +215,12 @@ class PipelineScheduler(BaseScheduler):
             micro_num = actual_batch_size
         else:
             micro_num = actual_batch_size // gpc.config.data["micro_bsz"]
-
+        # import pdb 
+        # breakpoint()
+        for micro_batch_cu in batch_data[0]['cu_seqlens']:
+            micro_batch_seqlist = [ int(micro_batch_cu[j]) - int(micro_batch_cu[j - 1]) for j in range(1, len(micro_batch_cu))]
+            batch_seqlist.append(micro_batch_seqlist)
+        
         self.microbatch_offset = 0
         self.batch_size = actual_batch_size
         self.batch_data, self.batch_label = batch_data
@@ -218,6 +228,16 @@ class PipelineScheduler(BaseScheduler):
         # 'num_microbatches' is no longer an initialization parameter,
         # but is determined on the fly by the Scheduler.
         self.num_microbatches = micro_num  # Rampup or variable bsz size.
+        
+        if gpc.config.profile_fwd_bwd and os.environ.get("CUDA_LAUNCH_BLOCKING") == "1" and gpc.get_local_rank(ParallelMode.DATA) == 0 and gpc.get_local_rank(ParallelMode.TENSOR) == 0:
+            output_dir = os.path.join("./micro_record", gpc.config.data.data_name, f"B{gpc.config.data.bucket_size}_seq{gpc.config.SEQ_LEN}_mb{gpc.config.data.micro_num}", f'S{gpc.batch_count}')
+            os.makedirs(output_dir, exist_ok=True)
+            output_file = os.path.join(output_dir, f"PP_rank_{gpc.get_local_rank(ParallelMode.PIPELINE)}_seq.json")
+            
+            with open(output_file, "w") as f:
+                for micro_batch_seqlist in batch_seqlist:
+                    json.dump(micro_batch_seqlist, f)
+                    f.write('\n')
 
     def load_micro_batch(self):
         micro_batch_data, micro_batch_label = self._load_micro_batch(
@@ -592,8 +612,12 @@ class PipelineScheduler(BaseScheduler):
                 input_obj = None
 
         # Run 1F1B in steady state.
+        fwd_times = []
+        bwd_times = []
+
         for i in range(num_1f1b_micropairs):
             # Perform forward computation
+            start_time=time.time()
             output_obj, moe_loss = self._forward_step(
                 engine,
                 input_obj,
@@ -602,6 +626,7 @@ class PipelineScheduler(BaseScheduler):
                 accum_loss=accum_loss,
                 accum_moe_loss=accum_moe_loss,
             )
+            fwd_times.append(time.time() - start_time)
 
             if gpc.is_last_rank(ParallelMode.PIPELINE):
                 output_obj_grad = None
@@ -625,7 +650,9 @@ class PipelineScheduler(BaseScheduler):
             output_obj = output_objs.pop(0)
             moe_loss = moe_losses.pop(0)
 
+            start_bwd_time=time.time()
             input_obj_grad = self._backward_step(engine, i, input_obj, output_obj, output_obj_grad, moe_loss)
+            bwd_times.append(time.time() - start_bwd_time)
 
             if i == (num_1f1b_micropairs - 1):
                 input_obj = None
@@ -644,6 +671,44 @@ class PipelineScheduler(BaseScheduler):
                         dtype=self.dtype,
                         scatter_gather_tensors=self.scatter_gather_tensors,
                     )
+        if gpc.config.profile_fwd_bwd and os.environ.get("CUDA_LAUNCH_BLOCKING") == "1" and gpc.get_local_rank(ParallelMode.DATA) == 0 and gpc.get_local_rank(ParallelMode.TENSOR) == 0:
+            output_dir = os.path.join("./micro_record", gpc.config.data.data_name, f"B{gpc.config.data.bucket_size}_seq{gpc.config.SEQ_LEN}_mb{gpc.config.data.micro_num}", f'S{gpc.batch_count}')
+            os.makedirs(output_dir, exist_ok=True)
+            output_file = os.path.join(output_dir, f"PP_rank_{gpc.get_local_rank(ParallelMode.PIPELINE)}.json")
+            gpc.batch_count += 1
+            
+            history = {
+                "fwd_times": [],
+                "bwd_times": [],
+            }
+
+            # 2. 如果文件存在，则读取旧数据
+            if os.path.exists(output_file):
+                with open(output_file, 'r') as f:
+                    try:
+                        history = json.load(f)
+                    except json.JSONDecodeError:
+                        pass  # 文件为空或损坏则跳过
+
+            # 3. 追加新数据
+            history["fwd_times"].extend(fwd_times)
+            history["bwd_times"].extend(bwd_times)
+
+            from collections import OrderedDict
+            data = OrderedDict()
+            # 4. 更新平均值
+            data["avg_fwd"] = sum(history["fwd_times"]) / len(history["fwd_times"])
+            data["avg_bwd"] = sum(history["bwd_times"]) / len(history["bwd_times"])
+            f_f = round(data["avg_fwd"]/data["avg_fwd"],3)
+            b_f = round(data["avg_bwd"]/data["avg_fwd"],3)
+            data["f_b_w"] = (f_f, b_f)
+            data["fwd_times"] = history["fwd_times"]
+            data["bwd_times"] = history["bwd_times"]
+
+            # 5. 写回文件
+            with open(output_file, 'w') as f:
+                json.dump(data, f, indent=4)
+
 
         # Run cooldown backward passes.
         for i in range(num_warmup_microsteps):

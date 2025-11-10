@@ -23,6 +23,7 @@ from internlm.data.streaming.dataset import (
 from internlm.data.tokenized.batch_sampler import (
     StaticBatchSampler,
     get_dpsampler_dataloader,
+    BucketGroupBatchSampler,
 )
 from internlm.data.tokenized.collaters import (
     generation_collate_fn,
@@ -86,8 +87,9 @@ def get_tokenized_train_loader_items(data_cfg):
             pack_sample_into_one=data_cfg.get("pack_sample_into_one", False),
             bucket_size=data_cfg.get("bucket_size", 0)
         )
-
-    train_sampler = StaticBatchSampler(
+    if data_cfg.get("bucket_size", 0) > 0:
+        enable_bucket_balance = True
+        train_sampler = BucketGroupBatchSampler(
         train_ds.datasets if isinstance(train_ds, ConcatDataset) else [train_ds],
         batch_size=data_cfg.micro_num,
         rampup_batch_size=data_cfg.rampup_batch_size,
@@ -96,7 +98,19 @@ def get_tokenized_train_loader_items(data_cfg):
         drop_last=True,
         data_rank=gpc.get_local_rank(ParallelMode.DATA),
         data_world_size=gpc.get_world_size(ParallelMode.DATA),
-    )
+        enable_bucket_balance=enable_bucket_balance,
+        )
+    else:
+        train_sampler = StaticBatchSampler(
+            train_ds.datasets if isinstance(train_ds, ConcatDataset) else [train_ds],
+            batch_size=data_cfg.micro_num,
+            rampup_batch_size=data_cfg.rampup_batch_size,
+            micro_bsz=data_cfg.micro_bsz,
+            seed=data_cfg.get("seed", 1024),
+            drop_last=True,
+            data_rank=gpc.get_local_rank(ParallelMode.DATA),
+            data_world_size=gpc.get_world_size(ParallelMode.DATA),
+        )
     train_collate_fn = partial(packed_collate_fn, packed_length=data_cfg.packed_length)
 
     return train_ds, train_sampler, train_collate_fn

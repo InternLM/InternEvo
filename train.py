@@ -1,6 +1,6 @@
 #!/usr/bin/env python
 # -*- encoding: utf-8 -*-
-
+import time
 from internlm.core.context import global_context as gpc
 from internlm.core.trainer_builder import TrainerBuilder
 from internlm.data import (
@@ -11,6 +11,7 @@ from internlm.initialize import initialize_distributed_env
 from internlm.model.builder import create_model
 from internlm.monitor import internevo_monitor
 from internlm.utils.common import parse_args
+from internlm.utils.logger import get_logger
 
 
 @internevo_monitor(feishu_alert=True, clean_run=True)
@@ -28,8 +29,14 @@ def main(args):
     merged_args = {**vars(args), "dataset_types": dataset_types}
     trainer = TrainerBuilder(model, train_dl, val_dls, **merged_args)
 
+    # logging training start time
+    training_start_time = time.time()
+
     # training
     trainer.fit()
+    training_end = time.time()
+    total_time = training_end - training_start_time
+    print(f"----------Training completed in {total_time:.2f}s ({total_time/3600:.2f}h)----------")
 
 
 if __name__ == "__main__":

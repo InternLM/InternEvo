@@ -170,6 +170,7 @@ class ParallelContext(metaclass=SingletonMeta):
         self._expert_parallel_group_names = []
         self.is_evaluating = False
         self.v_shape = False
+        self.batch_count = 1
 
     @property
     def config(self):
@@ -516,7 +517,7 @@ class ParallelContext(metaclass=SingletonMeta):
 
     def init_parallel_groups(self):
         """Initializes the parallel groups."""
-
+        
         # get rank and world size
         rank = self.get_global_rank()
         world_size = self.get_world_size(ParallelMode.GLOBAL)

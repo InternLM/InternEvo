@@ -3,13 +3,13 @@ model_type = "INTERNLM2"
 DO_ALERT = False
 
 VOCAB_SIZE = 103168
-SEQ_LEN = 2048
+SEQ_LEN = 16*1024
 HIDDEN_SIZE = 4096
 NUM_ATTENTION_HEAD = 32
 NUM_KV_ATTENTION_HEAD = 8
 MLP_RATIO = 8 / 3
 NUM_LAYER = 32
-BUCKET_SIZE = 512  
+BUCKET_SIZE = 256
 
 
 MODEL_ONLY_FOLDER = "local:llm_ckpts/xxxx"
@@ -53,10 +53,11 @@ ckpt = dict(
 TRAIN_FOLDER = '/data/wikipedia/en_test/train_test_dataset'  # "/path/to/dataset"
 VALID_FOLDER = None  # "/path/to/dataset"
 data = dict(
+    data_name="wiki",
     seq_len=SEQ_LEN,
     bucket_size=BUCKET_SIZE,
     # micro_num means the number of micro_batch contained in one gradient update
-    micro_num=4,
+    micro_num=16,
     # packed_length = micro_bsz * SEQ_LEN
     micro_bsz=2,
     # defaults to the value of micro_num
@@ -64,7 +65,7 @@ data = dict(
     # defaults to 0, means disable evaluate
     valid_every=0,
     pack_sample_into_one=False,
-    total_steps=50,
+    total_steps=42,
     skip_batches="",
     # rampup_batch_size (str): A string with three space-separated integers representing the
     #       starting batch size, the increment, and the number of steps between
@@ -230,11 +231,15 @@ sequence_2D (dict):
         interleaved: bool, if `head_first` is `False` and `window_size` > 1, this config could
                            interleaved the ranks in the same window to make full use of NIC as much as possible.
 """
+# wdp = world_size // wp // pp  # isp
+# dp = world_size // tp // pp
+# zero1 size is up to wdp 
+
 parallel = dict(
     zero1=dict(size=-1),
     tensor=dict(size=2, mode="isp"),
-    pipeline=dict(size=1, interleaved_overlap=True),
-    weight=dict(size=4, overlap=True, launch_allgather_before="wo", forward_overlap_per="layer"),
+    pipeline=dict(size=4, interleaved_overlap=True),
+    weight=dict(size=2, overlap=True, launch_allgather_before="wo", forward_overlap_per="layer"),
     sequence_2D=dict(
         enable=False,
         head_size=2,
@@ -246,7 +251,7 @@ parallel = dict(
 
 cudnn_deterministic = False
 cudnn_benchmark = False
-
+profile_fwd_bwd = True
 
 # monitor = dict(
 #     # feishu alert configs
