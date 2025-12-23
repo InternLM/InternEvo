@@ -71,6 +71,8 @@ class TrainState:
             "sum_tgs": 0,
             "last_tgs_10": 0,
             "last_tgs_50": 0,
+            "sum_fwd_bwd_time": 0.0,
+            "sum_bwd_time": 0.0
         }
 
     def init_batch_sampler(self, batch_sampler):

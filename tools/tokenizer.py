@@ -11,10 +11,10 @@ model_path = os.path.join(current_dir, "tokenizer_internlm.model")
 sys.path.append(os.path.join(current_dir, "../transformers"))
 # from internlm_model import InternLMTokenizer  # noqa: E402 # pylint: disable=C0413
 
-tokenizer_path = "/mnt/shared-storage-user/ailab-sys/lusitian/workspace/InternEvo/tokenizer/Internlm2" # Internlm2分词器
+tokenizer_path = "/mnt/shared-storage-user/ailab-sys/lusitian/workspace/InternEvo/tokenizer/llama2" # Internlm2分词器
 try:
     print("loading tokenizer------")
-    tokenizer = AutoTokenizer.from_pretrained(tokenizer_path, trust_remote_code=True)
+    tokenizer = AutoTokenizer.from_pretrained(tokenizer_path, trust_remote_code=True, use_fast=True)
     # tokenizer = AutoTokenizer.from_pretrained('bert-base-uncased')
 except Exception as e:
     print(f"fail to load tokenizer, exit. error: {e}")
@@ -46,7 +46,7 @@ def write_bin(context: str, bin_file) -> None:
     bin_file.write(saved_bin)
 
 
-def prepare_meta(bin_output_path: str, raw_index_list:list):
+def prepare_meta(bin_output_path: str):
     """
     Prepare metadata for the given bin file.
 
@@ -69,9 +69,9 @@ def prepare_meta(bin_output_path: str, raw_index_list:list):
             # meta is a list of tuple(cur, length)
             # cur: the start index of each line
             # length: the token amount of each line
-            assert new_index < len(raw_index_list), f"new_index {new_index} out of range {len(raw_index_list)} "
-            raw_index = raw_index_list[new_index]
-            meta.append((cur, length, raw_index, new_index))
+            # assert new_index < len(raw_index_list), f"new_index {new_index} out of range {len(raw_index_list)} "
+            # raw_index = raw_index_list[new_index]
+            meta.append((cur, length, new_index))
             # update the cur to generate the meta information of next line
             cur += len(line)
             new_index += 1
@@ -82,7 +82,7 @@ def prepare_meta(bin_output_path: str, raw_index_list:list):
     with open(meta_fp, "wb") as f:
         meta = np.array(meta, dtype=np.int64)
         np.save(f, meta)
-
+    print(f"{new_index}=")
 
 def text2bin(text_input_path: str, bin_output_path: str):
     """
@@ -133,8 +133,10 @@ def text2bin(text_input_path: str, bin_output_path: str):
                 #     break
                 # else:
                 line = json.loads(line)
-                write_bin(line['text'], bin_file)
-                index.append(line["id"])
+                # import pdb
+                # pdb.set_trace()
+                write_bin(line['code'], bin_file)
+                # index.append(line["id"])
     return index
 
 
@@ -155,13 +157,16 @@ def main():
     # parse arguments
     args = parse_args()
 
-    raw_index_list = text2bin(args.text_input_path, args.bin_output_path)
+    text2bin(args.text_input_path, args.bin_output_path)
     print(f"Successfully converted {args.text_input_path} to {args.bin_output_path}")
 
     # To avoid potential read/write errors, the metadata preparation follows after creating the .bin file.
-    prepare_meta(args.bin_output_path, raw_index_list)
+    prepare_meta(args.bin_output_path)
     print(f"Successfully generated {args.bin_output_path}.meta")
 
 
-if __name__ == "__main__":
-    main()
+# if __name__ == "__main__":
+#     main()
+
+bin_output_path = '/mnt/shared-storage-user/lusitian/data/data_jsonl/github/tokenized_llama2/output.bin'
+prepare_meta(bin_output_path)

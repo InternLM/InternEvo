@@ -1011,6 +1011,17 @@ def record_current_batch_training_metrics(
         infos["fwd_bwd_time"] = fwd_bwd_time
         bwd_time = round(timer("bwd").elapsed(), 2)
         infos["bwd_time"] = bwd_time
+        
+        # caclulate average fwd_bwd_time and bwd_time (add)
+        total_step = tgs_statistic["sum_step"]
+        tgs_statistic["sum_fwd_bwd_time"] += fwd_bwd_time
+        tgs_statistic["sum_bwd_time"] += bwd_time
+        fwd_bwd_time_avg = round(tgs_statistic["sum_fwd_bwd_time"] / total_step, 2)
+        bwd_time_avg = round(tgs_statistic["sum_bwd_time"] / total_step, 2)
+        
+        infos["fwd_bwd_avg"] = fwd_bwd_time_avg
+        infos["bwd_avg"] = bwd_time_avg
+        
 
         for key, value in acc_perplex.items():
             infos[key] = value
@@ -1048,15 +1059,15 @@ def inject_embed(model: nn.Module, inject=False, interactive=False) -> None:
                         default="y",
                         timeout=60,
                         interactive=interactive,
-                    )
-                    if opt in ["y", "yes"]:
+                    ) 
+                    if opt in ["y", "yes"]: 
                         child_new = Embedding1D(
                             num_embeddings=child.num_embeddings,
                             embedding_dim=child.embedding_dim,
                             padding_idx=child.padding_idx,
                         ).to(device=child.weight.device, dtype=child.weight.dtype)
                         setattr(module, name, child_new)
-                    else:
+                    else:  # 
                         if gpc.is_rank_for_log():
                             logger.warning(f"Skip replacing {name}")
                 else:

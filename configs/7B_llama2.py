@@ -3,13 +3,14 @@ model_type = "LLAMA2"
 DO_ALERT = False
 
 VOCAB_SIZE = 32000
-SEQ_LEN = 16*1024
+SEQ_LEN = 64*1024
 HIDDEN_SIZE = 5120
 NUM_ATTENTION_HEAD = 40
 NUM_KV_ATTENTION_HEAD = 40
 MLP_RATIO = 2.7
 NUM_LAYER = 40
-BUCKET_SIZE = 512
+BUCKET_SIZE = 1024
+BUCKET_ROTATION_MODE = "round_robin" # 'round_robin', 'random', 'U', 'U0.5'
 
 MODEL_ONLY_FOLDER = "local:llm_ckpts/xxxx"
 # Ckpt folder format:
@@ -40,12 +41,15 @@ ckpt = dict(
     oss_snapshot_freq=int(CHECKPOINT_EVERY / 2),  # snapshot ckpt save frequency.
 )
 
-TRAIN_FOLDER = None
+TRAIN_FOLDER = '/mnt/shared-storage-user/lusitian/data/data_jsonl/github/tokenized_llama2/train_folder'
 VALID_FOLDER = None  # "/path/to/dataset"
 data = dict(
+    data_name="github",
     seq_len=SEQ_LEN,
+    bucket_size=BUCKET_SIZE,
+    bucket_rotation_mode=BUCKET_ROTATION_MODE,
     # micro_num means the number of micro_batch contained in one gradient update
-    micro_num=4,
+    micro_num=1,
     # packed_length = micro_bsz * SEQ_LEN
     micro_bsz=1,
     # defaults to the value of micro_num
@@ -53,7 +57,7 @@ data = dict(
     # defaults to 0, means disable evaluate
     valid_every=0,
     pack_sample_into_one=False,
-    total_steps=20,
+    total_steps=1000,
     skip_batches="",
     # rampup_batch_size (str): A string with three space-separated integers representing the
     #       starting batch size, the increment, and the number of steps between
@@ -100,6 +104,7 @@ hybrid_zero_optimizer = dict(
 
 loss = dict(
     label_smoothing=0,
+    op_type="flash_vocab_parallel",
 )
 
 adam = dict(
@@ -179,28 +184,33 @@ weight parallel (dict):
     1. size: int, the size of weight parallel.
     2. overlap: bool, enable/disable all_gather/reduce_scatter communication overlap, defaults to False.
 """
+# wdp = world_size // wp // pp  # isp
+# dp = world_size // tp // pp
+# zero1 size is up to wdp 
+
 parallel = dict(
     zero1=dict(size=-1),
-    tensor=dict(size=1, mode="mtp"),
-    pipeline=dict(size=1, interleaved_overlap=True),
-    weight=dict(size=1, overlap=True),
+    tensor=dict(size=8, mode="isp"),
+    pipeline=dict(size=1,interleaved_overlap=True),
+    weight=dict(size=4, overlap=True, launch_allgather_before="wo", forward_overlap_per="layer"),
 )
 
 cudnn_deterministic = False
 cudnn_benchmark = False
+profile_fwd_bwd = False
 
-monitor = dict(
-    # feishu alert configs
-    alert=dict(
-        enable_feishu_alert=DO_ALERT,
-        feishu_alert_address=None,  # feishu webhook to send alert message
-        light_monitor_address=None,  # light_monitor address to send heartbeat
-        alert_file_path=f"llm_alter/{JOB_NAME}_alert.log",
-    ),
-    tensorboard=dict(
-        queue_max_length=10,
-    ),
-)
+# monitor = dict(
+#     # feishu alert configs
+#     alert=dict(
+#         enable_feishu_alert=DO_ALERT,
+#         feishu_alert_address=None,  # feishu webhook to send alert message
+#         light_monitor_address=None,  # light_monitor address to send heartbeat
+#         alert_file_path=f"llm_alter/{JOB_NAME}_alert.log",
+#     ),
+#     tensorboard=dict(
+#         queue_max_length=10,
+#     ),
+# )
 
 # metric_dtype can be "fp32" or other string
 # only when set to "fp32" will use fp32 to calc in metrics

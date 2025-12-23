@@ -284,9 +284,9 @@ class TrainerBuilder(Trainer):
             timer("one-batch").stop()
             return False
 
-        timer("fwd-bwd").start()
+        # timer("fwd-bwd").start()
         loss, moe_loss = self._forward_backward(batch)
-        timer("fwd-bwd").stop()
+        # timer("fwd-bwd").stop()
 
         success_update, grad_norm_groups = self._update_parameters()
         self._record_metrics(batch_count, batch, start_time, loss, moe_loss, success_update, grad_norm_groups)

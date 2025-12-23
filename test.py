@@ -1,5 +1,5 @@
 import numpy as np
-file_name = "/data/wikipedia/en_test/train_test_dataset/wiki_train_test/output_1w.bin.meta"
+file_name = "/mnt/shared-storage-user/lusitian/data/data_jsonl/github/tokenized_llama2/train_folder/data/output.bin.meta"
 
 with open(file_name, "rb") as f:
     meta = np.load(f)

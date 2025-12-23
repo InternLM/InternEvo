@@ -383,6 +383,7 @@ class BucketGroupBatchSampler(StaticBatchSampler):
         data_rank=0,
         data_world_size=1,
         enable_bucket_balance=True,
+        bucket_rotation_mode="exhaustive",  # "round_robin" or "exhaustive"
     ):
         print("---------use BucketGroupBatchSampler-----------")
         assert drop_last is True, "Currently only support drop last"
@@ -417,6 +418,7 @@ class BucketGroupBatchSampler(StaticBatchSampler):
         self.num_consumed_samples_in_epoch = 0
         self.datasets = datasets
         self.enable_bucket_balance = enable_bucket_balance
+        self.bucket_rotation_mode = bucket_rotation_mode
         
         # Build dataset info for bucket-aware sampling
         self._build_dataset_info()
@@ -464,11 +466,104 @@ class BucketGroupBatchSampler(StaticBatchSampler):
             self.bucket_to_datasets[bucket_id].append(ds_idx)
         
         if gpc.is_rank_for_log() and self.enable_bucket_balance:
-            logger.info(f"StaticBatchSampler: Found {len(self.bucket_to_datasets)} bucket groups")
+            logger.info(f"BucketGroupBatchSampler: Found {len(self.bucket_to_datasets)} bucket groups")
             for bucket_id, ds_indices in self.bucket_to_datasets.items():
                 total_samples = sum(self.dataset_lengths[ds_idx] for ds_idx in ds_indices)
                 logger.info(f"  Bucket '{bucket_id}': {len(ds_indices)} datasets, {total_samples} samples")
 
+    def _generate_round_robin_indices(self, start_idx):
+        """
+        Round-robin mode: Each step takes data from different buckets
+        Automatically skip exhausted buckets
+        """
+        self.rng_state = self.rng.get_state()
+        
+        # Get sorted bucket list (ensure consistent order)
+        # bucket_ids = sorted(list(self.bucket_to_datasets.keys()))
+        bucket_ids = list(self.bucket_to_datasets.keys())
+        
+        num_buckets = len(bucket_ids)
+        
+        if num_buckets == 0:
+            return np.array([])
+        
+        # Step 1: Prepare index pool for each bucket
+        bucket_indices_pool = {}
+        bucket_offsets = {}  # Track consumed position for each bucket
+        
+        for bucket_id in bucket_ids:
+            ds_indices = self.bucket_to_datasets[bucket_id]
+            bucket_samples = []
+            
+            for ds_idx in ds_indices:
+                ds_start = self.dataset_offsets[ds_idx]
+                ds_end = ds_start + self.dataset_lengths[ds_idx]
+                # Only include new samples (not in old_indices)
+                ds_samples = np.arange(max(start_idx, ds_start), ds_end)
+                bucket_samples.extend(ds_samples.tolist())
+            
+            # Shuffle within bucket
+            bucket_samples = np.array(bucket_samples)
+            self.rng.shuffle(bucket_samples)
+            bucket_indices_pool[bucket_id] = bucket_samples
+            bucket_offsets[bucket_id] = 0  # Initialize offset
+        
+        # Step 2: Round-robin allocation, automatically skip exhausted buckets
+        all_indices = []
+        block_size = self.batch_size * self.data_world_size
+        
+        # Calculate total steps that can be generated
+        total_samples = sum(len(samples) for samples in bucket_indices_pool.values())
+        max_steps = total_samples // block_size
+        bucket_idx = 0
+        steps_generated = 0
+        active_buckets = set(bucket_ids)  # Buckets that still have data
+        
+        while steps_generated < max_steps and active_buckets:
+            bucket_id = bucket_ids[bucket_idx % num_buckets]
+            
+            # Skip exhausted buckets
+            if bucket_id not in active_buckets:
+                bucket_idx += 1
+                continue
+            
+            bucket_samples = bucket_indices_pool[bucket_id]
+            offset = bucket_offsets[bucket_id]
+            
+            # Check if this bucket still has enough data
+            if offset + block_size <= len(bucket_samples):
+                # Take a complete block
+                all_indices.extend(bucket_samples[offset:offset + block_size].tolist())
+                bucket_offsets[bucket_id] = offset + block_size
+                steps_generated += 1
+            elif offset < len(bucket_samples):
+                # This bucket has data but not enough for a complete block
+                # Mark as exhausted to keep batch_size consistent
+                active_buckets.remove(bucket_id)
+                remaining = len(bucket_samples) - offset
+                if gpc.is_rank_for_log():
+                    logger.info(f"Bucket '{bucket_id}' exhausted, {remaining} samples dropped (incomplete block)")
+            else:
+                # This bucket is completely exhausted
+                active_buckets.remove(bucket_id)
+                if gpc.is_rank_for_log():
+                    logger.info(f"Bucket '{bucket_id}' exhausted")
+            
+            bucket_idx += 1
+            
+        all_indices = np.array(all_indices)
+        
+        if gpc.is_rank_for_log():
+            logger.info(f"Round-robin mode: Generated {len(all_indices)} indices "
+                       f"across {num_buckets} buckets, {steps_generated} steps")
+            for bucket_id in bucket_ids:
+                used = bucket_offsets[bucket_id]
+                total = len(bucket_indices_pool[bucket_id])
+                logger.info(f"  Bucket '{bucket_id}': used {used}/{total} samples ({used/total*100:.1f}%)")
+        
+        return all_indices    
+    
+    
     def get_indices(self, old_indices=None):
         if old_indices is not None:
             assert (
@@ -480,7 +575,12 @@ while the new restart use less samples ({self.num_samples})"
 
         # Generate indices with bucket-aware strategy
         if self.enable_bucket_balance and len(self.bucket_to_datasets) > 1:
-            indices = self._generate_bucket_balanced_indices(len(old_indices))
+            if self.bucket_rotation_mode == "round_robin":
+                indices = self._generate_round_robin_indices(len(old_indices))
+            elif self.bucket_rotation_mode in ["U", "U0.5"]:
+                indices = self._generate_U_indices(len(old_indices))
+            else:
+                indices = self._generate_bucket_balanced_indices(len(old_indices))
         else:
             # Original random shuffling
             indices = np.arange(len(old_indices), self.num_samples)
@@ -512,10 +612,102 @@ while the new restart use less samples ({self.num_samples})"
         assert len(self.indices) >= self.batch_size, "The number of samples should be larger than batch_size"
         self.num_consumed_samples_in_epoch = 0
 
+    def _generate_U_indices(self, start_idx):
+        """
+        Generate indices to change the training micro_batches into a "U" shape distribution with the bucket-aware packed samples.
+        eg. Assume we have 4 buckets (A, B, C, D) from the shortest bucket to the longest bucket, we only preserve the samples in bucket A and D, 
+        and we generate the indices in the following order:
+        """
+        self.rng_state = self.rng.get_state()
+        
+        micro_num = self.batch_size 
+        mciro_bsz = self.micro_bsz
+        
+        # Step 1: Generate indices for each bucket and shuffle within bucket
+        # Only preserve the shortest and longest buckets
+        bucket_ids = list(self.bucket_to_datasets.keys())
+        min_bucket_id, max_bucket_id = bucket_ids[0], bucket_ids[-1]
+        if gpc.is_rank_for_log():
+            logger.info(f"U shape bucket sampling: preserving buckets '{min_bucket_id}' and '{max_bucket_id}'")
+        U_bucket_id = [min_bucket_id, max_bucket_id]
+        
+        bucket_indices_map = {}
+        for bucket_id in U_bucket_id:
+            ds_indices = self.bucket_to_datasets[bucket_id]
+            bucket_samples = []
+            for ds_idx in ds_indices:
+                ds_start = self.dataset_offsets[ds_idx]
+                ds_end = ds_start + self.dataset_lengths[ds_idx]
+                # Only include new samples (not in old_indices)
+                ds_samples = np.arange(max(start_idx, ds_start), ds_end)
+                bucket_samples.extend(ds_samples.tolist())
+            
+            # Shuffle within bucket
+            bucket_samples = np.array(bucket_samples)
+            self.rng.shuffle(bucket_samples)
+            bucket_indices_map[bucket_id] = bucket_samples
+            
+        # Step 2: Arrange indices in "U" shape order
+        all_indices = []
+        min_bucket_samples = bucket_indices_map[min_bucket_id]
+        max_bucket_samples = bucket_indices_map[max_bucket_id]
+        
+        block_size = micro_num * self.data_world_size
+        count = 0
+        
+        if micro_num < 2 :
+            raise ValueError("U shape sampling requires at least 2 micro-batches per batch")
+        if self.bucket_rotation_mode == "U0.5": # Fixed n=m=block_size/2 
+                n = block_size // 2
+                m = block_size - n
+                total_round = min(len(min_bucket_samples) // (n), len(max_bucket_samples) // (m))
+                count = total_round
+                for i in range(total_round):
+                    all_indices.extend(min_bucket_samples[i*n:(i+1)*n].tolist())
+                    all_indices.extend(max_bucket_samples[i*m:(i+1)*m].tolist())
+        elif self.bucket_rotation_mode == "U":
+            while len(min_bucket_samples) >= 0 and len(max_bucket_samples) >= 0:
+                # Determine n (count from A) and m (count from B)
+                # Constraints: 
+                # 1. n + m = micro_num
+                # 2. n >= 0, m >= 0 (to ensure mix)
+                # 3. n <= len(samples_A), m <= len(samples_B)
+                # Take one micro-batch from shortest bucket
+                block_size = micro_num * self.data_world_size
+                max_n = min(block_size, len(min_bucket_samples))
+                min_n = max(0, block_size - len(max_bucket_samples))
+                
+                if min_n > max_n:
+                    break  # Cannot form a complete batch
+                
+                n = self.rng.randint(min_n, max_n + 1)
+                m = block_size - n
+                
+                batch_indices = []
+                if n > 0: 
+                    batch_indices.extend(min_bucket_samples[:n].tolist())
+                    min_bucket_samples = min_bucket_samples[n:]
+                if m > 0:
+                    batch_indices.extend(max_bucket_samples[:m].tolist())
+                    max_bucket_samples = max_bucket_samples[m:]
+    
+                self.rng.shuffle(batch_indices)
+                all_indices.extend(batch_indices)
+                count += 1
+                
+        all_indices = np.array(all_indices)
+        print(all_indices.shape)
+        if gpc.is_rank_for_log():
+            logger.info(f"Generated {len(all_indices)} U-shape bucket-balanced indices and {count} n-m pairs from {self.num_samples} total samples")
+        
+        return all_indices
+        
+
     def _generate_bucket_balanced_indices(self, start_idx):
         """
         Generate indices with bucket-aware strategy.
         Ensures that consecutive micro-batches use samples from the same bucket.
+        It will generate the indice of next bucket only after all micro-batches from the current bucket are used up.
         """
         self.rng_state = self.rng.get_state()
         
@@ -622,6 +814,7 @@ Vs. self.num_samples: {self.num_samples}"
             "batch_count": self.batch_count,  # The batch_count here is due to the existence of multiple processes,
             # the batch may be oversent, and it needs to be overwritten by the external batch_count
             "indices": self.indices,  # The sequence used to breakpoint retraining is the same as before
+            "bucket_rotation_mode": self.bucket_rotation_mode, 
         }
 
         return states
@@ -630,13 +823,15 @@ Vs. self.num_samples: {self.num_samples}"
         for name in ("data_world_size", "raw_rampup_batch_size", "seed"):  # 'batch_size'
             assert states[name] == getattr(self, name), (name, states[name], getattr(self, name))  # should not change
         self.rng.set_state(states["rng_state"])
+        
+        self.bucket_rotation_mode = states.get("bucket_rotation_mode", "exhaustive")
         self.get_indices(old_indices=None)  # Regenerate indices based on random state
         self.epoch = states["epoch"]
         self.batch_count = states["batch_count"]
         self.num_consumed_samples_in_epoch = states["num_consumed_samples_in_epoch"]
 
     def copy(self):
-        copy_sampler = StaticBatchSampler(
+        copy_sampler = BucketGroupBatchSampler(
             self.datasets,
             self.batch_size,
             self.raw_rampup_batch_size,
@@ -645,7 +840,9 @@ Vs. self.num_samples: {self.num_samples}"
             drop_last=True,
             data_rank=self.data_rank,
             data_world_size=self.data_world_size,
-        )
+            enable_bucket_balance=True,
+            bucket_rotation_mode="round_robin" if self.bucket_rotation_mode == "round_robin" else "exhaustive",
+        ) 
 
         copy_sampler.load_state_dict(self.state_dict())
         return copy_sampler

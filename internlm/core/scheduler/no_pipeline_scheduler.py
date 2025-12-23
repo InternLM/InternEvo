@@ -7,6 +7,10 @@ from typing import Any, Callable, Iterable, List, Optional
 
 import torch
 import torch.distributed as dist
+import os
+import json
+from collections import OrderedDict
+import time
 
 from internlm.core.context import ParallelMode
 from internlm.core.context import global_context as gpc
@@ -19,6 +23,7 @@ from internlm.utils.common import (
 )
 from internlm.utils.logger import get_logger
 from internlm.utils.timeout import llm_timeout
+from internlm.utils.megatron_timers import megatron_timer as timer
 
 from .base_scheduler import BaseScheduler
 
@@ -190,11 +195,26 @@ class NonPipelineScheduler(BaseScheduler):
         # actual_batch_size is micro_num when training,
         # actual_batch_size is micro_num * micro_bsz when evaluating
         batch_data, actual_batch_size = engine.load_batch(data_iter)
+        batch_seqlist = []
 
         if check_data_is_packed(batch_data):
             micro_num = actual_batch_size
         else:
             micro_num = actual_batch_size // gpc.config.data["micro_bsz"]
+
+        for micro_batch_cu in batch_data[0]['cu_seqlens']:
+            micro_batch_seqlist = [ int(micro_batch_cu[j]) - int(micro_batch_cu[j - 1]) for j in range(1, len(micro_batch_cu))]
+            batch_seqlist.append(micro_batch_seqlist)
+            
+        if gpc.config.profile_fwd_bwd and os.environ.get("CUDA_LAUNCH_BLOCKING") == "1" and gpc.get_local_rank(ParallelMode.TENSOR) == 0:
+            output_dir = os.path.join("./micro_record", gpc.config.data.data_name, f"M{gpc.config.data.bucket_rotation_mode}_B{gpc.config.data.bucket_size}_seq{gpc.config.SEQ_LEN}_mb{gpc.config.data.micro_num}", f'S{gpc.batch_count}')
+            os.makedirs(output_dir, exist_ok=True)
+            output_file = os.path.join(output_dir, f"DP_rank_{gpc.get_local_rank(ParallelMode.DATA)}_PP=1_seq.json")
+            
+            with open(output_file, "w") as f:
+                for micro_batch_seqlist in batch_seqlist:
+                    json.dump(micro_batch_seqlist, f)
+                    f.write('\n')
 
         self._grad_accum_size = micro_num  # Rampup or variable bsz size.
         self._bsz_stride = actual_batch_size // self._grad_accum_size
@@ -206,6 +226,8 @@ class NonPipelineScheduler(BaseScheduler):
         outputs = []
         labels = []
 
+        time_record = OrderedDict()
+        time_record["fwd-bwd"] = []
         # reset accumulation microbatch offset
         self._grad_accum_offset = 0
 
@@ -218,9 +240,14 @@ class NonPipelineScheduler(BaseScheduler):
 
             _data, _label = self._load_accum_batch(data, label)
 
+            timer("fwd-bwd").start()
+            start_time = time.time()
             _output, _loss, _moe_loss = self._train_one_batch(
                 _data, _label, engine, forward_only, return_loss, return_output_label, self._grad_accum_size
             )
+            end_time = time.time()
+            timer("fwd-bwd").stop()
+            time_record["fwd-bwd"].append(end_time - start_time)
 
             if return_loss:
                 loss += _loss
@@ -232,6 +259,19 @@ class NonPipelineScheduler(BaseScheduler):
 
         if not return_output_label:
             outputs, labels = None, None
+
+        if gpc.config.profile_fwd_bwd and os.environ.get("CUDA_LAUNCH_BLOCKING") == "1" and gpc.get_local_rank(ParallelMode.TENSOR) == 0:
+            output_dir = os.path.join("./micro_record", gpc.config.data.data_name, f"M{gpc.config.data.bucket_rotation_mode}_B{gpc.config.data.bucket_size}_seq{gpc.config.SEQ_LEN}_mb{gpc.config.data.micro_num}", f'S{gpc.batch_count}')
+            os.makedirs(output_dir, exist_ok=True)
+            output_file = os.path.join(output_dir, f"DP_rank_{gpc.get_local_rank(ParallelMode.DATA)}_PP=1_time.json")
+            gpc.batch_count += 1
+            
+            time_record["fwd-bwd_avg"] = sum(time_record["fwd-bwd"]) / len(time_record["fwd-bwd"])
+            time_record["fwd-bwd_total"] = sum(time_record["fwd-bwd"])
+            
+            with open(output_file, "w") as f:
+                json.dump(time_record, f, indent=4)
+                   
 
         # Compatible for non-moe
         if hasattr(gpc.config.model, "num_experts"):

@@ -515,7 +515,7 @@ def get_packed_dataset_without_short_length(
     
     # a map for subdir_name: {"dir1": type_id, "dir2": type_id, ...}
     DATASET_TYPE_IDS_MAP = get_dataset_type_ids_map(folder)
-
+    
     if gpc.get_global_rank() == 0:
         triples = [list(os.walk(folder, followlinks=True))] # list of (root, dirs, files) -> [(root, dirs, files), ...]
     else:

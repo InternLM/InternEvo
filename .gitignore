@@ -148,3 +148,7 @@ events.*
 memory_trace
 RUN*/
 micro_record/
+DataDistribution/
+tokenizer/
+*.bin
+*.log

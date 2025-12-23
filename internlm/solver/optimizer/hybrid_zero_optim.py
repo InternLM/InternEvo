@@ -211,7 +211,19 @@ class HybridZeroOptimizer(BaseOptimizer):
                     tensor_list = self._param_store.get_fp16_params_by_rank_group(rank, group_id)
                     with torch.no_grad():
                         flat_tensor = flatten(tensor_list)
-                    flat_tensor = flat_tensor.data.to(get_current_device())
+                    # import pdb; pdb.set_trace()
+                    # Check available memory before moving tensor
+                    free_mem, total_mem = torch.cuda.mem_get_info(get_current_device())
+                    print(f"Free memory: {free_mem}, Total memory: {total_mem}")
+
+                    if free_mem < flat_tensor.element_size() * flat_tensor.nelement():
+                        raise RuntimeError("Not enough GPU memory to move tensor to device")
+                    try:
+                        flat_tensor = flat_tensor.data.to(get_current_device())
+                    except RuntimeError as e:
+                        print(f"Failed to move tensor to device: {e}")
+                        print(f"Tensor size: {flat_tensor.size()}, Device: {get_current_device()}")
+                        raise
                     self._param_store.add_flat_fp16_param_by_rank_group(rank, group_id, flat_tensor)
                     sync_param(flat_tensor=flat_tensor, tensor_list=tensor_list)
 

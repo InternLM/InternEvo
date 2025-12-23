@@ -28,6 +28,8 @@ from internlm.utils.timeout import llm_timeout
 
 from .base_scheduler import BaseScheduler
 
+from internlm.utils.megatron_timers import megatron_timer as timer
+
 logger = get_logger(__file__)
 
 
@@ -229,10 +231,10 @@ class PipelineScheduler(BaseScheduler):
         # but is determined on the fly by the Scheduler.
         self.num_microbatches = micro_num  # Rampup or variable bsz size.
         
-        if gpc.config.profile_fwd_bwd and os.environ.get("CUDA_LAUNCH_BLOCKING") == "1" and gpc.get_local_rank(ParallelMode.DATA) == 0 and gpc.get_local_rank(ParallelMode.TENSOR) == 0:
-            output_dir = os.path.join("./micro_record", gpc.config.data.data_name, f"B{gpc.config.data.bucket_size}_seq{gpc.config.SEQ_LEN}_mb{gpc.config.data.micro_num}", f'S{gpc.batch_count}')
+        if gpc.config.profile_fwd_bwd and os.environ.get("CUDA_LAUNCH_BLOCKING") == "1" and gpc.get_local_rank(ParallelMode.TENSOR) == 0:
+            output_dir = os.path.join("./micro_record", gpc.config.data.data_name, f"M{gpc.config.data.bucket_rotation_mode}_B{gpc.config.data.bucket_size}_seq{gpc.config.SEQ_LEN}_mb{gpc.config.data.micro_num}", f'S{gpc.batch_count}')
             os.makedirs(output_dir, exist_ok=True)
-            output_file = os.path.join(output_dir, f"PP_rank_{gpc.get_local_rank(ParallelMode.PIPELINE)}_seq.json")
+            output_file = os.path.join(output_dir, f"DP_rank_{gpc.get_local_rank(ParallelMode.DATA)}PP_rank_{gpc.get_local_rank(ParallelMode.PIPELINE)}_seq.json")
             
             with open(output_file, "w") as f:
                 for micro_batch_seqlist in batch_seqlist:
@@ -614,6 +616,7 @@ class PipelineScheduler(BaseScheduler):
         # Run 1F1B in steady state.
         fwd_times = []
         bwd_times = []
+        total_time = []
 
         for i in range(num_1f1b_micropairs):
             # Perform forward computation
@@ -653,7 +656,8 @@ class PipelineScheduler(BaseScheduler):
             start_bwd_time=time.time()
             input_obj_grad = self._backward_step(engine, i, input_obj, output_obj, output_obj_grad, moe_loss)
             bwd_times.append(time.time() - start_bwd_time)
-
+            total_time.append(fwd_times[-1] + bwd_times[-1])
+            
             if i == (num_1f1b_micropairs - 1):
                 input_obj = None
                 if not gpc.is_first_rank(ParallelMode.PIPELINE):
@@ -671,15 +675,16 @@ class PipelineScheduler(BaseScheduler):
                         dtype=self.dtype,
                         scatter_gather_tensors=self.scatter_gather_tensors,
                     )
-        if gpc.config.profile_fwd_bwd and os.environ.get("CUDA_LAUNCH_BLOCKING") == "1" and gpc.get_local_rank(ParallelMode.DATA) == 0 and gpc.get_local_rank(ParallelMode.TENSOR) == 0:
-            output_dir = os.path.join("./micro_record", gpc.config.data.data_name, f"B{gpc.config.data.bucket_size}_seq{gpc.config.SEQ_LEN}_mb{gpc.config.data.micro_num}", f'S{gpc.batch_count}')
+        if gpc.config.profile_fwd_bwd and os.environ.get("CUDA_LAUNCH_BLOCKING") == "1" and gpc.get_local_rank(ParallelMode.TENSOR) == 0:
+            output_dir = os.path.join("./micro_record", gpc.config.data.data_name, f"M{gpc.config.data.bucket_rotation_mode}_B{gpc.config.data.bucket_size}_seq{gpc.config.SEQ_LEN}_mb{gpc.config.data.micro_num}", f'S{gpc.batch_count}')
             os.makedirs(output_dir, exist_ok=True)
-            output_file = os.path.join(output_dir, f"PP_rank_{gpc.get_local_rank(ParallelMode.PIPELINE)}.json")
+            output_file = os.path.join(output_dir, f"DP_rank_{gpc.get_local_rank(ParallelMode.DATA)}_PP_rank_{gpc.get_local_rank(ParallelMode.PIPELINE)}.json")
             gpc.batch_count += 1
             
             history = {
                 "fwd_times": [],
                 "bwd_times": [],
+                "total_times": [],
             }
 
             # 2. 如果文件存在，则读取旧数据
@@ -693,17 +698,21 @@ class PipelineScheduler(BaseScheduler):
             # 3. 追加新数据
             history["fwd_times"].extend(fwd_times)
             history["bwd_times"].extend(bwd_times)
+            history["total_times"].extend(total_time)
 
             from collections import OrderedDict
             data = OrderedDict()
             # 4. 更新平均值
             data["avg_fwd"] = sum(history["fwd_times"]) / len(history["fwd_times"])
             data["avg_bwd"] = sum(history["bwd_times"]) / len(history["bwd_times"])
+            data["avg_total"] = sum(history["total_times"]) / len(history["total_times"])
             f_f = round(data["avg_fwd"]/data["avg_fwd"],3)
             b_f = round(data["avg_bwd"]/data["avg_fwd"],3)
-            data["f_b_w"] = (f_f, b_f)
+            t_f = round(data["avg_total"]/data["avg_fwd"],3)
+            data["f_b_t_w"] = (f_f, b_f, t_f)
             data["fwd_times"] = history["fwd_times"]
             data["bwd_times"] = history["bwd_times"]
+            data["total_times"] = history["total_times"]
 
             # 5. 写回文件
             with open(output_file, 'w') as f:
@@ -770,6 +779,8 @@ class PipelineScheduler(BaseScheduler):
         # Load data first
         self.load_batch(engine, data_iter)
 
+        # start to record step time (add)
+        timer('fwd-bwd').start()
         if forward_only:
             output, label, accum_loss, accum_moe_loss = self._forward_only_step(
                 engine, return_loss, return_output_label
@@ -778,12 +789,13 @@ class PipelineScheduler(BaseScheduler):
             output, label, accum_loss, accum_moe_loss = self._forward_backward_step(
                 engine, return_loss, return_output_label
             )
-
+        timer("fwd-bwd").stop()
         # Compatible for non-moe
         if hasattr(gpc.config.model, "num_experts"):
             return output, label, accum_loss, accum_moe_loss
         else:
             return output, label, accum_loss
+        
 
 
 class InterleavedPipelineScheduler(PipelineScheduler):
